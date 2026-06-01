@@ -606,10 +606,26 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function Dashboard({T,onNavigate,stats,hasData}){
   const cards=[
-    {key:"tagger",icon:"🏷",title:"Tagger",desc:"Import spend data from any ad platform and tag campaigns into custom segments like Product, Region, Funnel and Pillar.",action:"Go to Tagger →",color:T.accent},
-    {key:"budget",icon:"💰",title:"Budgets",desc:"Set monthly budgets by segment, import from Excel or CSV, and manage quarterly and annual caps across all your campaigns.",action:"Go to Budgets →",color:T.accent},
-    {key:"pacing",icon:"📈",title:"Pacing",desc:"Track burn rate, PTD spend vs budget, and forecast to end of period across every segment. Coming soon.",action:"Coming soon",color:T.textMuted,disabled:true},
-    {key:"export",icon:"📤",title:"Export",desc:"Export clean data — no formulas — to plug into your own Google Sheets or Excel trackers. Coming soon.",action:"Coming soon",color:T.textMuted,disabled:true},
+    {
+      key:"tagger",icon:"🏷",title:"Start with spend data",
+      desc:"Upload a spend CSV from Google Ads, LinkedIn, Meta, Bing or Capterra. Tag campaigns into custom segments like Product, Region, and Funnel.",
+      action:"Import spend data →",color:T.accent,primary:true,
+    },
+    {
+      key:"budget",icon:"💰",title:"Start with a budget file",
+      desc:"Upload your budget spreadsheet (Excel or CSV). AI maps your columns automatically. Set monthly budgets by segment — no spend data needed.",
+      action:"Import budget file →",color:T.accent,primary:true,
+    },
+    {
+      key:"pacing",icon:"📈",title:"Pacing Dashboard",
+      desc:"Track burn rate, PTD spend vs budget, and forecast to end of period across every segment. Requires spend data and budgets.",
+      action:"Coming soon",color:T.textMuted,disabled:true,
+    },
+    {
+      key:"export",icon:"📤",title:"Export",
+      desc:"Export clean data — no formulas — to plug into your own Google Sheets or Excel trackers.",
+      action:"Coming soon",color:T.textMuted,disabled:true,
+    },
   ];
   return(
     <div style={{flex:1,overflow:"auto",background:T.bg}}>
@@ -628,6 +644,9 @@ function Dashboard({T,onNavigate,stats,hasData}){
           <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"Manrope,sans-serif"}}>
             Set budgets by custom segment, track pacing against actuals, and manage spend across every ad platform — without breaking a spreadsheet.
           </p>
+          <div style={{marginTop:12,display:"inline-flex",alignItems:"center",gap:8,padding:"7px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8}}>
+            <span style={{fontSize:13,color:T.accent,fontFamily:"Manrope,sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
+          </div>
         </div>
 
         {/* Stats bar — only shown if data is loaded */}
@@ -768,10 +787,10 @@ export default function BudgetHQ(){
           {NAV.map(item=>{
             const active=view===item.key;
             const locked=item.key==="tagger"&&step==="upload"&&view!=="tagger";
-            return <button key={item.key} onClick={()=>{
+          return <button key={item.key} onClick={()=>{
               if(item.key==="tagger"){if(step!=="tag")setStep("upload");setView("tagger");}
               else setView(item.key);
-            }} style={{padding:"0 12px",height:32,background:active?T.surfaceEl:"transparent",border:active?`1px solid ${T.border}`:"1px solid transparent",borderRadius:6,color:active?T.text:T.textMuted,cursor:"pointer",fontSize:13,fontWeight:active?600:400,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5,opacity:locked?0.5:1}}><span>{item.icon}</span>{!isMobile&&item.label}</button>;
+            }} style={{padding:"0 12px",height:32,background:active?T.surfaceEl:"transparent",border:active?`1px solid ${T.border}`:"1px solid transparent",borderRadius:6,color:active?T.text:T.textMuted,cursor:"pointer",fontSize:13,fontWeight:active?600:400,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5}}><span>{item.icon}</span>{!isMobile&&item.label}</button>;
           })}
         </nav>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
@@ -939,7 +958,7 @@ export default function BudgetHQ(){
       )}
 
       {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={step==="tag"}/>}
-      {step==="tag"&&view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims}/>}
+      {view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims}/>}
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
