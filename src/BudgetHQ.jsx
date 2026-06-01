@@ -47,7 +47,7 @@ const COL_PATTERNS={campaign_name:/^campaign$/i,adset_name:/ad.?set|ad.?group/i,
 const COL_LABELS={campaign_name:"Campaign Name",adset_name:"Ad Set / Ad Group Name",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
 const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
-const NAV=[{key:"tagger",label:"Tagger",icon:"🏷"},{key:"budget",label:"Budgets",icon:"💰"}];
+const NAV=[{key:"dashboard",label:"Dashboard",icon:"⚡"},{key:"tagger",label:"Tagger",icon:"🏷"},{key:"budget",label:"Budgets",icon:"💰"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function autoDetect(h){const m={};h.forEach(c=>{for(const[f,p]of Object.entries(COL_PATTERNS)){if(!m[f]&&p.test(c.trim()))m[f]=c;}});if(!m.campaign_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_name=c;}if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}return m;}
@@ -249,7 +249,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile}){
   const IMPORT_STEPS=["upload","header","map","preview"];
 
   const cellIn=(val,onChange,over=false,cap=false)=>(
-    <input type="text" value={val===""?"":(typeof val==="number"?val.toLocaleString():val)} onChange={e=>onChange(e.target.value)} placeholder="—"
+    <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
       style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:T.text,padding:"4px 6px",fontSize:11,width:cap?80:70,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",outline:"none",display:"block"}}/>
   );
   const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"right"};
@@ -524,16 +524,89 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile}){
   );
 }
 
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function Dashboard({T,onNavigate,stats,hasData}){
+  const cards=[
+    {key:"tagger",icon:"🏷",title:"Tagger",desc:"Import spend data from any ad platform and tag campaigns into custom segments like Product, Region, Funnel and Pillar.",action:"Go to Tagger →",color:T.accent},
+    {key:"budget",icon:"💰",title:"Budgets",desc:"Set monthly budgets by segment, import from Excel or CSV, and manage quarterly and annual caps across all your campaigns.",action:"Go to Budgets →",color:T.accent},
+    {key:"pacing",icon:"📈",title:"Pacing",desc:"Track burn rate, PTD spend vs budget, and forecast to end of period across every segment. Coming soon.",action:"Coming soon",color:T.textMuted,disabled:true},
+    {key:"export",icon:"📤",title:"Export",desc:"Export clean data — no formulas — to plug into your own Google Sheets or Excel trackers. Coming soon.",action:"Coming soon",color:T.textMuted,disabled:true},
+  ];
+  return(
+    <div style={{flex:1,overflow:"auto",background:T.bg}}>
+      <div style={{maxWidth:900,margin:"0 auto",padding:"48px 32px"}}>
+        {/* Hero */}
+        <div style={{marginBottom:48}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+            <div style={{width:44,height:44,borderRadius:11,background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><polyline points="2,16 7,10 11,13 20,4" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><circle cx="7" cy="10" r="1.8" fill={T.accent}/><circle cx="11" cy="13" r="1.8" fill={T.accent}/></svg>
+            </div>
+            <div>
+              <h1 style={{fontSize:26,fontWeight:700,color:T.text,letterSpacing:"-0.5px",marginBottom:2,fontFamily:"Manrope,sans-serif"}}>BudgetHQ</h1>
+              <div style={{fontSize:12,color:T.textMuted,fontFamily:"Manrope,sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
+            </div>
+          </div>
+          <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"Manrope,sans-serif"}}>
+            Set budgets by custom segment, track pacing against actuals, and manage spend across every ad platform — without breaking a spreadsheet.
+          </p>
+        </div>
+
+        {/* Stats bar — only shown if data is loaded */}
+        {hasData&&(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:40}}>
+            {[
+              {label:"Campaigns",value:stats.total.toLocaleString(),color:T.text},
+              {label:"Tagged",value:`${stats.tagged.toLocaleString()} (${stats.total?Math.round((stats.tagged/stats.total)*100):0}%)`,color:T.success},
+              {label:"Needs review",value:stats.untagged.toLocaleString(),color:stats.untagged>0?T.warning:T.success},
+              {label:"Total spend",value:stats.totalSpend>=1e6?"$"+(stats.totalSpend/1e6).toFixed(1)+"M":stats.totalSpend>=1e3?"$"+(stats.totalSpend/1e3).toFixed(1)+"K":"$"+Math.round(stats.totalSpend).toLocaleString(),color:T.accent},
+            ].map(s=>(
+              <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",boxShadow:T.shadow}}>
+                <div style={{fontSize:11,fontWeight:600,color:T.textMuted,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:6,fontFamily:"Manrope,sans-serif"}}>{s.label}</div>
+                <div style={{fontSize:20,fontWeight:700,color:s.color,fontFamily:"'JetBrains Mono',monospace"}}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Cards */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16}}>
+          {cards.map(card=>(
+            <div key={card.key} onClick={card.disabled?undefined:()=>onNavigate(card.key)}
+              style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,padding:"22px 24px",cursor:card.disabled?"default":"pointer",opacity:card.disabled?0.5:1,transition:"all 0.15s",boxShadow:T.shadow}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
+                <div style={{width:36,height:36,borderRadius:9,background:card.disabled?T.surfaceEl:T.accentBg,border:`1px solid ${card.disabled?T.border:T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{card.icon}</div>
+                {!card.disabled&&<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke={T.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+              </div>
+              <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Manrope,sans-serif"}}>{card.title}</div>
+              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14,fontFamily:"Manrope,sans-serif"}}>{card.desc}</div>
+              <div style={{fontSize:12,fontWeight:600,color:card.color,fontFamily:"Manrope,sans-serif"}}>{card.action}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Date range if data loaded */}
+        {hasData&&stats.dateRange&&(
+          <div style={{marginTop:24,padding:"10px 14px",background:T.surfaceEl,borderRadius:8,border:`1px solid ${T.border}`,display:"inline-flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:11,color:T.textMuted,fontFamily:"Manrope,sans-serif"}}>Data loaded:</span>
+            <span style={{fontSize:11,color:T.text,fontFamily:"'JetBrains Mono',monospace",fontWeight:500}}>{stats.dateRange}</span>
+            <span style={{fontSize:11,color:T.textMuted,fontFamily:"Manrope,sans-serif"}}>· {stats.totalRows.toLocaleString()} rows</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function BudgetHQ(){
-  const[themeKey,setThemeKey]=useState("dark");
+  const[themeKey,setThemeKey]=useState("light");
   const T=THEMES[themeKey];
   const[width,setWidth]=useState(typeof window!=="undefined"?window.innerWidth:1200);
   useEffect(()=>{const h=()=>setWidth(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const isMobile=width<768;
 
   const[step,setStep]=useState("upload");
-  const[view,setView]=useState("tagger");
+  const[view,setView]=useState("dashboard");
   const[fileName,setFileName]=useState("");
   const[rawRows,setRawRows]=useState([]);
   const[headers,setHeaders]=useState([]);
@@ -583,7 +656,7 @@ export default function BudgetHQ(){
   const clearF=()=>{setFCamp("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFStatus("all");};
   const hasF=fCamp||fPlat||fSMin||fSMax||fTag||fStatus!=="all";
   const canProceed=colMap.campaign_name&&colMap.spend;
-  const showNav=step==="tag";
+  const showNav=true;
 
   const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:sortCol===col?T.accent:T.textMuted,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Manrope,sans-serif",width:"100%",marginTop:3};
@@ -601,19 +674,24 @@ export default function BudgetHQ(){
           <span style={{fontSize:15,fontWeight:700,color:T.text,letterSpacing:"-0.4px"}}>BudgetHQ</span>
           <span style={{fontSize:10,fontWeight:600,color:T.textMuted,background:T.pill,border:`1px solid ${T.pillBorder}`,padding:"2px 7px",borderRadius:8,letterSpacing:"0.04em",textTransform:"uppercase"}}>by PaidHQ</span>
         </div>
-        {showNav&&(
-          <nav style={{display:"flex",alignItems:"center",gap:1,marginLeft:8}}>
-            {NAV.map(item=><button key={item.key} onClick={()=>setView(item.key)} style={{padding:"0 12px",height:32,background:view===item.key?T.surfaceEl:"transparent",border:view===item.key?`1px solid ${T.border}`:"1px solid transparent",borderRadius:6,color:view===item.key?T.text:T.textMuted,cursor:"pointer",fontSize:13,fontWeight:view===item.key?600:400,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5}}><span>{item.icon}</span>{!isMobile&&item.label}</button>)}
-          </nav>
-        )}
+        <nav style={{display:"flex",alignItems:"center",gap:1,marginLeft:8}}>
+          {NAV.map(item=>{
+            const active=view===item.key;
+            const locked=item.key==="tagger"&&step==="upload"&&view!=="tagger";
+            return <button key={item.key} onClick={()=>{
+              if(item.key==="tagger"){if(step!=="tag")setStep("upload");setView("tagger");}
+              else setView(item.key);
+            }} style={{padding:"0 12px",height:32,background:active?T.surfaceEl:"transparent",border:active?`1px solid ${T.border}`:"1px solid transparent",borderRadius:6,color:active?T.text:T.textMuted,cursor:"pointer",fontSize:13,fontWeight:active?600:400,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5,opacity:locked?0.5:1}}><span>{item.icon}</span>{!isMobile&&item.label}</button>;
+          })}
+        </nav>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
-          {showNav&&!isMobile&&(
+          {step==="tag"&&!isMobile&&(
             <div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 10px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6}}>
               <span style={{width:6,height:6,borderRadius:3,background:stats.untagged>0?T.warning:T.success,display:"inline-block"}}/>
               <span style={{fontSize:12,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
-          {showNav&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>↑ New file</Btn>}
+          {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>↑ New file</Btn>}
           <button onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")} style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,color:T.textSub,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5}}>
             {themeKey==="dark"?"☀️":"🌙"}{!isMobile&&(themeKey==="dark"?" Light":" Dark")}
           </button>
@@ -770,6 +848,7 @@ export default function BudgetHQ(){
         </div>
       )}
 
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={step==="tag"}/>}
       {step==="tag"&&view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile}/>}
 
       <style>{`
