@@ -117,6 +117,8 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
   const[amtCol,setAmtCol]=useState("");
   const[preview,setPreview]=useState([]);
   const[customDims,setCustomDims]=useState([]); // [{name,col}] — new dims created during import
+  const[aiAnalyzing,setAiAnalyzing]=useState(false);
+  const[aiError,setAiError]=useState("");
   const fileRef=useRef();
   const years=[(yr-1).toString(),yr.toString(),(yr+1).toString()];
 
@@ -247,8 +249,45 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
     setImportOpen(false);resetImport();
     showNotif(`Imported ${preview.length} budget entries into ${iYear}`);
   };
-  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);};
+  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);setAiError("");};
   const closeImport=()=>{setImportOpen(false);resetImport();};
+
+  const analyzeWithAI=async()=>{
+    setAiAnalyzing(true);setAiError("");
+    try{
+      const sample=iRawRows.slice(0,300).map(row=>row.slice(0,20).map(v=>String(v||"").trim()));
+      const prompt=`Analyze this complete budget spreadsheet and return a JSON mapping.\n\nUser's existing tag dimensions: ${(tagDimensions||[]).join(", ")}\n\nComplete file data (${sample.length} rows, up to 20 columns):\n${sample.map((row,i)=>`Row ${i+1}: ${row.join(" | ")}`).join("\n")}\n\nReturn ONLY a JSON object with these exact fields:\n{\n  "headerRow": <0-based index of the row containing column headers>,\n  "skipPattern": <substring in subtotal/total rows to skip, e.g. "total", or "">,\n  "format": "wide" or "long",\n  "dimensions": [{"name": <existing dimension name>, "column": <exact column header>}],\n  "newDimensions": [{"name": <new descriptive dimension name>, "column": <exact column header>}],\n  "periodColumn": <column header containing month/period for long format, or null>,\n  "amountColumn": <column header containing budget amount for long format, or null>,\n  "hasQuarterlyCaps": <true if quarterly cap columns exist>,\n  "hasAnnualCap": <true if annual cap column exists>\n}\nRules:\n- "dimensions" only maps to EXISTING dimensions: ${(tagDimensions||[]).join(", ")}\n- "newDimensions" maps any other segment/grouping columns to NEW dimension names\n- Wide format = month names appear as column headers\n- Long format = single column for period and single column for amount\n- Return ONLY valid JSON, no markdown`;
+
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content:prompt}]})});
+      const data=await res.json();
+      const text=(data.content||[]).find(b=>b.type==="text")?.text||"";
+      const result=JSON.parse(text.replace(/```json|```/g,"").trim());
+
+      const hri=typeof result.headerRow==="number"?result.headerRow:iHeaderRow;
+      const skip=typeof result.skipPattern==="string"?result.skipPattern:iSkipStr;
+      setIHeaderRow(hri);setISkipStr(skip);
+
+      const{headers,rows}=processRows(iRawRows,hri,skip);
+      setIHeaders(headers);setIRows(rows);
+      const wide=result.format==="wide"||(headers.filter(h=>isMonthHdr(h)).length>=3);
+      setIFmt(wide?"wide":"long");
+
+      const dm={};
+      (result.dimensions||[]).forEach(({name,column})=>{if((tagDimensions||[]).includes(name)&&column&&headers.includes(column))dm[name]=column;});
+      setDimMap(dm);
+
+      const nc=(result.newDimensions||[]).filter(d=>d.name&&d.column&&headers.includes(d.column)).map(d=>({name:d.name,col:d.column}));
+      setCustomDims(nc);
+
+      if(result.periodColumn&&headers.includes(result.periodColumn))setPeriodCol(result.periodColumn);
+      if(result.amountColumn&&headers.includes(result.amountColumn))setAmtCol(result.amountColumn);
+
+      setIStep("map");
+    }catch(e){
+      setAiError("AI analysis failed — please map columns manually.");
+      console.error(e);
+    }finally{setAiAnalyzing(false);}
+  };
 
   const pvGrouped=useMemo(()=>{const m={};(preview||[]).forEach(e=>{if(!m[e.segKey])m[e.segKey]={dims:e.dims,months:{}};m[e.segKey].months[e.monthKey]=e.amount;});return Object.values(m).sort((a,b)=>Object.values(a.dims).join("|").localeCompare(Object.values(b.dims).join("|")));},[preview]);
   const dimCols=(tagDimensions||[]).filter(d=>dimMap[d]);
@@ -405,6 +444,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
               {/* STEP 2: Header row picker */}
               {iStep==="header"&&(
                 <div>
+                  {aiError&&<div style={{padding:"9px 12px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:8,marginBottom:14,fontSize:12,color:T.danger}}>{aiError}</div>}
                   <div style={{padding:"10px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                     <span style={{fontSize:12,color:T.accent,fontWeight:500}}>Year: <strong>{iYear}</strong> · Click a row to set it as the header</span>
                     <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{padding:"2px 8px",borderRadius:4,border:`1px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"Manrope,sans-serif"}}>{y}</button>)}</div>
@@ -546,7 +586,12 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
             <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",flexShrink:0}}>
               <Btn onClick={()=>{if(iStep==="header")setIStep("upload");else if(iStep==="map")setIStep("header");else if(iStep==="preview")setIStep("map");else closeImport();}} variant="ghost" T={T}>{iStep==="upload"?"Cancel":"← Back"}</Btn>
               <div style={{display:"flex",gap:8}}>
-                {iStep==="header"&&<Btn onClick={applyHeaderRow} variant="primary" T={T}>Confirm headers →</Btn>}
+              {iStep==="header"&&<div style={{display:"flex",gap:8}}>
+                <Btn onClick={analyzeWithAI} disabled={aiAnalyzing} variant="success" T={T} style={{gap:6}}>
+                  {aiAnalyzing?<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,border:`2px solid rgba(255,255,255,0.3)`,borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Analyzing…</span>:<span>✨ Analyze with AI</span>}
+                </Btn>
+                <Btn onClick={applyHeaderRow} variant="primary" T={T}>Confirm headers →</Btn>
+              </div>}
                 {iStep==="map"&&<Btn onClick={goPreview} disabled={!canMap} variant="primary" T={T}>Preview import →</Btn>}
                 {iStep==="preview"&&<Btn onClick={confirmImport} variant="primary" T={T}>✓ Import {preview.length} entries into {iYear}</Btn>}
               </div>
@@ -907,6 +952,7 @@ export default function BudgetHQ(){
         ::-webkit-scrollbar{width:5px;height:5px;}
         ::-webkit-scrollbar-track{background:transparent;}
         ::-webkit-scrollbar-thumb{background:${T.borderStrong};border-radius:3px;}
+        @keyframes spin{to{transform:rotate(360deg);}}
         @media(max-width:768px){input,select{font-size:16px!important;}}
       `}</style>
     </div>
