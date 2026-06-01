@@ -77,6 +77,12 @@ function parseFileToRows(file,callback){
   }
 }
 
+// Forward-fill empty cells in a row (for merged-cell group headers in CSV)
+function forwardFillGroups(row){
+  let last="";
+  return row.map(v=>{const s=String(v||"").trim();if(s&&!/^(channel|group|category|platform)$/i.test(s))last=s;return last;});
+}
+
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,marginBottom:6,...style}}>{children}</div>);
 const Pill=({children,color,bg,border})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap"}}>{children}</span>);
@@ -112,6 +118,9 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
   const[iHeaders,setIHeaders]=useState([]);
   const[iRows,setIRows]=useState([]); // processed rows as objects
   const[iFmt,setIFmt]=useState("wide");
+  const[iSegDim,setISegDim]=useState("Campaign"); // dimension name for transposed format
+  const[iGroupHeaderRow,setIGroupHeaderRow]=useState(-1); // -1 = none, otherwise row index
+  const[iGroupDim,setIGroupDim]=useState("Channel"); // dimension name for group header row
   const[dimMap,setDimMap]=useState({});
   const[periodCol,setPeriodCol]=useState("");
   const[amtCol,setAmtCol]=useState("");
@@ -200,11 +209,17 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
   const applyHeaderRow=()=>{
     const{headers,rows}=processRows(iRawRows,iHeaderRow,iSkipStr);
     setIHeaders(headers);setIRows(rows);
-    const wide=headers.filter(h=>isMonthHdr(h)).length>=3;
-    setIFmt(wide?"wide":"long");
+    // Detect format: wide (months as cols), transposed (months as rows), long (period+amount cols)
+    const monthColCount=headers.filter(h=>isMonthHdr(h)).length;
+    const firstColPeriods=rows.slice(0,6).filter(r=>parsePeriod(String(r[headers[0]]||""))).length;
+    let fmt="long";
+    if(monthColCount>=3) fmt="wide";
+    else if(firstColPeriods>=2) fmt="transposed";
+    setIFmt(fmt);
+    // Auto-map existing dimensions
     const am={};(tagDimensions||[]).forEach(d=>{const m=headers.find(h=>h.toLowerCase()===d.toLowerCase()||h.toLowerCase().includes(d.toLowerCase()));if(m)am[d]=m;});
     setDimMap(am);
-    if(!wide){setPeriodCol(headers.find(h=>/month|period|date/i.test(h))||"");setAmtCol(headers.find(h=>/budget|amount|spend|cost/i.test(h))||"");}
+    if(fmt==="long"){setPeriodCol(headers.find(h=>/month|period|date/i.test(h))||"");setAmtCol(headers.find(h=>/budget|amount|spend|cost/i.test(h))||"");}
     setIStep("map");
   };
 
@@ -222,6 +237,31 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
         const sk=sp.map(p=>p.val).join("|");
         mc.forEach(col=>{const mk=getMonthKey(col);const amt=parseMoney(row[col]);if(mk&&amt!==null&&amt>0)entries.push({segKey:sk,dims:Object.fromEntries(sp.map(p=>[p.dim,p.val])),monthKey:mk,amount:amt});});
       });
+    }else if(iFmt==="transposed"){
+      const skipPat=/(total|quarterly|last.updated|#ref)/i;
+      const periodColKey=iHeaders[0];
+      const segCols=iHeaders.slice(1).filter(h=>h&&!skipPat.test(h));
+      const dimName=iSegDim||"Campaign";
+      // Build group values if group header row is set
+      let groupValues=null;
+      if(iGroupHeaderRow>=0&&iRawRows[iGroupHeaderRow]){
+        const filled=forwardFillGroups(iRawRows[iGroupHeaderRow]);
+        groupValues={};
+        iHeaders.forEach((h,i)=>{groupValues[h]=filled[i]||"";});
+      }
+      iRows.forEach(row=>{
+        const mk=parsePeriod(String(row[periodColKey]||""));
+        if(!mk)return;
+        segCols.forEach(col=>{
+          const amt=parseMoney(String(row[col]||"").replace(/#REF!/g,""));
+          if(amt!==null&&amt>0){
+            const groupVal=groupValues?groupValues[col]:"";
+            const dims=groupVal?{[iGroupDim||"Channel"]:groupVal,[dimName]:col}:{[dimName]:col};
+            const sk=groupVal?[groupVal,col].join("|"):col;
+            entries.push({segKey:sk,dims,monthKey:mk,amount:amt});
+          }
+        });
+      });
     }else{
       iRows.forEach(row=>{
         const sp=activeDims.map(d=>({dim:d.dim,val:row[d.col]}));
@@ -231,7 +271,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
       });
     }
     return entries;
-  },[iFmt,iHeaders,iRows,tagDimensions,dimMap,customDims,periodCol,amtCol]);
+  },[iFmt,iHeaders,iRows,iSegDim,iGroupHeaderRow,iGroupDim,iRawRows,tagDimensions,dimMap,customDims,periodCol,amtCol]);
 
   const goPreview=()=>{setPreview(buildPreview());setIStep("preview");};
   const confirmImport=()=>{
@@ -249,14 +289,14 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
     setImportOpen(false);resetImport();
     showNotif(`Imported ${preview.length} budget entries into ${iYear}`);
   };
-  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);setAiError("");};
+  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);setAiError("");setISegDim("Campaign");setIGroupHeaderRow(-1);setIGroupDim("Channel");};
   const closeImport=()=>{setImportOpen(false);resetImport();};
 
   const analyzeWithAI=async()=>{
     setAiAnalyzing(true);setAiError("");
     try{
       const sample=iRawRows.slice(0,300).map(row=>row.slice(0,20).map(v=>String(v||"").trim()));
-      const prompt=`Analyze this complete budget spreadsheet and return a JSON mapping.\n\nUser's existing tag dimensions: ${(tagDimensions||[]).join(", ")}\n\nComplete file data (${sample.length} rows, up to 20 columns):\n${sample.map((row,i)=>`Row ${i+1}: ${row.join(" | ")}`).join("\n")}\n\nReturn ONLY a JSON object with these exact fields:\n{\n  "headerRow": <0-based index of the row containing column headers>,\n  "skipPattern": <substring in subtotal/total rows to skip, e.g. "total", or "">,\n  "format": "wide" or "long",\n  "dimensions": [{"name": <existing dimension name>, "column": <exact column header>}],\n  "newDimensions": [{"name": <new descriptive dimension name>, "column": <exact column header>}],\n  "periodColumn": <column header containing month/period for long format, or null>,\n  "amountColumn": <column header containing budget amount for long format, or null>,\n  "hasQuarterlyCaps": <true if quarterly cap columns exist>,\n  "hasAnnualCap": <true if annual cap column exists>\n}\nRules:\n- "dimensions" only maps to EXISTING dimensions: ${(tagDimensions||[]).join(", ")}\n- "newDimensions" maps any other segment/grouping columns to NEW dimension names\n- Wide format = month names appear as column headers\n- Long format = single column for period and single column for amount\n- Return ONLY valid JSON, no markdown`;
+      const prompt=`Analyze this complete budget spreadsheet and return a JSON mapping.\n\nUser's existing tag dimensions: ${(tagDimensions||[]).join(", ")}\n\nComplete file data (${sample.length} rows, up to 20 columns shown — file has ${iRawRows[0]?.length||0} total columns):\n${sample.map((row,i)=>`Row ${i+1}: ${row.map(v=>v.replace(/#REF!/g,"0")).join(" | ")}`).join("\n")}\n\nReturn ONLY this JSON object (no markdown):\n{\n  \"headerRow\": <0-based row index of the main column header row>,\n  \"groupHeaderRow\": <row index of a channel/platform grouping row ABOVE the main header that groups columns, or -1 if none>,\n  \"groupDimension\": <name for the group dimension e.g. \"Channel\" or null>,\n  \"skipPattern\": <substring in subtotal/total rows to skip, or \"\">,\n  \"format\": \"wide\", \"long\", or \"transposed\",\n  \"segmentDimension\": <for transposed: name for the campaign column dimension e.g. \"Campaign\">,\n  \"dimensions\": [{\"name\": <existing dim name>, \"column\": <exact column header>}],\n  \"newDimensions\": [{\"name\": <new dim name>, \"column\": <exact column header>}],\n  \"periodColumn\": <for long format: period column, else null>,\n  \"amountColumn\": <for long format: amount column, else null>,\n  \"hasQuarterlyCaps\": <true/false>,\n  \"hasAnnualCap\": <true/false>\n}\nFormat rules: wide=month names as column headers; transposed=months as rows + campaigns as columns (if a row ABOVE the header groups columns into channels set groupHeaderRow); long=one row per period. Existing dimensions to map: ${(tagDimensions||[]).join(", ")}`;
 
       const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content:prompt}]})});
       const data=await res.json();
@@ -269,9 +309,28 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
 
       const{headers,rows}=processRows(iRawRows,hri,skip);
       setIHeaders(headers);setIRows(rows);
-      const wide=result.format==="wide"||(headers.filter(h=>isMonthHdr(h)).length>=3);
-      setIFmt(wide?"wide":"long");
 
+      // Detect format with same logic as applyHeaderRow
+      const monthColCount=headers.filter(h=>isMonthHdr(h)).length;
+      const firstColPeriods=rows.slice(0,6).filter(r=>parsePeriod(String(r[headers[0]]||""))).length;
+      let fmt=result.format||"long";
+      if(fmt!=="transposed"&&fmt!=="wide"&&fmt!=="long"){
+        if(monthColCount>=3)fmt="wide";
+        else if(firstColPeriods>=2)fmt="transposed";
+        else fmt="long";
+      }
+      setIFmt(fmt);
+
+      // Transposed: set segment + group dimension names
+      if(fmt==="transposed"){
+        if(result.segmentDimension) setISegDim(result.segmentDimension);
+        if(typeof result.groupHeaderRow==="number"&&result.groupHeaderRow>=0){
+          setIGroupHeaderRow(result.groupHeaderRow);
+          if(result.groupDimension) setIGroupDim(result.groupDimension);
+        }
+      }
+
+      // Map existing dimensions (for wide/long)
       const dm={};
       (result.dimensions||[]).forEach(({name,column})=>{if((tagDimensions||[]).includes(name)&&column&&headers.includes(column))dm[name]=column;});
       setDimMap(dm);
@@ -291,7 +350,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
 
   const pvGrouped=useMemo(()=>{const m={};(preview||[]).forEach(e=>{if(!m[e.segKey])m[e.segKey]={dims:e.dims,months:{}};m[e.segKey].months[e.monthKey]=e.amount;});return Object.values(m).sort((a,b)=>Object.values(a.dims).join("|").localeCompare(Object.values(b.dims).join("|")));},[preview]);
   const dimCols=(tagDimensions||[]).filter(d=>dimMap[d]);
-  const canMap=((tagDimensions||[]).filter(d=>dimMap[d]).length>0||customDims.some(c=>c.name&&c.col))&&(iFmt==="wide"||(periodCol&&amtCol));
+  const canMap=iFmt==="transposed"?!!iSegDim:((tagDimensions||[]).filter(d=>dimMap[d]).length>0||customDims.some(c=>c.name&&c.col))&&(iFmt==="wide"||(periodCol&&amtCol));
   const IMPORT_STEPS=["upload","header","map","preview"];
 
   const cellIn=(val,onChange,over=false,cap=false)=>(
@@ -500,46 +559,93 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                 <div>
                   <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:16}}>
                     <span style={{fontSize:12,color:T.accent,fontWeight:500}}>
-                      Year: <strong>{iYear}</strong> · {iFmt==="wide"?"Wide format (months as columns)":"Long format (months as rows)"} · {iRows.length} data rows · {iHeaders.length} columns
+                      Year: <strong>{iYear}</strong> · {iFmt==="wide"?"Wide (months as columns)":iFmt==="transposed"?"Transposed (months as rows, campaigns as columns)":"Long (period + amount columns)"} · {iRows.length} data rows · {iHeaders.length} columns
                     </span>
                   </div>
 
-                  {/* Existing tag dimensions */}
-                  <SectionLabel T={T} style={{marginBottom:10}}>Map columns to existing tag dimensions</SectionLabel>
-                  <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
-                    {(tagDimensions||[]).map(d=>(
-                      <div key={d} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center"}}>
-                        <span style={{fontSize:13,color:T.text,fontWeight:500}}>{d}</span>
-                        <Sel value={dimMap[d]||""} onChange={v=>setDimMap(p=>({...p,[d]:v||undefined}))} T={T}>
-                          <option value="">— skip —</option>
-                          {iHeaders.map(h=><option key={h} value={h}>{h}</option>)}
-                        </Sel>
+                  {/* Transposed format UI */}
+                  {iFmt==="transposed"&&(
+                    <div style={{marginBottom:20}}>
+                      <SectionLabel T={T} style={{marginBottom:8}}>Transposed format detected</SectionLabel>
+                      <div style={{padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,marginBottom:14,fontSize:12,color:T.textSub,lineHeight:1.6}}>
+                        Your file has <strong style={{color:T.text}}>months as rows</strong> and <strong style={{color:T.text}}>{iHeaders.slice(1).filter(h=>h&&!/(total|quarterly|last.updated|#ref)/i.test(h)).length} campaign/channel columns</strong>. Each column becomes a segment value. Columns matching "total", "quarterly", "last updated", or #REF are excluded.
                       </div>
-                    ))}
-                  </div>
 
-                  {/* Custom dimensions */}
-                  <div style={{borderTop:`1px solid ${T.border}`,paddingTop:16,marginTop:4}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                      <SectionLabel T={T} style={{marginBottom:0}}>Add custom dimensions</SectionLabel>
-                      <Btn onClick={()=>setCustomDims(p=>[...p,{name:"",col:""}])} variant="subtle" size="sm" T={T}>+ Add dimension</Btn>
-                    </div>
-                    {customDims.length===0&&(
-                      <div style={{fontSize:12,color:T.textMuted,padding:"8px 0"}}>Map any additional columns to new tag dimensions not yet in your list.</div>
-                    )}
-                    {customDims.map((cd,i)=>(
-                      <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 28px",gap:8,marginBottom:8,alignItems:"center"}}>
-                        <input value={cd.name} onChange={e=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Dimension name (e.g. BU)"
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Manrope,sans-serif"}}/>
-                        <Sel value={cd.col} onChange={v=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,col:v}:x))} T={T}>
-                          <option value="">— select column —</option>
-                          {iHeaders.map(h=><option key={h} value={h}>{h}</option>)}
-                        </Sel>
-                        <button onClick={()=>setCustomDims(p=>p.filter((_,j)=>j!==i))}
-                          style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,padding:"4px",fontFamily:"Manrope,sans-serif"}}>×</button>
+                      {/* Campaign dimension name */}
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center",marginBottom:10}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:500,color:T.text}}>Campaign/segment dimension name</div>
+                          <div style={{fontSize:11,color:T.textMuted}}>What are these columns? e.g. Campaign, Ad Set</div>
+                        </div>
+                        <input value={iSegDim} onChange={e=>setISegDim(e.target.value)} placeholder="e.g. Campaign"
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Manrope,sans-serif"}}/>
                       </div>
-                    ))}
-                  </div>
+
+                      {/* Group header row */}
+                      <div style={{borderTop:`1px solid ${T.border}`,paddingTop:12,marginTop:4}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:500,color:T.text}}>Channel / group header row</div>
+                            <div style={{fontSize:11,color:T.textMuted}}>Optional — use a row above the header that groups campaigns into channels</div>
+                          </div>
+                          <Tog value={iGroupHeaderRow>=0} onChange={v=>setIGroupHeaderRow(v?Math.max(0,iHeaderRow-1):-1)} T={T}/>
+                        </div>
+                        {iGroupHeaderRow>=0&&(
+                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:8}}>
+                            <div>
+                              <div style={{fontSize:12,color:T.textSub,marginBottom:4}}>Which row contains channel labels?</div>
+                              <select value={iGroupHeaderRow} onChange={e=>setIGroupHeaderRow(parseInt(e.target.value))}
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Manrope,sans-serif",width:"100%"}}>
+                                {iRawRows.slice(0,iHeaderRow).map((_,i)=>(
+                                  <option key={i} value={i}>Row {i+1}: {(iRawRows[i]||[]).filter(v=>String(v||"").trim()).slice(0,3).join(" | ")}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <div style={{fontSize:12,color:T.textSub,marginBottom:4}}>Name for this group dimension</div>
+                              <input value={iGroupDim} onChange={e=>setIGroupDim(e.target.value)} placeholder="e.g. Channel, Platform"
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Manrope,sans-serif",width:"100%"}}/>
+                            </div>
+                          </div>
+                        )}
+                        {iGroupHeaderRow>=0&&iRawRows[iGroupHeaderRow]&&(
+                          <div style={{marginTop:8,padding:"8px 10px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,fontSize:11,color:T.accent}}>
+                            Preview: {forwardFillGroups(iRawRows[iGroupHeaderRow]).filter((v,i)=>i>0&&v).filter((v,i,a)=>a.indexOf(v)===i).join(", ")}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Existing tag dimensions + custom dims — not needed for transposed */}
+                  {iFmt!=="transposed"&&<div>
+                    <SectionLabel T={T} style={{marginBottom:10}}>Map columns to existing tag dimensions</SectionLabel>
+                    <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
+                      {(tagDimensions||[]).map(d=>(
+                        <div key={d} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center"}}>
+                          <span style={{fontSize:13,color:T.text,fontWeight:500}}>{d}</span>
+                          <Sel value={dimMap[d]||""} onChange={v=>setDimMap(p=>({...p,[d]:v||undefined}))} T={T}>
+                            <option value="">— skip —</option>
+                            {iHeaders.map(h=><option key={h} value={h}>{h}</option>)}
+                          </Sel>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{borderTop:`1px solid ${T.border}`,paddingTop:16,marginTop:4}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                        <SectionLabel T={T} style={{marginBottom:0}}>Add custom dimensions</SectionLabel>
+                        <Btn onClick={()=>setCustomDims(p=>[...p,{name:"",col:""}])} variant="subtle" size="sm" T={T}>+ Add dimension</Btn>
+                      </div>
+                      {customDims.length===0&&<div style={{fontSize:12,color:T.textMuted,padding:"8px 0"}}>Map any additional columns to new tag dimensions not yet in your list.</div>}
+                      {customDims.map((cd,i)=>(
+                        <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 28px",gap:8,marginBottom:8,alignItems:"center"}}>
+                          <input value={cd.name} onChange={e=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Dimension name (e.g. BU)" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Manrope,sans-serif"}}/>
+                          <Sel value={cd.col} onChange={v=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,col:v}:x))} T={T}><option value="">— select column —</option>{iHeaders.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
+                          <button onClick={()=>setCustomDims(p=>p.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,padding:"4px",fontFamily:"Manrope,sans-serif"}}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>}
 
                   {/* Long format extra */}
                   {iFmt==="long"&&<div style={{borderTop:`1px solid ${T.border}`,paddingTop:16,marginTop:8}}>
