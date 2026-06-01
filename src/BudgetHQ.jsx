@@ -94,7 +94,7 @@ const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyConte
 const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,tagDimensions,T,isMobile}){
+function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[budgetDims,setBudgetDims]=useState([]);
@@ -118,6 +118,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile}){
   const[periodCol,setPeriodCol]=useState("");
   const[amtCol,setAmtCol]=useState("");
   const[preview,setPreview]=useState([]);
+  const[customDims,setCustomDims]=useState([]); // [{name,col}] — new dims created during import
   const fileRef=useRef();
   const years=[(yr-1).toString(),yr.toString(),(yr+1).toString()];
 
@@ -213,39 +214,51 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile}){
 
   const buildPreview=useCallback(()=>{
     const entries=[];
+    const activeDims=[
+      ...(tagDimensions||[]).filter(d=>dimMap[d]).map(d=>({dim:d,col:dimMap[d]})),
+      ...customDims.filter(c=>c.name&&c.col),
+    ];
     if(iFmt==="wide"){
       const mc=iHeaders.filter(h=>isMonthHdr(h));
       iRows.forEach(row=>{
-        const sp=(tagDimensions||[]).filter(d=>dimMap[d]).map(d=>({dim:d,val:row[dimMap[d]]}));
+        const sp=activeDims.map(d=>({dim:d.dim,val:row[d.col]}));
         if(sp.some(p=>!p.val))return;
         const sk=sp.map(p=>p.val).join("|");
         mc.forEach(col=>{const mk=getMonthKey(col);const amt=parseMoney(row[col]);if(mk&&amt!==null&&amt>0)entries.push({segKey:sk,dims:Object.fromEntries(sp.map(p=>[p.dim,p.val])),monthKey:mk,amount:amt});});
       });
     }else{
       iRows.forEach(row=>{
-        const sp=(tagDimensions||[]).filter(d=>dimMap[d]).map(d=>({dim:d,val:row[dimMap[d]]}));
+        const sp=activeDims.map(d=>({dim:d.dim,val:row[d.col]}));
         if(sp.some(p=>!p.val))return;
         const sk=sp.map(p=>p.val).join("|");const mk=parsePeriod(row[periodCol]);const amt=parseMoney(row[amtCol]);
         if(mk&&amt!==null&&amt>0)entries.push({segKey:sk,dims:Object.fromEntries(sp.map(p=>[p.dim,p.val])),monthKey:mk,amount:amt});
       });
     }
     return entries;
-  },[iFmt,iHeaders,iRows,tagDimensions,dimMap,periodCol,amtCol]);
+  },[iFmt,iHeaders,iRows,tagDimensions,dimMap,customDims,periodCol,amtCol]);
 
   const goPreview=()=>{setPreview(buildPreview());setIStep("preview");};
   const confirmImport=()=>{
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[iYear])nx[iYear]={};preview.forEach(({segKey:sk,monthKey:mk,amount:amt})=>{if(!nx[iYear][sk])nx[iYear][sk]={};if(!nx[iYear][sk].monthly)nx[iYear][sk].monthly={};nx[iYear][sk].monthly[mk]=amt;});return nx;});
     setYear(iYear);
-    setBudgetDims(p=>{const nx=new Set(p);(tagDimensions||[]).filter(d=>dimMap[d]).forEach(d=>nx.add(d));return[...nx];});
+    // Add all mapped dims (existing + custom) to budgetDims
+    const allMapped=[
+      ...(tagDimensions||[]).filter(d=>dimMap[d]),
+      ...customDims.filter(c=>c.name&&c.col).map(c=>c.name),
+    ];
+    setBudgetDims(p=>{const nx=new Set(p);allMapped.forEach(d=>nx.add(d));return[...nx];});
+    // Register new custom dimensions with parent so they appear in Tagger too
+    const newDimNames=customDims.filter(c=>c.name&&c.col&&!(tagDimensions||[]).includes(c.name)).map(c=>c.name);
+    if(newDimNames.length) onAddDimensions?.(newDimNames);
     setImportOpen(false);resetImport();
     showNotif(`Imported ${preview.length} budget entries into ${iYear}`);
   };
-  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);};
+  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);};
   const closeImport=()=>{setImportOpen(false);resetImport();};
 
   const pvGrouped=useMemo(()=>{const m={};(preview||[]).forEach(e=>{if(!m[e.segKey])m[e.segKey]={dims:e.dims,months:{}};m[e.segKey].months[e.monthKey]=e.amount;});return Object.values(m).sort((a,b)=>Object.values(a.dims).join("|").localeCompare(Object.values(b.dims).join("|")));},[preview]);
   const dimCols=(tagDimensions||[]).filter(d=>dimMap[d]);
-  const canMap=(tagDimensions||[]).filter(d=>dimMap[d]).length>0&&(iFmt==="wide"||(periodCol&&amtCol));
+  const canMap=((tagDimensions||[]).filter(d=>dimMap[d]).length>0||customDims.some(c=>c.name&&c.col))&&(iFmt==="wide"||(periodCol&&amtCol));
   const IMPORT_STEPS=["upload","header","map","preview"];
 
   const cellIn=(val,onChange,over=false,cap=false)=>(
@@ -453,11 +466,13 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile}){
                 <div>
                   <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:16}}>
                     <span style={{fontSize:12,color:T.accent,fontWeight:500}}>
-                      Year: <strong>{iYear}</strong> · {iFmt==="wide"?"Wide":"Long"} format · {iRows.length} data rows · {iHeaders.length} columns
+                      Year: <strong>{iYear}</strong> · {iFmt==="wide"?"Wide format (months as columns)":"Long format (months as rows)"} · {iRows.length} data rows · {iHeaders.length} columns
                     </span>
                   </div>
-                  <SectionLabel T={T} style={{marginBottom:10}}>Map columns to tag dimensions</SectionLabel>
-                  <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+
+                  {/* Existing tag dimensions */}
+                  <SectionLabel T={T} style={{marginBottom:10}}>Map columns to existing tag dimensions</SectionLabel>
+                  <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
                     {(tagDimensions||[]).map(d=>(
                       <div key={d} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center"}}>
                         <span style={{fontSize:13,color:T.text,fontWeight:500}}>{d}</span>
@@ -468,7 +483,32 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile}){
                       </div>
                     ))}
                   </div>
-                  {iFmt==="long"&&<div>
+
+                  {/* Custom dimensions */}
+                  <div style={{borderTop:`1px solid ${T.border}`,paddingTop:16,marginTop:4}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                      <SectionLabel T={T} style={{marginBottom:0}}>Add custom dimensions</SectionLabel>
+                      <Btn onClick={()=>setCustomDims(p=>[...p,{name:"",col:""}])} variant="subtle" size="sm" T={T}>+ Add dimension</Btn>
+                    </div>
+                    {customDims.length===0&&(
+                      <div style={{fontSize:12,color:T.textMuted,padding:"8px 0"}}>Map any additional columns to new tag dimensions not yet in your list.</div>
+                    )}
+                    {customDims.map((cd,i)=>(
+                      <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 28px",gap:8,marginBottom:8,alignItems:"center"}}>
+                        <input value={cd.name} onChange={e=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Dimension name (e.g. BU)"
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Manrope,sans-serif"}}/>
+                        <Sel value={cd.col} onChange={v=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,col:v}:x))} T={T}>
+                          <option value="">— select column —</option>
+                          {iHeaders.map(h=><option key={h} value={h}>{h}</option>)}
+                        </Sel>
+                        <button onClick={()=>setCustomDims(p=>p.filter((_,j)=>j!==i))}
+                          style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,padding:"4px",fontFamily:"Manrope,sans-serif"}}>×</button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Long format extra */}
+                  {iFmt==="long"&&<div style={{borderTop:`1px solid ${T.border}`,paddingTop:16,marginTop:8}}>
                     <SectionLabel T={T} style={{marginBottom:10}}>Long format columns</SectionLabel>
                     {[{l:"Period / Month",v:periodCol,s:setPeriodCol,h:"e.g. 2026-01, Jan 2026"},{l:"Budget Amount",v:amtCol,s:setAmtCol,h:"e.g. Budget, Amount"}].map(({l,v,s,h})=>(
                       <div key={l} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8,alignItems:"center"}}>
@@ -849,7 +889,7 @@ export default function BudgetHQ(){
       )}
 
       {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={step==="tag"}/>}
-      {step==="tag"&&view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile}/>}
+      {step==="tag"&&view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])}/>}
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
