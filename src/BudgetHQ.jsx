@@ -127,7 +127,28 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile}){
 
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
 
-  const segs=useMemo(()=>{if(!budgetDims.length)return[];const seen=new Set();const out=[];Object.entries(campaignTags||{}).forEach(([,tags])=>{const vals=budgetDims.map(d=>tags[d]);if(vals.some(v=>!v))return;const key=vals.join("|");if(!seen.has(key)){seen.add(key);const c={key};budgetDims.forEach((d,i)=>{c[d]=vals[i];});out.push(c);}});return out.sort((a,b)=>a.key.localeCompare(b.key));},[budgetDims,campaignTags]);
+  const segs=useMemo(()=>{
+    if(!budgetDims.length)return[];
+    const seen=new Set();const out=[];
+    // Source 1: tagged campaigns
+    Object.entries(campaignTags||{}).forEach(([,tags])=>{
+      const vals=budgetDims.map(d=>tags[d]);if(vals.some(v=>!v))return;
+      const key=vals.join("|");
+      if(!seen.has(key)){seen.add(key);const c={key};budgetDims.forEach((d,i)=>{c[d]=vals[i];});out.push(c);}
+    });
+    // Source 2: imported budget data (so imported budgets show even if not yet tagged)
+    if(budgets[year]){
+      Object.keys(budgets[year]).forEach(key=>{
+        if(seen.has(key))return;
+        const vals=key.split("|");
+        if(vals.length!==budgetDims.length)return;
+        seen.add(key);const c={key};
+        budgetDims.forEach((d,i)=>{c[d]=vals[i]||"—";});
+        out.push(c);
+      });
+    }
+    return out.sort((a,b)=>a.key.localeCompare(b.key));
+  },[budgetDims,campaignTags,budgets,year]);
 
   const getMV=useCallback((sk,mk)=>budgets[year]?.[sk]?.monthly?.[mk]??"",[budgets,year]);
   const getQC=useCallback((sk,qk)=>budgets[year]?.[sk]?.quarterly?.[qk]??"",[budgets,year]);
