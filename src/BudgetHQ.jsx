@@ -403,8 +403,8 @@ export default function PaidHQ(){
           <div style={{width:28,height:28,borderRadius:7,background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><polyline points="1,11 5,7 8,9 14,3" stroke={T.accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><circle cx="5" cy="7" r="1.2" fill={T.accent}/><circle cx="8" cy="9" r="1.2" fill={T.accent}/></svg>
           </div>
-          <span style={{fontSize:15,fontWeight:700,color:T.text,letterSpacing:"-0.4px",fontFamily:"Manrope,sans-serif"}}>PaidHQ</span>
-          <span style={{fontSize:10,fontWeight:600,color:T.textMuted,background:T.pill,border:`1px solid ${T.pillBorder}`,padding:"2px 7px",borderRadius:8,letterSpacing:"0.04em",textTransform:"uppercase"}}>Budget</span>
+          <span style={{fontSize:15,fontWeight:700,color:T.text,letterSpacing:"-0.4px",fontFamily:"Manrope,sans-serif"}}>BudgetHQ</span>
+          <span style={{fontSize:10,fontWeight:600,color:T.textMuted,background:T.pill,border:`1px solid ${T.pillBorder}`,padding:"2px 7px",borderRadius:8,letterSpacing:"0.04em",textTransform:"uppercase"}}>by PaidHQ</span>
         </div>
 
         {showNav&&(
