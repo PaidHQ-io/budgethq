@@ -94,13 +94,11 @@ const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyConte
 const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions}){
+function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
-  const[budgetDims,setBudgetDims]=useState([]);
   const[showQ,setShowQ]=useState(false);
   const[showA,setShowA]=useState(false);
-  const[budgets,setBudgets]=useState({});
   const[importOpen,setImportOpen]=useState(false);
   const[notif,setNotif]=useState(null);
 
@@ -121,10 +119,6 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions}){
   const[customDims,setCustomDims]=useState([]); // [{name,col}] — new dims created during import
   const fileRef=useRef();
   const years=[(yr-1).toString(),yr.toString(),(yr+1).toString()];
-
-  useEffect(()=>{try{const b=localStorage.getItem("paidhq_budgets");if(b)setBudgets(JSON.parse(b));const d=localStorage.getItem("paidhq_budget_dims");if(d)setBudgetDims(JSON.parse(d));}catch(e){};},[]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_budgets",JSON.stringify(budgets));}catch(e){};},[budgets]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_budget_dims",JSON.stringify(budgetDims));}catch(e){};},[budgetDims]);
 
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
 
@@ -669,10 +663,21 @@ export default function BudgetHQ(){
   const[fStatus,setFStatus]=useState("all");
   const fileRef=useRef();
 
-  useEffect(()=>{try{const t=localStorage.getItem("paidhq_tags");if(t)setTags(JSON.parse(t));const d=localStorage.getItem("paidhq_dims");if(d)setTagDims(JSON.parse(d));const th=localStorage.getItem("paidhq_theme");if(th)setThemeKey(th);}catch(e){};},[]);
+  const[budgets,setBudgets]=useState({});
+  const[budgetDims,setBudgetDims]=useState([]);
+
+  useEffect(()=>{try{
+    const t=localStorage.getItem("paidhq_tags");if(t)setTags(JSON.parse(t));
+    const d=localStorage.getItem("paidhq_dims");if(d)setTagDims(JSON.parse(d));
+    const th=localStorage.getItem("paidhq_theme");if(th)setThemeKey(th);
+    const b=localStorage.getItem("paidhq_budgets");if(b)setBudgets(JSON.parse(b));
+    const bd=localStorage.getItem("paidhq_budget_dims");if(bd)setBudgetDims(JSON.parse(bd));
+  }catch(e){};},[]);
   useEffect(()=>{try{localStorage.setItem("paidhq_tags",JSON.stringify(tags));}catch(e){};},[tags]);
   useEffect(()=>{try{localStorage.setItem("paidhq_dims",JSON.stringify(tagDims));}catch(e){};},[tagDims]);
   useEffect(()=>{try{localStorage.setItem("paidhq_theme",themeKey);}catch(e){};},[themeKey]);
+  useEffect(()=>{try{localStorage.setItem("paidhq_budgets",JSON.stringify(budgets));}catch(e){};},[budgets]);
+  useEffect(()=>{try{localStorage.setItem("paidhq_budget_dims",JSON.stringify(budgetDims));}catch(e){};},[budgetDims]);
 
   const handleFile=useCallback(file=>{if(!file)return;setFileName(file.name);Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{setRawRows(r.data);setHeaders(r.meta.fields||[]);setColMap(autoDetect(r.meta.fields||[]));setStep("map");}});},[]);
   const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);},[handleFile]);
@@ -889,7 +894,7 @@ export default function BudgetHQ(){
       )}
 
       {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={step==="tag"}/>}
-      {step==="tag"&&view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])}/>}
+      {step==="tag"&&view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims}/>}
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
