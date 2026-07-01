@@ -1030,6 +1030,19 @@ export default function BudgetHQ(){
 
   const suggestions=useMemo(()=>{if(!fCamp||fCamp.length<3)return[];const term=fCamp.toLowerCase();const seen=new Set();const out=[];tagDims.forEach(dim=>{Object.entries(tags).forEach(([cn,ts])=>{if(ts[dim]&&cn.toLowerCase().includes(term)){const key=`${dim}:${ts[dim]}`;if(!seen.has(key)){seen.add(key);const count=filtered.filter(c=>!(tags[c.name]?.[dim])).length;if(count>0)out.push({key,dim,val:ts[dim],count});}}});});return out.slice(0,3);},[fCamp,filtered,tags,tagDims]);
 
+  // Tag browser: all unique values per dimension with campaign counts
+  const tagValueMap=useMemo(()=>{
+    const result={};
+    tagDims.forEach(dim=>{
+      result[dim]={};
+      campaigns.forEach(c=>{
+        const val=(tags[c.name]||{})[dim];
+        if(val)result[dim][val]=(result[dim][val]||0)+1;
+      });
+    });
+    return result;
+  },[tagDims,tags,campaigns]);
+
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
   const pushHistory=useCallback(currentTags=>{setTagsHistory(h=>[...h.slice(-49),currentTags]);},[]);
   const undoTags=useCallback(()=>{if(!tagsHistory.length)return;setTags(tagsHistory[tagsHistory.length-1]);setTagsHistory(h=>h.slice(0,-1));showNotif("Undone");},[tagsHistory]);
@@ -1273,6 +1286,40 @@ export default function BudgetHQ(){
                 <Btn onClick={()=>importTagsRef.current?.click()} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import tags CSV</Btn>
                 <input ref={importTagsRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{importTagsFromCSV(e.target.files[0]);e.target.value="";}} />
               </div>
+
+              {/* Tag browser */}
+              {tagDims.some(d=>Object.keys(tagValueMap[d]||{}).length>0)&&(
+                <div style={{marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:14}}>
+                  <SectionLabel T={T} style={{marginBottom:10}}>Filter by tag</SectionLabel>
+                  {tagDims.map(dim=>{
+                    const vals=Object.entries(tagValueMap[dim]||{}).sort((a,b)=>b[1]-a[1]);
+                    if(!vals.length)return null;
+                    const isActive=fTag&&vals.some(([v])=>fTag.toLowerCase()===v.toLowerCase());
+                    return(
+                      <div key={dim} style={{marginBottom:10}}>
+                        <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"Manrope,sans-serif"}}>{dim}</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                          {vals.map(([val,count])=>{
+                            const active=fTag.toLowerCase()===val.toLowerCase();
+                            return(
+                              <button key={val} onClick={()=>setFTag(active?"":val)}
+                                style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:"Manrope,sans-serif",
+                                  background:active?T.accent:T.surfaceEl,
+                                  color:active?"#fff":T.text,
+                                  border:`1px solid ${active?T.accent:T.border}`,
+                                  transition:"all 0.12s"}}>
+                                {val}
+                                <span style={{fontSize:10,opacity:0.7,background:active?"rgba(255,255,255,0.2)":T.border,borderRadius:8,padding:"0 4px"}}>{count}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {fTag&&<button onClick={()=>setFTag("")} style={{fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"Manrope,sans-serif"}}>Clear tag filter ×</button>}
+                </div>
+              )}
               </div>
             </aside>
           )}
