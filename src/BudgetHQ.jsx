@@ -122,6 +122,8 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
   const[editingMeta,setEditingMeta]=useState(null); // {segKey, dim}
   const[editMetaVal,setEditMetaVal]=useState("");
   const[newMetaDim,setNewMetaDim]=useState("");
+  const[editingSegVal,setEditingSegVal]=useState(null); // {segKey, dim}
+  const[editSegVal,setEditSegVal]=useState("");
 
   // Import state
   const[iStep,setIStep]=useState("upload");
@@ -201,6 +203,31 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
     if(!d||budgetMetaDims.includes(d))return;
     setBudgetMetaDims(p=>[...p,d]);setNewMetaDim("");
     showNotif(`Added dimension: ${d}`);
+  };
+
+  const saveSegEdit=()=>{
+    if(!editingSegVal)return;
+    const trimmed=editSegVal.trim();
+    if(!trimmed){setEditingSegVal(null);setEditSegVal("");return;}
+    const{segKey,dim}=editingSegVal;
+    const seg=segs.find(s=>s.key===segKey);
+    if(!seg){setEditingSegVal(null);return;}
+    const newVals=budgetDims.map(d=>d===dim?trimmed:seg[d]);
+    const newKey=newVals.join("|");
+    if(newKey!==segKey){
+      setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year]?.[segKey]){nx[year][newKey]=nx[year][segKey];delete nx[year][segKey];}return nx;});
+      setBudgetRowMeta(p=>{if(!p[segKey])return p;const nx={...p};nx[newKey]=nx[segKey];delete nx[segKey];return nx;});
+      setSelRows(p=>{const nx=new Set(p);if(nx.has(segKey)){nx.delete(segKey);nx.add(newKey);}return nx;});
+    }
+    setEditingSegVal(null);setEditSegVal("");
+  };
+
+  const deleteRow=(segKey,label)=>{
+    if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this row. Tags and spend data are not affected.`))return;
+    setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])delete nx[year][segKey];return nx;});
+    setBudgetRowMeta(p=>{const nx={...p};delete nx[segKey];return nx;});
+    setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
+    showNotif("Row deleted");
   };
 
   const segs=useMemo(()=>{
@@ -550,7 +577,14 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   </td>
                   {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:`1px solid ${T.border}`,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:ri%2===0?T.bg:T.surfaceEl,zIndex:1,whiteSpace:"nowrap"}}>
-                    <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{fontFamily:"'Space Mono',monospace"}}>{seg[d]}</Pill>
+                    {editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
+                      <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
+                        onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
+                        style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"'Space Mono',monospace",minWidth:80}}/>
+                    ):(
+                      <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{fontFamily:"'Space Mono',monospace",cursor:"text"}}
+                        onClick={()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
+                    )}
                     {i===budgetDims.length-1&&segMatchCount(seg.key)===0&&(
                       <span title="No tagged campaigns match this segment" style={{marginLeft:6,fontSize:12,cursor:"help"}}>⚠️</span>
                     )}
@@ -576,6 +610,11 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                   <td style={{padding:"4px 12px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace",fontWeight:700,color:ao?T.danger:T.accent,whiteSpace:"nowrap",background:rb}}>{rt>0?fmtFull(rt):"—"}{ao&&" ⚠️"}</td>
                   {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={q.key} style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"'Space Mono',monospace"}}>{fmt$(qt)}{qo?" ⚠️":""}</span>}</div></td>;})}
                   {showA&&<td style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"'Space Mono',monospace"}}>{fmt$(rt)}{ao?" ⚠️":""}</span>}</div></td>}
+                  <td style={{padding:"4px 8px",borderBottom:`1px solid ${T.border}`,background:rb}}>
+                    <button onClick={()=>deleteRow(seg.key,budgetDims.map(d=>seg[d]).join(" · "))} title="Delete row"
+                      style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:"2px 4px",opacity:0.35,transition:"opacity 0.1s"}}
+                      onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.35}>✕</button>
+                  </td>
                 </tr>);})}
               <tr style={{borderTop:`2px solid ${T.borderStrong}`,background:T.surface}}>
                 <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
@@ -585,6 +624,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                 <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:T.accent}}>{totalY>0?fmtFull(totalY):"—"}</td>
                 {showQ&&QUARTERS.map(q=><td key={q.key}/>)}
                 {showA&&<td/>}
+                <td/>
               </tr>
             </tbody>
           </table>
