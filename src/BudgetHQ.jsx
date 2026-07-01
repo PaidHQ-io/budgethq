@@ -1459,7 +1459,7 @@ export default function BudgetHQ(){
                         ))
                       }
                     </div>}
-                    {!isMobile&&<button onClick={e=>{e.stopPropagation();setMergedNormRows(prev=>prev.filter(r=>r.campaign_name!==c.name));}} title="Remove this campaign"
+                    {!isMobile&&<button onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${c.name}" from this dataset?\n\nThis only affects the current session — your tags are kept. You can re-sync or re-upload to restore it.`)){setMergedNormRows(prev=>prev.filter(r=>r.campaign_name!==c.name));}}} title="Remove this campaign"
                       style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:"2px",opacity:0.4,transition:"opacity 0.1s"}}
                       onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.4}>✕</button>}
                   </div>
