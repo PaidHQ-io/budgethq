@@ -942,7 +942,9 @@ export default function BudgetHQ(){
     {key:"capterra",label:"Capterra",status:"csv",color:"#FF7043"},
   ];
   const[syncState,setSyncState]=useState({}); // {platform: "idle"|"loading"|"done"|"error"}
-  const[syncDateRange,setSyncDateRange]=useState(()=>{
+  const[lastSyncRange,setLastSyncRange]=useState(()=>{
+    try{const s=localStorage.getItem("paidhq_sync_range");return s?JSON.parse(s):null;}catch(e){return null;}
+  });
     const now=new Date();
     const y=now.getFullYear();
     const q=Math.floor(now.getMonth()/3);
@@ -975,6 +977,8 @@ export default function BudgetHQ(){
       setRawRows(rows);
       setStep("tag");
       setSyncState(p=>({...p,[platformKey]:"done"}));
+      setLastSyncRange({start:syncDateRange.start,end:syncDateRange.end});
+      try{localStorage.setItem("paidhq_sync_range",JSON.stringify({start:syncDateRange.start,end:syncDateRange.end}));}catch(e){}
       showNotif(`Loaded ${rows.length} ${platformKey} campaigns`);
     }catch(e){
       setSyncState(p=>({...p,[platformKey]:"error:"+e.message}));
@@ -998,7 +1002,14 @@ export default function BudgetHQ(){
 
   const campaigns=useMemo(()=>{if(!rawRows.length||!colMap.campaign_name)return[];const map={};rawRows.forEach(row=>{const name=(row[colMap.campaign_name]||"").trim();if(!name)return;const spend=parseSpend(row[colMap.spend]);const platform=derivePlatform(name,colMap.platform?row[colMap.platform]:"");if(!map[name])map[name]={name,platform,spend:0,rows:0,adsets:new Set()};map[name].spend+=spend;map[name].rows++;if(colMap.adset_name&&row[colMap.adset_name])map[name].adsets.add(row[colMap.adset_name]);});return Object.values(map).map(c=>({...c,adsetCount:c.adsets.size}));},[rawRows,colMap]);
   const allPlats=useMemo(()=>[...new Set(campaigns.map(c=>c.platform))].sort(),[campaigns]);
-  const stats=useMemo(()=>{const totalSpend=campaigns.reduce((s,c)=>s+c.spend,0);const tagged=campaigns.filter(c=>Object.keys(tags[c.name]||{}).length>0).length;const dates=rawRows.map(r=>r[colMap.date]).filter(Boolean).sort();return{total:campaigns.length,tagged,untagged:campaigns.length-tagged,totalSpend,totalRows:rawRows.length,dateRange:dates.length?`${dates[0]} → ${dates[dates.length-1]}`:""};},[campaigns,tags,rawRows,colMap]);
+  const stats=useMemo(()=>{
+    const totalSpend=campaigns.reduce((s,c)=>s+c.spend,0);
+    const tagged=campaigns.filter(c=>Object.keys(tags[c.name]||{}).length>0).length;
+    const dates=rawRows.map(r=>r[colMap.date]).filter(Boolean).sort();
+    const derivedRange=dates.length?`${dates[0]} → ${dates[dates.length-1]}`:"";
+    const displayRange=lastSyncRange?`${lastSyncRange.start} → ${lastSyncRange.end}`:derivedRange;
+    return{total:campaigns.length,tagged,untagged:campaigns.length-tagged,totalSpend,totalRows:rawRows.length,dateRange:displayRange};
+  },[campaigns,tags,rawRows,colMap,lastSyncRange]);
 
   const filtered=useMemo(()=>{let r=campaigns.filter(c=>{
     if(fCamp&&!c.name.toLowerCase().includes(fCamp.toLowerCase()))return false;
@@ -1100,7 +1111,7 @@ export default function BudgetHQ(){
               <span style={{fontSize:12,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
-          {step==="tag"&&<Btn onClick={()=>{setStep("upload");try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_headers");localStorage.removeItem("paidhq_colmap");}catch(e){};}} variant="ghost" size="sm" T={T}>↑ New file</Btn>}
+          {step==="tag"&&<Btn onClick={()=>{setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_headers");localStorage.removeItem("paidhq_colmap");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T}>↑ New file</Btn>}
           <button onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")} style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,color:T.textSub,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5}}>
             {themeKey==="dark"?"☀️":"🌙"}{!isMobile&&(themeKey==="dark"?" Light":" Dark")}
           </button>
