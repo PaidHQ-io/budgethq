@@ -172,6 +172,8 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
     downloadCSV(rows,`budgethq-budgets-${year}.csv`);
     showNotif("Budgets exported");
   };
+
+  const segs=useMemo(()=>{
     if(!budgetDims.length)return[];
     const seen=new Set();const out=[];
     // Source 1: tagged campaigns
