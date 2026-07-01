@@ -25,17 +25,23 @@ async function fetchAllCampaigns(token, accountId) {
   const campaigns = {};
   let start = 0;
   const count = 100;
+
   while (true) {
+    // Use account URN filter directly — no q=search needed
+    const accountUrn = encodeURIComponent(`urn:li:sponsoredAccount:${accountId}`);
     const url =
-      `${BASE}/adCampaignsV2?q=search` +
-      `&search.account.values[0]=urn%3Ali%3AsponsoredAccount%3A${accountId}` +
+      `${BASE}/adCampaignsV2?account=${accountUrn}` +
       `&start=${start}&count=${count}&fields=id,name,status`;
+
     const res = await fetch(url, { headers: restHeaders(token) });
     if (!res.ok) throw new Error(`LinkedIn campaigns API ${res.status}: ${await res.text()}`);
     const data = await res.json();
     const elements = data.elements || [];
     elements.forEach((c) => {
-      campaigns[`urn:li:sponsoredCampaign:${c.id}`] = { id: String(c.id), name: c.name || String(c.id) };
+      campaigns[`urn:li:sponsoredCampaign:${c.id}`] = {
+        id: String(c.id),
+        name: c.name || String(c.id),
+      };
     });
     if (elements.length < count) break;
     start += count;
@@ -46,8 +52,6 @@ async function fetchAllCampaigns(token, accountId) {
 async function fetchAnalytics(token, accountId, startDate, endDate) {
   const s = new Date(startDate);
   const e = new Date(endDate);
-
-  // accounts param must use unencoded URN in List() notation
   const accountUrn = `urn:li:sponsoredAccount:${accountId}`;
 
   const params = new URLSearchParams({
@@ -63,7 +67,7 @@ async function fetchAnalytics(token, accountId, startDate, endDate) {
     fields: "dateRange,pivotValues,costInLocalCurrency,impressions,clicks",
   }).toString();
 
-  // accounts param must NOT be encoded by URLSearchParams — append raw
+  // accounts List() param must not be URL-encoded
   const url = `${BASE}/adAnalyticsV2?${params}&accounts=List(${accountUrn})`;
 
   const res = await fetch(url, { headers: analyticsHeaders(token) });
@@ -86,7 +90,10 @@ export async function getSpend({ startDate, endDate }) {
     .filter((el) => parseFloat(el.costInLocalCurrency || "0") > 0)
     .map((el) => {
       const urn = (el.pivotValues || [])[0];
-      const c = campaigns[urn] || { id: urn?.split(":").pop() || "unknown", name: urn || "Unknown" };
+      const c = campaigns[urn] || {
+        id: urn?.split(":").pop() || "unknown",
+        name: urn || "Unknown",
+      };
       const dr = el.dateRange?.start;
       return {
         campaign_name: c.name,
