@@ -108,13 +108,20 @@ const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyConte
 const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims}){
+function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
   const[showA,setShowA]=useState(false);
   const[importOpen,setImportOpen]=useState(false);
   const[notif,setNotif]=useState(null);
+  // Budget row tagging
+  const[selRows,setSelRows]=useState(new Set());
+  const[applyMetaDim,setApplyMetaDim]=useState("");
+  const[applyMetaVal,setApplyMetaVal]=useState("");
+  const[editingMeta,setEditingMeta]=useState(null); // {segKey, dim}
+  const[editMetaVal,setEditMetaVal]=useState("");
+  const[newMetaDim,setNewMetaDim]=useState("");
 
   // Import state
   const[iStep,setIStep]=useState("upload");
@@ -161,16 +168,39 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
   };
 
   const exportBudgets=()=>{
-    const header=[...budgetDims,...MONTHS.map(m=>m.label),"Total"];
+    const header=[...budgetDims,...budgetMetaDims,...MONTHS.map(m=>m.label),"Total"];
     const rows=[header];
     segs.forEach(seg=>{
       const monthly=budgets[year]?.[seg.key]?.monthly||{};
+      const meta=budgetRowMeta[seg.key]||{};
       const amts=MONTHS.map(m=>monthly[m.key]||"");
       const total=MONTHS.reduce((s,m)=>s+(monthly[m.key]||0),0);
-      rows.push([...budgetDims.map(d=>seg[d]),...amts,total||""]);
+      rows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),...amts,total||""]);
     });
     downloadCSV(rows,`budgethq-budgets-${year}.csv`);
     showNotif("Budgets exported");
+  };
+
+  // Budget row tagging
+  const toggleRowSel=key=>setSelRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
+  const selAllRows=()=>setSelRows(selRows.size===segs.length?new Set():new Set(segs.map(s=>s.key)));
+  const applyMetaToSelected=()=>{
+    if(!applyMetaDim||!applyMetaVal||!selRows.size)return;
+    setBudgetRowMeta(p=>{const nx={...p};selRows.forEach(k=>{nx[k]={...(nx[k]||{}),[applyMetaDim]:applyMetaVal};});return nx;});
+    showNotif(`Tagged ${selRows.size} rows — ${applyMetaDim}: ${applyMetaVal}`);
+    setSelRows(new Set());setApplyMetaVal("");
+  };
+  const saveMetaEdit=()=>{
+    if(!editingMeta)return;
+    const trimmed=editMetaVal.trim();
+    setBudgetRowMeta(p=>{const nx={...p};const ts={...(nx[editingMeta.segKey]||{})};if(trimmed)ts[editingMeta.dim]=trimmed;else delete ts[editingMeta.dim];nx[editingMeta.segKey]=ts;return nx;});
+    setEditingMeta(null);setEditMetaVal("");
+  };
+  const addMetaDim=()=>{
+    const d=newMetaDim.trim();
+    if(!d||budgetMetaDims.includes(d))return;
+    setBudgetMetaDims(p=>[...p,d]);setNewMetaDim("");
+    showNotif(`Added dimension: ${d}`);
   };
 
   const segs=useMemo(()=>{
@@ -407,6 +437,34 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
           <div style={{padding:"14px 14px 12px",display:"flex",flexDirection:"column",gap:8}}>
           <Btn onClick={()=>setImportOpen(true)} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import CSV / Excel</Btn>
           <Btn onClick={exportBudgets} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export CSV</Btn>
+
+          {/* Metadata dimensions */}
+          <div style={{borderTop:`1px solid ${T.border}`,marginTop:10,paddingTop:12}}>
+            <SectionLabel T={T} style={{marginBottom:8}}>Annotation Dimensions</SectionLabel>
+            <div style={{fontSize:11,color:T.textMuted,marginBottom:8,lineHeight:1.5}}>Add Pillar, Region, Funnel etc. as columns to annotate budget rows.</div>
+            {budgetMetaDims.map(d=>(
+              <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 0"}}>
+                <span style={{fontSize:12,color:T.text,fontFamily:"Space Grotesk,sans-serif"}}>{d}</span>
+                <button onClick={()=>setBudgetMetaDims(p=>p.filter(x=>x!==d))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13,padding:0,lineHeight:1}}>×</button>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:4,marginTop:6}}>
+              <input value={newMetaDim} onChange={e=>setNewMetaDim(e.target.value)} placeholder="e.g. Pillar, Region…" onKeyDown={e=>e.key==="Enter"&&addMetaDim()}
+                style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Space Grotesk,sans-serif"}}/>
+              <Btn onClick={addMetaDim} disabled={!newMetaDim.trim()} variant="subtle" size="sm" T={T}>+ Add</Btn>
+            </div>
+            {tagDimensions?.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).length>0&&(
+              <div style={{marginTop:8}}>
+                <div style={{fontSize:10,color:T.textMuted,marginBottom:4}}>From your tag dimensions:</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                  {tagDimensions.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).map(d=>(
+                    <button key={d} onClick={()=>{setBudgetMetaDims(p=>[...p,d]);showNotif(`Added ${d}`);}}
+                      style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:T.surfaceEl,border:`1px solid ${T.border}`,color:T.text,cursor:"pointer",fontFamily:"Space Grotesk,sans-serif"}}>+ {d}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
           <Divider T={T}/>
           <div style={{padding:"0 14px 12px"}}>
@@ -458,30 +516,71 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
           </div>
         ):(
           <>
+          {/* Bulk action bar */}
+          {selRows.size>0&&(
+            <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
+              <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{selRows.size} selected</Pill>
+              <span style={{color:T.textMuted,fontSize:13}}>→</span>
+              <Sel value={applyMetaDim} onChange={setApplyMetaDim} T={T} style={{width:140,fontSize:12}}>
+                <option value="">Dimension…</option>
+                {[...budgetDims,...budgetMetaDims].map(d=><option key={d} value={d}>{d}</option>)}
+              </Sel>
+              <input value={applyMetaVal} onChange={e=>setApplyMetaVal(e.target.value)} placeholder="Value…" onKeyDown={e=>e.key==="Enter"&&applyMetaToSelected()}
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:130}}/>
+              <Btn onClick={applyMetaToSelected} disabled={!applyMetaDim||!applyMetaVal} variant="primary" size="sm" T={T}>Apply</Btn>
+              <Btn onClick={()=>setSelRows(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
+            </div>
+          )}
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
             <thead><tr>
-              {budgetDims.map((d,i)=><th key={d} style={{...TH,textAlign:"left",padding:"10px 14px",minWidth:dcw,position:"sticky",left:i*dcw,zIndex:3,background:T.headerBg}}>{d}</th>)}
+              <th style={{...TH,width:32,padding:"10px 8px 10px 16px",position:"sticky",left:0,zIndex:4,background:T.headerBg}}>
+                <input type="checkbox" checked={segs.length>0&&selRows.size===segs.length} onChange={selAllRows} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+              </th>
+              {budgetDims.map((d,i)=><th key={d} style={{...TH,textAlign:"left",padding:"10px 14px",minWidth:dcw,position:"sticky",left:32+i*dcw,zIndex:3,background:T.headerBg}}>{d}</th>)}
+              {budgetMetaDims.map(d=><th key={d} style={{...TH,textAlign:"left",padding:"10px 14px",minWidth:110,color:T.textMuted}}>{d}</th>)}
               {MONTHS.map(m=><th key={m.key} style={{...TH,minWidth:76}}>{m.label}</th>)}
               <th style={{...TH,color:T.accent,minWidth:100}}>Total</th>
               {showQ&&QUARTERS.map(q=><th key={q.key} style={{...TH,color:T.warning,minWidth:96}}>{q.label}</th>)}
               {showA&&<th style={{...TH,color:T.warning,minWidth:96}}>Annual Cap</th>}
             </tr></thead>
             <tbody>
-              {segs.map((seg,ri)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=ri%2===0?"transparent":T.surfaceEl;return(
-                <tr key={seg.key} style={{background:rb}}>
-                  {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:`1px solid ${T.border}`,position:"sticky",left:i*dcw,background:ri%2===0?T.bg:T.surfaceEl,zIndex:1,whiteSpace:"nowrap"}}>
+              {segs.map((seg,ri)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=ri%2===0?"transparent":T.surfaceEl;const isSel=selRows.has(seg.key);return(
+                <tr key={seg.key} style={{background:isSel?T.rowSelected:rb}}>
+                  <td style={{padding:"7px 8px 7px 16px",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:isSel?T.rowSelected:ri%2===0?T.bg:T.surfaceEl,zIndex:1}}>
+                    <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                  </td>
+                  {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:`1px solid ${T.border}`,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:ri%2===0?T.bg:T.surfaceEl,zIndex:1,whiteSpace:"nowrap"}}>
                     <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{fontFamily:"'Space Mono',monospace"}}>{seg[d]}</Pill>
                     {i===budgetDims.length-1&&segMatchCount(seg.key)===0&&(
                       <span title="No tagged campaigns match this segment" style={{marginLeft:6,fontSize:12,cursor:"help"}}>⚠️</span>
                     )}
                   </td>)}
+                  {budgetMetaDims.map(d=>{
+                    const val=(budgetRowMeta[seg.key]||{})[d]||"";
+                    const isEditing=editingMeta?.segKey===seg.key&&editingMeta?.dim===d;
+                    return(
+                      <td key={d} style={{padding:"4px 8px",borderBottom:`1px solid ${T.border}`,minWidth:110}} onClick={()=>{setEditingMeta({segKey:seg.key,dim:d});setEditMetaVal(val);}}>
+                        {isEditing?(
+                          <input autoFocus value={editMetaVal} onChange={e=>setEditMetaVal(e.target.value)}
+                            onBlur={saveMetaEdit} onKeyDown={e=>{if(e.key==="Enter")saveMetaEdit();if(e.key==="Escape"){setEditingMeta(null);setEditMetaVal("");}}}
+                            style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:5,color:T.text,padding:"3px 7px",fontSize:11,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:"100%"}}/>
+                        ):(
+                          <span style={{fontSize:11,color:val?T.text:T.textMuted,cursor:"text",padding:"3px 6px",display:"block",borderRadius:5,border:`1px solid transparent`,minHeight:22,fontFamily:"Space Grotesk,sans-serif"}}>
+                            {val||<span style={{opacity:0.4}}>—</span>}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
                   {MONTHS.map(m=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo)}</td>;})}
                   <td style={{padding:"4px 12px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace",fontWeight:700,color:ao?T.danger:T.accent,whiteSpace:"nowrap",background:rb}}>{rt>0?fmtFull(rt):"—"}{ao&&" ⚠️"}</td>
                   {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={q.key} style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"'Space Mono',monospace"}}>{fmt$(qt)}{qo?" ⚠️":""}</span>}</div></td>;})}
                   {showA&&<td style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"'Space Mono',monospace"}}>{fmt$(rt)}{ao?" ⚠️":""}</span>}</div></td>}
                 </tr>);})}
               <tr style={{borderTop:`2px solid ${T.borderStrong}`,background:T.surface}}>
-                {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0}}>Totals</SectionLabel>}</td>)}
+                <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
+                {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0}}>Totals</SectionLabel>}</td>)}
+                {budgetMetaDims.map(d=><td key={d}/>)}
                 {MONTHS.map(m=>{const t=segs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:11,fontWeight:600,color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
                 <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:T.accent}}>{totalY>0?fmtFull(totalY):"—"}</td>
                 {showQ&&QUARTERS.map(q=><td key={q.key}/>)}
@@ -939,6 +1038,8 @@ export default function BudgetHQ(){
 
   const[budgets,setBudgets]=useState({});
   const[budgetDims,setBudgetDims]=useState([]);
+  const[budgetRowMeta,setBudgetRowMeta]=useState({}); // {segKey: {dim: value}}
+  const[budgetMetaDims,setBudgetMetaDims]=useState([]); // annotation dims on budget rows
 
   useEffect(()=>{try{
     const t=localStorage.getItem("paidhq_tags");if(t)setTags(JSON.parse(t));
@@ -946,6 +1047,8 @@ export default function BudgetHQ(){
     const th=localStorage.getItem("paidhq_theme");if(th)setThemeKey(th);
     const b=localStorage.getItem("paidhq_budgets");if(b)setBudgets(JSON.parse(b));
     const bd=localStorage.getItem("paidhq_budget_dims");if(bd)setBudgetDims(JSON.parse(bd));
+    const bm=localStorage.getItem("paidhq_budget_meta");if(bm)setBudgetRowMeta(JSON.parse(bm));
+    const bmd=localStorage.getItem("paidhq_budget_meta_dims");if(bmd)setBudgetMetaDims(JSON.parse(bmd));
     // Restore spend data
     const sr=localStorage.getItem("paidhq_rows");
     if(sr){setMergedNormRows(JSON.parse(sr));setStep("tag");}
@@ -955,6 +1058,8 @@ export default function BudgetHQ(){
   useEffect(()=>{try{localStorage.setItem("paidhq_theme",themeKey);}catch(e){};},[themeKey]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budgets",JSON.stringify(budgets));}catch(e){};},[budgets]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_dims",JSON.stringify(budgetDims));}catch(e){};},[budgetDims]);
+  useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta",JSON.stringify(budgetRowMeta));}catch(e){};},[budgetRowMeta]);
+  useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta_dims",JSON.stringify(budgetMetaDims));}catch(e){};},[budgetMetaDims]);
   useEffect(()=>{try{
     if(mergedNormRows.length){
       localStorage.setItem("paidhq_rows",JSON.stringify(mergedNormRows));
@@ -1505,7 +1610,7 @@ export default function BudgetHQ(){
       )}
 
       {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
-      {view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims}/>}
+      {view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims}/>}
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
