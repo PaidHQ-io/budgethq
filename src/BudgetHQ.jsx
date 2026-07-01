@@ -912,12 +912,24 @@ export default function BudgetHQ(){
     const th=localStorage.getItem("paidhq_theme");if(th)setThemeKey(th);
     const b=localStorage.getItem("paidhq_budgets");if(b)setBudgets(JSON.parse(b));
     const bd=localStorage.getItem("paidhq_budget_dims");if(bd)setBudgetDims(JSON.parse(bd));
+    // Restore spend data
+    const sr=localStorage.getItem("paidhq_rows");
+    const sh=localStorage.getItem("paidhq_headers");
+    const sc=localStorage.getItem("paidhq_colmap");
+    if(sr&&sh&&sc){setRawRows(JSON.parse(sr));setHeaders(JSON.parse(sh));setColMap(JSON.parse(sc));setStep("tag");}
   }catch(e){};},[]);
   useEffect(()=>{try{localStorage.setItem("paidhq_tags",JSON.stringify(tags));}catch(e){};},[tags]);
   useEffect(()=>{try{localStorage.setItem("paidhq_dims",JSON.stringify(tagDims));}catch(e){};},[tagDims]);
   useEffect(()=>{try{localStorage.setItem("paidhq_theme",themeKey);}catch(e){};},[themeKey]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budgets",JSON.stringify(budgets));}catch(e){};},[budgets]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_dims",JSON.stringify(budgetDims));}catch(e){};},[budgetDims]);
+  useEffect(()=>{try{
+    if(rawRows.length){
+      localStorage.setItem("paidhq_rows",JSON.stringify(rawRows));
+      localStorage.setItem("paidhq_headers",JSON.stringify(headers));
+      localStorage.setItem("paidhq_colmap",JSON.stringify(colMap));
+    }
+  }catch(e){};},[rawRows,headers,colMap]);
 
   // ── Platform sync ──────────────────────────────────────────────────────────
   const PLATFORMS=[
@@ -1043,7 +1055,7 @@ export default function BudgetHQ(){
               <span style={{fontSize:12,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
-          {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>↑ New file</Btn>}
+          {step==="tag"&&<Btn onClick={()=>{setStep("upload");try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_headers");localStorage.removeItem("paidhq_colmap");}catch(e){};}} variant="ghost" size="sm" T={T}>↑ New file</Btn>}
           <button onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")} style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,color:T.textSub,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5}}>
             {themeKey==="dark"?"☀️":"🌙"}{!isMobile&&(themeKey==="dark"?" Light":" Dark")}
           </button>
