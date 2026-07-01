@@ -470,7 +470,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
               {segs.map((seg,ri)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=ri%2===0?"transparent":T.surfaceEl;return(
                 <tr key={seg.key} style={{background:rb}}>
                   {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:`1px solid ${T.border}`,position:"sticky",left:i*dcw,background:ri%2===0?T.bg:T.surfaceEl,zIndex:1,whiteSpace:"nowrap"}}>
-                    <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{seg[d]}</Pill>
+                    <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{fontFamily:"'JetBrains Mono',monospace"}}>{seg[d]}</Pill>
                     {i===budgetDims.length-1&&segMatchCount(seg.key)===0&&(
                       <span title="No tagged campaigns match this segment" style={{marginLeft:6,fontSize:12,cursor:"help"}}>⚠️</span>
                     )}
@@ -905,6 +905,11 @@ export default function BudgetHQ(){
   const[fSMax,setFSMax]=useState("");
   const[fTag,setFTag]=useState("");
   const[fTagExclude,setFTagExclude]=useState("");
+  const[selectedTagFilters,setSelectedTagFilters]=useState(new Set()); // Set of "dim:val"
+  const toggleTagFilter=useCallback((dim,val)=>{
+    const key=`${dim}:${val}`;
+    setSelectedTagFilters(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
+  },[]);
   const[fStatus,setFStatus]=useState("all");
   const fileRef=useRef();
 
@@ -1023,6 +1028,14 @@ export default function BudgetHQ(){
     if(fSMax&&c.spend>parseFloat(fSMax))return false;
     if(fTag){const ts=tags[c.name]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(!s.includes(fTag.toLowerCase()))return false;}
     if(fTagExclude){const ts=tags[c.name]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(s.includes(fTagExclude.toLowerCase()))return false;}
+    if(selectedTagFilters.size>0){
+      // Group by dimension: AND across dims, OR within same dim
+      const dimMap={};
+      selectedTagFilters.forEach(key=>{const idx=key.indexOf(":");const d=key.slice(0,idx);const v=key.slice(idx+1).toLowerCase();if(!dimMap[d])dimMap[d]=new Set();dimMap[d].add(v);});
+      const ts=tags[c.name]||{};
+      const passes=Object.entries(dimMap).every(([dim,vals])=>vals.has((ts[dim]||"").toLowerCase()));
+      if(!passes)return false;
+    }
     if(fStatus==="tagged"&&Object.keys(tags[c.name]||{}).length===0)return false;
     if(fStatus==="untagged"&&Object.keys(tags[c.name]||{}).length>0)return false;
     return true;
@@ -1105,14 +1118,14 @@ export default function BudgetHQ(){
   const selAll=()=>setSelected(selected.size===filtered.length?new Set():new Set(filtered.map(c=>c.name)));
   const addDim=()=>{const n=newDim.trim();if(!n||tagDims.includes(n))return;setTagDims(p=>[...p,n]);setNewDim("");};
   const doSort=col=>{setSortDir(sortCol===col&&sortDir==="desc"?"asc":"desc");setSortCol(col);};
-  const clearF=()=>{setFCamp("");setFCampExclude("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFTagExclude("");setFStatus("all");};
+  const clearF=()=>{setFCamp("");setFCampExclude("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFTagExclude("");setSelectedTagFilters(new Set());setFStatus("all");};
 
   // Cmd+Z / Ctrl+Z undo
   useEffect(()=>{
     const handler=(e)=>{if((e.metaKey||e.ctrlKey)&&e.key==="z"&&!e.shiftKey){e.preventDefault();undoTags();}};
     window.addEventListener("keydown",handler);return()=>window.removeEventListener("keydown",handler);
   },[undoTags]);
-  const hasF=fCamp||fCampExclude||fPlat||fSMin||fSMax||fTag||fTagExclude||fStatus!=="all";
+  const hasF=fCamp||fCampExclude||fPlat||fSMin||fSMax||fTag||fTagExclude||selectedTagFilters.size>0||fStatus!=="all";
   const canProceed=colMap.campaign_name&&colMap.spend;
   const showNav=true;
 
@@ -1290,26 +1303,29 @@ export default function BudgetHQ(){
               {/* Tag browser */}
               {tagDims.some(d=>Object.keys(tagValueMap[d]||{}).length>0)&&(
                 <div style={{marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:14}}>
-                  <SectionLabel T={T} style={{marginBottom:10}}>Filter by tag</SectionLabel>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                    <SectionLabel T={T} style={{marginBottom:0}}>Filter by tag</SectionLabel>
+                    {selectedTagFilters.size>0&&<span style={{fontSize:10,color:T.accent,fontFamily:"Manrope,sans-serif"}}>{selectedTagFilters.size} active</span>}
+                  </div>
                   {tagDims.map(dim=>{
                     const vals=Object.entries(tagValueMap[dim]||{}).sort((a,b)=>b[1]-a[1]);
                     if(!vals.length)return null;
-                    const isActive=fTag&&vals.some(([v])=>fTag.toLowerCase()===v.toLowerCase());
                     return(
-                      <div key={dim} style={{marginBottom:10}}>
+                      <div key={dim} style={{marginBottom:12}}>
                         <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"Manrope,sans-serif"}}>{dim}</div>
                         <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                           {vals.map(([val,count])=>{
-                            const active=fTag.toLowerCase()===val.toLowerCase();
+                            const key=`${dim}:${val}`;
+                            const active=selectedTagFilters.has(key);
                             return(
-                              <button key={val} onClick={()=>setFTag(active?"":val)}
+                              <button key={val} onClick={()=>toggleTagFilter(dim,val)}
                                 style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:"Manrope,sans-serif",
                                   background:active?T.accent:T.surfaceEl,
                                   color:active?"#fff":T.text,
                                   border:`1px solid ${active?T.accent:T.border}`,
                                   transition:"all 0.12s"}}>
                                 {val}
-                                <span style={{fontSize:10,opacity:0.7,background:active?"rgba(255,255,255,0.2)":T.border,borderRadius:8,padding:"0 4px"}}>{count}</span>
+                                <span style={{fontSize:10,opacity:0.7,background:active?"rgba(255,255,255,0.25)":T.border,borderRadius:8,padding:"0 4px"}}>{count}</span>
                               </button>
                             );
                           })}
@@ -1317,7 +1333,12 @@ export default function BudgetHQ(){
                       </div>
                     );
                   })}
-                  {fTag&&<button onClick={()=>setFTag("")} style={{fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"Manrope,sans-serif"}}>Clear tag filter ×</button>}
+                  {selectedTagFilters.size>0&&(
+                    <div style={{fontSize:11,color:T.textMuted,marginTop:4,fontFamily:"Manrope,sans-serif"}}>
+                      AND across dimensions · OR within
+                      <button onClick={()=>setSelectedTagFilters(new Set())} style={{display:"block",fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"Manrope,sans-serif"}}>Clear tag filters ×</button>
+                    </div>
+                  )}
                 </div>
               )}
               </div>
