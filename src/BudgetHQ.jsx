@@ -54,7 +54,7 @@ function autoDetect(h){const m={};h.forEach(c=>{for(const[f,p]of Object.entries(
 function derivePlatform(n,pv){const u=(n||"").toUpperCase();const p=(pv||"").toLowerCase();if(/^LIN[-|]/.test(u)||p.includes("linkedin"))return"LinkedIn";if(/^FB[-|]/.test(u)||p.includes("facebook")||p.includes("meta"))return"Meta";if(/^BIN[-|]/.test(u)||p.includes("bing"))return"Bing";if(/^YT[-|]/.test(u)||p.includes("youtube"))return"YouTube";if(/^SEA[-|]/.test(u)||p==="search")return"Google Search";if(/^GDN[-|]/.test(u)||p==="display")return"Google Display";if(/demand.gen/i.test(u)||p==="demand gen")return"Demand Gen";if(/pmax|performance.max/i.test(u))return"Performance Max";if(p.includes("google"))return"Google Search";if(p.includes("capterra"))return"Capterra";return pv||"Unknown";}
 const parseSpend=v=>{if(!v)return 0;return parseFloat(String(v).replace(/[$,\s]/g,""))||0;};
 const parseMoney=v=>{if(v===""||v==null)return null;const n=parseFloat(String(v).replace(/[$,\s%]/g,""));return isNaN(n)?null:n;};
-const fmt$=n=>{if(!n)return"";if(n>=1e6)return"$"+(n/1e6).toFixed(1)+"M";if(n>=1e3)return"$"+(n/1e3).toFixed(1)+"K";return"$"+n.toFixed(0);};
+const fmt$=n=>{if(!n)return"";return"$"+Math.round(n).toLocaleString();};
 const fmtFull=n=>n?"$"+Math.round(n).toLocaleString():"—";
 const isMonthHdr=c=>{const x=c.trim().toLowerCase().replace(/\s+\d{4}$/,"");return!!MONTH_MAP[x];};
 const getMonthKey=c=>{const x=c.trim().toLowerCase().replace(/\s+\d{4}$/,"");return MONTH_MAP[x]||null;};
@@ -832,7 +832,7 @@ function Dashboard({T,onNavigate,stats,hasData}){
               {label:"Campaigns",value:stats.total.toLocaleString(),color:T.text},
               {label:"Tagged",value:`${stats.tagged.toLocaleString()} (${stats.total?Math.round((stats.tagged/stats.total)*100):0}%)`,color:T.success},
               {label:"Needs review",value:stats.untagged.toLocaleString(),color:stats.untagged>0?T.warning:T.success},
-              {label:"Total spend",value:stats.totalSpend>=1e6?"$"+(stats.totalSpend/1e6).toFixed(1)+"M":stats.totalSpend>=1e3?"$"+(stats.totalSpend/1e3).toFixed(1)+"K":"$"+Math.round(stats.totalSpend).toLocaleString(),color:T.accent},
+              {label:"Total spend",value:"$"+Math.round(stats.totalSpend).toLocaleString(),color:T.accent},
             ].map(s=>(
               <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",boxShadow:T.shadow}}>
                 <div style={{fontSize:11,fontWeight:600,color:T.textMuted,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:6,fontFamily:"Manrope,sans-serif"}}>{s.label}</div>
@@ -945,6 +945,7 @@ export default function BudgetHQ(){
   const[lastSyncRange,setLastSyncRange]=useState(()=>{
     try{const s=localStorage.getItem("paidhq_sync_range");return s?JSON.parse(s):null;}catch(e){return null;}
   });
+  const[syncDateRange,setSyncDateRange]=useState(()=>{
     const now=new Date();
     const y=now.getFullYear();
     const q=Math.floor(now.getMonth()/3);
