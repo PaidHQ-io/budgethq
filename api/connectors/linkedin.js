@@ -26,7 +26,6 @@ async function fetchAllCampaigns(token, accountId) {
   let start = 0;
   const count = 100;
   while (true) {
-    // No status filter — not supported on Advertising API tier
     const url =
       `${BASE}/adCampaignsV2?q=search` +
       `&search.account.values[0]=urn%3Ali%3AsponsoredAccount%3A${accountId}` +
@@ -47,19 +46,27 @@ async function fetchAllCampaigns(token, accountId) {
 async function fetchAnalytics(token, accountId, startDate, endDate) {
   const s = new Date(startDate);
   const e = new Date(endDate);
-  const params = [
-    "q=analytics", "pivot=CAMPAIGN",
-    `dateRange.start.year=${s.getFullYear()}`,
-    `dateRange.start.month=${s.getMonth() + 1}`,
-    `dateRange.start.day=${s.getDate()}`,
-    `dateRange.end.year=${e.getFullYear()}`,
-    `dateRange.end.month=${e.getMonth() + 1}`,
-    `dateRange.end.day=${e.getDate()}`,
-    "timeGranularity=MONTHLY",
-    `accounts=List(urn%3Ali%3AsponsoredAccount%3A${accountId})`,
-    "fields=dateRange,pivotValues,costInLocalCurrency,impressions,clicks",
-  ].join("&");
-  const res = await fetch(`${BASE}/adAnalyticsV2?${params}`, { headers: analyticsHeaders(token) });
+
+  // accounts param must use unencoded URN in List() notation
+  const accountUrn = `urn:li:sponsoredAccount:${accountId}`;
+
+  const params = new URLSearchParams({
+    q: "analytics",
+    pivot: "CAMPAIGN",
+    "dateRange.start.year": s.getFullYear(),
+    "dateRange.start.month": s.getMonth() + 1,
+    "dateRange.start.day": s.getDate(),
+    "dateRange.end.year": e.getFullYear(),
+    "dateRange.end.month": e.getMonth() + 1,
+    "dateRange.end.day": e.getDate(),
+    timeGranularity: "MONTHLY",
+    fields: "dateRange,pivotValues,costInLocalCurrency,impressions,clicks",
+  }).toString();
+
+  // accounts param must NOT be encoded by URLSearchParams — append raw
+  const url = `${BASE}/adAnalyticsV2?${params}&accounts=List(${accountUrn})`;
+
+  const res = await fetch(url, { headers: analyticsHeaders(token) });
   if (!res.ok) throw new Error(`LinkedIn analytics API ${res.status}: ${await res.text()}`);
   return (await res.json()).elements || [];
 }
