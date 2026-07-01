@@ -905,6 +905,9 @@ export default function BudgetHQ(){
   const[rawRows,setRawRows]=useState([]);
   const[headers,setHeaders]=useState([]);
   const[colMap,setColMap]=useState({});
+  const[uploadPlatform,setUploadPlatform]=useState("auto"); // "auto" or specific platform
+  const[editingPlatform,setEditingPlatform]=useState(null); // campaign name being edited
+  const PLATFORM_OPTIONS=["auto","Google","Meta","LinkedIn","Bing","Capterra","Reddit","Pinterest","TikTok","YouTube","Other"];
   const[mergedNormRows,setMergedNormRows]=useState([]); // normalized rows across ALL platform uploads
   const[tagDims,setTagDims]=useState(DEFAULT_DIMS);
   const[tags,setTags]=useState({});
@@ -1276,20 +1279,36 @@ export default function BudgetHQ(){
               <p style={{fontSize:13,color:T.textSub}}><strong style={{color:T.text,fontWeight:600}}>{fileName}</strong> · {rawRows.length.toLocaleString()} rows</p>
             </div>
             <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden",marginBottom:18,boxShadow:T.shadow}}>
-              {[...REQUIRED_COLS,...OPTIONAL_COLS].map((field,i)=>(
+              {/* Platform override */}
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",background:T.accentBg}}>
+                <div>
+                  <span style={{fontSize:13,fontWeight:500,color:T.text}}>Platform</span>
+                  <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Override all rows, or map a column below</div>
+                </div>
+                <Sel value={uploadPlatform} onChange={setUploadPlatform} T={T}>
+                  {PLATFORM_OPTIONS.map(p=><option key={p} value={p}>{p==="auto"?"— Auto-detect from data —":p}</option>)}
+                </Sel>
+              </div>
+              {[...REQUIRED_COLS,...OPTIONAL_COLS].map((field,i)=>{
+                // Hide platform column mapping if a specific platform is selected
+                if(field==="platform"&&uploadPlatform!=="auto")return null;
+                return(
                 <div key={field} style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:i<REQUIRED_COLS.length+OPTIONAL_COLS.length-1?`1px solid ${T.border}`:"none",alignItems:"center",background:REQUIRED_COLS.includes(field)&&!colMap[field]?T.dangerBg:"transparent"}}>
                   <div><span style={{fontSize:13,fontWeight:500,color:T.text}}>{COL_LABELS[field]}</span>{REQUIRED_COLS.includes(field)&&<span style={{fontSize:10,color:T.danger,marginLeft:6,fontWeight:600}}>required</span>}{!REQUIRED_COLS.includes(field)&&<span style={{fontSize:10,color:T.textMuted,marginLeft:6}}>optional</span>}</div>
                   <Sel value={colMap[field]||""} onChange={v=>setColMap(p=>({...p,[field]:v||undefined}))} T={T}><option value="">— not mapped —</option>{headers.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
                 </div>
-              ))}
+                );
+              })}
             </div>
             {canProceed&&<div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>✓ Found <strong>{campaigns.length}</strong> campaigns · <strong>{fmt$(campaigns.reduce((s,c)=>s+c.spend,0))}</strong> total spend</div>}
             <div style={{display:"flex",justifyContent:"space-between"}}>
               <Btn onClick={()=>setStep("upload")} variant="ghost" T={T}>← Back</Btn>
               <Btn onClick={()=>{
                 const norm=normalizeRows(rawRows,colMap);
-                setMergedNormRows(prev=>mergeRows(prev,norm));
-                showNotif(`Added ${norm.length} rows — merged with existing data`);
+                const withPlatform=uploadPlatform==="auto"?norm:norm.map(r=>({...r,platform:uploadPlatform}));
+                setMergedNormRows(prev=>mergeRows(prev,withPlatform));
+                showNotif(`Added ${withPlatform.length} rows — merged with existing data`);
+                setUploadPlatform("auto");
                 setStep("tag");
               }} disabled={!canProceed} variant="primary" T={T} size="md">Continue to tagging →</Btn>
             </div>
@@ -1439,7 +1458,21 @@ export default function BudgetHQ(){
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.name)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                     <div style={{minWidth:0}}><div style={{fontSize:11,fontFamily:"'Space Mono',monospace",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>{c.adsetCount>0&&<div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{c.adsetCount} ad sets</div>}</div>
                     <div style={{fontSize:12,fontFamily:"'Space Mono',monospace",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
-                    {!isMobile&&<div><span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:5,background:pc+"18",color:pc,border:`1px solid ${pc}30`,whiteSpace:"nowrap"}}>{c.platform}</span></div>}
+                    {!isMobile&&<div onClick={e=>e.stopPropagation()}>
+                      {editingPlatform===c.name?(
+                        <select autoFocus value={c.platform}
+                          onChange={e=>{const plat=e.target.value;setMergedNormRows(prev=>prev.map(r=>r.campaign_name===c.name?{...r,platform:plat}:r));setEditingPlatform(null);}}
+                          onBlur={()=>setEditingPlatform(null)}
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:11,padding:"2px 6px",outline:"none",fontFamily:"Space Grotesk,sans-serif",cursor:"pointer"}}>
+                          {PLATFORM_OPTIONS.filter(p=>p!=="auto").map(p=><option key={p} value={p}>{p}</option>)}
+                        </select>
+                      ):(
+                        <span onClick={()=>setEditingPlatform(c.name)} title="Click to change platform"
+                          style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:5,background:pc+"18",color:pc,border:`1px solid ${pc}30`,whiteSpace:"nowrap",cursor:"pointer"}}>
+                          {c.platform}
+                        </span>
+                      )}
+                    </div>}
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
                       {tc===0?<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>needs review</Pill>:
                         Object.entries(ts).map(([dim,val])=>(
