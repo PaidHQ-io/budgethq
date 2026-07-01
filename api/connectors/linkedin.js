@@ -26,10 +26,10 @@ async function fetchAllCampaigns(token, accountId) {
   let start = 0;
   const count = 100;
   while (true) {
+    // No status filter — not supported on Advertising API tier
     const url =
       `${BASE}/adCampaignsV2?q=search` +
       `&search.account.values[0]=urn%3Ali%3AsponsoredAccount%3A${accountId}` +
-      `&search.status.values[0]=ACTIVE&search.status.values[1]=PAUSED&search.status.values[2]=ARCHIVED` +
       `&start=${start}&count=${count}&fields=id,name,status`;
     const res = await fetch(url, { headers: restHeaders(token) });
     if (!res.ok) throw new Error(`LinkedIn campaigns API ${res.status}: ${await res.text()}`);
