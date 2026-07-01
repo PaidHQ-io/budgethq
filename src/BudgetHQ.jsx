@@ -1435,7 +1435,7 @@ export default function BudgetHQ(){
                 const ts=tags[c.name]||{};const tc=Object.keys(ts).length;const isSel=selected.has(c.name);const pc=PLATFORM_COLORS[c.platform]||T.textMuted;
                 return(
                   <div key={c.name} onClick={()=>toggleSel(c.name)}
-                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr)",padding:"9px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:ri%2===0?"transparent":T.surfaceEl,transition:"background 0.1s",gap:6}}>
+                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:ri%2===0?"transparent":T.surfaceEl,transition:"background 0.1s",gap:6}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.name)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                     <div style={{minWidth:0}}><div style={{fontSize:11,fontFamily:"'Space Mono',monospace",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>{c.adsetCount>0&&<div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{c.adsetCount} ad sets</div>}</div>
                     <div style={{fontSize:12,fontFamily:"'Space Mono',monospace",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
@@ -1459,6 +1459,9 @@ export default function BudgetHQ(){
                         ))
                       }
                     </div>}
+                    {!isMobile&&<button onClick={e=>{e.stopPropagation();setMergedNormRows(prev=>prev.filter(r=>r.campaign_name!==c.name));}} title="Remove this campaign"
+                      style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:"2px",opacity:0.4,transition:"opacity 0.1s"}}
+                      onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.4}>✕</button>}
                   </div>
                 );
               })}
