@@ -896,10 +896,12 @@ export default function BudgetHQ(){
   const[sortCol,setSortCol]=useState("spend");
   const[sortDir,setSortDir]=useState("desc");
   const[fCamp,setFCamp]=useState("");
+  const[fCampExclude,setFCampExclude]=useState("");
   const[fPlat,setFPlat]=useState("");
   const[fSMin,setFSMin]=useState("");
   const[fSMax,setFSMax]=useState("");
   const[fTag,setFTag]=useState("");
+  const[fTagExclude,setFTagExclude]=useState("");
   const[fStatus,setFStatus]=useState("all");
   const fileRef=useRef();
 
@@ -998,7 +1000,18 @@ export default function BudgetHQ(){
   const allPlats=useMemo(()=>[...new Set(campaigns.map(c=>c.platform))].sort(),[campaigns]);
   const stats=useMemo(()=>{const totalSpend=campaigns.reduce((s,c)=>s+c.spend,0);const tagged=campaigns.filter(c=>Object.keys(tags[c.name]||{}).length>0).length;const dates=rawRows.map(r=>r[colMap.date]).filter(Boolean).sort();return{total:campaigns.length,tagged,untagged:campaigns.length-tagged,totalSpend,totalRows:rawRows.length,dateRange:dates.length?`${dates[0]} → ${dates[dates.length-1]}`:""};},[campaigns,tags,rawRows,colMap]);
 
-  const filtered=useMemo(()=>{let r=campaigns.filter(c=>{if(fCamp&&!c.name.toLowerCase().includes(fCamp.toLowerCase()))return false;if(fPlat&&c.platform!==fPlat)return false;if(fSMin&&c.spend<parseFloat(fSMin))return false;if(fSMax&&c.spend>parseFloat(fSMax))return false;if(fTag){const ts=tags[c.name]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(!s.includes(fTag.toLowerCase()))return false;}if(fStatus==="tagged"&&Object.keys(tags[c.name]||{}).length===0)return false;if(fStatus==="untagged"&&Object.keys(tags[c.name]||{}).length>0)return false;return true;});return[...r].sort((a,b)=>{if(sortCol==="spend")return sortDir==="asc"?a.spend-b.spend:b.spend-a.spend;if(sortCol==="campaign")return sortDir==="asc"?a.name.localeCompare(b.name):b.name.localeCompare(a.name);if(sortCol==="platform")return sortDir==="asc"?a.platform.localeCompare(b.platform):b.platform.localeCompare(a.platform);const at=Object.keys(tags[a.name]||{}).length;const bt=Object.keys(tags[b.name]||{}).length;return sortDir==="asc"?at-bt:bt-at;});},[campaigns,fCamp,fPlat,fSMin,fSMax,fTag,fStatus,sortCol,sortDir,tags]);
+  const filtered=useMemo(()=>{let r=campaigns.filter(c=>{
+    if(fCamp&&!c.name.toLowerCase().includes(fCamp.toLowerCase()))return false;
+    if(fCampExclude&&c.name.toLowerCase().includes(fCampExclude.toLowerCase()))return false;
+    if(fPlat&&c.platform!==fPlat)return false;
+    if(fSMin&&c.spend<parseFloat(fSMin))return false;
+    if(fSMax&&c.spend>parseFloat(fSMax))return false;
+    if(fTag){const ts=tags[c.name]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(!s.includes(fTag.toLowerCase()))return false;}
+    if(fTagExclude){const ts=tags[c.name]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(s.includes(fTagExclude.toLowerCase()))return false;}
+    if(fStatus==="tagged"&&Object.keys(tags[c.name]||{}).length===0)return false;
+    if(fStatus==="untagged"&&Object.keys(tags[c.name]||{}).length>0)return false;
+    return true;
+  });return[...r].sort((a,b)=>{if(sortCol==="spend")return sortDir==="asc"?a.spend-b.spend:b.spend-a.spend;if(sortCol==="campaign")return sortDir==="asc"?a.name.localeCompare(b.name):b.name.localeCompare(a.name);if(sortCol==="platform")return sortDir==="asc"?a.platform.localeCompare(b.platform):b.platform.localeCompare(a.platform);const at=Object.keys(tags[a.name]||{}).length;const bt=Object.keys(tags[b.name]||{}).length;return sortDir==="asc"?at-bt:bt-at;});},[campaigns,fCamp,fCampExclude,fPlat,fSMin,fSMax,fTag,fTagExclude,fStatus,sortCol,sortDir,tags]);
 
   const suggestions=useMemo(()=>{if(!fCamp||fCamp.length<3)return[];const term=fCamp.toLowerCase();const seen=new Set();const out=[];tagDims.forEach(dim=>{Object.entries(tags).forEach(([cn,ts])=>{if(ts[dim]&&cn.toLowerCase().includes(term)){const key=`${dim}:${ts[dim]}`;if(!seen.has(key)){seen.add(key);const count=filtered.filter(c=>!(tags[c.name]?.[dim])).length;if(count>0)out.push({key,dim,val:ts[dim],count});}}});});return out.slice(0,3);},[fCamp,filtered,tags,tagDims]);
 
@@ -1017,8 +1030,8 @@ export default function BudgetHQ(){
   const selAll=()=>setSelected(selected.size===filtered.length?new Set():new Set(filtered.map(c=>c.name)));
   const addDim=()=>{const n=newDim.trim();if(!n||tagDims.includes(n))return;setTagDims(p=>[...p,n]);setNewDim("");};
   const doSort=col=>{setSortDir(sortCol===col&&sortDir==="desc"?"asc":"desc");setSortCol(col);};
-  const clearF=()=>{setFCamp("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFStatus("all");};
-  const hasF=fCamp||fPlat||fSMin||fSMax||fTag||fStatus!=="all";
+  const clearF=()=>{setFCamp("");setFCampExclude("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFTagExclude("");setFStatus("all");};
+  const hasF=fCamp||fCampExclude||fPlat||fSMin||fSMax||fTag||fTagExclude||fStatus!=="all";
   const canProceed=colMap.campaign_name&&colMap.spend;
   const showNav=true;
 
@@ -1223,13 +1236,19 @@ export default function BudgetHQ(){
               </div>
               <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 8px",gap:6,alignItems:"start"}}>
                 <div/>
-                <input value={fCamp} onChange={e=>setFCamp(e.target.value)} placeholder="Filter campaigns…" style={fIn}/>
+                <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  <input value={fCamp} onChange={e=>setFCamp(e.target.value)} placeholder="Campaign contains…" style={fIn}/>
+                  <input value={fCampExclude} onChange={e=>setFCampExclude(e.target.value)} placeholder="≠ excludes…" style={{...fIn,borderColor:fCampExclude?"#ef4444":undefined,color:fCampExclude?"#ef4444":undefined}}/>
+                </div>
                 <div style={{display:"flex",gap:2}}><input value={fSMin} onChange={e=>setFSMin(e.target.value)} placeholder="Min" style={{...fIn,width:"50%"}}/><input value={fSMax} onChange={e=>setFSMax(e.target.value)} placeholder="Max" style={{...fIn,width:"50%"}}/></div>
                 {!isMobile&&<select value={fPlat} onChange={e=>setFPlat(e.target.value)} style={{...fIn,cursor:"pointer"}}><option value="">All platforms</option>{allPlats.map(p=><option key={p} value={p}>{p}</option>)}</select>}
-                {!isMobile&&<div style={{display:"flex",gap:4}}>
-                  <input value={fTag} onChange={e=>setFTag(e.target.value)} placeholder="Filter tags…" style={{...fIn,flex:1}}/>
-                  <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{...fIn,width:120,cursor:"pointer"}}><option value="all">All</option><option value="tagged">Tagged</option><option value="untagged">Needs review</option></select>
-                  {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,borderRadius:5,padding:"0 8px",cursor:"pointer",fontSize:11,marginTop:3,fontFamily:"Manrope,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
+                {!isMobile&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  <div style={{display:"flex",gap:4}}>
+                    <input value={fTag} onChange={e=>setFTag(e.target.value)} placeholder="Tag contains…" style={{...fIn,flex:1}}/>
+                    <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{...fIn,width:120,cursor:"pointer"}}><option value="all">All</option><option value="tagged">Tagged</option><option value="untagged">Needs review</option></select>
+                    {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,borderRadius:5,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Manrope,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
+                  </div>
+                  <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes…" style={{...fIn,borderColor:fTagExclude?"#ef4444":undefined,color:fTagExclude?"#ef4444":undefined}}/>
                 </div>}
               </div>
             </div>
