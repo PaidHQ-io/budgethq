@@ -889,6 +889,9 @@ export default function BudgetHQ(){
   const[tags,setTags]=useState({});
   const[selected,setSelected]=useState(new Set());
   const[newDim,setNewDim]=useState("");
+  const[tagsHistory,setTagsHistory]=useState([]); // undo stack, max 50
+  const[editingTag,setEditingTag]=useState(null); // {campaign, dim}
+  const[editVal,setEditVal]=useState("");
   const[applyDim,setApplyDim]=useState("");
   const[applyVal,setApplyVal]=useState("");
   const[dragOver,setDragOver]=useState(false);
@@ -1028,10 +1031,25 @@ export default function BudgetHQ(){
   const suggestions=useMemo(()=>{if(!fCamp||fCamp.length<3)return[];const term=fCamp.toLowerCase();const seen=new Set();const out=[];tagDims.forEach(dim=>{Object.entries(tags).forEach(([cn,ts])=>{if(ts[dim]&&cn.toLowerCase().includes(term)){const key=`${dim}:${ts[dim]}`;if(!seen.has(key)){seen.add(key);const count=filtered.filter(c=>!(tags[c.name]?.[dim])).length;if(count>0)out.push({key,dim,val:ts[dim],count});}}});});return out.slice(0,3);},[fCamp,filtered,tags,tagDims]);
 
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
-  const applyTags=useCallback(()=>{if(!applyDim||!applyVal||!selected.size)return;const u={};selected.forEach(n=>{u[n]={...(tags[n]||{}),[applyDim]:applyVal};});setTags(p=>({...p,...u}));showNotif(`Tagged ${selected.size} campaigns — ${applyDim}: ${applyVal}`);setSelected(new Set());setApplyVal("");},[applyDim,applyVal,selected,tags]);
-  const applySug=useCallback((dim,val)=>{const u={};filtered.forEach(c=>{if(!(tags[c.name]?.[dim]))u[c.name]={...(tags[c.name]||{}),[dim]:val};});setTags(p=>({...p,...u}));showNotif(`Applied ${dim}: ${val} to ${Object.keys(u).length} campaigns`);},[filtered,tags]);
-  const removeTag=useCallback((cn,dim)=>{setTags(p=>{const ts={...(p[cn]||{})};delete ts[dim];return{...p,[cn]:ts};});},[]);
-  const bulkRemoveTag=useCallback(dim=>{if(!dim||!selected.size)return;setTags(p=>{const nx={...p};selected.forEach(n=>{if(nx[n]){const ts={...nx[n]};delete ts[dim];nx[n]=ts;}});return nx;});showNotif(`Removed ${dim} tag from ${selected.size} campaigns`);setSelected(new Set());},[selected,tags]);
+  const pushHistory=useCallback(currentTags=>{setTagsHistory(h=>[...h.slice(-49),currentTags]);},[]);
+  const undoTags=useCallback(()=>{if(!tagsHistory.length)return;setTags(tagsHistory[tagsHistory.length-1]);setTagsHistory(h=>h.slice(0,-1));showNotif("Undone");},[tagsHistory]);
+  const applyTags=useCallback(()=>{if(!applyDim||!applyVal||!selected.size)return;pushHistory(tags);const u={};selected.forEach(n=>{u[n]={...(tags[n]||{}),[applyDim]:applyVal};});setTags(p=>({...p,...u}));showNotif(`Tagged ${selected.size} campaigns — ${applyDim}: ${applyVal}`);setSelected(new Set());setApplyVal("");},[applyDim,applyVal,selected,tags,pushHistory]);
+  const applySug=useCallback((dim,val)=>{pushHistory(tags);const u={};filtered.forEach(c=>{if(!(tags[c.name]?.[dim]))u[c.name]={...(tags[c.name]||{}),[dim]:val};});setTags(p=>({...p,...u}));showNotif(`Applied ${dim}: ${val} to ${Object.keys(u).length} campaigns`);},[filtered,tags,pushHistory]);
+  const removeTag=useCallback((cn,dim)=>{pushHistory(tags);setTags(p=>{const ts={...(p[cn]||{})};delete ts[dim];return{...p,[cn]:ts};});},[tags,pushHistory]);
+  const bulkRemoveTag=useCallback(dim=>{if(!dim||!selected.size)return;pushHistory(tags);setTags(p=>{const nx={...p};selected.forEach(n=>{if(nx[n]){const ts={...nx[n]};delete ts[dim];nx[n]=ts;}});return nx;});showNotif(`Removed ${dim} tag from ${selected.size} campaigns`);setSelected(new Set());},[selected,tags,pushHistory]);
+  const saveEdit=useCallback(()=>{
+    if(!editingTag)return;
+    const trimmed=editVal.trim();
+    const current=(tags[editingTag.campaign]||{})[editingTag.dim];
+    if(trimmed===current){setEditingTag(null);setEditVal("");return;}
+    pushHistory(tags);
+    setTags(p=>{
+      const ts={...(p[editingTag.campaign]||{})};
+      if(trimmed)ts[editingTag.dim]=trimmed;else delete ts[editingTag.dim];
+      return{...p,[editingTag.campaign]:ts};
+    });
+    setEditingTag(null);setEditVal("");
+  },[editingTag,editVal,tags,pushHistory]);
   const exportTags=()=>{
     const header=["Campaign","Platform","Spend",...tagDims];
     const rows=[header,...campaigns.map(c=>[c.name,c.platform,c.spend.toFixed(2),...tagDims.map(d=>(tags[c.name]||{})[d]||"")])];
@@ -1075,6 +1093,12 @@ export default function BudgetHQ(){
   const addDim=()=>{const n=newDim.trim();if(!n||tagDims.includes(n))return;setTagDims(p=>[...p,n]);setNewDim("");};
   const doSort=col=>{setSortDir(sortCol===col&&sortDir==="desc"?"asc":"desc");setSortCol(col);};
   const clearF=()=>{setFCamp("");setFCampExclude("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFTagExclude("");setFStatus("all");};
+
+  // Cmd+Z / Ctrl+Z undo
+  useEffect(()=>{
+    const handler=(e)=>{if((e.metaKey||e.ctrlKey)&&e.key==="z"&&!e.shiftKey){e.preventDefault();undoTags();}};
+    window.addEventListener("keydown",handler);return()=>window.removeEventListener("keydown",handler);
+  },[undoTags]);
   const hasF=fCamp||fCampExclude||fPlat||fSMin||fSMax||fTag||fTagExclude||fStatus!=="all";
   const canProceed=colMap.campaign_name&&colMap.spend;
   const showNav=true;
@@ -1269,6 +1293,9 @@ export default function BudgetHQ(){
                 <Btn onClick={applyTags} disabled={!applyDim||!applyVal} variant="primary" size="sm" T={T}>Apply</Btn>
                 <Btn onClick={()=>bulkRemoveTag(applyDim)} disabled={!applyDim} variant="danger" size="sm" T={T}>Remove</Btn>
                 <Btn onClick={()=>setSelected(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
+                <div style={{marginLeft:"auto"}}>
+                  <Btn onClick={undoTags} disabled={!tagsHistory.length} variant="ghost" size="sm" T={T} title="Undo last tag action (⌘Z)">↩ Undo {tagsHistory.length>0&&`(${tagsHistory.length})`}</Btn>
+                </div>
               </div>
             )}
 
@@ -1278,7 +1305,13 @@ export default function BudgetHQ(){
                 <SH col="campaign" label="Campaign"/>
                 <SH col="spend" label="Spend"/>
                 {!isMobile&&<SH col="platform" label="Platform"/>}
-                {!isMobile&&<SH col="tags" label="Tags"/>}
+                {!isMobile&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <SH col="tags" label="Tags"/>
+                  {tagsHistory.length>0&&<button onClick={undoTags} title="Undo last tag action (⌘Z)"
+                    style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:10,padding:"1px 6px",fontFamily:"Manrope,sans-serif",whiteSpace:"nowrap"}}>
+                    ↩ Undo ({tagsHistory.length})
+                  </button>}
+                </div>}
               </div>
               <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 8px",gap:6,alignItems:"start"}}>
                 <div/>
@@ -1312,8 +1345,18 @@ export default function BudgetHQ(){
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
                       {tc===0?<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>needs review</Pill>:
                         Object.entries(ts).map(([dim,val])=>(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:20,background:T.accentBg,color:T.accent,border:`1px solid ${T.accentBorder}`,gap:3,fontFamily:"Manrope,sans-serif"}}>
-                            {dim}: {val}<span onClick={e=>{e.stopPropagation();removeTag(c.name,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13,lineHeight:1,marginLeft:1}}>×</span>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:20,background:T.accentBg,color:T.accent,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Manrope,sans-serif"}}>
+                            <span style={{opacity:0.7,marginRight:1}}>{dim}:</span>
+                            {editingTag?.campaign===c.name&&editingTag?.dim===dim?(
+                              <input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)}
+                                onBlur={saveEdit}
+                                onKeyDown={e=>{if(e.key==="Enter")saveEdit();if(e.key==="Escape"){setEditingTag(null);setEditVal("");}e.stopPropagation();}}
+                                onClick={e=>e.stopPropagation()}
+                                style={{background:"transparent",border:"none",outline:"none",color:T.accent,fontSize:11,fontWeight:600,width:Math.max(40,editVal.length*7)+"px",fontFamily:"Manrope,sans-serif",padding:0}}/>
+                            ):(
+                              <span onClick={e=>{e.stopPropagation();setEditingTag({campaign:c.name,dim});setEditVal(val);}} style={{cursor:"text",fontWeight:600}}>{val}</span>
+                            )}
+                            <span onClick={e=>{e.stopPropagation();removeTag(c.name,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13,lineHeight:1,marginLeft:1,padding:"0 2px"}}>×</span>
                           </span>
                         ))
                       }
