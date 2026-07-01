@@ -871,6 +871,26 @@ function Dashboard({T,onNavigate,stats,hasData}){
   );
 }
 
+// Normalize raw CSV rows to standard format using colMap
+function normalizeRows(rows,colMap){
+  return rows.map(row=>({
+    campaign_name:(row[colMap.campaign_name]||"").trim(),
+    spend:parseFloat(String(row[colMap.spend]||"0").replace(/[$, ]/g,""))||0,
+    platform:(row[colMap.platform]||"").trim()||"Unknown",
+    date:String(row[colMap.date]||"").trim(),
+    impressions:parseInt(String(row[colMap.impressions]||"0").replace(/,/g,""))||0,
+    clicks:parseInt(String(row[colMap.clicks]||"0").replace(/,/g,""))||0,
+  })).filter(r=>r.campaign_name&&r.spend>0);
+}
+
+// Merge normalized rows — deduplicate by campaign_name+date, new data wins
+function mergeRows(existing,incoming){
+  const key=r=>`${r.campaign_name}||${r.date}`;
+  const map=new Map(existing.map(r=>[key(r),r]));
+  incoming.forEach(r=>map.set(key(r),r));
+  return Array.from(map.values());
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function BudgetHQ(){
   const[themeKey,setThemeKey]=useState("light");
@@ -885,6 +905,7 @@ export default function BudgetHQ(){
   const[rawRows,setRawRows]=useState([]);
   const[headers,setHeaders]=useState([]);
   const[colMap,setColMap]=useState({});
+  const[mergedNormRows,setMergedNormRows]=useState([]); // normalized rows across ALL platform uploads
   const[tagDims,setTagDims]=useState(DEFAULT_DIMS);
   const[tags,setTags]=useState({});
   const[selected,setSelected]=useState(new Set());
@@ -924,9 +945,7 @@ export default function BudgetHQ(){
     const bd=localStorage.getItem("paidhq_budget_dims");if(bd)setBudgetDims(JSON.parse(bd));
     // Restore spend data
     const sr=localStorage.getItem("paidhq_rows");
-    const sh=localStorage.getItem("paidhq_headers");
-    const sc=localStorage.getItem("paidhq_colmap");
-    if(sr&&sh&&sc){setRawRows(JSON.parse(sr));setHeaders(JSON.parse(sh));setColMap(JSON.parse(sc));setStep("tag");}
+    if(sr){setMergedNormRows(JSON.parse(sr));setStep("tag");}
   }catch(e){};},[]);
   useEffect(()=>{try{localStorage.setItem("paidhq_tags",JSON.stringify(tags));}catch(e){};},[tags]);
   useEffect(()=>{try{localStorage.setItem("paidhq_dims",JSON.stringify(tagDims));}catch(e){};},[tagDims]);
@@ -934,22 +953,20 @@ export default function BudgetHQ(){
   useEffect(()=>{try{localStorage.setItem("paidhq_budgets",JSON.stringify(budgets));}catch(e){};},[budgets]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_dims",JSON.stringify(budgetDims));}catch(e){};},[budgetDims]);
   useEffect(()=>{try{
-    if(rawRows.length){
-      localStorage.setItem("paidhq_rows",JSON.stringify(rawRows));
-      localStorage.setItem("paidhq_headers",JSON.stringify(headers));
-      localStorage.setItem("paidhq_colmap",JSON.stringify(colMap));
+    if(mergedNormRows.length){
+      localStorage.setItem("paidhq_rows",JSON.stringify(mergedNormRows));
     }
-  }catch(e){};},[rawRows,headers,colMap]);
+  }catch(e){};},[mergedNormRows]);
 
   // ── Platform sync ──────────────────────────────────────────────────────────
+  const[syncState,setSyncState]=useState({}); // {platform: "idle"|"loading"|"done"|"error"}
   const PLATFORMS=[
     {key:"linkedin",label:"LinkedIn",status:"live",color:"#0A66C2"},
+    {key:"bing",label:"Bing",status:"live",color:"#00809D"},
     {key:"google",label:"Google",status:"csv",color:"#EA4335"},
     {key:"meta",label:"Meta",status:"csv",color:"#1877F2"},
-    {key:"bing",label:"Bing",status:"csv",color:"#00809D"},
     {key:"capterra",label:"Capterra",status:"csv",color:"#FF7043"},
   ];
-  const[syncState,setSyncState]=useState({}); // {platform: "idle"|"loading"|"done"|"error"}
   const[lastSyncRange,setLastSyncRange]=useState(()=>{
     try{const s=localStorage.getItem("paidhq_sync_range");return s?JSON.parse(s):null;}catch(e){return null;}
   });
@@ -978,17 +995,14 @@ export default function BudgetHQ(){
         throw new Error(err.error||"API error");
       }
       const{rows}=await res.json();
-      // Merge into rawRows / headers / campaigns as if a CSV was uploaded
       if(rows.length===0) throw new Error("No spend data returned for this date range");
-      const fields=["campaign_name","campaign_id","platform","date","spend","impressions","clicks"];
-      setHeaders(fields);
-      setColMap({campaign_name:"campaign_name",spend:"spend",platform:"platform",date:"date",impressions:"impressions",clicks:"clicks"});
-      setRawRows(rows);
+      // Merge with existing data — don't replace
+      setMergedNormRows(prev=>mergeRows(prev,rows));
       setStep("tag");
       setSyncState(p=>({...p,[platformKey]:"done"}));
       setLastSyncRange({start:syncDateRange.start,end:syncDateRange.end});
       try{localStorage.setItem("paidhq_sync_range",JSON.stringify({start:syncDateRange.start,end:syncDateRange.end}));}catch(e){}
-      showNotif(`Loaded ${rows.length} ${platformKey} campaigns`);
+      showNotif(`Loaded ${rows.length} ${platformKey} campaigns — merged with existing data`);
     }catch(e){
       setSyncState(p=>({...p,[platformKey]:"error:"+e.message}));
     }
@@ -1009,15 +1023,26 @@ export default function BudgetHQ(){
   },[tags]);
   const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);},[handleFile]);
 
-  const campaigns=useMemo(()=>{if(!rawRows.length||!colMap.campaign_name)return[];const map={};rawRows.forEach(row=>{const name=(row[colMap.campaign_name]||"").trim();if(!name)return;const spend=parseSpend(row[colMap.spend]);const platform=derivePlatform(name,colMap.platform?row[colMap.platform]:"");if(!map[name])map[name]={name,platform,spend:0,rows:0,adsets:new Set()};map[name].spend+=spend;map[name].rows++;if(colMap.adset_name&&row[colMap.adset_name])map[name].adsets.add(row[colMap.adset_name]);});return Object.values(map).map(c=>({...c,adsetCount:c.adsets.size}));},[rawRows,colMap]);
+  const campaigns=useMemo(()=>{
+    if(!mergedNormRows.length)return[];
+    const map={};
+    mergedNormRows.forEach(row=>{
+      const name=row.campaign_name;if(!name)return;
+      const platform=derivePlatform(name,row.platform);
+      if(!map[name])map[name]={name,platform,spend:0,rows:0};
+      map[name].spend+=row.spend;
+      map[name].rows++;
+    });
+    return Object.values(map).map(c=>({...c,adsetCount:0}));
+  },[mergedNormRows]);
   const allPlats=useMemo(()=>[...new Set(campaigns.map(c=>c.platform))].sort(),[campaigns]);
   const stats=useMemo(()=>{
     const totalSpend=campaigns.reduce((s,c)=>s+c.spend,0);
     const tagged=campaigns.filter(c=>Object.keys(tags[c.name]||{}).length>0).length;
-    const dates=rawRows.map(r=>r[colMap.date]).filter(Boolean).sort();
+    const dates=mergedNormRows.map(r=>r.date).filter(Boolean).sort();
     const derivedRange=dates.length?`${dates[0]} → ${dates[dates.length-1]}`:"";
     const displayRange=lastSyncRange?`${lastSyncRange.start} → ${lastSyncRange.end}`:derivedRange;
-    return{total:campaigns.length,tagged,untagged:campaigns.length-tagged,totalSpend,totalRows:rawRows.length,dateRange:displayRange};
+    return{total:campaigns.length,tagged,untagged:campaigns.length-tagged,totalSpend,totalRows:mergedNormRows.length,dateRange:displayRange};
   },[campaigns,tags,rawRows,colMap,lastSyncRange]);
 
   const filtered=useMemo(()=>{let r=campaigns.filter(c=>{
@@ -1162,7 +1187,7 @@ export default function BudgetHQ(){
               <span style={{fontSize:12,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
-          {step==="tag"&&<Btn onClick={()=>{setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_headers");localStorage.removeItem("paidhq_colmap");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T}>↑ New file</Btn>}
+          {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>↑ Add data</Btn>}{step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>✕ Clear all</Btn>}
           <button onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")} style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,color:T.textSub,fontFamily:"Space Grotesk,sans-serif",display:"flex",alignItems:"center",gap:5}}>
             {themeKey==="dark"?"☀️":"🌙"}{!isMobile&&(themeKey==="dark"?" Light":" Dark")}
           </button>
@@ -1261,7 +1286,12 @@ export default function BudgetHQ(){
             {canProceed&&<div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>✓ Found <strong>{campaigns.length}</strong> campaigns · <strong>{fmt$(campaigns.reduce((s,c)=>s+c.spend,0))}</strong> total spend</div>}
             <div style={{display:"flex",justifyContent:"space-between"}}>
               <Btn onClick={()=>setStep("upload")} variant="ghost" T={T}>← Back</Btn>
-              <Btn onClick={()=>setStep("tag")} disabled={!canProceed} variant="primary" T={T} size="md">Continue to tagging →</Btn>
+              <Btn onClick={()=>{
+                const norm=normalizeRows(rawRows,colMap);
+                setMergedNormRows(prev=>mergeRows(prev,norm));
+                showNotif(`Added ${norm.length} rows — merged with existing data`);
+                setStep("tag");
+              }} disabled={!canProceed} variant="primary" T={T} size="md">Continue to tagging →</Btn>
             </div>
           </div>
         </div>
@@ -1290,7 +1320,7 @@ export default function BudgetHQ(){
               <Divider T={T}/>
               <div style={{padding:"0 14px",flex:1}}>
                 <SectionLabel T={T}>Overview</SectionLabel>
-                {[{l:"Campaigns",v:stats.total.toString()},{l:"Showing",v:filtered.length.toString(),c:T.accent},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.accent},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T}/>)}
+                {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.accent},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.accent},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T}/>)}
                 {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"'Space Mono',monospace",lineHeight:1.6}}>{stats.dateRange}</div>}
                 <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accent,transition:"width 0.4s",borderRadius:2}}/></div>
                 <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
@@ -1438,7 +1468,7 @@ export default function BudgetHQ(){
         </div>
       )}
 
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={step==="tag"}/>}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
       {view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims}/>}
 
       <style>{`
