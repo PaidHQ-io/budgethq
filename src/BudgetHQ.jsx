@@ -98,13 +98,13 @@ const PlatformBadge=({platform,T})=>{const c=PLATFORM_COLORS[platform]||T.textMu
 const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={}})=>{
   const s={sm:{padding:"5px 12px",fontSize:12},md:{padding:"7px 16px",fontSize:13},lg:{padding:"9px 22px",fontSize:14}};
   const v={primary:{background:T.accent,color:"#fff",border:"none"},ghost:{background:"transparent",color:T.textSub,border:`1px solid ${T.border}`},subtle:{background:T.surfaceEl,color:T.textSub,border:`1px solid ${T.border}`},success:{background:T.successBg,color:T.success,border:`1px solid ${T.successBorder}`},danger:{background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerBorder}`}};
-  return <button disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:6,cursor:disabled?"not-allowed":"pointer",fontWeight:500,transition:"all 0.12s",fontFamily:"Manrope,sans-serif",opacity:disabled?0.4:1,...s[size],...v[variant],...style}}>{children}</button>;
+  return <button disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:6,cursor:disabled?"not-allowed":"pointer",fontWeight:500,transition:"all 0.12s",fontFamily:"Geist,sans-serif",opacity:disabled?0.4:1,...s[size],...v[variant],...style}}>{children}</button>;
 };
-const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"'JetBrains Mono',monospace":"Manrope,sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
-const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"Manrope,sans-serif",width:"100%",...style}}>{children}</select>);
+const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"'Geist Mono',monospace":"Geist,sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
+const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"Geist,sans-serif",width:"100%",...style}}>{children}</select>);
 const Tog=({value,onChange,T})=>(<div onClick={()=>onChange(!value)} style={{width:30,height:17,borderRadius:9,background:value?T.accent:T.borderStrong,position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0}}><div style={{position:"absolute",top:2,left:value?15:2,width:13,height:13,borderRadius:7,background:"#fff",transition:"left 0.18s",boxShadow:"0 1px 3px rgba(0,0,0,0.25)"}}/></div>);
 const Chk=({checked,onChange,T})=>(<div onClick={onChange} style={{width:15,height:15,borderRadius:4,border:`1.5px solid ${checked?T.accent:T.borderStrong}`,background:checked?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all 0.12s"}}>{checked&&<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>);
-const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",fontWeight:600,color:color||T.text}}>{value}</span></div>);
+const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"'Geist Mono',monospace",fontWeight:600,color:color||T.text}}>{value}</span></div>);
 const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
@@ -395,7 +395,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
 
   const cellIn=(val,onChange,over=false,cap=false)=>(
     <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
-      style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:T.text,padding:"4px 6px",fontSize:11,width:cap?80:70,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",outline:"none",display:"block"}}/>
+      style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:T.text,padding:"4px 6px",fontSize:11,width:cap?80:70,fontFamily:"'Geist Mono',monospace",textAlign:"right",outline:"none",display:"block"}}/>
   );
   const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"right"};
 
@@ -411,7 +411,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
           <Divider T={T}/>
           <div style={{padding:"0 14px 12px"}}>
             <SectionLabel T={T}>Budget Year</SectionLabel>
-            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:5,border:`1px solid ${year===y?T.accent:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?600:400,fontFamily:"Manrope,sans-serif"}}>{y}</button>)}</div>
+            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:5,border:`1px solid ${year===y?T.accent:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?600:400,fontFamily:"Geist,sans-serif"}}>{y}</button>)}</div>
           </div>
           <Divider T={T}/>
           <div style={{padding:"0 14px 12px"}}>
@@ -420,7 +420,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
               <div key={d} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?T.accentBg:"transparent",marginBottom:1}}>
                 <Chk checked={on} onChange={()=>toggleDim(d)} T={T}/>
                 <span style={{fontSize:13,color:on?T.accent:T.text,fontWeight:on?500:400}}>{d}</span>
-                <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontFamily:"'JetBrains Mono',monospace"}}>{dimCount(d)}</span>
+                <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontFamily:"'Geist Mono',monospace"}}>{dimCount(d)}</span>
               </div>
             );})}
           </div>
@@ -470,20 +470,20 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
               {segs.map((seg,ri)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=ri%2===0?"transparent":T.surfaceEl;return(
                 <tr key={seg.key} style={{background:rb}}>
                   {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:`1px solid ${T.border}`,position:"sticky",left:i*dcw,background:ri%2===0?T.bg:T.surfaceEl,zIndex:1,whiteSpace:"nowrap"}}>
-                    <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{fontFamily:"'JetBrains Mono',monospace"}}>{seg[d]}</Pill>
+                    <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{fontFamily:"'Geist Mono',monospace"}}>{seg[d]}</Pill>
                     {i===budgetDims.length-1&&segMatchCount(seg.key)===0&&(
                       <span title="No tagged campaigns match this segment" style={{marginLeft:6,fontSize:12,cursor:"help"}}>⚠️</span>
                     )}
                   </td>)}
                   {MONTHS.map(m=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo)}</td>;})}
-                  <td style={{padding:"4px 12px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:ao?T.danger:T.accent,whiteSpace:"nowrap",background:rb}}>{rt>0?fmtFull(rt):"—"}{ao&&" ⚠️"}</td>
-                  {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={q.key} style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>{fmt$(qt)}{qo?" ⚠️":""}</span>}</div></td>;})}
-                  {showA&&<td style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>{fmt$(rt)}{ao?" ⚠️":""}</span>}</div></td>}
+                  <td style={{padding:"4px 12px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Geist Mono',monospace",fontWeight:700,color:ao?T.danger:T.accent,whiteSpace:"nowrap",background:rb}}>{rt>0?fmtFull(rt):"—"}{ao&&" ⚠️"}</td>
+                  {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={q.key} style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"'Geist Mono',monospace"}}>{fmt$(qt)}{qo?" ⚠️":""}</span>}</div></td>;})}
+                  {showA&&<td style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"'Geist Mono',monospace"}}>{fmt$(rt)}{ao?" ⚠️":""}</span>}</div></td>}
                 </tr>);})}
               <tr style={{borderTop:`2px solid ${T.borderStrong}`,background:T.surface}}>
                 {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0}}>Totals</SectionLabel>}</td>)}
-                {MONTHS.map(m=>{const t=segs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:600,color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
-                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontSize:12,fontWeight:700,color:T.accent}}>{totalY>0?fmtFull(totalY):"—"}</td>
+                {MONTHS.map(m=>{const t=segs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'Geist Mono',monospace",fontSize:11,fontWeight:600,color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
+                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'Geist Mono',monospace",fontSize:12,fontWeight:700,color:T.accent}}>{totalY>0?fmtFull(totalY):"—"}</td>
                 {showQ&&QUARTERS.map(q=><td key={q.key}/>)}
                 {showA&&<td/>}
               </tr>
@@ -494,14 +494,14 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
           {budgetDims.length>0&&(
             <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`,background:T.surface}}>
               {!showAddRow?(
-                <button onClick={()=>setShowAddRow(true)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:12,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5,padding:0}}>
+                <button onClick={()=>setShowAddRow(true)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:12,fontFamily:"Geist,sans-serif",display:"flex",alignItems:"center",gap:5,padding:0}}>
                   <span style={{fontSize:16,lineHeight:1}}>+</span> Add segment manually
                 </button>
               ):(
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                   {budgetDims.map(d=>(
                     <input key={d} value={newRowVals[d]||""} onChange={e=>setNewRowVals(p=>({...p,[d]:e.target.value}))} placeholder={d}
-                      style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Manrope,sans-serif",width:130}}/>
+                      style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Geist,sans-serif",width:130}}/>
                   ))}
                   <Btn onClick={addManualRow} disabled={budgetDims.some(d=>!newRowVals[d]?.trim())} variant="primary" size="sm" T={T}>Add</Btn>
                   <Btn onClick={()=>{setShowAddRow(false);setNewRowVals({});}} variant="ghost" size="sm" T={T}>Cancel</Btn>
@@ -513,7 +513,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
         )}
       </div>
 
-      {notif&&<div style={{position:"fixed",bottom:24,right:24,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:300,boxShadow:T.shadowMd,fontFamily:"Manrope,sans-serif"}}>{notif}</div>}
+      {notif&&<div style={{position:"fixed",bottom:24,right:24,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:300,boxShadow:T.shadowMd,fontFamily:"Geist,sans-serif"}}>{notif}</div>}
 
       {/* ── IMPORT MODAL ── */}
       {importOpen&&(
@@ -536,7 +536,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                   const sk=IMPORT_STEPS[i];const idx=IMPORT_STEPS.indexOf(iStep);
                   return <div key={sk} style={{display:"flex",alignItems:"center",gap:5}}>{i>0&&<span style={{color:T.textDim,fontSize:11}}>›</span>}<span style={{fontSize:12,color:iStep===sk?T.accent:idx>i?T.success:T.textMuted,fontWeight:iStep===sk?600:400}}>{idx>i?"✓ ":""}{label}</span></div>;
                 })}
-                <button onClick={closeImport} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,marginLeft:6,fontFamily:"Manrope,sans-serif"}}>×</button>
+                <button onClick={closeImport} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,marginLeft:6,fontFamily:"Geist,sans-serif"}}>×</button>
               </div>
             </div>
 
@@ -550,7 +550,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                     <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Which year do these budgets apply to?</div>
                     <div style={{fontSize:12,color:T.textSub,marginBottom:10}}>Applied to all entries — even if the year isn't in the file.</div>
                     <div style={{display:"flex",gap:8}}>
-                      {years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textSub,cursor:"pointer",fontSize:15,fontWeight:iYear===y?700:400,fontFamily:"Manrope,sans-serif"}}>{y}</button>)}
+                      {years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textSub,cursor:"pointer",fontSize:15,fontWeight:iYear===y?700:400,fontFamily:"Geist,sans-serif"}}>{y}</button>)}
                     </div>
                   </div>
                   <div onClick={()=>fileRef.current?.click()} style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:10,padding:"36px 20px",textAlign:"center",cursor:"pointer",background:T.surfaceEl}}>
@@ -563,7 +563,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                     {[{label:"Wide format",example:"Product | Jan | Feb | Mar | Apr..."},{label:"Long format",example:"Product | Platform | Month | Budget"}].map(f=>(
                       <div key={f.label} style={{padding:"10px 12px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8}}>
                         <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:3}}>{f.label}</div>
-                        <div style={{fontSize:11,color:T.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>{f.example}</div>
+                        <div style={{fontSize:11,color:T.textMuted,fontFamily:"'Geist Mono',monospace"}}>{f.example}</div>
                       </div>
                     ))}
                   </div>
@@ -576,7 +576,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                   {aiError&&<div style={{padding:"9px 12px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:8,marginBottom:14,fontSize:12,color:T.danger}}>{aiError}</div>}
                   <div style={{padding:"10px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                     <span style={{fontSize:12,color:T.accent,fontWeight:500}}>Year: <strong>{iYear}</strong> · Click a row to set it as the header</span>
-                    <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{padding:"2px 8px",borderRadius:4,border:`1px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"Manrope,sans-serif"}}>{y}</button>)}</div>
+                    <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{padding:"2px 8px",borderRadius:4,border:`1px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"Geist,sans-serif"}}>{y}</button>)}</div>
                   </div>
 
                   <div style={{marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
@@ -605,7 +605,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                                 {isHeader?"→":ri+1}
                               </td>
                               {row.slice(0,8).map((cell,ci)=>(
-                                <td key={ci} style={{padding:"6px 10px",color:isHeader?T.accent:isSkip?T.danger:isEmpty?T.textDim:T.text,fontWeight:isHeader?600:400,fontFamily:isHeader?"Manrope,sans-serif":"'JetBrains Mono',monospace",fontSize:isHeader?11:11,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                <td key={ci} style={{padding:"6px 10px",color:isHeader?T.accent:isSkip?T.danger:isEmpty?T.textDim:T.text,fontWeight:isHeader?600:400,fontFamily:isHeader?"Geist,sans-serif":"'Geist Mono',monospace",fontSize:isHeader?11:11,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                                   {cell||""}
                                 </td>
                               ))}
@@ -648,7 +648,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                           <div style={{fontSize:11,color:T.textMuted}}>What are these columns? e.g. Campaign, Ad Set</div>
                         </div>
                         <input value={iSegDim} onChange={e=>setISegDim(e.target.value)} placeholder="e.g. Campaign"
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Manrope,sans-serif"}}/>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Geist,sans-serif"}}/>
                       </div>
 
                       {/* Group header row */}
@@ -665,7 +665,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                             <div>
                               <div style={{fontSize:12,color:T.textSub,marginBottom:4}}>Which row contains channel labels?</div>
                               <select value={iGroupHeaderRow} onChange={e=>setIGroupHeaderRow(parseInt(e.target.value))}
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Manrope,sans-serif",width:"100%"}}>
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Geist,sans-serif",width:"100%"}}>
                                 {iRawRows.slice(0,iHeaderRow).map((_,i)=>(
                                   <option key={i} value={i}>Row {i+1}: {(iRawRows[i]||[]).filter(v=>String(v||"").trim()).slice(0,3).join(" | ")}</option>
                                 ))}
@@ -674,7 +674,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                             <div>
                               <div style={{fontSize:12,color:T.textSub,marginBottom:4}}>Name for this group dimension</div>
                               <input value={iGroupDim} onChange={e=>setIGroupDim(e.target.value)} placeholder="e.g. Channel, Platform"
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Manrope,sans-serif",width:"100%"}}/>
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Geist,sans-serif",width:"100%"}}/>
                             </div>
                           </div>
                         )}
@@ -709,9 +709,9 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                       {customDims.length===0&&<div style={{fontSize:12,color:T.textMuted,padding:"8px 0"}}>Map any additional columns to new tag dimensions not yet in your list.</div>}
                       {customDims.map((cd,i)=>(
                         <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 28px",gap:8,marginBottom:8,alignItems:"center"}}>
-                          <input value={cd.name} onChange={e=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Dimension name (e.g. BU)" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Manrope,sans-serif"}}/>
+                          <input value={cd.name} onChange={e=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Dimension name (e.g. BU)" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Geist,sans-serif"}}/>
                           <Sel value={cd.col} onChange={v=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,col:v}:x))} T={T}><option value="">— select column —</option>{iHeaders.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
-                          <button onClick={()=>setCustomDims(p=>p.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,padding:"4px",fontFamily:"Manrope,sans-serif"}}>×</button>
+                          <button onClick={()=>setCustomDims(p=>p.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,padding:"4px",fontFamily:"Geist,sans-serif"}}>×</button>
                         </div>
                       ))}
                     </div>
@@ -747,8 +747,8 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                         {pvGrouped.map((sg,i)=>{const rt=Object.values(sg.months).reduce((s,v)=>s+v,0);return(
                           <tr key={i}>
                             {dimCols.map(d=><td key={d} style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,color:T.text}}>{sg.dims[d]||"—"}</td>)}
-                            {MONTHS.filter(m=>(preview||[]).some(e=>e.monthKey===m.key)).map(m=><td key={m.key} style={{padding:"7px 6px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:sg.months[m.key]?T.text:T.textDim}}>{sg.months[m.key]?fmt$(sg.months[m.key]):"—"}</td>)}
-                            <td style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:T.accent}}>{fmt$(rt)}</td>
+                            {MONTHS.filter(m=>(preview||[]).some(e=>e.monthKey===m.key)).map(m=><td key={m.key} style={{padding:"7px 6px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Geist Mono',monospace",color:sg.months[m.key]?T.text:T.textDim}}>{sg.months[m.key]?fmt$(sg.months[m.key]):"—"}</td>)}
+                            <td style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Geist Mono',monospace",fontWeight:700,color:T.accent}}>{fmt$(rt)}</td>
                           </tr>
                         );})}
                       </tbody>
@@ -813,15 +813,15 @@ function Dashboard({T,onNavigate,stats,hasData}){
               <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><polyline points="2,16 7,10 11,13 20,4" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><circle cx="7" cy="10" r="1.8" fill={T.accent}/><circle cx="11" cy="13" r="1.8" fill={T.accent}/></svg>
             </div>
             <div>
-              <h1 style={{fontSize:26,fontWeight:700,color:T.text,letterSpacing:"-0.5px",marginBottom:2,fontFamily:"Manrope,sans-serif"}}>BudgetHQ</h1>
-              <div style={{fontSize:12,color:T.textMuted,fontFamily:"Manrope,sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
+              <h1 style={{fontSize:26,fontWeight:700,color:T.text,letterSpacing:"-0.5px",marginBottom:2,fontFamily:"Geist,sans-serif"}}>BudgetHQ</h1>
+              <div style={{fontSize:12,color:T.textMuted,fontFamily:"Geist,sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
             </div>
           </div>
-          <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"Manrope,sans-serif"}}>
+          <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"Geist,sans-serif"}}>
             Set budgets by custom segment, track pacing against actuals, and manage spend across every ad platform — without breaking a spreadsheet.
           </p>
           <div style={{marginTop:12,display:"inline-flex",alignItems:"center",gap:8,padding:"7px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8}}>
-            <span style={{fontSize:13,color:T.accent,fontFamily:"Manrope,sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
+            <span style={{fontSize:13,color:T.accent,fontFamily:"Geist,sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
           </div>
         </div>
 
@@ -835,8 +835,8 @@ function Dashboard({T,onNavigate,stats,hasData}){
               {label:"Total spend",value:"$"+Math.round(stats.totalSpend).toLocaleString(),color:T.accent},
             ].map(s=>(
               <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",boxShadow:T.shadow}}>
-                <div style={{fontSize:11,fontWeight:600,color:T.textMuted,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:6,fontFamily:"Manrope,sans-serif"}}>{s.label}</div>
-                <div style={{fontSize:20,fontWeight:700,color:s.color,fontFamily:"'JetBrains Mono',monospace"}}>{s.value}</div>
+                <div style={{fontSize:11,fontWeight:600,color:T.textMuted,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:6,fontFamily:"Geist,sans-serif"}}>{s.label}</div>
+                <div style={{fontSize:20,fontWeight:700,color:s.color,fontFamily:"'Geist Mono',monospace"}}>{s.value}</div>
               </div>
             ))}
           </div>
@@ -851,9 +851,9 @@ function Dashboard({T,onNavigate,stats,hasData}){
                 <div style={{width:36,height:36,borderRadius:9,background:card.disabled?T.surfaceEl:T.accentBg,border:`1px solid ${card.disabled?T.border:T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{card.icon}</div>
                 {!card.disabled&&<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke={T.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
               </div>
-              <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Manrope,sans-serif"}}>{card.title}</div>
-              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14,fontFamily:"Manrope,sans-serif"}}>{card.desc}</div>
-              <div style={{fontSize:12,fontWeight:600,color:card.color,fontFamily:"Manrope,sans-serif"}}>{card.action}</div>
+              <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Geist,sans-serif"}}>{card.title}</div>
+              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14,fontFamily:"Geist,sans-serif"}}>{card.desc}</div>
+              <div style={{fontSize:12,fontWeight:600,color:card.color,fontFamily:"Geist,sans-serif"}}>{card.action}</div>
             </div>
           ))}
         </div>
@@ -861,9 +861,9 @@ function Dashboard({T,onNavigate,stats,hasData}){
         {/* Date range if data loaded */}
         {hasData&&stats.dateRange&&(
           <div style={{marginTop:24,padding:"10px 14px",background:T.surfaceEl,borderRadius:8,border:`1px solid ${T.border}`,display:"inline-flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:11,color:T.textMuted,fontFamily:"Manrope,sans-serif"}}>Data loaded:</span>
-            <span style={{fontSize:11,color:T.text,fontFamily:"'JetBrains Mono',monospace",fontWeight:500}}>{stats.dateRange}</span>
-            <span style={{fontSize:11,color:T.textMuted,fontFamily:"Manrope,sans-serif"}}>· {stats.totalRows.toLocaleString()} rows</span>
+            <span style={{fontSize:11,color:T.textMuted,fontFamily:"Geist,sans-serif"}}>Data loaded:</span>
+            <span style={{fontSize:11,color:T.text,fontFamily:"'Geist Mono',monospace",fontWeight:500}}>{stats.dateRange}</span>
+            <span style={{fontSize:11,color:T.textMuted,fontFamily:"Geist,sans-serif"}}>· {stats.totalRows.toLocaleString()} rows</span>
           </div>
         )}
       </div>
@@ -1130,11 +1130,11 @@ export default function BudgetHQ(){
   const showNav=true;
 
   const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:sortCol===col?T.accent:T.textMuted,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
-  const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Manrope,sans-serif",width:"100%",marginTop:3};
+  const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Geist,sans-serif",width:"100%",marginTop:3};
 
   return(
-    <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"Manrope,sans-serif",overflow:"hidden"}}>
-      <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+    <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"Geist,sans-serif",overflow:"hidden"}}>
+      <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 
       {/* ── HEADER ── */}
       <header style={{height:48,background:T.headerBg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",padding:"0 16px",gap:8,flexShrink:0,zIndex:30,boxShadow:T.shadow}}>
@@ -1152,7 +1152,7 @@ export default function BudgetHQ(){
           return <button key={item.key} onClick={()=>{
               if(item.key==="tagger"){if(step!=="tag")setStep("upload");setView("tagger");}
               else setView(item.key);
-            }} style={{padding:"0 12px",height:32,background:active?T.surfaceEl:"transparent",border:active?`1px solid ${T.border}`:"1px solid transparent",borderRadius:6,color:active?T.text:T.textMuted,cursor:"pointer",fontSize:13,fontWeight:active?600:400,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5}}><span>{item.icon}</span>{!isMobile&&item.label}</button>;
+            }} style={{padding:"0 12px",height:32,background:active?T.surfaceEl:"transparent",border:active?`1px solid ${T.border}`:"1px solid transparent",borderRadius:6,color:active?T.text:T.textMuted,cursor:"pointer",fontSize:13,fontWeight:active?600:400,fontFamily:"Geist,sans-serif",display:"flex",alignItems:"center",gap:5}}><span>{item.icon}</span>{!isMobile&&item.label}</button>;
           })}
         </nav>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
@@ -1163,13 +1163,13 @@ export default function BudgetHQ(){
             </div>
           )}
           {step==="tag"&&<Btn onClick={()=>{setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_headers");localStorage.removeItem("paidhq_colmap");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T}>↑ New file</Btn>}
-          <button onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")} style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,color:T.textSub,fontFamily:"Manrope,sans-serif",display:"flex",alignItems:"center",gap:5}}>
+          <button onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")} style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,color:T.textSub,fontFamily:"Geist,sans-serif",display:"flex",alignItems:"center",gap:5}}>
             {themeKey==="dark"?"☀️":"🌙"}{!isMobile&&(themeKey==="dark"?" Light":" Dark")}
           </button>
         </div>
       </header>
 
-      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"Manrope,sans-serif"}}>{notif}</div>}
+      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"Geist,sans-serif"}}>{notif}</div>}
 
       {/* ── UPLOAD ── */}
       {step==="upload"&&(
@@ -1204,8 +1204,8 @@ export default function BudgetHQ(){
                     <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,
                       background:live?(done?"#10B981":err?"#ef4444":pl.color):"#9ca3af",
                       ...(loading?{border:`2px solid rgba(0,0,0,0.1)`,borderTopColor:pl.color,background:"transparent",animation:"spin 0.7s linear infinite"}:{})}}/>
-                    <span style={{fontSize:12,fontWeight:600,color:live?T.text:T.textMuted,fontFamily:"Manrope,sans-serif"}}>{pl.label}</span>
-                    <span style={{fontSize:10,color:live?(done?"#10B981":err?"#ef4444":T.accent):T.textMuted,fontFamily:"Manrope,sans-serif"}}>
+                    <span style={{fontSize:12,fontWeight:600,color:live?T.text:T.textMuted,fontFamily:"Geist,sans-serif"}}>{pl.label}</span>
+                    <span style={{fontSize:10,color:live?(done?"#10B981":err?"#ef4444":T.accent):T.textMuted,fontFamily:"Geist,sans-serif"}}>
                       {live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV"}
                     </span>
                   </button>
@@ -1278,20 +1278,20 @@ export default function BudgetHQ(){
                   {tagDims.map(dim=>(
                     <div key={dim} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent"}}>
                       <span style={{fontSize:13,color:applyDim===dim?T.accent:T.text,fontWeight:applyDim===dim?600:400}}>{dim}</span>
-                      <span style={{fontSize:11,color:T.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
+                      <span style={{fontSize:11,color:T.textMuted,fontFamily:"'Geist Mono',monospace"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
                     </div>
                   ))}
                 </div>
                 <div style={{display:"flex",gap:5,marginBottom:2}}>
                   <Inp value={newDim} onChange={setNewDim} placeholder="New dimension…" T={T} onKeyDown={e=>e.key==="Enter"&&addDim()} style={{fontSize:12,padding:"5px 8px"}}/>
-                  <button onClick={addDim} style={{background:T.accentBg,border:`1px solid ${T.accentBorder}`,color:T.accent,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,fontFamily:"Manrope,sans-serif"}}>+</button>
+                  <button onClick={addDim} style={{background:T.accentBg,border:`1px solid ${T.accentBorder}`,color:T.accent,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,fontFamily:"Geist,sans-serif"}}>+</button>
                 </div>
               </div>
               <Divider T={T}/>
               <div style={{padding:"0 14px",flex:1}}>
                 <SectionLabel T={T}>Overview</SectionLabel>
                 {[{l:"Campaigns",v:stats.total.toString()},{l:"Showing",v:filtered.length.toString(),c:T.accent},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.accent},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T}/>)}
-                {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"'JetBrains Mono',monospace",lineHeight:1.6}}>{stats.dateRange}</div>}
+                {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"'Geist Mono',monospace",lineHeight:1.6}}>{stats.dateRange}</div>}
                 <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accent,transition:"width 0.4s",borderRadius:2}}/></div>
                 <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
               <div style={{marginTop:12}}>
@@ -1305,21 +1305,21 @@ export default function BudgetHQ(){
                 <div style={{marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:14}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                     <SectionLabel T={T} style={{marginBottom:0}}>Filter by tag</SectionLabel>
-                    {selectedTagFilters.size>0&&<span style={{fontSize:10,color:T.accent,fontFamily:"Manrope,sans-serif"}}>{selectedTagFilters.size} active</span>}
+                    {selectedTagFilters.size>0&&<span style={{fontSize:10,color:T.accent,fontFamily:"Geist,sans-serif"}}>{selectedTagFilters.size} active</span>}
                   </div>
                   {tagDims.map(dim=>{
                     const vals=Object.entries(tagValueMap[dim]||{}).sort((a,b)=>b[1]-a[1]);
                     if(!vals.length)return null;
                     return(
                       <div key={dim} style={{marginBottom:12}}>
-                        <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"Manrope,sans-serif"}}>{dim}</div>
+                        <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"Geist,sans-serif"}}>{dim}</div>
                         <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                           {vals.map(([val,count])=>{
                             const key=`${dim}:${val}`;
                             const active=selectedTagFilters.has(key);
                             return(
                               <button key={val} onClick={()=>toggleTagFilter(dim,val)}
-                                style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:"Manrope,sans-serif",
+                                style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:"Geist,sans-serif",
                                   background:active?T.accent:T.surfaceEl,
                                   color:active?"#fff":T.text,
                                   border:`1px solid ${active?T.accent:T.border}`,
@@ -1334,9 +1334,9 @@ export default function BudgetHQ(){
                     );
                   })}
                   {selectedTagFilters.size>0&&(
-                    <div style={{fontSize:11,color:T.textMuted,marginTop:4,fontFamily:"Manrope,sans-serif"}}>
+                    <div style={{fontSize:11,color:T.textMuted,marginTop:4,fontFamily:"Geist,sans-serif"}}>
                       AND across dimensions · OR within
-                      <button onClick={()=>setSelectedTagFilters(new Set())} style={{display:"block",fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"Manrope,sans-serif"}}>Clear tag filters ×</button>
+                      <button onClick={()=>setSelectedTagFilters(new Set())} style={{display:"block",fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"Geist,sans-serif"}}>Clear tag filters ×</button>
                     </div>
                   )}
                 </div>
@@ -1349,7 +1349,7 @@ export default function BudgetHQ(){
             {suggestions.length>0&&(
               <div style={{padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.accentBorder}`,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
                 <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.accent}}>Suggest</span>
-                {suggestions.map(s=><button key={s.key} onClick={()=>applySug(s.dim,s.val)} style={{fontSize:12,background:T.surface,border:`1px solid ${T.accentBorder}`,color:T.accent,borderRadius:20,padding:"3px 10px",cursor:"pointer",fontFamily:"Manrope,sans-serif",fontWeight:500}}>Apply {s.dim}: {s.val} to {s.count} untagged</button>)}
+                {suggestions.map(s=><button key={s.key} onClick={()=>applySug(s.dim,s.val)} style={{fontSize:12,background:T.surface,border:`1px solid ${T.accentBorder}`,color:T.accent,borderRadius:20,padding:"3px 10px",cursor:"pointer",fontFamily:"Geist,sans-serif",fontWeight:500}}>Apply {s.dim}: {s.val} to {s.count} untagged</button>)}
               </div>
             )}
             {selected.size>0&&(
@@ -1376,7 +1376,7 @@ export default function BudgetHQ(){
                 {!isMobile&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                   <SH col="tags" label="Tags"/>
                   {tagsHistory.length>0&&<button onClick={undoTags} title="Undo last tag action (⌘Z)"
-                    style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:10,padding:"1px 6px",fontFamily:"Manrope,sans-serif",whiteSpace:"nowrap"}}>
+                    style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:10,padding:"1px 6px",fontFamily:"Geist,sans-serif",whiteSpace:"nowrap"}}>
                     ↩ Undo ({tagsHistory.length})
                   </button>}
                 </div>}
@@ -1393,7 +1393,7 @@ export default function BudgetHQ(){
                   <div style={{display:"flex",gap:4}}>
                     <input value={fTag} onChange={e=>setFTag(e.target.value)} placeholder="Tag contains…" style={{...fIn,flex:1}}/>
                     <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{...fIn,width:120,cursor:"pointer"}}><option value="all">All</option><option value="tagged">Tagged</option><option value="untagged">Needs review</option></select>
-                    {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,borderRadius:5,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Manrope,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
+                    {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,borderRadius:5,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Geist,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
                   </div>
                   <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes…" style={{...fIn,borderColor:fTagExclude?"#ef4444":undefined,color:fTagExclude?"#ef4444":undefined}}/>
                 </div>}
@@ -1407,20 +1407,20 @@ export default function BudgetHQ(){
                   <div key={c.name} onClick={()=>toggleSel(c.name)}
                     style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr)",padding:"9px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:ri%2===0?"transparent":T.surfaceEl,transition:"background 0.1s",gap:6}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.name)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
-                    <div style={{minWidth:0}}><div style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>{c.adsetCount>0&&<div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{c.adsetCount} ad sets</div>}</div>
-                    <div style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
+                    <div style={{minWidth:0}}><div style={{fontSize:11,fontFamily:"'Geist Mono',monospace",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>{c.adsetCount>0&&<div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{c.adsetCount} ad sets</div>}</div>
+                    <div style={{fontSize:12,fontFamily:"'Geist Mono',monospace",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div><span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:5,background:pc+"18",color:pc,border:`1px solid ${pc}30`,whiteSpace:"nowrap"}}>{c.platform}</span></div>}
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
                       {tc===0?<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>needs review</Pill>:
                         Object.entries(ts).map(([dim,val])=>(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:20,background:T.accentBg,color:T.accent,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Manrope,sans-serif"}}>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:20,background:T.accentBg,color:T.accent,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Geist,sans-serif"}}>
                             <span style={{opacity:0.7,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.name&&editingTag?.dim===dim?(
                               <input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)}
                                 onBlur={saveEdit}
                                 onKeyDown={e=>{if(e.key==="Enter")saveEdit();if(e.key==="Escape"){setEditingTag(null);setEditVal("");}e.stopPropagation();}}
                                 onClick={e=>e.stopPropagation()}
-                                style={{background:"transparent",border:"none",outline:"none",color:T.accent,fontSize:11,fontWeight:600,width:Math.max(40,editVal.length*7)+"px",fontFamily:"Manrope,sans-serif",padding:0}}/>
+                                style={{background:"transparent",border:"none",outline:"none",color:T.accent,fontSize:11,fontWeight:600,width:Math.max(40,editVal.length*7)+"px",fontFamily:"Geist,sans-serif",padding:0}}/>
                             ):(
                               <span onClick={e=>{e.stopPropagation();setEditingTag({campaign:c.name,dim});setEditVal(val);}} style={{cursor:"text",fontWeight:600}}>{val}</span>
                             )}
@@ -1445,8 +1445,8 @@ export default function BudgetHQ(){
         *{box-sizing:border-box;margin:0;padding:0;}
         html,body{height:100%;width:100%;overflow:hidden;}
         #root{height:100%;width:100%;display:flex;flex-direction:column;}
-        body{font-family:'Manrope',sans-serif;-webkit-font-smoothing:antialiased;}
-        input,select,button,textarea{font-family:'Manrope',sans-serif;}
+        body{font-family:'Geist',sans-serif;-webkit-font-smoothing:antialiased;}
+        input,select,button,textarea{font-family:'Geist',sans-serif;}
         input::placeholder{color:${T.textDim};}
         select option{background:${T.surface};color:${T.text};}
         ::-webkit-scrollbar{width:5px;height:5px;}
