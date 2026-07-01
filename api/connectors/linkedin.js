@@ -21,30 +21,28 @@ const restHeaders = (token) => ({
   "X-Restli-Protocol-Version": "2.0.0",
 });
 
-async function fetchAllCampaigns(token, accountId) {
+// Resolve campaign names by fetching each URN individually
+async function resolveCampaignNames(token, urns) {
   const campaigns = {};
-  let start = 0;
-  const count = 100;
+  // Batch in groups of 20 to avoid rate limits
+  const batches = [];
+  for (let i = 0; i < urns.length; i += 20) batches.push(urns.slice(i, i + 20));
 
-  while (true) {
-    // Use account URN filter directly — no q=search needed
-    const accountUrn = encodeURIComponent(`urn:li:sponsoredAccount:${accountId}`);
-    const url =
-      `${BASE}/adCampaignsV2?account=${accountUrn}` +
-      `&start=${start}&count=${count}&fields=id,name,status`;
-
-    const res = await fetch(url, { headers: restHeaders(token) });
-    if (!res.ok) throw new Error(`LinkedIn campaigns API ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    const elements = data.elements || [];
-    elements.forEach((c) => {
-      campaigns[`urn:li:sponsoredCampaign:${c.id}`] = {
-        id: String(c.id),
-        name: c.name || String(c.id),
-      };
-    });
-    if (elements.length < count) break;
-    start += count;
+  for (const batch of batches) {
+    await Promise.all(batch.map(async (urn) => {
+      const id = urn.split(":").pop();
+      try {
+        const res = await fetch(`${BASE}/adCampaignsV2/${id}`, { headers: restHeaders(token) });
+        if (res.ok) {
+          const data = await res.json();
+          campaigns[urn] = { id: String(id), name: data.name || `Campaign ${id}` };
+        } else {
+          campaigns[urn] = { id: String(id), name: `Campaign ${id}` };
+        }
+      } catch {
+        campaigns[urn] = { id: String(id), name: `Campaign ${id}` };
+      }
+    }));
   }
   return campaigns;
 }
@@ -67,9 +65,8 @@ async function fetchAnalytics(token, accountId, startDate, endDate) {
     fields: "dateRange,pivotValues,costInLocalCurrency,impressions,clicks",
   }).toString();
 
-  // accounts List() param must not be URL-encoded
+  // accounts List() must not be URL-encoded
   const url = `${BASE}/adAnalyticsV2?${params}&accounts=List(${accountUrn})`;
-
   const res = await fetch(url, { headers: analyticsHeaders(token) });
   if (!res.ok) throw new Error(`LinkedIn analytics API ${res.status}: ${await res.text()}`);
   return (await res.json()).elements || [];
@@ -81,19 +78,18 @@ export async function getSpend({ startDate, endDate }) {
   if (!token) throw new Error("LINKEDIN_ACCESS_TOKEN not set");
   if (!accountId) throw new Error("LINKEDIN_ACCOUNT_ID not set");
 
-  const [campaigns, analytics] = await Promise.all([
-    fetchAllCampaigns(token, accountId),
-    fetchAnalytics(token, accountId, startDate, endDate),
-  ]);
+  // First get analytics
+  const analytics = await fetchAnalytics(token, accountId, startDate, endDate);
+  const withSpend = analytics.filter((el) => parseFloat(el.costInLocalCurrency || "0") > 0);
 
-  return analytics
-    .filter((el) => parseFloat(el.costInLocalCurrency || "0") > 0)
+  // Extract unique campaign URNs and resolve names
+  const urns = [...new Set(withSpend.map((el) => (el.pivotValues || [])[0]).filter(Boolean))];
+  const campaigns = await resolveCampaignNames(token, urns);
+
+  return withSpend
     .map((el) => {
       const urn = (el.pivotValues || [])[0];
-      const c = campaigns[urn] || {
-        id: urn?.split(":").pop() || "unknown",
-        name: urn || "Unknown",
-      };
+      const c = campaigns[urn] || { id: urn?.split(":").pop() || "unknown", name: urn || "Unknown" };
       const dr = el.dateRange?.start;
       return {
         campaign_name: c.name,
