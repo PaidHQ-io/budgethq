@@ -1026,6 +1026,38 @@ export default function BudgetHQ(){
     downloadCSV(rows,"budgethq-tags.csv");
     showNotif("Tags exported");
   };
+
+  const importTagsRef=useRef(null);
+  const importTagsFromCSV=useCallback((file)=>{
+    if(!file)return;
+    Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
+      const rows=r.data;
+      const fields=r.meta.fields||[];
+      // Detect campaign name column
+      const campCol=fields.find(f=>/campaign/i.test(f));
+      if(!campCol){showNotif("Could not find Campaign column");return;}
+      // Detect dimension columns (exclude Campaign, Platform, Spend, Date)
+      const skipCols=new Set(["campaign","platform","spend","date","impressions","clicks","campaign_name","campaign_id"]);
+      const dimCols=fields.filter(f=>!skipCols.has(f.toLowerCase())&&f!==campCol);
+      let restored=0;
+      setTags(p=>{
+        const nx={...p};
+        rows.forEach(row=>{
+          const name=(row[campCol]||"").trim();
+          if(!name)return;
+          const t={...(nx[name]||{})};
+          dimCols.forEach(d=>{if(row[d]&&row[d].trim())t[d]=row[d].trim();});
+          nx[name]=t;
+          restored++;
+        });
+        return nx;
+      });
+      // Add any new dimensions found in the file
+      const newDims=dimCols.filter(d=>!tagDims.includes(d));
+      if(newDims.length)setTagDims(p=>[...new Set([...p,...newDims])]);
+      showNotif(`Restored tags for ${restored} campaigns`);
+    }});
+  },[tags,tagDims]);
   const toggleSel=n=>setSelected(p=>{const nx=new Set(p);nx.has(n)?nx.delete(n):nx.add(n);return nx;});
   const selAll=()=>setSelected(selected.size===filtered.length?new Set():new Set(filtered.map(c=>c.name)));
   const addDim=()=>{const n=newDim.trim();if(!n||tagDims.includes(n))return;setTagDims(p=>[...p,n]);setNewDim("");};
@@ -1202,6 +1234,8 @@ export default function BudgetHQ(){
                 <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
               <div style={{marginTop:12}}>
                 <Btn onClick={exportTags} disabled={!campaigns.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export tags CSV</Btn>
+                <Btn onClick={()=>importTagsRef.current?.click()} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import tags CSV</Btn>
+                <input ref={importTagsRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{importTagsFromCSV(e.target.files[0]);e.target.value="";}} />
               </div>
               </div>
             </aside>
