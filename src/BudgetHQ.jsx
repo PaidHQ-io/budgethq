@@ -628,9 +628,9 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
               </th>
               {budgetDims.map((d,i)=><th key={d} style={{...TH,textAlign:"left",padding:"10px 14px",minWidth:dcw,position:"sticky",left:32+i*dcw,zIndex:3,background:T.headerBg}}>{d}</th>)}
               {budgetMetaDims.map(d=><th key={d} style={{...TH,textAlign:"left",padding:"10px 14px",minWidth:110,color:T.textMuted}}>{d}</th>)}
-              {MONTHS.map(m=><th key={m.key} style={{...TH,minWidth:76}}>{m.label}</th>)}
-              {QUARTERS.map(q=><th key={"qt-"+q.key} style={{...TH,color:T.textMuted,minWidth:90}}>{q.key}</th>)}
-              <th style={{...TH,color:T.accent,minWidth:100}}>Year Total</th>
+              {MONTHS.map(m=><th key={m.key} style={{...TH,textAlign:"center",minWidth:76}}>{m.label}</th>)}
+              {QUARTERS.map(q=><th key={"qt-"+q.key} style={{...TH,textAlign:"center",color:T.textMuted,minWidth:90}}>{q.key}</th>)}
+              <th style={{...TH,textAlign:"center",color:T.accent,minWidth:100}}>Year Total</th>
               {showQ&&QUARTERS.map(q=><th key={"qc-"+q.key} style={{...TH,color:T.warning,minWidth:96}}>{q.label}</th>)}
               {showA&&<th style={{...TH,color:T.warning,minWidth:96}}>Annual Cap</th>}
             </tr></thead>
