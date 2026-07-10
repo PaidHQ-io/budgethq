@@ -230,19 +230,25 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
   };
 
   const deleteRow=(segKey,label)=>{
-    if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this row. Tags and spend data are not affected.`))return;
+    const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey);
+    const tagNote=matchCount>0?` This also un-tags ${matchCount} matching campaign${matchCount>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
+    if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this row.${tagNote}`))return;
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])delete nx[year][segKey];return nx;});
     setBudgetRowMeta(p=>{const nx={...p};delete nx[segKey];return nx;});
+    setTags?.(p=>untagSegmentCampaigns(p,budgetDims,segKey));
     setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
-    showNotif("Row deleted");
+    showNotif(matchCount>0?`Row deleted — un-tagged ${matchCount} campaign${matchCount>1?"s":""}`:"Row deleted");
   };
   const bulkDeleteSelected=()=>{
     if(!selRows.size)return;
     const n=selRows.size;
-    if(!window.confirm(`Delete ${n} segment${n>1?"s":""}?\n\nThis removes all monthly budget values for ${n>1?"these rows":"this row"}. Tags and spend data are not affected.`))return;
+    const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k),0);
+    const tagNote=totalMatches>0?` This also un-tags ${totalMatches} matching campaign${totalMatches>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
+    if(!window.confirm(`Delete ${n} segment${n>1?"s":""}?\n\nThis removes all monthly budget values for ${n>1?"these rows":"this row"}.${tagNote}`))return;
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])selRows.forEach(k=>{delete nx[year][k];});return nx;});
     setBudgetRowMeta(p=>{const nx={...p};selRows.forEach(k=>delete nx[k]);return nx;});
-    showNotif(`Deleted ${n} segment${n>1?"s":""}`);
+    setTags?.(p=>{let nt=p;selRows.forEach(k=>{nt=untagSegmentCampaigns(nt,budgetDims,k);});return nt;});
+    showNotif(`Deleted ${n} segment${n>1?"s":""}${totalMatches>0?` — un-tagged ${totalMatches} campaign${totalMatches>1?"s":""}`:""}`);
     setSelRows(new Set());
   };
 
@@ -1173,6 +1179,29 @@ function renameDimensionValue({budgets,budgetRowMeta,tags,budgetDims,dim,oldVal,
   return{budgets:newBudgets,budgetRowMeta:newBudgetRowMeta,tags:newTags};
 }
 
+// Removes just the budgetDims tag values (not the whole campaign) from every campaign that
+// matches this segment's exact dimension combo — used when deleting a budget row, so a deleted
+// segment doesn't leave campaigns still carrying a tag combination with no budget behind it.
+// Spend data itself is untouched; matching campaigns simply lose these specific tags and fall
+// back to "needs review" in the Tagger.
+function untagSegmentCampaigns(tags,budgetDims,segKey){
+  const vals=segKey.split("|");
+  if(vals.length!==budgetDims.length)return tags;
+  const newTags={...(tags||{})};
+  Object.entries(tags||{}).forEach(([campaign,t])=>{
+    if(!budgetDims.every((d,i)=>t[d]===vals[i]))return;
+    const nt={...t};
+    budgetDims.forEach(d=>delete nt[d]);
+    newTags[campaign]=nt;
+  });
+  return newTags;
+}
+function countSegmentCampaigns(tags,budgetDims,segKey){
+  const vals=segKey.split("|");
+  if(vals.length!==budgetDims.length)return 0;
+  return Object.values(tags||{}).filter(t=>budgetDims.every((d,i)=>t[d]===vals[i])).length;
+}
+
 // Core pacing calculation: aggregates spend into budget segments for a period and
 // compares actual spend-to-date against time-elapsed expectation.
 function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today}){
@@ -1319,19 +1348,25 @@ function PacingDashboard({campaignTags,setTags,budgetDims,budgets,setBudgets,bud
   };
 
   const deleteSegment=(segKey,label)=>{
-    if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this segment in ${year}. Tags and spend data are not affected.`))return;
+    const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey);
+    const tagNote=matchCount>0?` This also un-tags ${matchCount} matching campaign${matchCount>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
+    if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this segment in ${year}.${tagNote}`))return;
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])delete nx[year][segKey];return nx;});
     setBudgetRowMeta?.(p=>{const nx={...p};delete nx[segKey];return nx;});
+    setTags?.(p=>untagSegmentCampaigns(p,budgetDims,segKey));
     setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
-    showNotif("Segment deleted");
+    showNotif(matchCount>0?`Segment deleted — un-tagged ${matchCount} campaign${matchCount>1?"s":""}`:"Segment deleted");
   };
   const bulkDeleteSegments=()=>{
     if(!selRows.size)return;
     const n=selRows.size;
-    if(!window.confirm(`Delete ${n} segment${n>1?"s":""}?\n\nThis removes all monthly budget values for ${n>1?"these segments":"this segment"} in ${year}. Tags and spend data are not affected.`))return;
+    const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k),0);
+    const tagNote=totalMatches>0?` This also un-tags ${totalMatches} matching campaign${totalMatches>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
+    if(!window.confirm(`Delete ${n} segment${n>1?"s":""}?\n\nThis removes all monthly budget values for ${n>1?"these segments":"this segment"} in ${year}.${tagNote}`))return;
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])selRows.forEach(k=>{delete nx[year][k];});return nx;});
     setBudgetRowMeta?.(p=>{const nx={...p};selRows.forEach(k=>delete nx[k]);return nx;});
-    showNotif(`Deleted ${n} segment${n>1?"s":""}`);
+    setTags?.(p=>{let nt=p;selRows.forEach(k=>{nt=untagSegmentCampaigns(nt,budgetDims,k);});return nt;});
+    showNotif(`Deleted ${n} segment${n>1?"s":""}${totalMatches>0?` — un-tagged ${totalMatches} campaign${totalMatches>1?"s":""}`:""}`);
     setSelRows(new Set());
   };
 
