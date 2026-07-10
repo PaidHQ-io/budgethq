@@ -47,7 +47,7 @@ const COL_PATTERNS={campaign_name:/^campaign$/i,adset_name:/ad.?set|ad.?group/i,
 const COL_LABELS={campaign_name:"Campaign Name",adset_name:"Ad Set / Ad Group Name",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
 const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
-const NAV=[{key:"dashboard",label:"Dashboard",icon:"⚡"},{key:"tagger",label:"Tagger",icon:"🏷"},{key:"budget",label:"Budgets",icon:"💰"}];
+const NAV=[{key:"dashboard",label:"Dashboard",icon:"⚡"},{key:"tagger",label:"Tagger",icon:"🏷"},{key:"budget",label:"Budgets",icon:"💰"},{key:"pacing",label:"Pacing",icon:"📈"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function autoDetect(h){const m={};h.forEach(c=>{for(const[f,p]of Object.entries(COL_PATTERNS)){if(!m[f]&&p.test(c.trim()))m[f]=c;}});if(!m.campaign_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_name=c;}if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}return m;}
@@ -934,7 +934,7 @@ function Dashboard({T,onNavigate,stats,hasData}){
     {
       key:"pacing",icon:"📈",title:"Pacing Dashboard",
       desc:"Track burn rate, PTD spend vs budget, and forecast to end of period across every segment. Requires spend data and budgets.",
-      action:"Coming soon",color:T.textMuted,disabled:true,
+      action:"Open pacing dashboard →",color:T.accent,
     },
     {
       key:"export",icon:"📤",title:"Export",
@@ -1028,6 +1028,239 @@ function mergeRows(existing,incoming){
   const map=new Map(existing.map(r=>[key(r),r]));
   incoming.forEach(r=>map.set(key(r),r));
   return Array.from(map.values());
+}
+
+// ─── PACING ENGINE ────────────────────────────────────────────────────────────
+// Robust date parser — handles "YYYY-MM-DD", "M/D/YYYY", "MM/DD/YY", and falls back to native Date parsing.
+function parseSpendDate(v){
+  if(!v)return null;
+  const s=String(v).trim();
+  let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m)return new Date(+m[1],+m[2]-1,+m[3]);
+  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(m){let y=+m[3];if(y<100)y+=2000;return new Date(y,+m[1]-1,+m[2]);}
+  const d=new Date(s);
+  return isNaN(d.getTime())?null:d;
+}
+
+// Resolve a period type + selectors into a date range and the set of month-keys it covers
+function getPeriodRange(periodType,year,month,quarter){
+  const y=Number(year);
+  if(periodType==="monthly"){
+    const m=Number(month);
+    return{start:new Date(y,m-1,1),end:new Date(y,m,0),months:[month]};
+  }
+  if(periodType==="quarterly"){
+    const qd=QUARTERS.find(q=>q.key===quarter)||QUARTERS[0];
+    const qi=Number(quarter.replace("Q",""));
+    return{start:new Date(y,(qi-1)*3,1),end:new Date(y,qi*3,0),months:qd.months};
+  }
+  return{start:new Date(y,0,1),end:new Date(y,11,31),months:MONTHS.map(m=>m.key)};
+}
+
+// Core pacing calculation: aggregates spend into budget segments for a period and
+// compares actual spend-to-date against time-elapsed expectation.
+function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today}){
+  const{start,end,months}=getPeriodRange(periodType,year,month,quarter);
+  const totalDays=Math.round((end-start)/86400000)+1;
+  let elapsedDays;
+  if(today<start)elapsedDays=0;
+  else if(today>end)elapsedDays=totalDays;
+  else elapsedDays=Math.floor((today-start)/86400000)+1;
+  const daysRemaining=Math.max(0,totalDays-elapsedDays);
+  const expectedPct=totalDays?elapsedDays/totalDays:0;
+
+  const spendMap={};
+  if(budgetDims.length){
+    mergedNormRows.forEach(row=>{
+      const d=parseSpendDate(row.date);
+      if(!d||d<start||d>end)return;
+      const vals=budgetDims.map(dim=>(tags[row.campaign_name]||{})[dim]);
+      if(vals.some(v=>!v))return;
+      const sk=vals.join("|");
+      spendMap[sk]=(spendMap[sk]||0)+row.spend;
+    });
+  }
+
+  const yearBudgets=budgets[year]||{};
+  const segKeys=new Set([...Object.keys(yearBudgets),...Object.keys(spendMap)]);
+
+  const segments=[...segKeys].map(sk=>{
+    const monthly=yearBudgets[sk]?.monthly||{};
+    const budget=months.reduce((s,mk)=>s+(monthly[mk]||0),0);
+    const spend=spendMap[sk]||0;
+    const dims=sk.split("|");
+    const actualPct=budget>0?spend/budget:null;
+    const dailyRate=elapsedDays>0?spend/elapsedDays:0;
+    const projected=elapsedDays>0?dailyRate*totalDays:null;
+    const projectedVariance=budget>0&&projected!=null?projected-budget:null;
+    let status="no-budget";
+    if(budget>0){
+      if(spend>budget)status="over";
+      else{
+        const delta=(actualPct??0)-expectedPct;
+        if(delta>0.1)status="ahead";
+        else if(delta<-0.1)status="behind";
+        else status="on-track";
+      }
+    }
+    return{segKey:sk,dims,budget,spend,actualPct,dailyRate,projected,projectedVariance,status};
+  }).filter(s=>s.budget>0||s.spend>0).sort((a,b)=>b.spend-a.spend);
+
+  const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
+  return{segments,totals,totalDays,elapsedDays,daysRemaining,expectedPct,start,end};
+}
+
+function pacingStatusMeta(status,T){
+  switch(status){
+    case"over":return{label:"Over budget",color:T.danger,bg:T.dangerBg,border:T.dangerBorder};
+    case"ahead":return{label:"Ahead of pace",color:T.warning,bg:T.warningBg,border:T.warningBorder};
+    case"behind":return{label:"Behind pace",color:T.accent,bg:T.accentBg,border:T.accentBorder};
+    case"on-track":return{label:"On track",color:T.success,bg:T.successBg,border:T.successBorder};
+    default:return{label:"No budget set",color:T.textMuted,bg:T.surfaceEl,border:T.border};
+  }
+}
+
+const fmtSigned=n=>n==null?"—":(n>0?"+":n<0?"−":"")+"$"+Math.round(Math.abs(n)).toLocaleString();
+
+const PacingBar=({actualPct,expectedPct,status,T})=>{
+  const pct=Math.min(1,Math.max(0,actualPct||0));
+  const meta=pacingStatusMeta(status,T);
+  return(
+    <div style={{position:"relative",width:84,height:6,borderRadius:3,background:T.surfaceEl,flexShrink:0}}>
+      <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${pct*100}%`,background:meta.color,borderRadius:3,transition:"width 0.2s"}}/>
+      <div title="Expected pace" style={{position:"absolute",left:`${Math.min(1,Math.max(0,expectedPct))*100}%`,top:-2,bottom:-2,width:2,background:T.text,opacity:0.45}}/>
+    </div>
+  );
+};
+
+function PacingDashboard({campaignTags,budgetDims,budgets,mergedNormRows,T,isMobile,onNavigate}){
+  const now=new Date();
+  const yr=now.getFullYear();
+  const[year,setYear]=useState(yr.toString());
+  const[periodType,setPeriodType]=useState("monthly");
+  const[month,setMonth]=useState(String(now.getMonth()+1).padStart(2,"0"));
+  const[quarter,setQuarter]=useState(`Q${Math.floor(now.getMonth()/3)+1}`);
+  const years=[(yr-1).toString(),yr.toString(),(yr+1).toString()];
+
+  const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now}),
+    [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const periodLabel=periodType==="monthly"?`${MONTHS.find(m=>m.key===month)?.label} ${year}`:periodType==="quarterly"?`${quarter} ${year}`:`FY ${year}`;
+  const overallPct=pacing.totals.budget>0?pacing.totals.spend/pacing.totals.budget:null;
+  const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"right"};
+
+  if(!budgetDims.length){
+    return(
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"calc(100vh - 48px)",textAlign:"center",padding:40,background:T.bg}}>
+        <div style={{width:52,height:52,borderRadius:14,background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,marginBottom:18}}>📈</div>
+        <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up budgets first</div>
+        <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Pacing compares spend to your budget segments. Head to Budgets, choose dimensions to budget by, and set monthly amounts.</div>
+        <Btn onClick={()=>onNavigate?.("budget")} variant="success" T={T} size="md">Go to Budgets →</Btn>
+      </div>
+    );
+  }
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 48px)",background:T.bg,overflow:"auto"}}>
+      {/* Controls */}
+      <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",flexShrink:0}}>
+        <div style={{display:"flex",gap:4}}>
+          {[["monthly","Monthly"],["quarterly","Quarterly"],["annual","Yearly"]].map(([k,l])=>(
+            <button key={k} onClick={()=>setPeriodType(k)} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${periodType===k?T.accent:T.border}`,background:periodType===k?T.accentBg:"transparent",color:periodType===k?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:periodType===k?600:400,fontFamily:"Space Grotesk,sans-serif"}}>{l}</button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          {years.map(y=>(
+            <button key={y} onClick={()=>setYear(y)} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${year===y?T.accent:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?600:400,fontFamily:"Space Grotesk,sans-serif"}}>{y}</button>
+          ))}
+        </div>
+        {periodType==="monthly"&&(
+          <Sel value={month} onChange={setMonth} T={T} style={{width:120}}>
+            {MONTHS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
+          </Sel>
+        )}
+        {periodType==="quarterly"&&(
+          <Sel value={quarter} onChange={setQuarter} T={T} style={{width:100}}>
+            {QUARTERS.map(q=><option key={q.key} value={q.key}>{q.key}</option>)}
+          </Sel>
+        )}
+        <div style={{marginLeft:"auto",fontSize:12,color:T.textMuted,fontFamily:"Space Grotesk,sans-serif"}}>
+          {periodLabel} · {pacing.elapsedDays} of {pacing.totalDays} days elapsed{pacing.daysRemaining>0?` · ${pacing.daysRemaining} remaining`:""}
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{padding:"20px 24px 0"}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5,1fr)",gap:12,marginBottom:20}}>
+          {[
+            {label:"Total Budget",value:fmtFull(pacing.totals.budget),color:T.text},
+            {label:"Spend to Date",value:fmtFull(pacing.totals.spend),color:T.accent},
+            {label:"Overall Pacing",value:overallPct!=null?`${Math.round(overallPct*100)}%`:"—",color:overallPct!=null&&overallPct-pacing.expectedPct>0.1?T.warning:overallPct!=null&&overallPct-pacing.expectedPct<-0.1?T.accent:T.success},
+            {label:"Expected Pace",value:`${Math.round(pacing.expectedPct*100)}%`,color:T.textMuted},
+            {label:"Segments",value:pacing.segments.length.toString(),color:T.text},
+          ].map(s=>(
+            <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",boxShadow:T.shadow}}>
+              <div style={{fontSize:11,fontWeight:600,color:T.textMuted,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:6,fontFamily:"Space Grotesk,sans-serif"}}>{s.label}</div>
+              <div style={{fontSize:20,fontWeight:700,color:s.color,fontFamily:"'Space Mono',monospace"}}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Segment table */}
+      <div style={{flex:1,overflow:"auto",padding:"0 24px 24px"}}>
+        {pacing.segments.length===0?(
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,textAlign:"center"}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>No budget or spend data for {periodLabel}</div>
+            <div style={{fontSize:13,color:T.textSub}}>Set a budget or import spend data for this period.</div>
+          </div>
+        ):(
+          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
+            <thead><tr>
+              {budgetDims.map(d=><th key={d} style={{...TH,textAlign:"left"}}>{d}</th>)}
+              <th style={TH}>Budget</th>
+              <th style={TH}>Spend PTD</th>
+              <th style={TH}>Pacing</th>
+              <th style={TH}>Expected</th>
+              <th style={TH}>Daily Burn</th>
+              <th style={TH}>Projected</th>
+              <th style={{...TH,textAlign:"left"}}>Status</th>
+            </tr></thead>
+            <tbody>
+              {pacing.segments.map((seg,ri)=>{
+                const meta=pacingStatusMeta(seg.status,T);
+                return(
+                  <tr key={seg.segKey} style={{background:ri%2===0?"transparent":T.surfaceEl}}>
+                    {seg.dims.map((v,i)=><td key={i} style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
+                      <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{v}</Pill>
+                    </td>)}
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace"}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace"}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
+                        <span style={{fontFamily:"'Space Mono',monospace",fontWeight:600,color:meta.color}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
+                        <PacingBar actualPct={seg.actualPct} expectedPct={pacing.expectedPct} status={seg.status} T={T}/>
+                      </div>
+                    </td>
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace",color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace"}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>
+                      <div style={{fontFamily:"'Space Mono',monospace"}}>{seg.projected!=null?fmtFull(seg.projected):"—"}</div>
+                      {seg.projectedVariance!=null&&<div style={{fontSize:10,color:seg.projectedVariance>0?T.danger:T.success,fontFamily:"'Space Mono',monospace"}}>{fmtSigned(seg.projectedVariance)}</div>}
+                    </td>
+                    <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`}}>
+                      <Pill color={meta.color} bg={meta.bg} border={meta.border}>{meta.label}</Pill>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
@@ -1678,6 +1911,7 @@ export default function BudgetHQ(){
 
       {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
       {view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims}/>}
+      {view==="pacing"&&<PacingDashboard campaignTags={tags} budgetDims={budgetDims} budgets={budgets} mergedNormRows={mergedNormRows} T={T} isMobile={isMobile} onNavigate={setView}/>}
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
