@@ -93,7 +93,7 @@ function downloadCSV(rows, filename){
 
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,marginBottom:6,...style}}>{children}</div>);
-const Pill=({children,color,bg,border})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap"}}>{children}</span>);
+const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",...style}} {...rest}>{children}</span>);
 const PlatformBadge=({platform,T})=>{const c=PLATFORM_COLORS[platform]||T.textMuted;return <span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:5,background:c+"18",color:c,border:`1px solid ${c}30`,whiteSpace:"nowrap"}}>{platform}</span>;};
 const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={}})=>{
   const s={sm:{padding:"5px 12px",fontSize:12},md:{padding:"7px 16px",fontSize:13},lg:{padding:"9px 22px",fontSize:14}};
@@ -111,7 +111,7 @@ const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyConte
 const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims}){
+function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
@@ -215,14 +215,17 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
     if(!trimmed){setEditingSegVal(null);setEditSegVal("");return;}
     const{segKey,dim}=editingSegVal;
     const seg=segs.find(s=>s.key===segKey);
-    if(!seg){setEditingSegVal(null);return;}
-    const newVals=budgetDims.map(d=>d===dim?trimmed:seg[d]);
-    const newKey=newVals.join("|");
-    if(newKey!==segKey){
-      setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year]?.[segKey]){nx[year][newKey]=nx[year][segKey];delete nx[year][segKey];}return nx;});
-      setBudgetRowMeta(p=>{if(!p[segKey])return p;const nx={...p};nx[newKey]=nx[segKey];delete nx[segKey];return nx;});
-      setSelRows(p=>{const nx=new Set(p);if(nx.has(segKey)){nx.delete(segKey);nx.add(newKey);}return nx;});
-    }
+    if(!seg||seg[dim]===trimmed){setEditingSegVal(null);setEditSegVal("");return;}
+    const oldVal=seg[dim];
+    const newKey=budgetDims.map(d=>d===dim?trimmed:seg[d]).join("|");
+    // Renames everywhere — budgets across all years, budgetRowMeta, and any campaign tagged
+    // with the old value — so the segment reconnects to real spend, not just relabels a row.
+    const result=renameDimensionValue({budgets,budgetRowMeta,tags:campaignTags,budgetDims,dim,oldVal,newVal:trimmed});
+    setBudgets(result.budgets);
+    setBudgetRowMeta(result.budgetRowMeta);
+    setTags?.(result.tags);
+    setSelRows(p=>{const nx=new Set(p);if(nx.has(segKey)){nx.delete(segKey);nx.add(newKey);}return nx;});
+    showNotif(`Renamed "${oldVal}" → "${trimmed}" — updated budgets and tagged campaigns`);
     setEditingSegVal(null);setEditSegVal("");
   };
 
@@ -1115,6 +1118,61 @@ function getPeriodRange(periodType,year,month,quarter){
   return{start:new Date(y,0,1),end:new Date(y,11,31),months:MONTHS.map(m=>m.key)};
 }
 
+// Renames every occurrence of a dimension value (e.g. Product "PowerON" -> "Power On") across:
+// budgets (every year, any segKey with this dim's value at the matching position),
+// budgetRowMeta (same segKey remapping), and campaign tags (every campaign tagged with the old
+// value for this dimension). This is what makes an inline edit actually reconnect Pacing —
+// renaming just the budget row's label alone wouldn't retag campaigns, so spend would still
+// never match. If the renamed key collides with an already-existing segment, monthly budget
+// amounts are summed rather than overwritten so no data is silently lost.
+function renameDimensionValue({budgets,budgetRowMeta,tags,budgetDims,dim,oldVal,newVal}){
+  const dimIdx=budgetDims.indexOf(dim);
+  if(dimIdx===-1||oldVal===newVal)return{budgets,budgetRowMeta,tags};
+
+  const remapKey=oldKey=>{
+    const parts=oldKey.split("|");
+    if(parts.length!==budgetDims.length||parts[dimIdx]!==oldVal)return null;
+    const newParts=[...parts];newParts[dimIdx]=newVal;
+    return newParts.join("|");
+  };
+
+  const newBudgets=JSON.parse(JSON.stringify(budgets||{}));
+  Object.keys(newBudgets).forEach(yr=>{
+    const yearObj=newBudgets[yr];
+    Object.keys(yearObj).forEach(oldKey=>{
+      const newKey=remapKey(oldKey);
+      if(!newKey||newKey===oldKey)return;
+      const oldEntry=yearObj[oldKey];
+      if(yearObj[newKey]){
+        const merged={...yearObj[newKey]};
+        merged.monthly={...(yearObj[newKey].monthly||{})};
+        Object.entries(oldEntry.monthly||{}).forEach(([mk,amt])=>{merged.monthly[mk]=(merged.monthly[mk]||0)+(amt||0);});
+        if(oldEntry.quarterly||yearObj[newKey].quarterly)merged.quarterly={...(oldEntry.quarterly||{}),...(yearObj[newKey].quarterly||{})};
+        if(oldEntry.annual!=null&&merged.annual==null)merged.annual=oldEntry.annual;
+        yearObj[newKey]=merged;
+      }else{
+        yearObj[newKey]=oldEntry;
+      }
+      delete yearObj[oldKey];
+    });
+  });
+
+  const newBudgetRowMeta={...(budgetRowMeta||{})};
+  Object.keys(budgetRowMeta||{}).forEach(oldKey=>{
+    const newKey=remapKey(oldKey);
+    if(!newKey||newKey===oldKey)return;
+    if(!newBudgetRowMeta[newKey])newBudgetRowMeta[newKey]=newBudgetRowMeta[oldKey];
+    delete newBudgetRowMeta[oldKey];
+  });
+
+  const newTags={...(tags||{})};
+  Object.entries(tags||{}).forEach(([campaign,t])=>{
+    if(t[dim]===oldVal)newTags[campaign]={...t,[dim]:newVal};
+  });
+
+  return{budgets:newBudgets,budgetRowMeta:newBudgetRowMeta,tags:newTags};
+}
+
 // Core pacing calculation: aggregates spend into budget segments for a period and
 // compares actual spend-to-date against time-elapsed expectation.
 function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today}){
@@ -1201,7 +1259,7 @@ const PacingBar=({actualPct,expectedPct,status,T})=>{
   );
 };
 
-function PacingDashboard({campaignTags,budgetDims,budgets,setBudgets,setBudgetRowMeta,mergedNormRows,T,isMobile,onNavigate}){
+function PacingDashboard({campaignTags,setTags,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,mergedNormRows,T,isMobile,onNavigate}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -1214,6 +1272,8 @@ function PacingDashboard({campaignTags,budgetDims,budgets,setBudgets,setBudgetRo
   const[segFilters,setSegFilters]=useState({}); // {dim: filterText} — substring match, ANDed across dims
   const[statusFilter,setStatusFilter]=useState("all");
   const[notif,setNotif]=useState(null);
+  const[editingSegVal,setEditingSegVal]=useState(null); // {segKey, dim}
+  const[editSegVal,setEditSegVal]=useState("");
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
   // Selecting rows only makes sense within the period/year currently being viewed — clear on change
   const changeYear=y=>{setYear(y);setSelRows(new Set());};
@@ -1235,6 +1295,28 @@ function PacingDashboard({campaignTags,budgetDims,budgets,setBudgets,setBudgetRo
   const clearSegFilters=()=>{setSegFilters({});setStatusFilter("all");};
   const toggleRowSel=key=>setSelRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
   const selAllRows=()=>setSelRows(selRows.size===filteredSegments.length?new Set():new Set(filteredSegments.map(s=>s.segKey)));
+
+  const saveSegEdit=()=>{
+    if(!editingSegVal)return;
+    const trimmed=editSegVal.trim();
+    if(!trimmed){setEditingSegVal(null);setEditSegVal("");return;}
+    const{segKey,dim}=editingSegVal;
+    const seg=pacing.segments.find(s=>s.segKey===segKey);
+    if(!seg){setEditingSegVal(null);setEditSegVal("");return;}
+    const dimIdx=budgetDims.indexOf(dim);
+    const oldVal=seg.dims[dimIdx];
+    if(oldVal===trimmed){setEditingSegVal(null);setEditSegVal("");return;}
+    const newKey=budgetDims.map((d,i)=>i===dimIdx?trimmed:seg.dims[i]).join("|");
+    // Renames everywhere — budgets across all years, budgetRowMeta, and any campaign tagged
+    // with the old value — so the segment reconnects to real spend, not just relabels a row.
+    const result=renameDimensionValue({budgets,budgetRowMeta,tags:campaignTags,budgetDims,dim,oldVal,newVal:trimmed});
+    setBudgets(result.budgets);
+    setBudgetRowMeta?.(result.budgetRowMeta);
+    setTags?.(result.tags);
+    setSelRows(p=>{const nx=new Set(p);if(nx.has(segKey)){nx.delete(segKey);nx.add(newKey);}return nx;});
+    showNotif(`Renamed "${oldVal}" → "${trimmed}" — updated budgets and tagged campaigns`);
+    setEditingSegVal(null);setEditSegVal("");
+  };
 
   const deleteSegment=(segKey,label)=>{
     if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this segment in ${year}. Tags and spend data are not affected.`))return;
@@ -1379,7 +1461,14 @@ function PacingDashboard({campaignTags,budgetDims,budgets,setBudgets,setBudgetRo
                       <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.segKey)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                     </td>
                     {seg.dims.map((v,i)=><td key={i} style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
-                      <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{v}</Pill>
+                      {editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(
+                        <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
+                          onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
+                          style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"'Space Mono',monospace",minWidth:80}}/>
+                      ):(
+                        <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{fontFamily:"'Space Mono',monospace",cursor:"text"}}
+                          onClick={()=>{setEditingSegVal({segKey:seg.segKey,dim:budgetDims[i]});setEditSegVal(v);}}>{v}</Pill>
+                      )}
                       {i===seg.dims.length-1&&seg.budget>0&&seg.matchCount===0&&(
                         <span title="No tagged campaigns match this segment — spend will always show as $0 here, regardless of period, until a campaign is tagged with this exact combination" style={{marginLeft:6,fontSize:12,cursor:"help"}}>⚠️</span>
                       )}
@@ -2066,8 +2155,8 @@ export default function BudgetHQ(){
       )}
 
       {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
-      {view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims}/>}
-      {view==="pacing"&&<PacingDashboard campaignTags={tags} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} isMobile={isMobile} onNavigate={setView}/>}
+      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims}/>}
+      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} isMobile={isMobile} onNavigate={setView}/>}
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
