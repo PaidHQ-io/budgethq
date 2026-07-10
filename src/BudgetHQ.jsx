@@ -117,6 +117,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
   const[notif,setNotif]=useState(null);
   // Budget row tagging
   const[selRows,setSelRows]=useState(new Set());
+  const[segFilters,setSegFilters]=useState({}); // {dim: filterText} — substring match, ANDed across dims
   const[applyMetaDim,setApplyMetaDim]=useState("");
   const[applyMetaVal,setApplyMetaVal]=useState("");
   const[editingMeta,setEditingMeta]=useState(null); // {segKey, dim}
@@ -185,7 +186,7 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
 
   // Budget row tagging
   const toggleRowSel=key=>setSelRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
-  const selAllRows=()=>setSelRows(selRows.size===segs.length?new Set():new Set(segs.map(s=>s.key)));
+  const selAllRows=()=>setSelRows(selRows.size===filteredSegs.length?new Set():new Set(filteredSegs.map(s=>s.key)));
   const applyMetaToSelected=()=>{
     if(!applyMetaDim||!applyMetaVal||!selRows.size)return;
     setBudgetRowMeta(p=>{const nx={...p};selRows.forEach(k=>{nx[k]={...(nx[k]||{}),[applyMetaDim]:applyMetaVal};});return nx;});
@@ -229,6 +230,15 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
     setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
     showNotif("Row deleted");
   };
+  const bulkDeleteSelected=()=>{
+    if(!selRows.size)return;
+    const n=selRows.size;
+    if(!window.confirm(`Delete ${n} segment${n>1?"s":""}?\n\nThis removes all monthly budget values for ${n>1?"these rows":"this row"}. Tags and spend data are not affected.`))return;
+    setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])selRows.forEach(k=>{delete nx[year][k];});return nx;});
+    setBudgetRowMeta(p=>{const nx={...p};selRows.forEach(k=>delete nx[k]);return nx;});
+    showNotif(`Deleted ${n} segment${n>1?"s":""}`);
+    setSelRows(new Set());
+  };
 
   const segs=useMemo(()=>{
     if(!budgetDims.length)return[];
@@ -252,6 +262,15 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
     }
     return out.sort((a,b)=>a.key.localeCompare(b.key));
   },[budgetDims,campaignTags,budgets,year]);
+
+  // Segments filtered by per-dimension substring match (ANDed) — drives what's visible,
+  // what "select all" selects, and what a bulk delete targets.
+  const filteredSegs=useMemo(()=>segs.filter(seg=>budgetDims.every(d=>{
+    const f=(segFilters[d]||"").trim().toLowerCase();
+    return!f||(seg[d]||"").toLowerCase().includes(f);
+  })),[segs,budgetDims,segFilters]);
+  const hasSegFilters=Object.values(segFilters).some(v=>(v||"").trim());
+  const clearSegFilters=()=>setSegFilters({});
 
   const getMV=useCallback((sk,mk)=>budgets[year]?.[sk]?.monthly?.[mk]??"",[budgets,year]);
   const getQC=useCallback((sk,qk)=>budgets[year]?.[sk]?.quarterly?.[qk]??"",[budgets,year]);
@@ -320,12 +339,29 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
     setIStep("map");
   };
 
+  // Reorders {dim,...} pairs so dimensions already established in budgetDims keep their
+  // existing position — guaranteeing a repeat import of the same segment/period/year produces
+  // the identical segKey and overwrites instead of appending a duplicate row. Brand-new
+  // dimensions (not yet in budgetDims) are ordered alphabetically for determinism, since their
+  // order otherwise depends on ad hoc mapping order (manual clicks, or AI analysis, which can
+  // vary import to import).
+  const canonicalDims=useCallback(rawDims=>{
+    return[...rawDims].sort((a,b)=>{
+      const ai=budgetDims.indexOf(a.dim),bi=budgetDims.indexOf(b.dim);
+      if(ai!==-1&&bi!==-1)return ai-bi;
+      if(ai!==-1)return-1;
+      if(bi!==-1)return 1;
+      return a.dim.localeCompare(b.dim);
+    });
+  },[budgetDims]);
+
   const buildPreview=useCallback(()=>{
     const entries=[];
-    const activeDims=[
+    const rawDims=[
       ...(tagDimensions||[]).filter(d=>dimMap[d]).map(d=>({dim:d,col:dimMap[d]})),
-      ...customDims.filter(c=>c.name&&c.col),
+      ...customDims.filter(c=>c.name&&c.col).map(c=>({dim:c.name,col:c.col})),
     ];
+    const activeDims=canonicalDims(rawDims);
     if(iFmt==="wide"){
       const mc=iHeaders.filter(h=>isMonthHdr(h));
       iRows.forEach(row=>{
@@ -368,18 +404,21 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
       });
     }
     return entries;
-  },[iFmt,iHeaders,iRows,iSegDim,iGroupHeaderRow,iGroupDim,iRawRows,tagDimensions,dimMap,customDims,periodCol,amtCol]);
+  },[iFmt,iHeaders,iRows,iSegDim,iGroupHeaderRow,iGroupDim,iRawRows,tagDimensions,dimMap,customDims,periodCol,amtCol,canonicalDims]);
 
   const goPreview=()=>{setPreview(buildPreview());setIStep("preview");};
   const confirmImport=()=>{
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[iYear])nx[iYear]={};preview.forEach(({segKey:sk,monthKey:mk,amount:amt})=>{if(!nx[iYear][sk])nx[iYear][sk]={};if(!nx[iYear][sk].monthly)nx[iYear][sk].monthly={};nx[iYear][sk].monthly[mk]=amt;});return nx;});
     setYear(iYear);
-    // Add all mapped dims (existing + custom) to budgetDims
-    const allMapped=[
-      ...(tagDimensions||[]).filter(d=>dimMap[d]),
-      ...customDims.filter(c=>c.name&&c.col).map(c=>c.name),
+    // Add all mapped dims (existing + custom) to budgetDims, in the same canonical order used
+    // to build segKeys above — keeps the two in sync so table columns and stored keys always
+    // line up, even across repeat imports with differently-ordered column mapping.
+    const rawMapped=[
+      ...(tagDimensions||[]).filter(d=>dimMap[d]).map(d=>({dim:d})),
+      ...customDims.filter(c=>c.name&&c.col).map(c=>({dim:c.name})),
     ];
-    setBudgetDims(p=>{const nx=new Set(p);allMapped.forEach(d=>nx.add(d));return[...nx];});
+    const orderedMapped=canonicalDims(rawMapped).map(d=>d.dim);
+    setBudgetDims(p=>{const nx=[...p];orderedMapped.forEach(d=>{if(!nx.includes(d))nx.push(d);});return nx;});
     // Register new custom dimensions with parent so they appear in Tagger too
     const newDimNames=customDims.filter(c=>c.name&&c.col&&!(tagDimensions||[]).includes(c.name)).map(c=>c.name);
     if(newDimNames.length) onAddDimensions?.(newDimNames);
@@ -543,6 +582,16 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
           </div>
         ):(
           <>
+          {/* Filter bar */}
+          <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
+            <span style={{fontSize:11,color:T.textMuted,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
+            {budgetDims.map(d=>(
+              <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:120}}/>
+            ))}
+            {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
+            <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
+          </div>
           {/* Bulk action bar */}
           {selRows.size>0&&(
             <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
@@ -556,12 +605,14 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:130}}/>
               <Btn onClick={applyMetaToSelected} disabled={!applyMetaDim||!applyMetaVal} variant="primary" size="sm" T={T}>Apply</Btn>
               <Btn onClick={()=>setSelRows(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
+              <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
+              <Btn onClick={bulkDeleteSelected} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
             </div>
           )}
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
             <thead><tr>
               <th style={{...TH,width:32,padding:"10px 8px 10px 16px",position:"sticky",left:0,zIndex:4,background:T.headerBg}}>
-                <input type="checkbox" checked={segs.length>0&&selRows.size===segs.length} onChange={selAllRows} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
               {budgetDims.map((d,i)=><th key={d} style={{...TH,textAlign:"left",padding:"10px 14px",minWidth:dcw,position:"sticky",left:32+i*dcw,zIndex:3,background:T.headerBg}}>{d}</th>)}
               {budgetMetaDims.map(d=><th key={d} style={{...TH,textAlign:"left",padding:"10px 14px",minWidth:110,color:T.textMuted}}>{d}</th>)}
@@ -571,7 +622,10 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
               {showA&&<th style={{...TH,color:T.warning,minWidth:96}}>Annual Cap</th>}
             </tr></thead>
             <tbody>
-              {segs.map((seg,ri)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=ri%2===0?"transparent":T.surfaceEl;const isSel=selRows.has(seg.key);return(
+              {filteredSegs.length===0&&segs.length>0&&(
+                <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
+              )}
+              {filteredSegs.map((seg,ri)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=ri%2===0?"transparent":T.surfaceEl;const isSel=selRows.has(seg.key);return(
                 <tr key={seg.key} style={{background:isSel?T.rowSelected:rb}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:isSel?T.rowSelected:ri%2===0?T.bg:T.surfaceEl,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -620,8 +674,8 @@ function BudgetManager({campaignTags,tagDimensions,T,isMobile,onAddDimensions,bu
                 <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
                 {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0}}>Totals</SectionLabel>}</td>)}
                 {budgetMetaDims.map(d=><td key={d}/>)}
-                {MONTHS.map(m=>{const t=segs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:11,fontWeight:600,color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
-                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:T.accent}}>{totalY>0?fmtFull(totalY):"—"}</td>
+                {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:11,fontWeight:600,color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
+                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:T.accent}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
                 {showQ&&QUARTERS.map(q=><td key={q.key}/>)}
                 {showA&&<td/>}
                 <td/>
@@ -1134,7 +1188,7 @@ const PacingBar=({actualPct,expectedPct,status,T})=>{
   );
 };
 
-function PacingDashboard({campaignTags,budgetDims,budgets,mergedNormRows,T,isMobile,onNavigate}){
+function PacingDashboard({campaignTags,budgetDims,budgets,setBudgets,setBudgetRowMeta,mergedNormRows,T,isMobile,onNavigate}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -1143,8 +1197,48 @@ function PacingDashboard({campaignTags,budgetDims,budgets,mergedNormRows,T,isMob
   const[quarter,setQuarter]=useState(`Q${Math.floor(now.getMonth()/3)+1}`);
   const years=[(yr-1).toString(),yr.toString(),(yr+1).toString()];
 
+  const[selRows,setSelRows]=useState(new Set());
+  const[segFilters,setSegFilters]=useState({}); // {dim: filterText} — substring match, ANDed across dims
+  const[statusFilter,setStatusFilter]=useState("all");
+  const[notif,setNotif]=useState(null);
+  const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
+  // Selecting rows only makes sense within the period/year currently being viewed — clear on change
+  const changeYear=y=>{setYear(y);setSelRows(new Set());};
+  const changePeriodType=k=>{setPeriodType(k);setSelRows(new Set());};
+  const changeMonth=m=>{setMonth(m);setSelRows(new Set());};
+  const changeQuarter=q=>{setQuarter(q);setSelRows(new Set());};
+
   const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now}),
     [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filteredSegments=useMemo(()=>pacing.segments.filter(seg=>{
+    if(statusFilter!=="all"&&seg.status!==statusFilter)return false;
+    return budgetDims.every((d,i)=>{
+      const f=(segFilters[d]||"").trim().toLowerCase();
+      return!f||(seg.dims[i]||"").toLowerCase().includes(f);
+    });
+  }),[pacing.segments,budgetDims,segFilters,statusFilter]);
+  const hasSegFilters=statusFilter!=="all"||Object.values(segFilters).some(v=>(v||"").trim());
+  const clearSegFilters=()=>{setSegFilters({});setStatusFilter("all");};
+  const toggleRowSel=key=>setSelRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
+  const selAllRows=()=>setSelRows(selRows.size===filteredSegments.length?new Set():new Set(filteredSegments.map(s=>s.segKey)));
+
+  const deleteSegment=(segKey,label)=>{
+    if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this segment in ${year}. Tags and spend data are not affected.`))return;
+    setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])delete nx[year][segKey];return nx;});
+    setBudgetRowMeta?.(p=>{const nx={...p};delete nx[segKey];return nx;});
+    setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
+    showNotif("Segment deleted");
+  };
+  const bulkDeleteSegments=()=>{
+    if(!selRows.size)return;
+    const n=selRows.size;
+    if(!window.confirm(`Delete ${n} segment${n>1?"s":""}?\n\nThis removes all monthly budget values for ${n>1?"these segments":"this segment"} in ${year}. Tags and spend data are not affected.`))return;
+    setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])selRows.forEach(k=>{delete nx[year][k];});return nx;});
+    setBudgetRowMeta?.(p=>{const nx={...p};selRows.forEach(k=>delete nx[k]);return nx;});
+    showNotif(`Deleted ${n} segment${n>1?"s":""}`);
+    setSelRows(new Set());
+  };
 
   const periodLabel=periodType==="monthly"?`${MONTHS.find(m=>m.key===month)?.label} ${year}`:periodType==="quarterly"?`${quarter} ${year}`:`FY ${year}`;
   const overallPct=pacing.totals.budget>0?pacing.totals.spend/pacing.totals.budget:null;
@@ -1167,21 +1261,21 @@ function PacingDashboard({campaignTags,budgetDims,budgets,mergedNormRows,T,isMob
       <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",flexShrink:0}}>
         <div style={{display:"flex",gap:4}}>
           {[["monthly","Monthly"],["quarterly","Quarterly"],["annual","Yearly"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setPeriodType(k)} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${periodType===k?T.accent:T.border}`,background:periodType===k?T.accentBg:"transparent",color:periodType===k?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:periodType===k?600:400,fontFamily:"Space Grotesk,sans-serif"}}>{l}</button>
+            <button key={k} onClick={()=>changePeriodType(k)} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${periodType===k?T.accent:T.border}`,background:periodType===k?T.accentBg:"transparent",color:periodType===k?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:periodType===k?600:400,fontFamily:"Space Grotesk,sans-serif"}}>{l}</button>
           ))}
         </div>
         <div style={{display:"flex",gap:4}}>
           {years.map(y=>(
-            <button key={y} onClick={()=>setYear(y)} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${year===y?T.accent:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?600:400,fontFamily:"Space Grotesk,sans-serif"}}>{y}</button>
+            <button key={y} onClick={()=>changeYear(y)} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${year===y?T.accent:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?600:400,fontFamily:"Space Grotesk,sans-serif"}}>{y}</button>
           ))}
         </div>
         {periodType==="monthly"&&(
-          <Sel value={month} onChange={setMonth} T={T} style={{width:120}}>
+          <Sel value={month} onChange={changeMonth} T={T} style={{width:120}}>
             {MONTHS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
           </Sel>
         )}
         {periodType==="quarterly"&&(
-          <Sel value={quarter} onChange={setQuarter} T={T} style={{width:100}}>
+          <Sel value={quarter} onChange={changeQuarter} T={T} style={{width:100}}>
             {QUARTERS.map(q=><option key={q.key} value={q.key}>{q.key}</option>)}
           </Sel>
         )}
@@ -1216,8 +1310,38 @@ function PacingDashboard({campaignTags,budgetDims,budgets,mergedNormRows,T,isMob
             <div style={{fontSize:13,color:T.textSub}}>Set a budget or import spend data for this period.</div>
           </div>
         ):(
+          <>
+          {/* Filter bar */}
+          <div style={{padding:"8px 0",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontSize:11,color:T.textMuted,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
+            {budgetDims.map(d=>(
+              <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:120}}/>
+            ))}
+            <Sel value={statusFilter} onChange={setStatusFilter} T={T} style={{width:150}}>
+              <option value="all">All statuses</option>
+              <option value="on-track">On track</option>
+              <option value="ahead">Ahead of pace</option>
+              <option value="behind">Behind pace</option>
+              <option value="over">Over budget</option>
+              <option value="no-budget">No budget set</option>
+            </Sel>
+            {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
+            <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegments.length} of {pacing.segments.length} segments</span>
+          </div>
+          {/* Bulk action bar */}
+          {selRows.size>0&&(
+            <div style={{padding:"8px 0",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{selRows.size} selected</Pill>
+              <Btn onClick={()=>setSelRows(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
+              <Btn onClick={bulkDeleteSegments} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
+            </div>
+          )}
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
             <thead><tr>
+              <th style={{...TH,width:32,textAlign:"left"}}>
+                <input type="checkbox" checked={filteredSegments.length>0&&selRows.size===filteredSegments.length} onChange={selAllRows} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+              </th>
               {budgetDims.map(d=><th key={d} style={{...TH,textAlign:"left"}}>{d}</th>)}
               <th style={TH}>Budget</th>
               <th style={TH}>Spend PTD</th>
@@ -1226,12 +1350,21 @@ function PacingDashboard({campaignTags,budgetDims,budgets,mergedNormRows,T,isMob
               <th style={TH}>Daily Burn</th>
               <th style={TH}>Projected</th>
               <th style={{...TH,textAlign:"left"}}>Status</th>
+              <th style={TH}/>
             </tr></thead>
             <tbody>
-              {pacing.segments.map((seg,ri)=>{
+              {filteredSegments.length===0&&(
+                <tr><td colSpan={3+budgetDims.length+6} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
+              )}
+              {filteredSegments.map((seg,ri)=>{
                 const meta=pacingStatusMeta(seg.status,T);
+                const isSel=selRows.has(seg.segKey);
+                const label=budgetDims.map((d,i)=>seg.dims[i]).join(" · ");
                 return(
-                  <tr key={seg.segKey} style={{background:ri%2===0?"transparent":T.surfaceEl}}>
+                  <tr key={seg.segKey} style={{background:isSel?T.rowSelected:ri%2===0?"transparent":T.surfaceEl}}>
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`}}>
+                      <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.segKey)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                    </td>
                     {seg.dims.map((v,i)=><td key={i} style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
                       <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{v}</Pill>
                     </td>)}
@@ -1252,13 +1385,20 @@ function PacingDashboard({campaignTags,budgetDims,budgets,mergedNormRows,T,isMob
                     <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`}}>
                       <Pill color={meta.color} bg={meta.bg} border={meta.border}>{meta.label}</Pill>
                     </td>
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`}}>
+                      <button onClick={()=>deleteSegment(seg.segKey,label)} title="Delete segment"
+                        style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:"2px 4px",opacity:0.35,transition:"opacity 0.1s"}}
+                        onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.35}>✕</button>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          </>
         )}
       </div>
+      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"Space Grotesk,sans-serif"}}>{notif}</div>}
     </div>
   );
 }
@@ -1911,7 +2051,7 @@ export default function BudgetHQ(){
 
       {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
       {view==="budget"&&<BudgetManager campaignTags={tags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims}/>}
-      {view==="pacing"&&<PacingDashboard campaignTags={tags} budgetDims={budgetDims} budgets={budgets} mergedNormRows={mergedNormRows} T={T} isMobile={isMobile} onNavigate={setView}/>}
+      {view==="pacing"&&<PacingDashboard campaignTags={tags} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} isMobile={isMobile} onNavigate={setView}/>}
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
