@@ -1125,7 +1125,17 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
   const expectedPct=totalDays?elapsedDays/totalDays:0;
 
   const spendMap={};
+  // Independent of the period/date range — how many tagged campaigns exist for each segment
+  // at all. If this is 0 for a segment that has a budget, spend will NEVER show up for it no
+  // matter what period you're looking at — it's a tagging/dimension mismatch, not "no spend yet".
+  const campaignCountMap={};
   if(budgetDims.length){
+    Object.values(tags||{}).forEach(t=>{
+      const vals=budgetDims.map(dim=>t[dim]);
+      if(vals.some(v=>!v))return;
+      const sk=vals.join("|");
+      campaignCountMap[sk]=(campaignCountMap[sk]||0)+1;
+    });
     mergedNormRows.forEach(row=>{
       const d=parseSpendDate(row.date);
       if(!d||d<start||d>end)return;
@@ -1158,7 +1168,7 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
         else status="on-track";
       }
     }
-    return{segKey:sk,dims,budget,spend,actualPct,dailyRate,projected,projectedVariance,status};
+    return{segKey:sk,dims,budget,spend,actualPct,dailyRate,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0};
   }).filter(s=>s.budget>0||s.spend>0).sort((a,b)=>b.spend-a.spend);
 
   const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
@@ -1367,6 +1377,9 @@ function PacingDashboard({campaignTags,budgetDims,budgets,setBudgets,setBudgetRo
                     </td>
                     {seg.dims.map((v,i)=><td key={i} style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
                       <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{v}</Pill>
+                      {i===seg.dims.length-1&&seg.budget>0&&seg.matchCount===0&&(
+                        <span title="No tagged campaigns match this segment — spend will always show as $0 here, regardless of period, until a campaign is tagged with this exact combination" style={{marginLeft:6,fontSize:12,cursor:"help"}}>⚠️</span>
+                      )}
                     </td>)}
                     <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace"}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
                     <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace"}}>{fmtFull(seg.spend)}</td>
