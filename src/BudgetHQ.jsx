@@ -1392,19 +1392,46 @@ export default function BudgetHQ(){
 
           {/* Upload zone */}
           <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-          <div style={{width:"100%",maxWidth:520}}>
-            <div style={{marginBottom:28}}>
-              <h1 style={{fontSize:isMobile?22:28,fontWeight:700,color:T.text,letterSpacing:"-0.5px",marginBottom:6}}>Import your spend data</h1>
-              <p style={{fontSize:14,color:T.textSub,lineHeight:1.65}}>Upload a CSV from any ad platform. We auto-detect your columns and help you tag campaigns into custom segments.</p>
+          <div style={{width:"100%",maxWidth:560}}>
+
+            {/* Header with cancel */}
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:28}}>
+              <div>
+                <h1 style={{fontSize:isMobile?22:26,fontWeight:700,color:T.text,letterSpacing:"-0.5px",marginBottom:6}}>Add data</h1>
+                <p style={{fontSize:14,color:T.textSub,lineHeight:1.65}}>Import spend data to tag campaigns, or load a budget file to set monthly allocations.</p>
+              </div>
+              {(mergedNormRows.length>0||view)&&(
+                <button onClick={()=>{if(mergedNormRows.length>0)setStep("tag");else{setView("dashboard");setStep("upload");}}}
+                  style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:7,color:T.textMuted,cursor:"pointer",fontSize:12,padding:"6px 12px",fontFamily:"Space Grotesk,sans-serif",flexShrink:0,marginLeft:16,marginTop:4}}>
+                  ← Cancel
+                </button>
+              )}
             </div>
-            <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop} onClick={()=>fileRef.current?.click()}
-              style={{border:`1.5px dashed ${dragOver?T.accent:T.borderStrong}`,borderRadius:12,padding:isMobile?"28px 16px":"44px 32px",textAlign:"center",cursor:"pointer",background:dragOver?T.accentBg:T.surface,transition:"all 0.18s",boxShadow:T.shadow}}>
-              <div style={{width:52,height:52,borderRadius:13,background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 14px"}}>📊</div>
-              <div style={{fontSize:15,fontWeight:600,color:T.text,marginBottom:5}}>Drop your spend CSV here</div>
-              <div style={{fontSize:13,color:T.textMuted}}>or click to browse</div>
-              <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+
+            {/* Two import options */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+              <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"16px",boxShadow:T.shadow}}>
+                <div style={{fontSize:22,marginBottom:8}}>📊</div>
+                <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Spend data</div>
+                <div style={{fontSize:12,color:T.textMuted,marginBottom:12,lineHeight:1.5}}>CSV from Google Ads, LinkedIn, Meta, Bing or Capterra</div>
+                <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop} onClick={()=>fileRef.current?.click()}
+                  style={{border:`1.5px dashed ${dragOver?T.accent:T.borderStrong}`,borderRadius:8,padding:"14px",textAlign:"center",cursor:"pointer",background:dragOver?T.accentBg:"transparent",transition:"all 0.15s"}}>
+                  <div style={{fontSize:12,fontWeight:600,color:T.accent}}>Drop CSV or click to browse</div>
+                  <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+                </div>
+              </div>
+              <div onClick={()=>{setView("budget");}} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"16px",boxShadow:T.shadow,cursor:"pointer",transition:"border-color 0.15s"}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+                <div style={{fontSize:22,marginBottom:8}}>💰</div>
+                <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Budget file</div>
+                <div style={{fontSize:12,color:T.textMuted,marginBottom:12,lineHeight:1.5}}>Excel or CSV budget spreadsheet — AI maps your columns</div>
+                <div style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:8,padding:"14px",textAlign:"center",background:"transparent"}}>
+                  <div style={{fontSize:12,fontWeight:600,color:T.accent}}>Go to Budgets →</div>
+                </div>
+              </div>
             </div>
-            <div style={{marginTop:12,padding:"12px 14px",background:T.surface,borderRadius:9,border:`1px solid ${T.border}`,boxShadow:T.shadow}}>
+
+            <div style={{padding:"10px 14px",background:T.surface,borderRadius:9,border:`1px solid ${T.border}`,boxShadow:T.shadow}}>
               <SectionLabel T={T} style={{marginBottom:8}}>Supported sources</SectionLabel>
               <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
                 {["Google Ads","LinkedIn","Meta Ads","Microsoft Ads","Capterra","Funnel.io"].map(p=><span key={p} style={{fontSize:11,background:T.surfaceEl,color:T.textSub,padding:"3px 8px",borderRadius:5,fontWeight:500,border:`1px solid ${T.border}`}}>{p}</span>)}
