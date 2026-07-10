@@ -47,7 +47,7 @@ const COL_PATTERNS={campaign_name:/^campaign$/i,adset_name:/ad.?set|ad.?group/i,
 const COL_LABELS={campaign_name:"Campaign Name",adset_name:"Ad Set / Ad Group Name",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
 const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
-const NAV=[{key:"dashboard",label:"Dashboard",icon:"⚡"},{key:"tagger",label:"Tagger",icon:"🏷"},{key:"budget",label:"Budgets",icon:"💰"},{key:"pacing",label:"Pacing",icon:"📈"}];
+const NAV=[{key:"dashboard",label:"Dashboard",icon:"⚡"},{key:"tagger",label:"Tagger",icon:"🏷"},{key:"budget",label:"Budgets",icon:"💰"},{key:"pacing",label:"Reporting",icon:"📈"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function autoDetect(h){const m={};h.forEach(c=>{for(const[f,p]of Object.entries(COL_PATTERNS)){if(!m[f]&&p.test(c.trim()))m[f]=c;}});if(!m.campaign_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_name=c;}if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}return m;}
@@ -1001,9 +1001,9 @@ function Dashboard({T,onNavigate,stats,hasData}){
       action:"Import budget file →",color:T.accent,primary:true,
     },
     {
-      key:"pacing",icon:"📈",title:"Pacing Dashboard",
-      desc:"Track burn rate, PTD spend vs budget, and forecast to end of period across every segment. Requires spend data and budgets.",
-      action:"Open pacing dashboard →",color:T.accent,
+      key:"pacing",icon:"📈",title:"Pacing & Reporting",
+      desc:"Track burn rate, PTD spend vs budget, forecast to end of period, and break down spend by region, platform, funnel, or any other dimension.",
+      action:"Open reporting →",color:T.accent,
     },
     {
       key:"export",icon:"📤",title:"Export",
@@ -1205,6 +1205,25 @@ function countSegmentCampaigns(tags,budgetDims,segKey){
   return Object.values(tags||{}).filter(t=>budgetDims.every((d,i)=>t[d]===vals[i])).length;
 }
 
+// Reporting drill-down: sums spend for a segment (matched by budgetDims/segKey, within a date
+// range) grouped by ONE secondary dimension — independent of budgets entirely, so it works
+// whether or not a formal budget exists at that level. "Platform" is a synthetic option derived
+// per-row (same logic the rest of the app uses for platform badges), since it isn't a manual tag.
+function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownDim,start,end}){
+  const vals=segKey.split("|");
+  const map={};
+  mergedNormRows.forEach(row=>{
+    const d=parseSpendDate(row.date);
+    if(!d||d<start||d>end)return;
+    const rowTags=tags[row.campaign_name]||{};
+    if(!budgetDims.every((dim,i)=>rowTags[dim]===vals[i]))return;
+    const bval=breakdownDim==="Platform"?derivePlatform(row.campaign_name,row.platform):(rowTags[breakdownDim]||"Untagged");
+    map[bval]=(map[bval]||0)+row.spend;
+  });
+  const total=Object.values(map).reduce((s,v)=>s+v,0);
+  return Object.entries(map).map(([value,spend])=>({value,spend,pct:total>0?spend/total:0})).sort((a,b)=>b.spend-a.spend);
+}
+
 // Core pacing calculation: aggregates spend into budget segments for a period and
 // compares actual spend-to-date against time-elapsed expectation.
 function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today}){
@@ -1291,7 +1310,7 @@ const PacingBar=({actualPct,expectedPct,status,T})=>{
   );
 };
 
-function PacingDashboard({campaignTags,setTags,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,mergedNormRows,T,isMobile,onNavigate}){
+function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,mergedNormRows,T,isMobile,onNavigate}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -1306,12 +1325,18 @@ function PacingDashboard({campaignTags,setTags,budgetDims,budgets,setBudgets,bud
   const[notif,setNotif]=useState(null);
   const[editingSegVal,setEditingSegVal]=useState(null); // {segKey, dim}
   const[editSegVal,setEditSegVal]=useState("");
+  const[breakdownDim,setBreakdownDim]=useState(""); // "" = no drill-down; else "Platform" or a tag dimension
+  const[expandedRows,setExpandedRows]=useState(new Set());
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
   // Selecting rows only makes sense within the period/year currently being viewed — clear on change
   const changeYear=y=>{setYear(y);setSelRows(new Set());};
   const changePeriodType=k=>{setPeriodType(k);setSelRows(new Set());};
   const changeMonth=m=>{setMonth(m);setSelRows(new Set());};
   const changeQuarter=q=>{setQuarter(q);setSelRows(new Set());};
+  // Breakdown options: Platform is always available (derived per spend row, not a manual tag);
+  // any other tag dimension not already used as the primary segmentation is offered too.
+  const breakdownOptions=["Platform",...(tagDimensions||[]).filter(d=>!budgetDims.includes(d))];
+  const toggleExpand=key=>setExpandedRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
 
   const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now}),
     [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1460,6 +1485,12 @@ function PacingDashboard({campaignTags,setTags,budgetDims,budgets,setBudgets,bud
               <option value="no-budget">No budget set</option>
             </Sel>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
+            <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
+            <span style={{fontSize:11,color:T.textMuted,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Break down by:</span>
+            <Sel value={breakdownDim} onChange={v=>{setBreakdownDim(v);setExpandedRows(new Set());}} T={T} style={{width:150}}>
+              <option value="">None</option>
+              {breakdownOptions.map(d=><option key={d} value={d}>{d}</option>)}
+            </Sel>
             <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegments.length} of {pacing.segments.length} segments</span>
           </div>
           {/* Bulk action bar */}
@@ -1472,6 +1503,7 @@ function PacingDashboard({campaignTags,setTags,budgetDims,budgets,setBudgets,bud
           )}
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
             <thead><tr>
+              <th style={{...TH,width:20}}/>
               <th style={{...TH,width:32,textAlign:"left"}}>
                 <input type="checkbox" checked={filteredSegments.length>0&&selRows.size===filteredSegments.length} onChange={selAllRows} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
@@ -1487,14 +1519,20 @@ function PacingDashboard({campaignTags,setTags,budgetDims,budgets,setBudgets,bud
             </tr></thead>
             <tbody>
               {filteredSegments.length===0&&(
-                <tr><td colSpan={3+budgetDims.length+6} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
+                <tr><td colSpan={4+budgetDims.length+6} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
               )}
-              {filteredSegments.map((seg,ri)=>{
+              {filteredSegments.flatMap((seg,ri)=>{
                 const meta=pacingStatusMeta(seg.status,T);
                 const isSel=selRows.has(seg.segKey);
                 const label=budgetDims.map((d,i)=>seg.dims[i]).join(" · ");
-                return(
-                  <tr key={seg.segKey} style={{background:isSel?T.rowSelected:ri%2===0?"transparent":T.surfaceEl}}>
+                const isExpanded=breakdownDim&&expandedRows.has(seg.segKey);
+                const rowBg=isSel?T.rowSelected:ri%2===0?"transparent":T.surfaceEl;
+                const parentRow=(
+                  <tr key={seg.segKey} style={{background:rowBg}}>
+                    <td style={{padding:"8px 4px",borderBottom:`1px solid ${T.border}`,textAlign:"center"}}>
+                      {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
+                        style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
+                    </td>
                     <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`}}>
                       <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.segKey)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                     </td>
@@ -1535,6 +1573,26 @@ function PacingDashboard({campaignTags,setTags,budgetDims,budgets,setBudgets,bud
                     </td>
                   </tr>
                 );
+                if(!isExpanded)return[parentRow];
+                const breakdown=computeSpendBreakdown({mergedNormRows,tags:campaignTags,budgetDims,segKey:seg.segKey,breakdownDim,start:pacing.start,end:pacing.end});
+                const breakdownRows=breakdown.length===0?[
+                  <tr key={seg.segKey+"-empty"} style={{background:rowBg}}>
+                    <td/><td/>
+                    <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:`1px solid ${T.border}`,fontSize:11,color:T.textMuted,fontStyle:"italic"}}>No spend in this period to break down by {breakdownDim}</td>
+                    <td colSpan={8} style={{borderBottom:`1px solid ${T.border}`}}/>
+                  </tr>
+                ]:breakdown.map(b=>(
+                  <tr key={seg.segKey+"-"+b.value} style={{background:rowBg}}>
+                    <td/><td/>
+                    <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:`1px solid ${T.border}`,fontSize:12,color:T.textSub}}>↳ {b.value}</td>
+                    <td style={{borderBottom:`1px solid ${T.border}`}}/>
+                    <td style={{padding:"6px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:12}}>
+                      {fmtFull(b.spend)}<span style={{color:T.textMuted,marginLeft:6,fontSize:11}}>({Math.round(b.pct*100)}%)</span>
+                    </td>
+                    <td colSpan={6} style={{borderBottom:`1px solid ${T.border}`}}/>
+                  </tr>
+                ));
+                return[parentRow,...breakdownRows];
               })}
             </tbody>
           </table>
@@ -2194,7 +2252,7 @@ export default function BudgetHQ(){
 
       {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
       {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims}/>}
-      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} isMobile={isMobile} onNavigate={setView}/>}
+      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} isMobile={isMobile} onNavigate={setView}/>}
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
