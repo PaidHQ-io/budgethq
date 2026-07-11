@@ -190,13 +190,22 @@ const WarnTip=({T,text,size=12,color})=>(
 );
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,mergedNormRows,sidebarEl}){
+function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,mergedNormRows,sidebarEl}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
   const[showA,setShowA]=useState(false);
   const[importOpen,setImportOpen]=useState(false);
   const[notif,setNotif]=useState(null);
+  // Export preview — AI suggests which actual-spend granularity (monthly/quarterly) to append
+  // based on how the original budget file for this year was structured, user can override before
+  // downloading.
+  const[exportPreviewOpen,setExportPreviewOpen]=useState(false);
+  const[exportAnalyzing,setExportAnalyzing]=useState(false);
+  const[exportAiReason,setExportAiReason]=useState("");
+  const[exportAiError,setExportAiError]=useState("");
+  const[exportIncludeMonthly,setExportIncludeMonthly]=useState(false);
+  const[exportIncludeQuarterly,setExportIncludeQuarterly]=useState(false);
   // Budget row tagging
   const[selRows,setSelRows]=useState(new Set());
   const[segFilters,setSegFilters]=useState({}); // {dim: filterText} — substring match, ANDed across dims
@@ -252,16 +261,22 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     setShowAddRow(false);setNewRowVals({});
   };
 
-  // Export = original budget grid, unchanged, PLUS a full pacing snapshot appended as new
-  // columns to the right (same segment rows, same order) — actual spend to date, % of budget
-  // used, run rate, projected year-end spend + variance, and pacing status, mirroring exactly
-  // what the Reporting tab computes via computePacing(). Nothing about the existing columns
-  // changes, so a re-import of this same export still round-trips cleanly.
-  const exportBudgets=()=>{
+  // Export = original budget grid, unchanged, PLUS actual-spend data appended as new columns
+  // to the right (same segment rows, same order) — never touches the existing columns, so a
+  // re-import of this same export still round-trips cleanly. The annual pacing snapshot (actual
+  // spend to date, % of budget used, run rate, projected year-end spend + variance, and pacing
+  // status — mirroring exactly what the Reporting tab computes via computePacing()) is always
+  // included. Monthly and/or quarterly actual-spend breakdown blocks are optional, controlled by
+  // the export-preview modal's granularity choice (which the AI suggestion pre-fills based on
+  // whether the originally-imported file for this year had quarterly/annual total columns).
+  const exportBudgets=({includeMonthly=false,includeQuarterly=false}={})=>{
     const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
     const pacingBySeg={};
     pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
+    const actualsByMonth=(includeMonthly||includeQuarterly)?computeActualsByMonth({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,year}):{};
     const header=[...budgetDims,...budgetMetaDims,...MONTHS.map(m=>m.label),"Total",
+      ...(includeMonthly?MONTHS.map(m=>`${m.label} Actual`):[]),
+      ...(includeQuarterly?QUARTERS.map(q=>`${q.key} Actual`):[]),
       "Actual Spend","% of Budget Used","Daily Run Rate","Projected Year-End Spend","Projected Variance ($)","Pacing Status"];
     const rows=[header];
     segs.forEach(seg=>{
@@ -269,6 +284,9 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       const meta=budgetRowMeta[seg.key]||{};
       const amts=MONTHS.map(m=>monthly[m.key]||"");
       const total=MONTHS.reduce((s,m)=>s+(monthly[m.key]||0),0);
+      const segActuals=actualsByMonth[seg.key]||{};
+      const monthlyActualCols=includeMonthly?MONTHS.map(m=>Math.round((segActuals[m.key]||0)*100)/100):[];
+      const quarterlyActualCols=includeQuarterly?QUARTERS.map(q=>Math.round(q.months.reduce((s,mk)=>s+(segActuals[mk]||0),0)*100)/100):[];
       const p=pacingBySeg[seg.key];
       const pacingCols=[
         p?Math.round(p.spend*100)/100:0,
@@ -278,10 +296,37 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
         p&&p.projectedVariance!=null?Math.round(p.projectedVariance*100)/100:"—",
         p?pacingStatusMeta(p.status,T).label:pacingStatusMeta("no-budget",T).label,
       ];
-      rows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),...amts,total||"",...pacingCols]);
+      rows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),...amts,total||"",...monthlyActualCols,...quarterlyActualCols,...pacingCols]);
     });
     downloadCSV(rows,`budgethq-budgets-pacing-${year}.csv`);
     showNotif("Budgets + pacing snapshot exported");
+  };
+
+  // Opens the export-preview modal and asks the AI to recommend a granularity based on how the
+  // originally-imported file for this year was shaped (captured at import time in
+  // budgetImportMeta). Falls back to a plain structural default (no LLM call needed) if the
+  // request fails, so a flaky/unconfigured AI backend never blocks the export itself.
+  const openExportPreview=async()=>{
+    const importMeta=budgetImportMeta?.[year]||{};
+    setExportPreviewOpen(true);setExportAnalyzing(true);setExportAiError("");setExportAiReason("");
+    const fallback=()=>{setExportIncludeMonthly(false);setExportIncludeQuarterly(!!importMeta.hasQuarterlyTotals);};
+    try{
+      const prompt=`A user is exporting a budget-vs-actual report from a paid media budgeting tool. Their original budget file for ${year} was ${importMeta.hasQuarterlyTotals?"structured with quarterly subtotal columns (Q1-Q4) alongside monthly columns":"structured with monthly columns only, no quarterly subtotal columns detected"}, and ${importMeta.hasAnnualTotal?"had an annual total column":"had no annual total column detected"}. There are ${segs.length} budget segment rows, tracked by: ${budgetDims.join(", ")||"(no dimensions set)"}.\n\nThe export always includes an annual actual-spend/projection summary. Recommend whether to ALSO append a month-by-month actual-spend breakdown and/or a quarter-by-quarter actual-spend breakdown, to mirror how this user already organizes their budget file.\n\nReply ONLY with this JSON (no markdown): {"includeMonthly": true/false, "includeQuarterly": true/false, "reason": "<one short sentence explaining the recommendation>"}`;
+      const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,maxTokens:300})});
+      const data=await res.json();
+      if(!res.ok)throw new Error(data?.error||"AI suggestion request failed");
+      const result=JSON.parse((data.text||"").replace(/```json|```/g,"").trim());
+      setExportIncludeMonthly(!!result.includeMonthly);
+      setExportIncludeQuarterly(!!result.includeQuarterly);
+      setExportAiReason(result.reason||"");
+    }catch(e){
+      setExportAiError("AI suggestion unavailable — defaulted based on your file's structure. You can still adjust below.");
+      fallback();
+    }finally{setExportAnalyzing(false);}
+  };
+  const confirmExport=()=>{
+    exportBudgets({includeMonthly:exportIncludeMonthly,includeQuarterly:exportIncludeQuarterly});
+    setExportPreviewOpen(false);
   };
 
   // Budget row tagging
@@ -538,6 +583,12 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     // Register new custom dimensions with parent so they appear in Tagger too
     const newDimNames=customDims.filter(c=>c.name&&c.col&&!(tagDimensions||[]).includes(c.name)).map(c=>c.name);
     if(newDimNames.length) onAddDimensions?.(newDimNames);
+    // Record the original file's time-granularity shape (does it roll up into quarterly and/or
+    // annual total columns alongside the monthly ones?) so the export step can later suggest
+    // matching that structure instead of guessing blind.
+    const hasQuarterlyTotals=iHeaders.some(h=>/^q[1-4]\b/i.test(h.trim()));
+    const hasAnnualTotal=iHeaders.some(h=>/^(total|annual)/i.test(h.trim()));
+    setBudgetImportMeta?.(p=>({...p,[iYear]:{hasQuarterlyTotals,hasAnnualTotal,importedAt:Date.now()}}));
     setImportOpen(false);resetImport();
     showNotif(`Imported ${preview.length} budget entries into ${iYear}`);
   };
@@ -550,10 +601,10 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       const sample=iRawRows.slice(0,300).map(row=>row.slice(0,20).map(v=>String(v||"").trim()));
       const prompt=`Analyze this complete budget spreadsheet and return a JSON mapping.\n\nUser's existing tag dimensions: ${(tagDimensions||[]).join(", ")}\n\nComplete file data (${sample.length} rows, up to 20 columns shown — file has ${iRawRows[0]?.length||0} total columns):\n${sample.map((row,i)=>`Row ${i+1}: ${row.map(v=>v.replace(/#REF!/g,"0")).join(" | ")}`).join("\n")}\n\nReturn ONLY this JSON object (no markdown):\n{\n  \"headerRow\": <0-based row index of the main column header row>,\n  \"groupHeaderRow\": <row index of a channel/platform grouping row ABOVE the main header that groups columns, or -1 if none>,\n  \"groupDimension\": <name for the group dimension e.g. \"Channel\" or null>,\n  \"skipPattern\": <substring in subtotal/total rows to skip, or \"\">,\n  \"format\": \"wide\", \"long\", or \"transposed\",\n  \"segmentDimension\": <for transposed: name for the campaign column dimension e.g. \"Campaign\">,\n  \"dimensions\": [{\"name\": <existing dim name>, \"column\": <exact column header>}],\n  \"newDimensions\": [{\"name\": <new dim name>, \"column\": <exact column header>}],\n  \"periodColumn\": <for long format: period column, else null>,\n  \"amountColumn\": <for long format: amount column, else null>,\n  \"hasQuarterlyCaps\": <true/false>,\n  \"hasAnnualCap\": <true/false>\n}\nFormat rules: wide=month names as column headers; transposed=months as rows + campaigns as columns (if a row ABOVE the header groups columns into channels set groupHeaderRow); long=one row per period. Existing dimensions to map: ${(tagDimensions||[]).join(", ")}`;
 
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content:prompt}]})});
+      const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
       const data=await res.json();
-      const text=(data.content||[]).find(b=>b.type==="text")?.text||"";
-      const result=JSON.parse(text.replace(/```json|```/g,"").trim());
+      if(!res.ok)throw new Error(data?.error||"AI analysis request failed");
+      const result=JSON.parse((data.text||"").replace(/```json|```/g,"").trim());
 
       const hri=typeof result.headerRow==="number"?result.headerRow:iHeaderRow;
       const skip=typeof result.skipPattern==="string"?result.skipPattern:iSkipStr;
@@ -618,7 +669,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
         <div style={{display:"flex",flexDirection:"column",gap:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:12}}>
           <Btn onClick={()=>setImportOpen(true)} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import CSV / Excel</Btn>
-          <Btn onClick={exportBudgets} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export budgets + pacing</Btn>
+          <Btn onClick={openExportPreview} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export budgets + pacing</Btn>
 
           {/* Metadata dimensions */}
           <div style={{borderTop:`1px solid ${T.border}`,marginTop:10,paddingTop:12}}>
@@ -1084,6 +1135,47 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           </PixelPanel>
         </div>
       )}
+
+      {exportPreviewOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <PixelPanel T={T} style={{width:"100%",maxWidth:460}} contentStyle={{background:T.surface,padding:0}}>
+            <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Export preview — {year}</div>
+              <button onClick={()=>setExportPreviewOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:"Inter,sans-serif"}}>×</button>
+            </div>
+            <div style={{padding:22}}>
+              {exportAnalyzing?(
+                <div style={{display:"flex",alignItems:"center",gap:8,color:T.textSub,fontSize:13}}>
+                  <span style={{width:14,height:14,border:`2px solid ${T.border}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/>
+                  Checking how your {year} budget file was structured…
+                </div>
+              ):(
+                <>
+                  {exportAiReason&&(
+                    <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:16,fontSize:12,color:T.text,lineHeight:1.5}}>✨ {exportAiReason}</div>
+                  )}
+                  {exportAiError&&(
+                    <div style={{padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:8,marginBottom:16,fontSize:12,color:T.warning,lineHeight:1.5}}>{exportAiError}</div>
+                  )}
+                  <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>Always included: annual actual spend, % of budget used, projected year-end spend, and pacing status. Choose what else to append:</div>
+                  <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",cursor:"pointer"}}>
+                    <input type="checkbox" checked={exportIncludeMonthly} onChange={e=>setExportIncludeMonthly(e.target.checked)} style={{marginTop:2,cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
+                    <span><span style={{fontSize:13,fontWeight:600,color:T.text}}>Monthly actual spend</span><br/><span style={{fontSize:12,color:T.textMuted}}>Adds a Jan–Dec Actual column next to each budgeted month.</span></span>
+                  </label>
+                  <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",cursor:"pointer"}}>
+                    <input type="checkbox" checked={exportIncludeQuarterly} onChange={e=>setExportIncludeQuarterly(e.target.checked)} style={{marginTop:2,cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
+                    <span><span style={{fontSize:13,fontWeight:600,color:T.text}}>Quarterly actual spend</span><br/><span style={{fontSize:12,color:T.textMuted}}>Adds Q1–Q4 Actual columns, matching quarterly totals in your original file.</span></span>
+                  </label>
+                </>
+              )}
+            </div>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn onClick={()=>setExportPreviewOpen(false)} variant="ghost" T={T}>Cancel</Btn>
+              <Btn onClick={confirmExport} disabled={exportAnalyzing} variant="primary" T={T}>↓ Download CSV</Btn>
+            </div>
+          </PixelPanel>
+        </div>
+      )}
     </div>
   );
 }
@@ -1317,6 +1409,26 @@ function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownD
   });
   const total=Object.values(map).reduce((s,v)=>s+v,0);
   return Object.entries(map).map(([value,spend])=>({value,spend,pct:total>0?spend/total:0})).sort((a,b)=>b.spend-a.spend);
+}
+
+// One pass over mergedNormRows producing {segKey: {monthKey: actualSpend}} for a given calendar
+// year — used to build the optional monthly/quarterly "Actual" column blocks in the budget
+// export, so each block only costs one scan regardless of how many segments/months it covers.
+function computeActualsByMonth({mergedNormRows,tags,budgetDims,year}){
+  const map={};
+  if(!budgetDims.length)return map;
+  mergedNormRows.forEach(row=>{
+    const d=parseSpendDate(row.date);
+    if(!d||d.getFullYear()!==Number(year))return;
+    const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
+    const vals=budgetDims.map(dim=>rowTags[dim]);
+    if(vals.some(v=>!v))return;
+    const sk=vals.join("|");
+    const mk=String(d.getMonth()+1).padStart(2,"0");
+    if(!map[sk])map[sk]={};
+    map[sk][mk]=(map[sk][mk]||0)+row.spend;
+  });
+  return map;
 }
 
 // Core pacing calculation: aggregates spend into budget segments for a period and
@@ -1785,6 +1897,7 @@ export default function BudgetHQ(){
   const[budgetDims,setBudgetDims]=useState([]);
   const[budgetRowMeta,setBudgetRowMeta]=useState({}); // {segKey: {dim: value}}
   const[budgetMetaDims,setBudgetMetaDims]=useState([]); // annotation dims on budget rows
+  const[budgetImportMeta,setBudgetImportMeta]=useState({}); // {year: {hasQuarterlyTotals, hasAnnualTotal}} — captured at import time, used to inform the export-time AI granularity suggestion
 
   useEffect(()=>{try{
     // Migrate legacy tags from before the two-level campaign group + campaign model: old keys
@@ -1804,6 +1917,7 @@ export default function BudgetHQ(){
     const bd=localStorage.getItem("paidhq_budget_dims");if(bd)setBudgetDims(JSON.parse(bd));
     const bm=localStorage.getItem("paidhq_budget_meta");if(bm)setBudgetRowMeta(JSON.parse(bm));
     const bmd=localStorage.getItem("paidhq_budget_meta_dims");if(bmd)setBudgetMetaDims(JSON.parse(bmd));
+    const bim=localStorage.getItem("paidhq_budget_import_meta");if(bim)setBudgetImportMeta(JSON.parse(bim));
     // Restore spend data — legacy rows predate campaign_group_name, so backfill it from
     // campaign_name (matches how normalizeRows falls back when a CSV has no second level).
     const sr=localStorage.getItem("paidhq_rows");
@@ -1819,6 +1933,7 @@ export default function BudgetHQ(){
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_dims",JSON.stringify(budgetDims));}catch(e){};},[budgetDims]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta",JSON.stringify(budgetRowMeta));}catch(e){};},[budgetRowMeta]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta_dims",JSON.stringify(budgetMetaDims));}catch(e){};},[budgetMetaDims]);
+  useEffect(()=>{try{localStorage.setItem("paidhq_budget_import_meta",JSON.stringify(budgetImportMeta));}catch(e){};},[budgetImportMeta]);
   useEffect(()=>{try{
     if(mergedNormRows.length){
       localStorage.setItem("paidhq_rows",JSON.stringify(mergedNormRows));
@@ -2042,8 +2157,8 @@ export default function BudgetHQ(){
   };
   const clearBudgetData=()=>{
     if(!window.confirm("Clear all Budget data?\n\nThis removes every budget allocation, budget segment, and annotation dimension across all years. Tagged campaign data is not affected.\n\nThis cannot be undone."))return;
-    setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);
-    try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims"].forEach(k=>localStorage.removeItem(k));}catch(e){}
+    setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);setBudgetImportMeta({});
+    try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta"].forEach(k=>localStorage.removeItem(k));}catch(e){}
     showNotif("Budget data cleared");
   };
   const clearAllData=()=>{
@@ -2056,8 +2171,8 @@ export default function BudgetHQ(){
     try{["paidhq_rows","paidhq_tags","paidhq_dims","paidhq_sync_range"].forEach(k=>localStorage.removeItem(k));}catch(e){}
   }
   function clearBudgetDataSilent(){
-    setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);
-    try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims"].forEach(k=>localStorage.removeItem(k));}catch(e){}
+    setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);setBudgetImportMeta({});
+    try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta"].forEach(k=>localStorage.removeItem(k));}catch(e){}
   }
 
   const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
@@ -2516,7 +2631,7 @@ export default function BudgetHQ(){
       )}
 
       {view==="dashboard"&&<Dashboard T={T} themeKey={themeKey} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
-      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} mergedNormRows={mergedNormRows} sidebarEl={budgetSidebarEl}/>}
+      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} sidebarEl={budgetSidebarEl}/>}
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
