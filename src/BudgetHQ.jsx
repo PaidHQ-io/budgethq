@@ -2180,6 +2180,7 @@ export default function BudgetHQ(){
     const bm=localStorage.getItem("paidhq_budget_meta");if(bm)setBudgetRowMeta(JSON.parse(bm));
     const bmd=localStorage.getItem("paidhq_budget_meta_dims");if(bmd)setBudgetMetaDims(JSON.parse(bmd));
     const bim=localStorage.getItem("paidhq_budget_import_meta");if(bim)setBudgetImportMeta(JSON.parse(bim));
+    const v=localStorage.getItem("paidhq_view");if(v&&["dashboard","tagger","budget","pacing","settings"].includes(v))setView(v);
     // Restore spend data — legacy rows predate campaign_group_name, so backfill it from
     // campaign_name (matches how normalizeRows falls back when a CSV has no second level).
     const sr=localStorage.getItem("paidhq_rows");
@@ -2195,6 +2196,7 @@ export default function BudgetHQ(){
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_dims",JSON.stringify(budgetDims));}catch(e){};},[budgetDims]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta",JSON.stringify(budgetRowMeta));}catch(e){};},[budgetRowMeta]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta_dims",JSON.stringify(budgetMetaDims));}catch(e){};},[budgetMetaDims]);
+  useEffect(()=>{try{localStorage.setItem("paidhq_view",view);}catch(e){};},[view]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_import_meta",JSON.stringify(budgetImportMeta));}catch(e){};},[budgetImportMeta]);
   useEffect(()=>{try{
     if(mergedNormRows.length){
