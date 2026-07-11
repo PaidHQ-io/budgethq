@@ -63,7 +63,6 @@ const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function autoDetect(h){const m={};h.forEach(c=>{for(const[f,p]of Object.entries(COL_PATTERNS)){if(!m[f]&&p.test(c.trim()))m[f]=c;}});if(!m.campaign_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_name=c;}if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}return m;}
 function derivePlatform(n,pv){const u=(n||"").toUpperCase();const p=(pv||"").toLowerCase();if(/^LIN[-|]/.test(u)||p.includes("linkedin"))return"LinkedIn";if(/^FB[-|]/.test(u)||p.includes("facebook")||p.includes("meta"))return"Meta";if(/^BIN[-|]/.test(u)||p.includes("bing"))return"Bing";if(/^YT[-|]/.test(u)||p.includes("youtube"))return"YouTube";if(/^SEA[-|]/.test(u)||p==="search")return"Google Search";if(/^GDN[-|]/.test(u)||p==="display")return"Google Display";if(/demand.gen/i.test(u)||p==="demand gen")return"Demand Gen";if(/pmax|performance.max/i.test(u))return"Performance Max";if(p.includes("google"))return"Google Search";if(p.includes("capterra"))return"Capterra";return pv||"Unknown";}
-const parseSpend=v=>{if(!v)return 0;return parseFloat(String(v).replace(/[$,\s]/g,""))||0;};
 const parseMoney=v=>{if(v===""||v==null)return null;const n=parseFloat(String(v).replace(/[$,\s%]/g,""));return isNaN(n)?null:n;};
 const fmt$=n=>{if(!n)return"";return"$"+Math.round(n).toLocaleString();};
 const fmtFull=n=>n?"$"+Math.round(n).toLocaleString():"—";
@@ -105,13 +104,12 @@ function downloadCSV(rows, filename){
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,marginBottom:6,...style}}>{children}</div>);
 const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 9px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",...style}} {...rest}>{children}</span>);
-const PlatformBadge=({platform,T})=>{const c=PLATFORM_COLORS[platform]||T.textMuted;return <span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:5,background:c+"18",color:c,border:`1px solid ${c}30`,whiteSpace:"nowrap"}}>{platform}</span>;};
 // Soft rounded button — back to a conventional subtle-border, light-shadow style
 // (moved away from the pixel/retro hard-shadow treatment).
 const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={}})=>{
   const s={sm:{padding:"6px 14px",fontSize:12},md:{padding:"8px 18px",fontSize:13},lg:{padding:"10px 24px",fontSize:14}};
   const v={primary:{background:T.accent,color:T.text,border:`1px solid ${T.accentHover}`},ghost:{background:T.surface,color:T.text,border:`1px solid ${T.border}`},subtle:{background:T.surfaceEl,color:T.text,border:`1px solid ${T.border}`},success:{background:T.successBg,color:T.success,border:`1px solid ${T.successBorder}`},danger:{background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerBorder}`}};
-  return <button disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:8,cursor:disabled?"not-allowed":"pointer",fontWeight:600,transition:"all 0.12s",fontFamily:"Inter,sans-serif",boxShadow:disabled?"none":T.shadow,opacity:disabled?0.5:1,...s[size],...v[variant],...style}}>{children}</button>;
+  return <button className="bhq-btn" disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:8,cursor:disabled?"not-allowed":"pointer",fontWeight:600,transition:"all 0.12s",fontFamily:"Inter,sans-serif",boxShadow:disabled?"none":T.shadow,opacity:disabled?0.5:1,...s[size],...v[variant],...style}}>{children}</button>;
 };
 const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"Inter,sans-serif":"Inter,sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
 const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"Inter,sans-serif",width:"100%",...style}}>{children}</select>);
@@ -369,7 +367,6 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const processRows=useCallback((rawRows,headerRowIdx,skipStr)=>{
     if(!rawRows.length||headerRowIdx>=rawRows.length)return{headers:[],rows:[]};
     const headers=rawRows[headerRowIdx].map(h=>String(h||"").trim()).filter(h=>h);
-    const maxCol=rawRows[headerRowIdx].length;
     const rows=rawRows.slice(headerRowIdx+1)
       .filter(row=>{
         if(!row||row.every(v=>!String(v).trim()))return false;
@@ -613,13 +610,13 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget Year</SectionLabel>
-            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accent:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>)}</div>
+            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accent:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>)}</div>
           </div>
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget By</SectionLabel>
             {(tagDimensions||[]).map(d=>{const on=budgetDims.includes(d);return(
-              <div key={d} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?T.accentBg:"transparent",border:on?`1px solid ${T.accentBorder}`:"1px solid transparent",marginBottom:2}}>
+              <div key={d} className={on?undefined:"bhq-row"} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?T.accentBg:"transparent",border:on?`1px solid ${T.accentBorder}`:"1px solid transparent",marginBottom:2}}>
                 <Chk checked={on} onChange={()=>toggleDim(d)} T={T}/>
                 <span style={{fontSize:13,color:T.text,fontWeight:on?700:400}}>{d}</span>
                 <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontFamily:"Inter,sans-serif"}}>{dimCount(d)}</span>
@@ -696,7 +693,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                 <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+QUARTERS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
               )}
               {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px dashed ${T.borderStrong}`;const isSel=selRows.has(seg.key);return(
-                <tr key={seg.key} style={{background:isSel?T.rowSelected:rb}}>
+                <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:T.bg,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   </td>
@@ -1473,12 +1470,12 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
             <SectionLabel T={T} style={{marginBottom:8}}>Period</SectionLabel>
             <div style={{display:"flex",gap:4,marginBottom:8}}>
               {[["monthly","Mo"],["quarterly","Qtr"],["annual","Yr"]].map(([k,l])=>(
-                <button key={k} onClick={()=>changePeriodType(k)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${periodType===k?T.accentHover:T.border}`,background:periodType===k?T.accent:"transparent",color:periodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:periodType===k?700:400,fontFamily:"Inter,sans-serif"}}>{l}</button>
+                <button key={k} className={periodType===k?undefined:"bhq-row"} onClick={()=>changePeriodType(k)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${periodType===k?T.accentHover:T.border}`,background:periodType===k?T.accent:"transparent",color:periodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:periodType===k?700:400,fontFamily:"Inter,sans-serif"}}>{l}</button>
               ))}
             </div>
             <div style={{display:"flex",gap:4,marginBottom:8}}>
               {years.map(y=>(
-                <button key={y} onClick={()=>changeYear(y)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accent:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:year===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>
+                <button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>changeYear(y)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accent:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:year===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>
               ))}
             </div>
             {periodType==="monthly"&&(
@@ -1584,7 +1581,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                 const rowBg=isSel?T.rowSelected:"transparent";
                 const rbb=`1px dashed ${T.borderStrong}`;
                 const parentRow=(
-                  <tr key={seg.segKey} style={{background:rowBg}}>
+                  <tr key={seg.segKey} className={isSel?undefined:"bhq-tr"} style={{background:rowBg}}>
                     <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center"}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
@@ -1958,7 +1955,6 @@ export default function BudgetHQ(){
   },[undoTags]);
   const hasF=fCamp||fCampExclude||fPlat||fSMin||fSMax||fTag||fTagExclude||selectedTagFilters.size>0||fStatus!=="all";
   const canProceed=colMap.campaign_name&&colMap.spend;
-  const showNav=true;
 
   const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3};
@@ -1985,38 +1981,38 @@ export default function BudgetHQ(){
           OWN bottom border at the same fixed height, and the active tab's is simply colored to
           match the body (T.bg) instead of T.border, so it reads as blank/seamless there. */}
       <div style={{display:"flex",alignItems:"stretch",height:46,flexShrink:0,background:T.topbarBg,zIndex:30}}>
-        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:0),display:"flex",alignItems:"center",gap:8,padding:"0 16px",flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`,borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
+        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:8,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`,borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
           <div style={{width:22,height:22,borderRadius:6,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
             <Icon name="bolt" size={13} color={T.text}/>
           </div>
-          <div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>
+          {(statsOpen||isMobile)&&<div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
         </div>
-        <div style={{display:"flex",alignItems:"flex-end",gap:2,flex:1,paddingLeft:16,minWidth:0}}>
+        <div style={{display:"flex",alignItems:"flex-end",gap:2,flex:1,paddingLeft:isMobile?4:16,minWidth:0,overflowX:isMobile?"auto":"visible"}}>
           {NAV.map(item=>{
             const active=view===item.key;
-            return <button key={item.key} onClick={()=>{
+            return <button key={item.key} className={active?undefined:"bhq-tab"} onClick={()=>{
                 if(item.key==="tagger"){if(step!=="tag")setStep("upload");setView("tagger");}
                 else setView(item.key);
-              }} style={{display:"flex",alignItems:"center",gap:7,padding:"0 16px",height:38,marginTop:8,boxSizing:"border-box",flexShrink:0,borderRadius:"8px 8px 0 0",borderTop:`1px solid ${active?T.border:"transparent"}`,borderLeft:`1px solid ${active?T.border:"transparent"}`,borderRight:`1px solid ${active?T.border:"transparent"}`,borderBottom:`1px solid ${active?T.bg:T.border}`,background:active?T.bg:"transparent",color:active?T.text:T.textSub,fontSize:13,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+              }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",height:38,marginTop:8,boxSizing:"border-box",flexShrink:0,borderRadius:"8px 8px 0 0",borderTop:`1px solid ${active?T.border:"transparent"}`,borderLeft:`1px solid ${active?T.border:"transparent"}`,borderRight:`1px solid ${active?T.border:"transparent"}`,borderBottom:`1px solid ${active?T.bg:T.border}`,background:active?T.bg:"transparent",color:active?T.text:T.textSub,fontSize:13,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",transition:"background 0.12s,color 0.12s"}}>
               <Icon name={item.icon} size={15} color={active?T.text:T.textSub}/>
-              {item.label}
+              {!isMobile&&item.label}
             </button>;
           })}
           {/* Trailing filler — covers the gap after the last tab so the divider still runs the
               full width of the tab strip before the right-side actions begin. */}
           <div style={{flex:1,alignSelf:"stretch",boxSizing:"border-box",borderBottom:`1px solid ${T.border}`}}/>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8,padding:"0 14px",flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`}}>
-          {step==="tag"&&(
+        <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`}}>
+          {step==="tag"&&!isMobile&&(
             <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:20}}>
               <span style={{width:6,height:6,borderRadius:"50%",background:stats.untagged>0?T.warning:T.success,flexShrink:0}}/>
               <span style={{fontSize:11,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
-          {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>↑ Add data</Btn>}
-          {step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>✕ Clear all</Btn>}
-          <button title={themeKey==="dark"?"Switch to light":"Switch to dark"} onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")}
-            style={{width:30,height:30,borderRadius:8,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>{isMobile?"↑":"↑ Add data"}</Btn>}
+          {step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
+          <button className="bhq-iconbtn" title={themeKey==="dark"?"Switch to light":"Switch to dark"} onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")}
+            style={{width:30,height:30,borderRadius:8,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
             <Icon name={themeKey==="dark"?"sun":"moon"} size={15} color={T.textSub}/>
           </button>
         </div>
@@ -2040,7 +2036,7 @@ export default function BudgetHQ(){
               <SectionLabel T={T} style={{marginBottom:8}}>Tag Dimensions</SectionLabel>
               <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
                 {tagDims.map(dim=>(
-                  <div key={dim} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent",border:applyDim===dim?`1px solid ${T.accentBorder}`:"1px solid transparent"}}>
+                  <div key={dim} className={applyDim===dim?undefined:"bhq-row"} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent",border:applyDim===dim?`1px solid ${T.accentBorder}`:"1px solid transparent"}}>
                     <span style={{fontSize:13,color:T.text,fontWeight:applyDim===dim?700:400}}>{dim}</span>
                     <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
                   </div>
@@ -2137,8 +2133,8 @@ export default function BudgetHQ(){
         )}
 
         {/* Collapse handle for the stats column */}
-        <button onClick={()=>setStatsOpen(o=>!o)} title={statsOpen?"Hide stats":"Show stats"}
-          style={{position:"absolute",top:"50%",left:(statsOpen?statsWidth:0)-9,transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:T.surface,border:`1px solid ${T.border}`,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontWeight:700,fontSize:9,lineHeight:1,zIndex:40,boxShadow:T.shadow,transition:statsResizing.current?"none":"left 0.15s"}}>
+        <button className="bhq-iconbtn" onClick={()=>setStatsOpen(o=>!o)} title={statsOpen?"Hide stats":"Show stats"}
+          style={{position:"absolute",top:"50%",left:(statsOpen?statsWidth:0)-9,transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:T.surface,border:`1px solid ${T.border}`,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontWeight:700,fontSize:9,lineHeight:1,zIndex:40,boxShadow:T.shadow,transition:statsResizing.current?"none":"left 0.15s, background 0.12s"}}>
           {statsOpen?"‹":"›"}
         </button>
       </>)}
@@ -2353,7 +2349,7 @@ export default function BudgetHQ(){
               {filtered.map((c)=>{
                 const ts=tags[c.name]||{};const tc=Object.keys(ts).length;const isSel=selected.has(c.name);const pc=PLATFORM_COLORS[c.platform]||T.textMuted;
                 return(
-                  <div key={c.name} onClick={()=>toggleSel(c.name)}
+                  <div key={c.name} className={isSel?undefined:"bhq-row"} onClick={()=>toggleSel(c.name)}
                     style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px dashed ${T.borderStrong}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.name)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                     <div style={{minWidth:0}}><div style={{fontSize:11,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>{c.adsetCount>0&&<div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{c.adsetCount} ad sets</div>}</div>
@@ -2426,6 +2422,15 @@ export default function BudgetHQ(){
         ::-webkit-scrollbar-thumb{background:${T.borderStrong};border-radius:3px;}
         @keyframes spin{to{transform:rotate(360deg);}}
         @media(max-width:768px){input,select{font-size:16px!important;}}
+        /* Hover feedback — the app is styled almost entirely with inline styles (each element's
+           own background is set inline per its state), so a plain CSS class can't win the
+           cascade against that without !important. These are intentionally scoped to elements
+           that opt in via className, so they never fight the "active/selected" inline states. */
+        .bhq-btn:not(:disabled):hover{filter:brightness(0.96);}
+        .bhq-tab:hover{background:${T.surfaceHover} !important;color:${T.text} !important;}
+        .bhq-iconbtn:hover{background:${T.surfaceHover} !important;}
+        .bhq-row:hover{background:${T.surfaceHover} !important;}
+        .bhq-tr:hover td{background:${T.rowHover} !important;}
       `}</style>
     </div>
   );
