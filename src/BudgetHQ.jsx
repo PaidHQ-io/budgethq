@@ -1,40 +1,51 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
+// Cool-gray "Obsidian" palette (redesign, July 2026) — Mo asked to move away from the
+// pixel/retro treatment back to a softer, rounded, conventional look, with a browser-tab
+// style top nav using exact colors he picked: topbar #DCE0E9, body #F0F1F5, left column
+// #E6E9F0, dividers #CED2DB. Gold (#FFC249) stays as the one accent color threaded through
+// both themes. Dark theme has no reference and is an original counterpart, built by
+// inverting these same structural roles (topbar/body/sidebar/divider) into dark grays.
 const THEMES = {
   dark: {
-    bg:"#141412",surface:"#1C1B18",surfaceEl:"#252420",surfaceHover:"#2C2B27",
-    border:"#2E2D29",borderStrong:"#3D3C37",
-    text:"#F0EFE9",textSub:"#A8A79E",textMuted:"#6B6A62",textDim:"#3D3C37",
-    accent:"#10B981",accentHover:"#0EA572",
-    accentBg:"rgba(16,185,129,0.1)",accentBorder:"rgba(16,185,129,0.22)",accentText:"#34D399",
-    success:"#10B981",successBg:"rgba(16,185,129,0.1)",successBorder:"rgba(16,185,129,0.22)",
-    warning:"#F59E0B",warningBg:"rgba(245,158,11,0.1)",warningBorder:"rgba(245,158,11,0.28)",
-    danger:"#EF4444",dangerBg:"rgba(239,68,68,0.1)",dangerBorder:"rgba(239,68,68,0.28)",
-    rowHover:"#1F1E1B",rowSelected:"rgba(16,185,129,0.08)",
-    inputBg:"#252420",headerBg:"#1C1B18",sidebarBg:"#141412",
-    logo:"#10B981",pill:"#252420",pillBorder:"#2E2D29",
+    bg:"#14171E",surface:"#1E222B",surfaceEl:"#262B35",surfaceHover:"#2E333F",
+    border:"#2A2E38",borderStrong:"#3A3F4C",
+    text:"#EDEEF2",textSub:"#A8AEBB",textMuted:"#6B7180",textDim:"#2A2E38",
+    accent:"#FFC249",accentHover:"#FFD375",
+    accentBg:"rgba(255,194,73,0.14)",accentBorder:"rgba(255,194,73,0.3)",accentText:"#FFC249",
+    success:"#5CBE86",successBg:"rgba(92,190,134,0.12)",successBorder:"rgba(92,190,134,0.28)",
+    warning:"#E2953F",warningBg:"rgba(226,149,63,0.12)",warningBorder:"rgba(226,149,63,0.3)",
+    danger:"#FF6259",dangerBg:"rgba(255,98,89,0.12)",dangerBorder:"rgba(255,98,89,0.3)",
+    rowHover:"#262B35",rowSelected:"rgba(255,194,73,0.08)",
+    inputBg:"#1E222B",headerBg:"#191C24",sidebarBg:"#181B23",topbarBg:"#20242E",
+    logo:"#FFC249",pill:"#262B35",pillBorder:"#2A2E38",railDivider:"#2A2E38",
+    badgeColors:["#FF6259","#8C6FFF","#FFC249","#B08D4F"],
+    heroGradient:"linear-gradient(135deg,#C24A78 0%,#2E7D6B 100%)",
     shadow:"0 1px 2px rgba(0,0,0,0.4)",
-    shadowMd:"0 4px 20px rgba(0,0,0,0.5),0 2px 8px rgba(0,0,0,0.3)",
-    shadowLg:"0 8px 40px rgba(0,0,0,0.6),0 4px 12px rgba(0,0,0,0.4)",
+    shadowMd:"0 8px 24px rgba(0,0,0,0.45),0 2px 8px rgba(0,0,0,0.3)",
+    shadowLg:"0 16px 48px rgba(0,0,0,0.55),0 4px 16px rgba(0,0,0,0.35)",
   },
   light: {
-    bg:"#F7F6F3",surface:"#FFFFFF",surfaceEl:"#F0EFE9",surfaceHover:"#ECEAE3",
-    border:"#E5E3DB",borderStrong:"#C9C7BE",
-    text:"#1A1917",textSub:"#6B6A62",textMuted:"#9B9A92",textDim:"#C9C7BE",
-    accent:"#059669",accentHover:"#047857",
-    accentBg:"rgba(5,150,105,0.08)",accentBorder:"rgba(5,150,105,0.2)",accentText:"#059669",
-    success:"#059669",successBg:"rgba(5,150,105,0.08)",successBorder:"rgba(5,150,105,0.2)",
-    warning:"#D97706",warningBg:"rgba(217,119,6,0.08)",warningBorder:"rgba(217,119,6,0.25)",
-    danger:"#DC2626",dangerBg:"rgba(220,38,38,0.08)",dangerBorder:"rgba(220,38,38,0.25)",
-    rowHover:"#F0EFE9",rowSelected:"rgba(5,150,105,0.06)",
-    inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#F7F6F3",
-    logo:"#059669",pill:"#F0EFE9",pillBorder:"#E5E3DB",
-    shadow:"0 1px 2px rgba(0,0,0,0.06)",
-    shadowMd:"0 4px 20px rgba(0,0,0,0.1),0 2px 8px rgba(0,0,0,0.06)",
-    shadowLg:"0 8px 40px rgba(0,0,0,0.14),0 4px 12px rgba(0,0,0,0.08)",
+    bg:"#F0F1F5",surface:"#FFFFFF",surfaceEl:"#F7F8FA",surfaceHover:"#ECEEF2",
+    border:"#CED2DB",borderStrong:"#B7BCC8",
+    text:"#1E222A",textSub:"#5B6272",textMuted:"#8A90A0",textDim:"#CED2DB",
+    accent:"#FFC249",accentHover:"#F0AC2B",
+    accentBg:"rgba(255,194,73,0.16)",accentBorder:"rgba(255,194,73,0.35)",accentText:"#8A5F00",
+    success:"#2F8F5B",successBg:"rgba(47,143,91,0.1)",successBorder:"rgba(47,143,91,0.25)",
+    warning:"#C2721F",warningBg:"rgba(194,114,31,0.1)",warningBorder:"rgba(194,114,31,0.28)",
+    danger:"#FD4438",dangerBg:"rgba(253,68,56,0.1)",dangerBorder:"rgba(253,68,56,0.28)",
+    rowHover:"#F7F8FA",rowSelected:"rgba(255,194,73,0.1)",
+    inputBg:"#FFFFFF",headerBg:"#F7F8FA",sidebarBg:"#E6E9F0",topbarBg:"#DCE0E9",
+    logo:"#FFC249",pill:"#F7F8FA",pillBorder:"#CED2DB",railDivider:"#CED2DB",
+    badgeColors:["#FD4438","#4807EA","#FFC249","#452F01"],
+    heroGradient:"linear-gradient(135deg,#E8749A 0%,#5FBFA6 100%)",
+    shadow:"0 1px 3px rgba(30,34,42,0.06)",
+    shadowMd:"0 10px 30px rgba(30,34,42,0.08),0 2px 8px rgba(30,34,42,0.04)",
+    shadowLg:"0 20px 56px rgba(30,34,42,0.12),0 6px 18px rgba(30,34,42,0.06)",
   },
 };
 
@@ -47,7 +58,7 @@ const COL_PATTERNS={campaign_name:/^campaign$/i,adset_name:/ad.?set|ad.?group/i,
 const COL_LABELS={campaign_name:"Campaign Name",adset_name:"Ad Set / Ad Group Name",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
 const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
-const NAV=[{key:"dashboard",label:"Dashboard",icon:"⚡"},{key:"tagger",label:"Tagger",icon:"🏷"},{key:"budget",label:"Budgets",icon:"💰"},{key:"pacing",label:"Reporting",icon:"📈"}];
+const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Tagger",icon:"tag"},{key:"budget",label:"Budgets",icon:"wallet"},{key:"pacing",label:"Reporting",icon:"chart"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function autoDetect(h){const m={};h.forEach(c=>{for(const[f,p]of Object.entries(COL_PATTERNS)){if(!m[f]&&p.test(c.trim()))m[f]=c;}});if(!m.campaign_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_name=c;}if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}return m;}
@@ -93,25 +104,72 @@ function downloadCSV(rows, filename){
 
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,marginBottom:6,...style}}>{children}</div>);
-const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",...style}} {...rest}>{children}</span>);
+const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 9px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",...style}} {...rest}>{children}</span>);
 const PlatformBadge=({platform,T})=>{const c=PLATFORM_COLORS[platform]||T.textMuted;return <span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:5,background:c+"18",color:c,border:`1px solid ${c}30`,whiteSpace:"nowrap"}}>{platform}</span>;};
+// Soft rounded button — back to a conventional subtle-border, light-shadow style
+// (moved away from the pixel/retro hard-shadow treatment).
 const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={}})=>{
-  const s={sm:{padding:"5px 12px",fontSize:12},md:{padding:"7px 16px",fontSize:13},lg:{padding:"9px 22px",fontSize:14}};
-  const v={primary:{background:T.accent,color:"#fff",border:"none"},ghost:{background:"transparent",color:T.textSub,border:`1px solid ${T.border}`},subtle:{background:T.surfaceEl,color:T.textSub,border:`1px solid ${T.border}`},success:{background:T.successBg,color:T.success,border:`1px solid ${T.successBorder}`},danger:{background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerBorder}`}};
-  return <button disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:6,cursor:disabled?"not-allowed":"pointer",fontWeight:500,transition:"all 0.12s",fontFamily:"Space Grotesk,sans-serif",opacity:disabled?0.4:1,...s[size],...v[variant],...style}}>{children}</button>;
+  const s={sm:{padding:"6px 14px",fontSize:12},md:{padding:"8px 18px",fontSize:13},lg:{padding:"10px 24px",fontSize:14}};
+  const v={primary:{background:T.accent,color:T.text,border:`1px solid ${T.accentHover}`},ghost:{background:T.surface,color:T.text,border:`1px solid ${T.border}`},subtle:{background:T.surfaceEl,color:T.text,border:`1px solid ${T.border}`},success:{background:T.successBg,color:T.success,border:`1px solid ${T.successBorder}`},danger:{background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerBorder}`}};
+  return <button disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:8,cursor:disabled?"not-allowed":"pointer",fontWeight:600,transition:"all 0.12s",fontFamily:"Space Grotesk,sans-serif",boxShadow:disabled?"none":T.shadow,opacity:disabled?0.5:1,...s[size],...v[variant],...style}}>{children}</button>;
 };
-const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"'Space Mono',monospace":"Space Grotesk,sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
-const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"Space Grotesk,sans-serif",width:"100%",...style}}>{children}</select>);
+const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"'Space Mono',monospace":"Space Grotesk,sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
+const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"Space Grotesk,sans-serif",width:"100%",...style}}>{children}</select>);
 // stopPropagation on both: several call sites wrap these in a parent <div> that has its own
 // onClick doing the same toggle (for a bigger click target). Without stopping propagation here,
 // clicking directly on the switch/checkbox fires both handlers and the toggle cancels itself out.
 const Tog=({value,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange(!value);}} style={{width:30,height:17,borderRadius:9,background:value?T.accent:T.borderStrong,position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0}}><div style={{position:"absolute",top:2,left:value?15:2,width:13,height:13,borderRadius:7,background:"#fff",transition:"left 0.18s",boxShadow:"0 1px 3px rgba(0,0,0,0.25)"}}/></div>);
-const Chk=({checked,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange();}} style={{width:15,height:15,borderRadius:4,border:`1.5px solid ${checked?T.accent:T.borderStrong}`,background:checked?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all 0.12s"}}>{checked&&<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>);
+const Chk=({checked,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange();}} style={{width:15,height:15,borderRadius:4,border:`1.5px solid ${checked?T.accent:T.borderStrong}`,background:checked?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all 0.12s"}}>{checked&&<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>);
 const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"'Space Mono',monospace",fontWeight:600,color:color||T.text}}>{value}</span></div>);
 const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
+// Pixel-block icon set (retro redesign, July 2026) — replaces the flat line-icon set.
+// Every glyph is built from a handful of solid squares, no curves/strokes, matching the
+// notched-panel / hard-shadow "8-bit" surface language used everywhere a soft rounded
+// shadow card used to be.
+// Flat lined icons (Obsidian-style) — thin strokes, no fill, replacing the earlier
+// pixel-block rect icons as part of moving the whole app back to a softer, conventional look.
+const Icon=({name,size=18,color="currentColor"})=>{
+  const p={width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:color,strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round"};
+  switch(name){
+    case"bolt":return<svg {...p}><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H10v-5a2 2 0 0 1 4 0v5h3.5a1 1 0 0 0 1-1v-9"/></svg>; // home — Dashboard
+    case"tag":return<svg {...p}><path d="M3 11.5V5a1 1 0 0 1 1-1h6.5L21 13.5a1 1 0 0 1 0 1.4l-6.1 6.1a1 1 0 0 1-1.4 0L3 11.5Z"/><circle cx="8" cy="8" r="1.3" fill={color} stroke="none"/></svg>;
+    case"wallet":return<svg {...p}><path d="M3 7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1"/><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2H6a2 2 0 0 1-2-2Z"/><path d="M16 13.2h2.2"/></svg>;
+    case"chart":return<svg {...p}><path d="M4 20V13"/><path d="M10 20V9"/><path d="M16 20V5"/><path d="M3 20h18"/></svg>;
+    case"export":return<svg {...p}><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>;
+    case"sun":return<svg {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>;
+    case"moon":return<svg {...p}><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>;
+    case"alert":return<svg {...p}><path d="M12 3.5 21.5 20H2.5Z"/><path d="M12 9.5v4.5"/><circle cx="12" cy="17" r="0.6" fill={color} stroke="none"/></svg>;
+    default:return null;
+  }
+};
+// Soft rounded card — replaces the earlier notched-corner / hard-offset-shadow "pixel
+// panel" surface now that the app is moving back to a conventional, easier-to-read look.
+// Kept the same component name and prop shape (notch/border/shadowOffset are accepted
+// but no longer used) so the many existing call sites across the app didn't need to change.
+const PixelPanel=({T,children,style={},contentStyle={},onClick})=>(
+  <div onClick={onClick} style={{borderRadius:12,border:`1px solid ${T.border}`,background:T.surface,boxShadow:T.shadow,cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
+    {children}
+  </div>
+);
+
+// Small hover tooltip for the warning-triangle icons scattered through the Budget/Reporting
+// tables — replaces the native `title` attribute (invisible until a slow hover, unstyled)
+// with a small styled callout box. Visibility is toggled by mutating the child's style
+// directly on mouseenter/mouseleave, rather than adding per-row React state for 20+ rows.
+const WarnTip=({T,text,size=12,color})=>(
+  <span
+    onMouseEnter={e=>{const t=e.currentTarget.querySelector("[data-tip]");if(t)t.style.opacity=1;}}
+    onMouseLeave={e=>{const t=e.currentTarget.querySelector("[data-tip]");if(t)t.style.opacity=0;}}
+    style={{marginLeft:6,display:"inline-flex",position:"relative",cursor:"help"}}>
+    <Icon name="alert" size={size} color={color||T.warning}/>
+    <span data-tip style={{position:"absolute",bottom:"140%",left:"50%",transform:"translateX(-50%)",opacity:0,pointerEvents:"none",transition:"opacity 0.1s",background:T.surface,color:T.text,fontSize:11,fontWeight:500,lineHeight:1.45,padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,boxShadow:T.shadowMd,width:220,whiteSpace:"normal",textAlign:"left",zIndex:50,fontFamily:"Space Grotesk,sans-serif"}}>
+      {text}
+    </span>
+  </span>
+);
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims}){
+function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,sidebarEl}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
@@ -276,11 +334,19 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
   },[budgetDims,campaignTags,budgets,year]);
 
   // Segments filtered by per-dimension substring match (ANDed) — drives what's visible,
-  // what "select all" selects, and what a bulk delete targets.
-  const filteredSegs=useMemo(()=>segs.filter(seg=>budgetDims.every(d=>{
-    const f=(segFilters[d]||"").trim().toLowerCase();
-    return!f||(seg[d]||"").toLowerCase().includes(f);
-  })),[segs,budgetDims,segFilters]);
+  // what "select all" selects, and what a bulk delete targets. Covers both the primary
+  // budgetDims (e.g. Product, stored on the segment itself) and any annotation dimensions
+  // added as budgetMetaDims (e.g. Region, Pillar, Funnel — stored in budgetRowMeta per segment).
+  const filteredSegs=useMemo(()=>segs.filter(seg=>{
+    const meta=budgetRowMeta[seg.key]||{};
+    return budgetDims.every(d=>{
+      const f=(segFilters[d]||"").trim().toLowerCase();
+      return!f||(seg[d]||"").toLowerCase().includes(f);
+    })&&budgetMetaDims.every(d=>{
+      const f=(segFilters[d]||"").trim().toLowerCase();
+      return!f||(meta[d]||"").toLowerCase().includes(f);
+    });
+  }),[segs,budgetDims,budgetMetaDims,budgetRowMeta,segFilters]);
   const hasSegFilters=Object.values(segFilters).some(v=>(v||"").trim());
   const clearSegFilters=()=>setSegFilters({});
 
@@ -505,14 +571,14 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
     <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
       style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:T.text,padding:"4px 6px",fontSize:11,width:"100%",boxSizing:"border-box",fontFamily:"'Space Mono',monospace",textAlign:"right",outline:"none",display:"block"}}/>
   );
-  const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"right"};
+  const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",textAlign:"right"};
 
   return(
-    <div style={{display:"flex",height:"calc(100vh - 48px)",background:T.bg,overflow:"hidden"}}>
-      {/* Sidebar */}
-      {!isMobile&&(
-        <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.sidebarBg,overflow:"auto",display:"flex",flexDirection:"column"}}>
-          <div style={{padding:"14px 14px 12px",display:"flex",flexDirection:"column",gap:8}}>
+    <div style={{display:"flex",height:"100%",background:T.bg,overflow:"hidden"}}>
+      {/* Sidebar content now renders via portal into the app-shell's stats sidebar (see sidebarEl) */}
+      {sidebarEl&&createPortal(
+        <div style={{display:"flex",flexDirection:"column",gap:0}}>
+          <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:12}}>
           <Btn onClick={()=>setImportOpen(true)} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import CSV / Excel</Btn>
           <Btn onClick={exportBudgets} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export CSV</Btn>
 
@@ -537,7 +603,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
                 <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                   {tagDimensions.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).map(d=>(
                     <button key={d} onClick={()=>{setBudgetMetaDims(p=>[...p,d]);showNotif(`Added ${d}`);}}
-                      style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:T.surfaceEl,border:`1px solid ${T.border}`,color:T.text,cursor:"pointer",fontFamily:"Space Grotesk,sans-serif"}}>+ {d}</button>
+                      style={{fontSize:11,padding:"2px 8px",borderRadius:14,background:T.surfaceEl,border:`1px solid ${T.border}`,color:T.text,cursor:"pointer",fontFamily:"Space Grotesk,sans-serif"}}>+ {d}</button>
                   ))}
                 </div>
               </div>
@@ -545,23 +611,23 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
           </div>
         </div>
           <Divider T={T}/>
-          <div style={{padding:"0 14px 12px"}}>
+          <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget Year</SectionLabel>
-            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:5,border:`1px solid ${year===y?T.accent:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?600:400,fontFamily:"Space Grotesk,sans-serif"}}>{y}</button>)}</div>
+            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accent:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?700:400,fontFamily:"Space Grotesk,sans-serif"}}>{y}</button>)}</div>
           </div>
           <Divider T={T}/>
-          <div style={{padding:"0 14px 12px"}}>
+          <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget By</SectionLabel>
             {(tagDimensions||[]).map(d=>{const on=budgetDims.includes(d);return(
-              <div key={d} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?T.accentBg:"transparent",marginBottom:1}}>
+              <div key={d} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?T.accentBg:"transparent",border:on?`1px solid ${T.accentBorder}`:"1px solid transparent",marginBottom:2}}>
                 <Chk checked={on} onChange={()=>toggleDim(d)} T={T}/>
-                <span style={{fontSize:13,color:on?T.accent:T.text,fontWeight:on?500:400}}>{d}</span>
+                <span style={{fontSize:13,color:T.text,fontWeight:on?700:400}}>{d}</span>
                 <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontFamily:"'Space Mono',monospace"}}>{dimCount(d)}</span>
               </div>
             );})}
           </div>
           <Divider T={T}/>
-          <div style={{padding:"0 14px 12px"}}>
+          <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Optional Caps</SectionLabel>
             {[{label:"Quarterly caps",v:showQ,s:setShowQ},{label:"Annual cap",v:showA,s:setShowA}].map(({label,v,s})=>(
               <div key={label} onClick={()=>s(x=>!x)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",cursor:"pointer"}}>
@@ -570,19 +636,20 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
             ))}
           </div>
           <Divider T={T}/>
-          <div style={{padding:"0 14px",flex:1}}>
+          <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Summary</SectionLabel>
             <StatRow label="Segments" value={segs.length.toString()} T={T}/>
-            <StatRow label={`Total ${year}`} value={totalY>0?fmtFull(totalY):"$0"} color={T.accent} T={T}/>
+            <StatRow label={`Total ${year}`} value={totalY>0?fmtFull(totalY):"$0"} T={T}/>
           </div>
-        </div>
+        </div>,
+        sidebarEl
       )}
 
       {/* Table */}
       <div style={{flex:1,overflow:"auto",minWidth:0}}>
         {!budgetDims.length?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
-            <div style={{width:52,height:52,borderRadius:14,background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,marginBottom:18}}>💰</div>
+            <div style={{width:52,height:52,background:T.accent,border:`3px solid ${T.text}`,boxShadow:`4px 4px 0 0 ${T.text}`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="wallet" size={24} color={T.text}/></div>
             <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up your budget structure</div>
             <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Select dimensions to budget by, or import an existing budget file.</div>
             <Btn onClick={()=>setImportOpen(true)} variant="success" T={T} size="md">↑ Import CSV / Excel</Btn>
@@ -594,20 +661,10 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
           </div>
         ):(
           <>
-          {/* Filter bar */}
-          <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
-            <span style={{fontSize:11,color:T.textMuted,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
-            {budgetDims.map(d=>(
-              <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
-                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:120}}/>
-            ))}
-            {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
-            <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
-          </div>
           {/* Bulk action bar */}
           {selRows.size>0&&(
             <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
-              <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{selRows.size} selected</Pill>
+              <Pill color={T.text} bg={T.accent} border={T.text}>{selRows.size} selected</Pill>
               <span style={{color:T.textMuted,fontSize:13}}>→</span>
               <Sel value={applyMetaDim} onChange={setApplyMetaDim} T={T} style={{width:140,fontSize:12}}>
                 <option value="">Dimension…</option>
@@ -623,14 +680,14 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
           )}
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
             <thead><tr>
-              <th style={{...TH,width:32,padding:"10px 8px 10px 16px",position:"sticky",left:0,zIndex:4,background:T.headerBg}}>
+              <th style={{...TH,width:32,padding:"15px 8px 9px 16px",position:"sticky",left:0,zIndex:4,background:T.bg}}>
                 <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
-              {budgetDims.map((d,i)=><th key={d} style={{...TH,textAlign:"left",padding:"10px 14px",minWidth:dcw,position:"sticky",left:32+i*dcw,zIndex:3,background:T.headerBg}}>{d}</th>)}
-              {budgetMetaDims.map(d=><th key={d} style={{...TH,textAlign:"left",padding:"10px 14px",minWidth:110,color:T.textMuted}}>{d}</th>)}
+              {budgetDims.map((d,i)=><th key={d} style={{...TH,textAlign:"left",padding:"15px 14px 9px",minWidth:dcw,position:"sticky",left:32+i*dcw,zIndex:3,background:T.bg}}>{d}</th>)}
+              {budgetMetaDims.map(d=><th key={d} style={{...TH,textAlign:"left",padding:"15px 14px 9px",minWidth:110}}>{d}</th>)}
               {MONTHS.map(m=><th key={m.key} style={{...TH,textAlign:"center",minWidth:76}}>{m.label}</th>)}
-              {QUARTERS.map(q=><th key={"qt-"+q.key} style={{...TH,textAlign:"center",color:T.textMuted,minWidth:90}}>{q.key}</th>)}
-              <th style={{...TH,textAlign:"center",color:T.accent,minWidth:100}}>Year Total</th>
+              {QUARTERS.map(q=><th key={"qt-"+q.key} style={{...TH,textAlign:"center",minWidth:90}}>{q.key}</th>)}
+              <th style={{...TH,textAlign:"center",minWidth:100}}>Year Total</th>
               {showQ&&QUARTERS.map(q=><th key={"qc-"+q.key} style={{...TH,color:T.warning,minWidth:96}}>{q.label}</th>)}
               {showA&&<th style={{...TH,color:T.warning,minWidth:96}}>Annual Cap</th>}
             </tr></thead>
@@ -638,29 +695,29 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
               {filteredSegs.length===0&&segs.length>0&&(
                 <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+QUARTERS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
               )}
-              {filteredSegs.map((seg,ri)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=ri%2===0?"transparent":T.surfaceEl;const isSel=selRows.has(seg.key);return(
+              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px dashed ${T.borderStrong}`;const isSel=selRows.has(seg.key);return(
                 <tr key={seg.key} style={{background:isSel?T.rowSelected:rb}}>
-                  <td style={{padding:"7px 8px 7px 16px",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:isSel?T.rowSelected:ri%2===0?T.bg:T.surfaceEl,zIndex:1}}>
+                  <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:T.bg,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   </td>
-                  {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:`1px solid ${T.border}`,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:ri%2===0?T.bg:T.surfaceEl,zIndex:1,whiteSpace:"nowrap"}}>
+                  {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:rbb,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:T.bg,zIndex:1,whiteSpace:"nowrap"}}>
                     {editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
                       <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                         onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
                         style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"'Space Mono',monospace",minWidth:80}}/>
                     ):(
-                      <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{fontFamily:"'Space Mono',monospace",cursor:"text"}}
+                      <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'Space Mono',monospace",fontWeight:600,cursor:"text",borderRadius:6}}
                         onClick={()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
                     )}
                     {i===budgetDims.length-1&&segMatchCount(seg.key)===0&&(
-                      <span title="No tagged campaigns match this segment" style={{marginLeft:6,fontSize:12,cursor:"help"}}>⚠️</span>
+                      <WarnTip T={T} text="No campaigns are tagged to this segment yet. Spend won't roll up here until a campaign is tagged with this exact combination in the Tagger."/>
                     )}
                   </td>)}
                   {budgetMetaDims.map(d=>{
                     const val=(budgetRowMeta[seg.key]||{})[d]||"";
                     const isEditing=editingMeta?.segKey===seg.key&&editingMeta?.dim===d;
                     return(
-                      <td key={d} style={{padding:"4px 8px",borderBottom:`1px solid ${T.border}`,minWidth:110}} onClick={()=>{setEditingMeta({segKey:seg.key,dim:d});setEditMetaVal(val);}}>
+                      <td key={d} style={{padding:"4px 8px",borderBottom:rbb,minWidth:110}} onClick={()=>{setEditingMeta({segKey:seg.key,dim:d});setEditMetaVal(val);}}>
                         {isEditing?(
                           <input autoFocus value={editMetaVal} onChange={e=>setEditMetaVal(e.target.value)}
                             onBlur={saveMetaEdit} onKeyDown={e=>{if(e.key==="Enter")saveMetaEdit();if(e.key==="Escape"){setEditingMeta(null);setEditMetaVal("");}}}
@@ -673,24 +730,25 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
                       </td>
                     );
                   })}
-                  {MONTHS.map(m=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo)}</td>;})}
-                  {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:11,color:T.textSub,background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
-                  <td style={{padding:"4px 12px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace",fontWeight:700,color:ao?T.danger:T.accent,whiteSpace:"nowrap",background:rb}}>{rt>0?fmtFull(rt):"—"}{ao&&" ⚠️"}</td>
-                  {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"'Space Mono',monospace"}}>{fmt$(qt)}{qo?" ⚠️":""}</span>}</div></td>;})}
-                  {showA&&<td style={{padding:"4px",borderBottom:`1px solid ${T.border}`,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"'Space Mono',monospace"}}>{fmt$(rt)}{ao?" ⚠️":""}</span>}</div></td>}
-                  <td style={{padding:"4px 8px",borderBottom:`1px solid ${T.border}`,background:rb}}>
+                  {MONTHS.map(m=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo)}</td>;})}
+                  {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:11,color:T.textSub,background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
+                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:"'Space Mono',monospace",fontWeight:700,color:ao?T.danger:T.text,whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
+                  {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"'Space Mono',monospace",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
+                  {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"'Space Mono',monospace",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
+                  <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
                     <button onClick={()=>deleteRow(seg.key,budgetDims.map(d=>seg[d]).join(" · "))} title="Delete row"
-                      style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:"2px 4px",opacity:0.35,transition:"opacity 0.1s"}}
-                      onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.35}>✕</button>
+                      style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
+                      onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>
                   </td>
                 </tr>);})}
-              <tr style={{borderTop:`2px solid ${T.borderStrong}`,background:T.surface}}>
+              <tr style={{borderTop:`1px solid ${T.border}`,background:T.surface}}>
                 <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
-                {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0}}>Totals</SectionLabel>}</td>)}
+                {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals</SectionLabel>}</td>)}
                 {budgetMetaDims.map(d=><td key={d}/>)}
                 {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:11,fontWeight:600,color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
                 {QUARTERS.map(q=>{const qt=filteredSegs.reduce((s,sg)=>s+qTotal(sg.key,q),0);return <td key={"qt-"+q.key} style={{padding:"10px 10px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:11,fontWeight:600,color:T.textSub}}>{qt>0?fmt$(qt):"—"}</td>;})}
-                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:T.accent}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
+                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:12,fontWeight:700,color:T.text}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
                 {showQ&&QUARTERS.map(q=><td key={"qc-"+q.key}/>)}
                 {showA&&<td/>}
                 <td/>
@@ -698,13 +756,19 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
             </tbody>
           </table>
 
-          {/* + Add row */}
-          {budgetDims.length>0&&(
-            <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`,background:T.surface}}>
-              {!showAddRow?(
-                <button onClick={()=>setShowAddRow(true)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:12,fontFamily:"Space Grotesk,sans-serif",display:"flex",alignItems:"center",gap:5,padding:0}}>
-                  <span style={{fontSize:16,lineHeight:1}}>+</span> Add segment manually
-                </button>
+          {/* Bottom bar — filters + add row, sharing one footer */}
+          <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
+              {[...budgetDims,...budgetMetaDims].map(d=>(
+                <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
+                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:120}}/>
+              ))}
+              {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
+              <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
+            </div>
+            {budgetDims.length>0&&(!showAddRow?(
+                <Btn onClick={()=>setShowAddRow(true)} variant="ghost" size="sm" T={T} style={{alignSelf:"flex-start"}}>+ Add segment manually</Btn>
               ):(
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                   {budgetDims.map(d=>(
@@ -714,9 +778,8 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
                   <Btn onClick={addManualRow} disabled={budgetDims.some(d=>!newRowVals[d]?.trim())} variant="primary" size="sm" T={T}>Add</Btn>
                   <Btn onClick={()=>{setShowAddRow(false);setNewRowVals({});}} variant="ghost" size="sm" T={T}>Cancel</Btn>
                 </div>
-              )}
-            </div>
-          )}
+              ))}
+          </div>
           </>
         )}
       </div>
@@ -726,7 +789,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
       {/* ── IMPORT MODAL ── */}
       {importOpen&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,width:"100%",maxWidth:680,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:T.shadowLg}}>
+          <PixelPanel T={T} style={{width:"100%",maxWidth:680,maxHeight:"90vh"}} contentStyle={{background:T.surface,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column"}}>
 
             {/* Modal header */}
             <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
@@ -762,7 +825,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
                     </div>
                   </div>
                   <div onClick={()=>fileRef.current?.click()} style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:10,padding:"36px 20px",textAlign:"center",cursor:"pointer",background:T.surfaceEl}}>
-                    <div style={{fontSize:32,marginBottom:10}}>📋</div>
+                    <div style={{marginBottom:10,display:"flex",justifyContent:"center"}}><Icon name="export" size={30} color={T.textSub}/></div>
                     <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Drop your budget file here or click to browse</div>
                     <div style={{fontSize:12,color:T.textMuted}}>Supports <strong style={{color:T.textSub}}>.xlsx</strong> and <strong style={{color:T.textSub}}>.csv</strong> · any row/column layout</div>
                     <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleImportFile(e.target.files[0])}/>
@@ -980,7 +1043,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
                 {iStep==="preview"&&<Btn onClick={confirmImport} variant="primary" T={T}>✓ Import {preview.length} entries into {iYear}</Btn>}
               </div>
             </div>
-          </div>
+          </PixelPanel>
         </div>
       )}
     </div>
@@ -988,87 +1051,74 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,isMobile,onAddDimen
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({T,onNavigate,stats,hasData}){
+function Dashboard({T,onNavigate,stats,hasData,themeKey}){
+  const cardBg=themeKey==="light"?"#FFFFFF":T.surface;
+  const bc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent,T.accent];
   const cards=[
     {
-      key:"tagger",icon:"🏷",title:"Start with spend data",
+      key:"tagger",icon:"tag",title:"Start with spend data",
       desc:"Upload a spend CSV from Google Ads, LinkedIn, Meta, Bing or Capterra. Tag campaigns into custom segments like Product, Region, and Funnel.",
-      action:"Import spend data →",color:T.accent,primary:true,
+      action:"Import spend data →",color:bc[2],primary:true,
     },
     {
-      key:"budget",icon:"💰",title:"Start with a budget file",
+      key:"budget",icon:"wallet",title:"Start with a budget file",
       desc:"Upload your budget spreadsheet (Excel or CSV). AI maps your columns automatically. Set monthly budgets by segment — no spend data needed.",
-      action:"Import budget file →",color:T.accent,primary:true,
+      action:"Import budget file →",color:bc[1],primary:true,
     },
     {
-      key:"pacing",icon:"📈",title:"Pacing & Reporting",
+      key:"pacing",icon:"chart",title:"Pacing & Reporting",
       desc:"Track burn rate, PTD spend vs budget, forecast to end of period, and break down spend by region, platform, funnel, or any other dimension.",
-      action:"Open reporting →",color:T.accent,
+      action:"Open reporting →",color:bc[3],
     },
     {
-      key:"export",icon:"📤",title:"Export",
+      key:"export",icon:"export",title:"Export",
       desc:"Export clean data — no formulas — to plug into your own Google Sheets or Excel trackers.",
       action:"Coming soon",color:T.textMuted,disabled:true,
     },
   ];
   return(
     <div style={{flex:1,overflow:"auto",background:T.bg}}>
-      <div style={{maxWidth:900,margin:"0 auto",padding:"48px 32px"}}>
+      <div style={{maxWidth:960,margin:"0 auto",padding:"48px 32px"}}>
         {/* Hero */}
-        <div style={{marginBottom:48}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-            <div style={{width:44,height:44,borderRadius:11,background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><polyline points="2,16 7,10 11,13 20,4" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><circle cx="7" cy="10" r="1.8" fill={T.accent}/><circle cx="11" cy="13" r="1.8" fill={T.accent}/></svg>
+        <div style={{marginBottom:40,position:"relative"}}>
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
+            <div style={{width:48,height:48,borderRadius:12,background:T.accent,boxShadow:T.shadow,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <Icon name="bolt" size={24} color={T.text}/>
             </div>
             <div>
-              <h1 style={{fontSize:26,fontWeight:700,color:T.text,letterSpacing:"-0.5px",marginBottom:2,fontFamily:"Space Grotesk,sans-serif"}}>BudgetHQ</h1>
-              <div style={{fontSize:12,color:T.textMuted,fontFamily:"Space Grotesk,sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
+              <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"Space Grotesk,sans-serif"}}>BudgetHQ</h1>
+              <div style={{fontSize:12,fontWeight:600,color:T.textSub,letterSpacing:"0.02em",fontFamily:"Space Grotesk,sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
             </div>
           </div>
-          <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"Space Grotesk,sans-serif"}}>
+          <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"Space Grotesk,sans-serif",position:"relative"}}>
             Set budgets by custom segment, track pacing against actuals, and manage spend across every ad platform — without breaking a spreadsheet.
           </p>
-          <div style={{marginTop:12,display:"inline-flex",alignItems:"center",gap:8,padding:"7px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8}}>
-            <span style={{fontSize:13,color:T.accent,fontFamily:"Space Grotesk,sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
+          <div style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:8,background:T.accentBg,border:`1px solid ${T.accentBorder}`,position:"relative"}}>
+            <span style={{fontSize:13,color:T.text,fontFamily:"Space Grotesk,sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
           </div>
         </div>
 
-        {/* Stats bar — only shown if data is loaded */}
-        {hasData&&(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:40}}>
-            {[
-              {label:"Campaigns",value:stats.total.toLocaleString(),color:T.text},
-              {label:"Tagged",value:`${stats.tagged.toLocaleString()} (${stats.total?Math.round((stats.tagged/stats.total)*100):0}%)`,color:T.success},
-              {label:"Needs review",value:stats.untagged.toLocaleString(),color:stats.untagged>0?T.warning:T.success},
-              {label:"Total spend",value:"$"+Math.round(stats.totalSpend).toLocaleString(),color:T.accent},
-            ].map(s=>(
-              <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",boxShadow:T.shadow}}>
-                <div style={{fontSize:11,fontWeight:600,color:T.textMuted,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:6,fontFamily:"Space Grotesk,sans-serif"}}>{s.label}</div>
-                <div style={{fontSize:20,fontWeight:700,color:s.color,fontFamily:"'Space Mono',monospace"}}>{s.value}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
         {/* Cards */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:22}}>
           {cards.map(card=>(
-            <div key={card.key} onClick={card.disabled?undefined:()=>onNavigate(card.key)}
-              style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,padding:"22px 24px",cursor:card.disabled?"default":"pointer",opacity:card.disabled?0.5:1,transition:"all 0.15s",boxShadow:T.shadow}}>
-              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
-                <div style={{width:36,height:36,borderRadius:9,background:card.disabled?T.surfaceEl:T.accentBg,border:`1px solid ${card.disabled?T.border:T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{card.icon}</div>
-                {!card.disabled&&<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke={T.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            <PixelPanel key={card.key} T={T}
+              onClick={card.disabled?undefined:()=>onNavigate(card.key)}
+              style={{opacity:card.disabled?0.5:1}}
+              contentStyle={{padding:"24px 26px",background:cardBg,cursor:card.disabled?"default":"pointer",transition:"all 0.1s"}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
+                <div style={{width:42,height:42,borderRadius:10,background:card.disabled?T.surfaceEl:card.color,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={19} color={card.disabled?T.textMuted:T.text}/></div>
+                {!card.disabled&&<span style={{fontSize:16,fontWeight:700,color:T.textMuted,lineHeight:1}}>→</span>}
               </div>
               <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Space Grotesk,sans-serif"}}>{card.title}</div>
               <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14,fontFamily:"Space Grotesk,sans-serif"}}>{card.desc}</div>
-              <div style={{fontSize:12,fontWeight:600,color:card.color,fontFamily:"Space Grotesk,sans-serif"}}>{card.action}</div>
-            </div>
+              <div style={{fontSize:12,fontWeight:600,color:card.disabled?T.textMuted:T.text,fontFamily:"Space Grotesk,sans-serif"}}>{card.action}</div>
+            </PixelPanel>
           ))}
         </div>
 
         {/* Date range if data loaded */}
         {hasData&&stats.dateRange&&(
-          <div style={{marginTop:24,padding:"10px 14px",background:T.surfaceEl,borderRadius:8,border:`1px solid ${T.border}`,display:"inline-flex",alignItems:"center",gap:8}}>
+          <div style={{marginTop:24,padding:"10px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,display:"inline-flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:11,color:T.textMuted,fontFamily:"Space Grotesk,sans-serif"}}>Data loaded:</span>
             <span style={{fontSize:11,color:T.text,fontFamily:"'Space Mono',monospace",fontWeight:500}}>{stats.dateRange}</span>
             <span style={{fontSize:11,color:T.textMuted,fontFamily:"Space Grotesk,sans-serif"}}>· {stats.totalRows.toLocaleString()} rows</span>
@@ -1310,7 +1360,7 @@ const PacingBar=({actualPct,expectedPct,status,T})=>{
   );
 };
 
-function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,mergedNormRows,T,isMobile,onNavigate}){
+function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,mergedNormRows,T,onNavigate,sidebarEl}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -1400,12 +1450,13 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 
   const periodLabel=periodType==="monthly"?`${MONTHS.find(m=>m.key===month)?.label} ${year}`:periodType==="quarterly"?`${quarter} ${year}`:`FY ${year}`;
   const overallPct=pacing.totals.budget>0?pacing.totals.spend/pacing.totals.budget:null;
-  const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"right"};
+  const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"right"};
+  const safeTextColor=c=>c===T.accent?T.text:c; // gold is a fine fill/border color but never body text, per the established house rule
 
   if(!budgetDims.length){
     return(
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"calc(100vh - 48px)",textAlign:"center",padding:40,background:T.bg}}>
-        <div style={{width:52,height:52,borderRadius:14,background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,marginBottom:18}}>📈</div>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40,background:T.bg}}>
+        <div style={{width:52,height:52,background:T.accent,border:`3px solid ${T.text}`,boxShadow:`4px 4px 0 0 ${T.text}`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="chart" size={24} color={T.text}/></div>
         <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up budgets first</div>
         <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Pacing compares spend to your budget segments. Head to Budgets, choose dimensions to budget by, and set monthly amounts.</div>
         <Btn onClick={()=>onNavigate?.("budget")} variant="success" T={T} size="md">Go to Budgets →</Btn>
@@ -1414,54 +1465,58 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   }
 
   return(
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 48px)",background:T.bg,overflow:"auto"}}>
-      {/* Controls */}
-      <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",flexShrink:0}}>
-        <div style={{display:"flex",gap:4}}>
-          {[["monthly","Monthly"],["quarterly","Quarterly"],["annual","Yearly"]].map(([k,l])=>(
-            <button key={k} onClick={()=>changePeriodType(k)} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${periodType===k?T.accent:T.border}`,background:periodType===k?T.accentBg:"transparent",color:periodType===k?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:periodType===k?600:400,fontFamily:"Space Grotesk,sans-serif"}}>{l}</button>
-          ))}
-        </div>
-        <div style={{display:"flex",gap:4}}>
-          {years.map(y=>(
-            <button key={y} onClick={()=>changeYear(y)} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${year===y?T.accent:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.accent:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?600:400,fontFamily:"Space Grotesk,sans-serif"}}>{y}</button>
-          ))}
-        </div>
-        {periodType==="monthly"&&(
-          <Sel value={month} onChange={changeMonth} T={T} style={{width:120}}>
-            {MONTHS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
-          </Sel>
-        )}
-        {periodType==="quarterly"&&(
-          <Sel value={quarter} onChange={changeQuarter} T={T} style={{width:100}}>
-            {QUARTERS.map(q=><option key={q.key} value={q.key}>{q.key}</option>)}
-          </Sel>
-        )}
-        <div style={{marginLeft:"auto",fontSize:12,color:T.textMuted,fontFamily:"Space Grotesk,sans-serif"}}>
-          {periodLabel} · {pacing.elapsedDays} of {pacing.totalDays} days elapsed{pacing.daysRemaining>0?` · ${pacing.daysRemaining} remaining`:""}
-        </div>
-      </div>
-
-      {/* Summary cards */}
-      <div style={{padding:"20px 24px 0"}}>
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5,1fr)",gap:12,marginBottom:20}}>
-          {[
-            {label:"Total Budget",value:fmtFull(pacing.totals.budget),color:T.text},
-            {label:"Spend to Date",value:fmtFull(pacing.totals.spend),color:T.accent},
-            {label:"Overall Pacing",value:overallPct!=null?`${Math.round(overallPct*100)}%`:"—",color:overallPct!=null&&overallPct-pacing.expectedPct>0.1?T.warning:overallPct!=null&&overallPct-pacing.expectedPct<-0.1?T.accent:T.success},
-            {label:"Expected Pace",value:`${Math.round(pacing.expectedPct*100)}%`,color:T.textMuted},
-            {label:"Segments",value:pacing.segments.length.toString(),color:T.text},
-          ].map(s=>(
-            <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",boxShadow:T.shadow}}>
-              <div style={{fontSize:11,fontWeight:600,color:T.textMuted,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:6,fontFamily:"Space Grotesk,sans-serif"}}>{s.label}</div>
-              <div style={{fontSize:20,fontWeight:700,color:s.color,fontFamily:"'Space Mono',monospace"}}>{s.value}</div>
+    <div style={{display:"flex",flexDirection:"column",height:"100%",background:T.bg,overflow:"auto"}}>
+      {/* Controls + summary now render via portal into the app-shell's stats sidebar */}
+      {sidebarEl&&createPortal(
+        <div style={{display:"flex",flexDirection:"column",gap:0}}>
+          <div style={{paddingBottom:12}}>
+            <SectionLabel T={T} style={{marginBottom:8}}>Period</SectionLabel>
+            <div style={{display:"flex",gap:4,marginBottom:8}}>
+              {[["monthly","Mo"],["quarterly","Qtr"],["annual","Yr"]].map(([k,l])=>(
+                <button key={k} onClick={()=>changePeriodType(k)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${periodType===k?T.accentHover:T.border}`,background:periodType===k?T.accent:"transparent",color:periodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:periodType===k?700:400,fontFamily:"Space Grotesk,sans-serif"}}>{l}</button>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+            <div style={{display:"flex",gap:4,marginBottom:8}}>
+              {years.map(y=>(
+                <button key={y} onClick={()=>changeYear(y)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accent:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:year===y?700:400,fontFamily:"Space Grotesk,sans-serif"}}>{y}</button>
+              ))}
+            </div>
+            {periodType==="monthly"&&(
+              <Sel value={month} onChange={changeMonth} T={T} style={{marginBottom:8}}>
+                {MONTHS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
+              </Sel>
+            )}
+            {periodType==="quarterly"&&(
+              <Sel value={quarter} onChange={changeQuarter} T={T} style={{marginBottom:8}}>
+                {QUARTERS.map(q=><option key={q.key} value={q.key}>{q.key}</option>)}
+              </Sel>
+            )}
+            <div style={{fontSize:11,color:T.textMuted,lineHeight:1.5}}>
+              {periodLabel} · {pacing.elapsedDays} of {pacing.totalDays} days elapsed{pacing.daysRemaining>0?` · ${pacing.daysRemaining} remaining`:""}
+            </div>
+          </div>
+          <Divider T={T}/>
+          <div style={{padding:"12px 0",display:"flex",flexDirection:"column",gap:10}}>
+            <SectionLabel T={T} style={{marginBottom:2}}>Summary</SectionLabel>
+            {[
+              {label:"Total Budget",value:fmtFull(pacing.totals.budget),color:T.text},
+              {label:"Spend to Date",value:fmtFull(pacing.totals.spend),color:T.text},
+              {label:"Overall Pacing",value:overallPct!=null?`${Math.round(overallPct*100)}%`:"—",color:overallPct!=null&&overallPct-pacing.expectedPct>0.1?T.warning:overallPct!=null&&overallPct-pacing.expectedPct<-0.1?T.accent:T.success},
+              {label:"Expected Pace",value:`${Math.round(pacing.expectedPct*100)}%`,color:T.text},
+              {label:"Segments",value:pacing.segments.length.toString(),color:T.text},
+            ].map(s=>(
+              <PixelPanel key={s.label} T={T} contentStyle={{padding:"12px 14px",background:T.bg}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>{s.label}</div>
+                <div style={{fontSize:19,fontWeight:700,color:s.color,fontFamily:"'Space Mono',monospace"}}>{s.value}</div>
+              </PixelPanel>
+            ))}
+          </div>
+        </div>,
+        sidebarEl
+      )}
 
       {/* Segment table */}
-      <div style={{flex:1,overflow:"auto",padding:"0 24px 24px"}}>
+      <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
         {pacing.segments.length===0?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,textAlign:"center"}}>
             <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>No budget or spend data for {periodLabel}</div>
@@ -1470,8 +1525,8 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
         ):(
           <>
           {/* Filter bar */}
-          <div style={{padding:"8px 0",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{fontSize:11,color:T.textMuted,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
+          <div style={{padding:"8px 0",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
             {budgetDims.map(d=>(
               <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:120}}/>
@@ -1486,7 +1541,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
             </Sel>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
-            <span style={{fontSize:11,color:T.textMuted,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Break down by:</span>
+            <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Break down by:</span>
             <Sel value={breakdownDim} onChange={v=>{setBreakdownDim(v);setExpandedRows(new Set());}} T={T} style={{width:150}}>
               <option value="">None</option>
               {breakdownOptions.map(d=><option key={d} value={d}>{d}</option>)}
@@ -1495,8 +1550,8 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
           </div>
           {/* Bulk action bar */}
           {selRows.size>0&&(
-            <div style={{padding:"8px 0",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{selRows.size} selected</Pill>
+            <div style={{padding:"8px 0",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <Pill color={T.text} bg={T.accent} border={T.text}>{selRows.size} selected</Pill>
               <Btn onClick={()=>setSelRows(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
               <Btn onClick={bulkDeleteSegments} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
             </div>
@@ -1521,55 +1576,57 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
               {filteredSegments.length===0&&(
                 <tr><td colSpan={4+budgetDims.length+6} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
               )}
-              {filteredSegments.flatMap((seg,ri)=>{
+              {filteredSegments.flatMap((seg)=>{
                 const meta=pacingStatusMeta(seg.status,T);
                 const isSel=selRows.has(seg.segKey);
                 const label=budgetDims.map((d,i)=>seg.dims[i]).join(" · ");
                 const isExpanded=breakdownDim&&expandedRows.has(seg.segKey);
-                const rowBg=isSel?T.rowSelected:ri%2===0?"transparent":T.surfaceEl;
+                const rowBg=isSel?T.rowSelected:"transparent";
+                const rbb=`1px dashed ${T.borderStrong}`;
                 const parentRow=(
                   <tr key={seg.segKey} style={{background:rowBg}}>
-                    <td style={{padding:"8px 4px",borderBottom:`1px solid ${T.border}`,textAlign:"center"}}>
+                    <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center"}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
                     </td>
-                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`}}>
+                    <td style={{padding:"8px 8px",borderBottom:rbb}}>
                       <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.segKey)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                     </td>
-                    {seg.dims.map((v,i)=><td key={i} style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
+                    {seg.dims.map((v,i)=><td key={i} style={{padding:"8px 14px",borderBottom:rbb,whiteSpace:"nowrap"}}>
                       {editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(
                         <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                           onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
                           style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"'Space Mono',monospace",minWidth:80}}/>
                       ):(
-                        <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{fontFamily:"'Space Mono',monospace",cursor:"text"}}
+                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'Space Mono',monospace",fontWeight:600,cursor:"text",borderRadius:6}}
                           onClick={()=>{setEditingSegVal({segKey:seg.segKey,dim:budgetDims[i]});setEditSegVal(v);}}>{v}</Pill>
                       )}
                       {i===seg.dims.length-1&&seg.budget>0&&seg.matchCount===0&&(
-                        <span title="No tagged campaigns match this segment — spend will always show as $0 here, regardless of period, until a campaign is tagged with this exact combination" style={{marginLeft:6,fontSize:12,cursor:"help"}}>⚠️</span>
+                        <WarnTip T={T} text="No tagged campaigns match this segment. Spend will always show as $0 here, regardless of period, until a campaign is tagged with this exact combination in the Tagger."/>
                       )}
                     </td>)}
-                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace"}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
-                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace"}}>{fmtFull(seg.spend)}</td>
-                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'Space Mono',monospace",color:T.text}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'Space Mono',monospace",color:T.text}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
-                        <span style={{fontFamily:"'Space Mono',monospace",fontWeight:600,color:meta.color}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
+                        <span style={{fontFamily:"'Space Mono',monospace",fontWeight:600,color:safeTextColor(meta.color)}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
                         <PacingBar actualPct={seg.actualPct} expectedPct={pacing.expectedPct} status={seg.status} T={T}/>
                       </div>
                     </td>
-                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace",color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
-                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace"}}>{fmtFull(seg.dailyRate)}/day</td>
-                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right"}}>
-                      <div style={{fontFamily:"'Space Mono',monospace"}}>{seg.projected!=null?fmtFull(seg.projected):"—"}</div>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'Space Mono',monospace",color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'Space Mono',monospace",color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
+                      <div style={{fontFamily:"'Space Mono',monospace",color:T.text}}>{seg.projected!=null?fmtFull(seg.projected):"—"}</div>
                       {seg.projectedVariance!=null&&<div style={{fontSize:10,color:seg.projectedVariance>0?T.danger:T.success,fontFamily:"'Space Mono',monospace"}}>{fmtSigned(seg.projectedVariance)}</div>}
                     </td>
-                    <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`}}>
-                      <Pill color={meta.color} bg={meta.bg} border={meta.border}>{meta.label}</Pill>
+                    <td style={{padding:"8px 14px",borderBottom:rbb}}>
+                      <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border}>{meta.label}</Pill>
                     </td>
-                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`}}>
+                    <td style={{padding:"8px 8px",borderBottom:rbb}}>
                       <button onClick={()=>deleteSegment(seg.segKey,label)} title="Delete segment"
-                        style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:"2px 4px",opacity:0.35,transition:"opacity 0.1s"}}
-                        onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.35}>✕</button>
+                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
+                        onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
+                        onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>
                     </td>
                   </tr>
                 );
@@ -1578,18 +1635,18 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                 const breakdownRows=breakdown.length===0?[
                   <tr key={seg.segKey+"-empty"} style={{background:rowBg}}>
                     <td/><td/>
-                    <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:`1px solid ${T.border}`,fontSize:11,color:T.textMuted,fontStyle:"italic"}}>No spend in this period to break down by {breakdownDim}</td>
-                    <td colSpan={8} style={{borderBottom:`1px solid ${T.border}`}}/>
+                    <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:11,color:T.textMuted,fontStyle:"italic"}}>No spend in this period to break down by {breakdownDim}</td>
+                    <td colSpan={8} style={{borderBottom:rbb}}/>
                   </tr>
                 ]:breakdown.map(b=>(
                   <tr key={seg.segKey+"-"+b.value} style={{background:rowBg}}>
                     <td/><td/>
-                    <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:`1px solid ${T.border}`,fontSize:12,color:T.textSub}}>↳ {b.value}</td>
-                    <td style={{borderBottom:`1px solid ${T.border}`}}/>
-                    <td style={{padding:"6px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:12}}>
+                    <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:12,color:T.textSub}}>↳ {b.value}</td>
+                    <td style={{borderBottom:rbb}}/>
+                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'Space Mono',monospace",fontSize:12}}>
                       {fmtFull(b.spend)}<span style={{color:T.textMuted,marginLeft:6,fontSize:11}}>({Math.round(b.pct*100)}%)</span>
                     </td>
-                    <td colSpan={6} style={{borderBottom:`1px solid ${T.border}`}}/>
+                    <td colSpan={6} style={{borderBottom:rbb}}/>
                   </tr>
                 ));
                 return[parentRow,...breakdownRows];
@@ -1614,6 +1671,33 @@ export default function BudgetHQ(){
 
   const[step,setStep]=useState("upload");
   const[view,setView]=useState("dashboard");
+  const[statsOpen,setStatsOpen]=useState(true);
+  // Resizable stats sidebar — width is user-adjustable (drag handle on its right edge) and
+  // persisted across sessions, since it now hosts contextual panel content (e.g. the full
+  // Budget controls) that benefits from more room than the old fixed 180px.
+  const[statsWidth,setStatsWidth]=useState(()=>{
+    try{const v=+localStorage.getItem("paidhq_sidebar_width");return v&&v>=180&&v<=480?v:240;}catch(e){return 240;}
+  });
+  const statsWidthRef=useRef(statsWidth);
+  const statsResizing=useRef(false);
+  const[budgetSidebarEl,setBudgetSidebarEl]=useState(null); // portal target inside <aside> for the Budget tab's controls
+  const[pacingSidebarEl,setPacingSidebarEl]=useState(null); // portal target inside <aside> for the Reporting tab's controls
+  useEffect(()=>{
+    const onMove=e=>{
+      if(!statsResizing.current)return;
+      const w=Math.min(480,Math.max(180,e.clientX));
+      statsWidthRef.current=w;
+      setStatsWidth(w);
+    };
+    const onUp=()=>{
+      if(statsResizing.current){try{localStorage.setItem("paidhq_sidebar_width",String(statsWidthRef.current));}catch(e){}}
+      statsResizing.current=false;
+      document.body.style.cursor="";
+    };
+    window.addEventListener("mousemove",onMove);
+    window.addEventListener("mouseup",onUp);
+    return()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};
+  },[]);
   const[fileName,setFileName]=useState("");
   const[rawRows,setRawRows]=useState([]);
   const[headers,setHeaders]=useState([]);
@@ -1876,50 +1960,196 @@ export default function BudgetHQ(){
   const canProceed=colMap.campaign_name&&colMap.spend;
   const showNav=true;
 
-  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:sortCol===col?T.accent:T.textMuted,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
-  const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:"100%",marginTop:3};
+  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
+  const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Space Grotesk,sans-serif",width:"100%",marginTop:3};
+
+  // Persistent stats sidebar (middle column) — shown regardless of which tab is active.
+  // Falls back to labeled sample numbers before any real data is loaded, same treatment
+  // the Dashboard cards used to do on their own before that block moved here.
+  const hasSidebarData=mergedNormRows.length>0;
+  const sidebarBc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent];
+  const sidebarStatRows=[
+    {label:"Campaigns",value:hasSidebarData?stats.total.toLocaleString():"128",dot:sidebarBc[1]},
+    {label:"Tagged",value:hasSidebarData?`${stats.tagged.toLocaleString()} (${stats.total?Math.round((stats.tagged/stats.total)*100):0}%)`:"104 (81%)",dot:sidebarBc[3]},
+    {label:"Needs review",value:hasSidebarData?stats.untagged.toLocaleString():"24",dot:hasSidebarData?(stats.untagged>0?sidebarBc[0]:sidebarBc[3]):sidebarBc[0]},
+  ];
 
   return(
-    <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"Space Grotesk,sans-serif",overflow:"hidden"}}>
+    <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"Space Grotesk,sans-serif",overflow:"hidden",position:"relative"}}>
       <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
 
-      {/* ── HEADER ── */}
-      <header style={{height:48,background:T.headerBg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",padding:"0 16px",gap:8,flexShrink:0,zIndex:30,boxShadow:T.shadow}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginRight:4}}>
-          <div style={{width:28,height:28,borderRadius:7,background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><polyline points="1,11 5,7 8,9 14,3" stroke={T.accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><circle cx="5" cy="7" r="1.2" fill={T.accent}/><circle cx="8" cy="9" r="1.2" fill={T.accent}/></svg>
+      {/* ── TOP BAR ──
+          The divider under the bar is NOT one continuous border on this outer div — that made
+          "erasing" it under just the active tab fragile (overlap/margin tricks kept leaving a
+          hairline). Instead every piece (logo, each tab, the trailing filler, actions) draws its
+          OWN bottom border at the same fixed height, and the active tab's is simply colored to
+          match the body (T.bg) instead of T.border, so it reads as blank/seamless there. */}
+      <div style={{display:"flex",alignItems:"stretch",height:46,flexShrink:0,background:T.topbarBg,zIndex:30}}>
+        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:0),display:"flex",alignItems:"center",gap:8,padding:"0 16px",flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`,borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
+          <div style={{width:22,height:22,borderRadius:6,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <Icon name="bolt" size={13} color={T.text}/>
           </div>
-          <span style={{fontSize:15,fontWeight:700,color:T.text,letterSpacing:"-0.4px"}}>BudgetHQ</span>
-          <span style={{fontSize:10,fontWeight:600,color:T.textMuted,background:T.pill,border:`1px solid ${T.pillBorder}`,padding:"2px 7px",borderRadius:8,letterSpacing:"0.04em",textTransform:"uppercase"}}>by PaidHQ</span>
+          <div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>
         </div>
-        <nav style={{display:"flex",alignItems:"center",gap:1,marginLeft:8}}>
+        <div style={{display:"flex",alignItems:"flex-end",gap:2,flex:1,paddingLeft:16,minWidth:0}}>
           {NAV.map(item=>{
             const active=view===item.key;
-            const locked=item.key==="tagger"&&step==="upload"&&view!=="tagger";
-          return <button key={item.key} onClick={()=>{
-              if(item.key==="tagger"){if(step!=="tag")setStep("upload");setView("tagger");}
-              else setView(item.key);
-            }} style={{padding:"0 12px",height:32,background:active?T.surfaceEl:"transparent",border:active?`1px solid ${T.border}`:"1px solid transparent",borderRadius:6,color:active?T.text:T.textMuted,cursor:"pointer",fontSize:13,fontWeight:active?600:400,fontFamily:"Space Grotesk,sans-serif",display:"flex",alignItems:"center",gap:5}}><span>{item.icon}</span>{!isMobile&&item.label}</button>;
+            return <button key={item.key} onClick={()=>{
+                if(item.key==="tagger"){if(step!=="tag")setStep("upload");setView("tagger");}
+                else setView(item.key);
+              }} style={{display:"flex",alignItems:"center",gap:7,padding:"0 16px",height:38,marginTop:8,boxSizing:"border-box",flexShrink:0,borderRadius:"8px 8px 0 0",borderTop:`1px solid ${active?T.border:"transparent"}`,borderLeft:`1px solid ${active?T.border:"transparent"}`,borderRight:`1px solid ${active?T.border:"transparent"}`,borderBottom:`1px solid ${active?T.bg:T.border}`,background:active?T.bg:"transparent",color:active?T.text:T.textSub,fontSize:13,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Space Grotesk,sans-serif"}}>
+              <Icon name={item.icon} size={15} color={active?T.text:T.textSub}/>
+              {item.label}
+            </button>;
           })}
-        </nav>
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
-          {step==="tag"&&!isMobile&&(
-            <div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 10px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6}}>
-              <span style={{width:6,height:6,borderRadius:3,background:stats.untagged>0?T.warning:T.success,display:"inline-block"}}/>
-              <span style={{fontSize:12,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
+          {/* Trailing filler — covers the gap after the last tab so the divider still runs the
+              full width of the tab strip before the right-side actions begin. */}
+          <div style={{flex:1,alignSelf:"stretch",boxSizing:"border-box",borderBottom:`1px solid ${T.border}`}}/>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"0 14px",flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`}}>
+          {step==="tag"&&(
+            <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:20}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:stats.untagged>0?T.warning:T.success,flexShrink:0}}/>
+              <span style={{fontSize:11,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
-          {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>↑ Add data</Btn>}{step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>✕ Clear all</Btn>}
-          <button onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")} style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,color:T.textSub,fontFamily:"Space Grotesk,sans-serif",display:"flex",alignItems:"center",gap:5}}>
-            {themeKey==="dark"?"☀️":"🌙"}{!isMobile&&(themeKey==="dark"?" Light":" Dark")}
+          {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>↑ Add data</Btn>}
+          {step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>✕ Clear all</Btn>}
+          <button title={themeKey==="dark"?"Switch to light":"Switch to dark"} onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")}
+            style={{width:30,height:30,borderRadius:8,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <Icon name={themeKey==="dark"?"sun":"moon"} size={15} color={T.textSub}/>
           </button>
         </div>
-      </header>
+      </div>
+
+      {/* ── BODY ROW ── */}
+      <div style={{flex:1,display:"flex",flexDirection:"row",overflow:"hidden",minHeight:0,position:"relative"}}>
+
+      {/* ── STATS SIDEBAR ── */}
+      {!isMobile&&(<>
+        <aside style={{width:statsOpen?statsWidth:0,flexShrink:0,background:T.sidebarBg,borderRight:statsOpen?`1px solid ${T.border}`:"none",display:"flex",flexDirection:"column",padding:statsOpen?"18px 14px":0,overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
+
+          {view==="budget"?(
+            <div ref={setBudgetSidebarEl} style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="pacing"?(
+            <div ref={setPacingSidebarEl} style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="tagger"?(
+            // Lives directly in this component (unlike Budget/Pacing, the Tagger flow isn't a
+            // separate child component) so no portal is needed — just render it here in place.
+            <div style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}>
+              <SectionLabel T={T} style={{marginBottom:8}}>Tag Dimensions</SectionLabel>
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
+                {tagDims.map(dim=>(
+                  <div key={dim} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent",border:applyDim===dim?`1px solid ${T.accentBorder}`:"1px solid transparent"}}>
+                    <span style={{fontSize:13,color:T.text,fontWeight:applyDim===dim?700:400}}>{dim}</span>
+                    <span style={{fontSize:11,color:T.textMuted,fontFamily:"'Space Mono',monospace"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:5,marginBottom:12}}>
+                <Inp value={newDim} onChange={setNewDim} placeholder="New dimension…" T={T} onKeyDown={e=>e.key==="Enter"&&addDim()} style={{fontSize:12,padding:"5px 8px"}}/>
+                <Btn onClick={addDim} variant="subtle" size="sm" T={T}>+</Btn>
+              </div>
+              <Divider T={T}/>
+              <div style={{padding:"12px 0",flex:1}}>
+                <SectionLabel T={T}>Overview</SectionLabel>
+                {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T}/>)}
+                {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"'Space Mono',monospace",lineHeight:1.6}}>{stats.dateRange}</div>}
+                <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accent,transition:"width 0.4s",borderRadius:2}}/></div>
+                <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
+                <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
+                  <Btn onClick={exportTags} disabled={!campaigns.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export tags CSV</Btn>
+                  <Btn onClick={()=>importTagsRef.current?.click()} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import tags CSV</Btn>
+                  <input ref={importTagsRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{importTagsFromCSV(e.target.files[0]);e.target.value="";}} />
+                </div>
+
+                {/* Tag browser */}
+                {tagDims.some(d=>Object.keys(tagValueMap[d]||{}).length>0)&&(
+                  <div style={{marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:14}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                      <SectionLabel T={T} style={{marginBottom:0}}>Filter by tag</SectionLabel>
+                      {selectedTagFilters.size>0&&<span style={{fontSize:10,color:T.text,fontWeight:600,fontFamily:"Space Grotesk,sans-serif"}}>{selectedTagFilters.size} active</span>}
+                    </div>
+                    {tagDims.map(dim=>{
+                      const vals=Object.entries(tagValueMap[dim]||{}).sort((a,b)=>b[1]-a[1]);
+                      if(!vals.length)return null;
+                      return(
+                        <div key={dim} style={{marginBottom:12}}>
+                          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"Space Grotesk,sans-serif"}}>{dim}</div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                            {vals.map(([val,count])=>{
+                              const key=`${dim}:${val}`;
+                              const active=selectedTagFilters.has(key);
+                              return(
+                                <button key={val} onClick={()=>toggleTagFilter(dim,val)}
+                                  style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:14,fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:"Space Grotesk,sans-serif",
+                                    background:active?T.accent:T.surfaceEl,
+                                    color:T.text,
+                                    border:`1px solid ${active?T.accentHover:T.border}`,
+                                    transition:"all 0.12s"}}>
+                                  {val}
+                                  <span style={{fontSize:10,opacity:0.7,background:active?"rgba(0,0,0,0.12)":T.border,borderRadius:8,padding:"0 4px"}}>{count}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {selectedTagFilters.size>0&&(
+                      <div style={{fontSize:11,color:T.textMuted,marginTop:4,fontFamily:"Space Grotesk,sans-serif"}}>
+                        AND across dimensions · OR within
+                        <button onClick={()=>setSelectedTagFilters(new Set())} style={{display:"block",fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"Space Grotesk,sans-serif"}}>Clear tag filters ×</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ):(<>
+          <PixelPanel T={T} style={{opacity:hasSidebarData?1:0.7}} contentStyle={{padding:"14px 16px",background:T.accentBg}}>
+            <div style={{fontSize:10,fontWeight:700,color:T.textSub,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>Total spend</div>
+            <div style={{fontSize:20,fontWeight:800,color:T.text,fontFamily:"'Space Mono',monospace"}}>{hasSidebarData?"$"+Math.round(stats.totalSpend).toLocaleString():"$482,600"}</div>
+          </PixelPanel>
+          {!hasSidebarData&&(
+            <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 10px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:20,alignSelf:"flex-start"}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:T.textMuted,flexShrink:0}}/>
+              <span style={{fontSize:9,fontWeight:600,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase"}}>Sample data</span>
+            </div>
+          )}
+          {sidebarStatRows.map(s=>(
+            <PixelPanel key={s.label} T={T} style={{opacity:hasSidebarData?1:0.7}} contentStyle={{padding:"12px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                <span style={{width:7,height:7,borderRadius:"50%",background:s.dot,flexShrink:0}}/>
+                <span style={{fontSize:10,fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>{s.label}</span>
+              </div>
+              <div style={{fontSize:19,fontWeight:700,color:T.text,fontFamily:"'Space Mono',monospace"}}>{s.value}</div>
+            </PixelPanel>
+          ))}
+          </>)}
+        </aside>
+
+        {/* Drag-to-resize handle for the stats column — thin strip on the divider line */}
+        {statsOpen&&(
+          <div onMouseDown={()=>{statsResizing.current=true;document.body.style.cursor="col-resize";}}
+            title="Drag to resize"
+            style={{position:"absolute",top:0,bottom:0,left:statsWidth-3,width:7,cursor:"col-resize",zIndex:32}}/>
+        )}
+
+        {/* Collapse handle for the stats column */}
+        <button onClick={()=>setStatsOpen(o=>!o)} title={statsOpen?"Hide stats":"Show stats"}
+          style={{position:"absolute",top:"50%",left:(statsOpen?statsWidth:0)-9,transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:T.surface,border:`1px solid ${T.border}`,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontWeight:700,fontSize:9,lineHeight:1,zIndex:40,boxShadow:T.shadow,transition:statsResizing.current?"none":"left 0.15s"}}>
+          {statsOpen?"‹":"›"}
+        </button>
+      </>)}
+
+      {/* ── MAIN ── */}
+      <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
 
       {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"Space Grotesk,sans-serif"}}>{notif}</div>}
 
       {/* ── UPLOAD ── */}
-      {step==="upload"&&(
+      {step==="upload"&&view==="tagger"&&(
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"auto"}}>
           {/* Platform sync */}
           <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
@@ -1983,34 +2213,33 @@ export default function BudgetHQ(){
             </div>
 
             {/* Two import options */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
-              <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"16px",boxShadow:T.shadow}}>
-                <div style={{fontSize:22,marginBottom:8}}>📊</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
+              <PixelPanel T={T} contentStyle={{background:T.surface,padding:"16px"}}>
+                <div style={{marginBottom:8}}><Icon name="chart" size={22} color={T.text}/></div>
                 <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Spend data</div>
                 <div style={{fontSize:12,color:T.textMuted,marginBottom:12,lineHeight:1.5}}>CSV from Google Ads, LinkedIn, Meta, Bing or Capterra</div>
                 <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop} onClick={()=>fileRef.current?.click()}
-                  style={{border:`1.5px dashed ${dragOver?T.accent:T.borderStrong}`,borderRadius:8,padding:"14px",textAlign:"center",cursor:"pointer",background:dragOver?T.accentBg:"transparent",transition:"all 0.15s"}}>
+                  style={{border:`1.5px dashed ${dragOver?T.accent:T.borderStrong}`,borderRadius:10,padding:"14px",textAlign:"center",cursor:"pointer",background:dragOver?T.accentBg:"transparent",transition:"all 0.15s"}}>
                   <div style={{fontSize:12,fontWeight:600,color:T.accent}}>Drop CSV or click to browse</div>
                   <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
                 </div>
-              </div>
-              <div onClick={()=>{setView("budget");}} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:"16px",boxShadow:T.shadow,cursor:"pointer",transition:"border-color 0.15s"}}
-                onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
-                <div style={{fontSize:22,marginBottom:8}}>💰</div>
+              </PixelPanel>
+              <PixelPanel T={T} onClick={()=>{setView("budget");}} contentStyle={{background:T.surface,padding:"16px",cursor:"pointer"}}>
+                <div style={{marginBottom:8}}><Icon name="wallet" size={22} color={T.text}/></div>
                 <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Budget file</div>
                 <div style={{fontSize:12,color:T.textMuted,marginBottom:12,lineHeight:1.5}}>Excel or CSV budget spreadsheet — AI maps your columns</div>
-                <div style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:8,padding:"14px",textAlign:"center",background:"transparent"}}>
+                <div style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:10,padding:"14px",textAlign:"center",background:"transparent"}}>
                   <div style={{fontSize:12,fontWeight:600,color:T.accent}}>Go to Budgets →</div>
                 </div>
-              </div>
+              </PixelPanel>
             </div>
 
-            <div style={{padding:"10px 14px",background:T.surface,borderRadius:9,border:`1px solid ${T.border}`,boxShadow:T.shadow}}>
+            <PixelPanel T={T} contentStyle={{background:T.surface,padding:"10px 14px"}}>
               <SectionLabel T={T} style={{marginBottom:8}}>Supported sources</SectionLabel>
               <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
                 {["Google Ads","LinkedIn","Meta Ads","Microsoft Ads","Capterra","Funnel.io"].map(p=><span key={p} style={{fontSize:11,background:T.surfaceEl,color:T.textSub,padding:"3px 8px",borderRadius:5,fontWeight:500,border:`1px solid ${T.border}`}}>{p}</span>)}
               </div>
-            </div>
+            </PixelPanel>
           </div>
           </div>
         </div>
@@ -2024,7 +2253,7 @@ export default function BudgetHQ(){
               <h2 style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4}}>Map your columns</h2>
               <p style={{fontSize:13,color:T.textSub}}><strong style={{color:T.text,fontWeight:600}}>{fileName}</strong> · {rawRows.length.toLocaleString()} rows</p>
             </div>
-            <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden",marginBottom:18,boxShadow:T.shadow}}>
+            <PixelPanel T={T} style={{marginBottom:18}} contentStyle={{background:T.surface,overflow:"hidden"}}>
               {/* Platform override */}
               <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",background:T.accentBg}}>
                 <div>
@@ -2045,7 +2274,7 @@ export default function BudgetHQ(){
                 </div>
                 );
               })}
-            </div>
+            </PixelPanel>
             {canProceed&&<div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>✓ Found <strong>{campaigns.length}</strong> campaigns · <strong>{fmt$(campaigns.reduce((s,c)=>s+c.spend,0))}</strong> total spend</div>}
             <div style={{display:"flex",justifyContent:"space-between"}}>
               <Btn onClick={()=>setStep("upload")} variant="ghost" T={T}>← Back</Btn>
@@ -2065,91 +2294,16 @@ export default function BudgetHQ(){
       {/* ── TAGGER ── */}
       {step==="tag"&&view==="tagger"&&(
         <div style={{flex:1,display:"flex",overflow:"hidden",minHeight:0}}>
-          {!isMobile&&(
-            <aside style={{width:216,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.sidebarBg,overflow:"auto",display:"flex",flexDirection:"column"}}>
-              <div style={{padding:"14px 14px 0"}}>
-                <SectionLabel T={T}>Tag Dimensions</SectionLabel>
-                <div style={{display:"flex",flexDirection:"column",gap:1,marginBottom:8}}>
-                  {tagDims.map(dim=>(
-                    <div key={dim} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent"}}>
-                      <span style={{fontSize:13,color:applyDim===dim?T.accent:T.text,fontWeight:applyDim===dim?600:400}}>{dim}</span>
-                      <span style={{fontSize:11,color:T.textMuted,fontFamily:"'Space Mono',monospace"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
-                    </div>
-                  ))}
-                </div>
-                <div style={{display:"flex",gap:5,marginBottom:2}}>
-                  <Inp value={newDim} onChange={setNewDim} placeholder="New dimension…" T={T} onKeyDown={e=>e.key==="Enter"&&addDim()} style={{fontSize:12,padding:"5px 8px"}}/>
-                  <button onClick={addDim} style={{background:T.accentBg,border:`1px solid ${T.accentBorder}`,color:T.accent,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0,fontFamily:"Space Grotesk,sans-serif"}}>+</button>
-                </div>
-              </div>
-              <Divider T={T}/>
-              <div style={{padding:"0 14px",flex:1}}>
-                <SectionLabel T={T}>Overview</SectionLabel>
-                {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.accent},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.accent},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T}/>)}
-                {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"'Space Mono',monospace",lineHeight:1.6}}>{stats.dateRange}</div>}
-                <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accent,transition:"width 0.4s",borderRadius:2}}/></div>
-                <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
-              <div style={{marginTop:12}}>
-                <Btn onClick={exportTags} disabled={!campaigns.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export tags CSV</Btn>
-                <Btn onClick={()=>importTagsRef.current?.click()} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import tags CSV</Btn>
-                <input ref={importTagsRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{importTagsFromCSV(e.target.files[0]);e.target.value="";}} />
-              </div>
-
-              {/* Tag browser */}
-              {tagDims.some(d=>Object.keys(tagValueMap[d]||{}).length>0)&&(
-                <div style={{marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:14}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                    <SectionLabel T={T} style={{marginBottom:0}}>Filter by tag</SectionLabel>
-                    {selectedTagFilters.size>0&&<span style={{fontSize:10,color:T.accent,fontFamily:"Space Grotesk,sans-serif"}}>{selectedTagFilters.size} active</span>}
-                  </div>
-                  {tagDims.map(dim=>{
-                    const vals=Object.entries(tagValueMap[dim]||{}).sort((a,b)=>b[1]-a[1]);
-                    if(!vals.length)return null;
-                    return(
-                      <div key={dim} style={{marginBottom:12}}>
-                        <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"Space Grotesk,sans-serif"}}>{dim}</div>
-                        <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                          {vals.map(([val,count])=>{
-                            const key=`${dim}:${val}`;
-                            const active=selectedTagFilters.has(key);
-                            return(
-                              <button key={val} onClick={()=>toggleTagFilter(dim,val)}
-                                style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:"Space Grotesk,sans-serif",
-                                  background:active?T.accent:T.surfaceEl,
-                                  color:active?"#fff":T.text,
-                                  border:`1px solid ${active?T.accent:T.border}`,
-                                  transition:"all 0.12s"}}>
-                                {val}
-                                <span style={{fontSize:10,opacity:0.7,background:active?"rgba(255,255,255,0.25)":T.border,borderRadius:8,padding:"0 4px"}}>{count}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {selectedTagFilters.size>0&&(
-                    <div style={{fontSize:11,color:T.textMuted,marginTop:4,fontFamily:"Space Grotesk,sans-serif"}}>
-                      AND across dimensions · OR within
-                      <button onClick={()=>setSelectedTagFilters(new Set())} style={{display:"block",fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"Space Grotesk,sans-serif"}}>Clear tag filters ×</button>
-                    </div>
-                  )}
-                </div>
-              )}
-              </div>
-            </aside>
-          )}
-
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
             {suggestions.length>0&&(
-              <div style={{padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.accentBorder}`,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
-                <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.accent}}>Suggest</span>
-                {suggestions.map(s=><button key={s.key} onClick={()=>applySug(s.dim,s.val)} style={{fontSize:12,background:T.surface,border:`1px solid ${T.accentBorder}`,color:T.accent,borderRadius:20,padding:"3px 10px",cursor:"pointer",fontFamily:"Space Grotesk,sans-serif",fontWeight:500}}>Apply {s.dim}: {s.val} to {s.count} untagged</button>)}
+              <div style={{padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.border}`,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
+                <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text}}>Suggest</span>
+                {suggestions.map(s=><button key={s.key} onClick={()=>applySug(s.dim,s.val)} style={{fontSize:12,background:T.surface,border:`1px solid ${T.border}`,color:T.text,borderRadius:14,padding:"3px 10px",cursor:"pointer",fontFamily:"Space Grotesk,sans-serif",fontWeight:500}}>Apply {s.dim}: {s.val} to {s.count} untagged</button>)}
               </div>
             )}
             {selected.size>0&&(
               <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
-                <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder}>{selected.size} selected</Pill>
+                <Pill color={T.text} bg={T.accent} border={T.text}>{selected.size} selected</Pill>
                 <span style={{color:T.textMuted,fontSize:13}}>→</span>
                 <Sel value={applyDim} onChange={setApplyDim} T={T} style={{width:130,fontSize:12}}><option value="">Dimension…</option>{tagDims.map(d=><option key={d} value={d}>{d}</option>)}</Sel>
                 <Inp value={applyVal} onChange={setApplyVal} placeholder="Tag value…" T={T} style={{width:130,fontSize:12}} onKeyDown={e=>e.key==="Enter"&&applyTags()}/>
@@ -2171,7 +2325,7 @@ export default function BudgetHQ(){
                 {!isMobile&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                   <SH col="tags" label="Tags"/>
                   {tagsHistory.length>0&&<button onClick={undoTags} title="Undo last tag action (⌘Z)"
-                    style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:10,padding:"1px 6px",fontFamily:"Space Grotesk,sans-serif",whiteSpace:"nowrap"}}>
+                    style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:5,color:T.text,cursor:"pointer",fontSize:10,padding:"1px 6px",fontFamily:"Space Grotesk,sans-serif",whiteSpace:"nowrap"}}>
                     ↩ Undo ({tagsHistory.length})
                   </button>}
                 </div>}
@@ -2188,7 +2342,7 @@ export default function BudgetHQ(){
                   <div style={{display:"flex",gap:4}}>
                     <input value={fTag} onChange={e=>setFTag(e.target.value)} placeholder="Tag contains…" style={{...fIn,flex:1}}/>
                     <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{...fIn,width:120,cursor:"pointer"}}><option value="all">All</option><option value="tagged">Tagged</option><option value="untagged">Needs review</option></select>
-                    {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,borderRadius:5,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Space Grotesk,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
+                    {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.danger}`,color:T.danger,borderRadius:6,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Space Grotesk,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
                   </div>
                   <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes…" style={{...fIn,borderColor:fTagExclude?"#ef4444":undefined,color:fTagExclude?"#ef4444":undefined}}/>
                 </div>}
@@ -2196,11 +2350,11 @@ export default function BudgetHQ(){
             </div>
 
             <div style={{overflow:"auto",flex:1}}>
-              {filtered.map((c,ri)=>{
+              {filtered.map((c)=>{
                 const ts=tags[c.name]||{};const tc=Object.keys(ts).length;const isSel=selected.has(c.name);const pc=PLATFORM_COLORS[c.platform]||T.textMuted;
                 return(
                   <div key={c.name} onClick={()=>toggleSel(c.name)}
-                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:ri%2===0?"transparent":T.surfaceEl,transition:"background 0.1s",gap:6}}>
+                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px dashed ${T.borderStrong}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.name)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                     <div style={{minWidth:0}}><div style={{fontSize:11,fontFamily:"'Space Mono',monospace",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>{c.adsetCount>0&&<div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{c.adsetCount} ad sets</div>}</div>
                     <div style={{fontSize:12,fontFamily:"'Space Mono',monospace",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
@@ -2214,7 +2368,7 @@ export default function BudgetHQ(){
                         </select>
                       ):(
                         <span onClick={()=>setEditingPlatform(c.name)} title="Click to change platform"
-                          style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:5,background:pc+"18",color:pc,border:`1px solid ${pc}30`,whiteSpace:"nowrap",cursor:"pointer"}}>
+                          style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:14,background:pc+"18",color:pc,border:`1px solid ${pc}`,whiteSpace:"nowrap",cursor:"pointer"}}>
                           {c.platform}
                         </span>
                       )}
@@ -2222,14 +2376,14 @@ export default function BudgetHQ(){
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
                       {tc===0?<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>needs review</Pill>:
                         Object.entries(ts).map(([dim,val])=>(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:20,background:T.accentBg,color:T.accent,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Space Grotesk,sans-serif"}}>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:14,background:T.accentBg,color:T.text,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Space Grotesk,sans-serif"}}>
                             <span style={{opacity:0.7,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.name&&editingTag?.dim===dim?(
                               <input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)}
                                 onBlur={saveEdit}
                                 onKeyDown={e=>{if(e.key==="Enter")saveEdit();if(e.key==="Escape"){setEditingTag(null);setEditVal("");}e.stopPropagation();}}
                                 onClick={e=>e.stopPropagation()}
-                                style={{background:"transparent",border:"none",outline:"none",color:T.accent,fontSize:11,fontWeight:600,width:Math.max(40,editVal.length*7)+"px",fontFamily:"Space Grotesk,sans-serif",padding:0}}/>
+                                style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontWeight:600,width:Math.max(40,editVal.length*7)+"px",fontFamily:"Space Grotesk,sans-serif",padding:0}}/>
                             ):(
                               <span onClick={e=>{e.stopPropagation();setEditingTag({campaign:c.name,dim});setEditVal(val);}} style={{cursor:"text",fontWeight:600}}>{val}</span>
                             )}
@@ -2239,20 +2393,25 @@ export default function BudgetHQ(){
                       }
                     </div>}
                     {!isMobile&&<button onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${c.name}" from this dataset?\n\nThis only affects the current session — your tags are kept. You can re-sync or re-upload to restore it.`)){setMergedNormRows(prev=>prev.filter(r=>r.campaign_name!==c.name));}}} title="Remove this campaign"
-                      style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:"2px",opacity:0.4,transition:"opacity 0.1s"}}
-                      onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.4}>✕</button>}
+                      style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
+                      onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>}
                   </div>
                 );
               })}
-              {filtered.length===0&&<div style={{padding:"52px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No campaigns match your filters.{hasF&&<span onClick={clearF} style={{color:T.accent,cursor:"pointer",marginLeft:6,fontWeight:500}}>Clear filters</span>}</div>}
+              {filtered.length===0&&<div style={{padding:"52px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No campaigns match your filters.{hasF&&<span onClick={clearF} style={{color:T.text,cursor:"pointer",marginLeft:6,fontWeight:600,textDecoration:"underline"}}>Clear filters</span>}</div>}
             </div>
           </div>
         </div>
       )}
 
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
-      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} isMobile={isMobile} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims}/>}
-      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} isMobile={isMobile} onNavigate={setView}/>}
+      {view==="dashboard"&&<Dashboard T={T} themeKey={themeKey} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
+      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} sidebarEl={budgetSidebarEl}/>}
+      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
+
+      </main>
+
+      </div>
 
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
