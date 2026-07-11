@@ -159,6 +159,7 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"sun":return<svg {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>;
     case"moon":return<svg {...p}><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>;
     case"alert":return<svg {...p}><path d="M12 3.5 21.5 20H2.5Z"/><path d="M12 9.5v4.5"/><circle cx="12" cy="17" r="0.6" fill={color} stroke="none"/></svg>;
+    case"gear":return<svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.4 7.4 0 0 0 0-2l2-1.5-2-3.4-2.4.7a7.4 7.4 0 0 0-1.7-1L14.9 3h-3.8l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-.7-2 3.4L6.6 11a7.4 7.4 0 0 0 0 2l-2 1.5 2 3.4 2.4-.7a7.4 7.4 0 0 0 1.7 1l.4 2.4h3.8l.4-2.4a7.4 7.4 0 0 0 1.7-1l2.4.7 2-3.4-2-1.5Z"/></svg>;
     default:return null;
   }
 };
@@ -2012,6 +2013,35 @@ export default function BudgetHQ(){
   const hasF=fCamp||fCampExclude||fGroup||fGroupExclude||fPlat||fSMin||fSMax||fTag||fTagExclude||selectedTagFilters.size>0||fStatus!=="all";
   const canProceed=colMap.campaign_group_name&&colMap.spend;
 
+  // Settings — independent data-clear actions. Reporting has no state of its own (it's a
+  // computed pacing view over Budget + Tagger data), so there's no separate "clear reporting"
+  // action — clearing either of the two source datasets is reflected there automatically.
+  const clearTaggerData=()=>{
+    if(!window.confirm("Clear all Tagger data?\n\nThis removes every imported spend row, every campaign tag, and your custom tag dimensions. Budget allocations are not affected.\n\nThis cannot be undone."))return;
+    setMergedNormRows([]);setTags({});setTagDims(DEFAULT_DIMS);setColMap({});setStep("upload");setLastSyncRange(null);setTagsHistory([]);
+    try{["paidhq_rows","paidhq_tags","paidhq_dims","paidhq_sync_range"].forEach(k=>localStorage.removeItem(k));}catch(e){}
+    showNotif("Tagger data cleared");
+  };
+  const clearBudgetData=()=>{
+    if(!window.confirm("Clear all Budget data?\n\nThis removes every budget allocation, budget segment, and annotation dimension across all years. Tagged campaign data is not affected.\n\nThis cannot be undone."))return;
+    setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);
+    try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims"].forEach(k=>localStorage.removeItem(k));}catch(e){}
+    showNotif("Budget data cleared");
+  };
+  const clearAllData=()=>{
+    if(!window.confirm("Delete ALL data for this instance?\n\nThis clears Tagger data (spend rows, tags, dimensions) AND Budget data (allocations, segments) across every year. Your theme and layout preferences are kept.\n\nThis cannot be undone."))return;
+    clearTaggerDataSilent();clearBudgetDataSilent();
+    showNotif("All data deleted");
+  };
+  function clearTaggerDataSilent(){
+    setMergedNormRows([]);setTags({});setTagDims(DEFAULT_DIMS);setColMap({});setStep("upload");setLastSyncRange(null);setTagsHistory([]);
+    try{["paidhq_rows","paidhq_tags","paidhq_dims","paidhq_sync_range"].forEach(k=>localStorage.removeItem(k));}catch(e){}
+  }
+  function clearBudgetDataSilent(){
+    setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);
+    try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims"].forEach(k=>localStorage.removeItem(k));}catch(e){}
+  }
+
   const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3};
 
@@ -2067,6 +2097,10 @@ export default function BudgetHQ(){
           )}
           {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>{isMobile?"↑":"↑ Add data"}</Btn>}
           {step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
+          <button className="bhq-iconbtn" title="Settings" onClick={()=>setView("settings")}
+            style={{width:30,height:30,borderRadius:8,background:view==="settings"?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
+            <Icon name="gear" size={15} color={T.textSub}/>
+          </button>
           <button className="bhq-iconbtn" title={themeKey==="dark"?"Switch to light":"Switch to dark"} onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")}
             style={{width:30,height:30,borderRadius:8,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
             <Icon name={themeKey==="dark"?"sun":"moon"} size={15} color={T.textSub}/>
@@ -2466,6 +2500,55 @@ export default function BudgetHQ(){
       {view==="dashboard"&&<Dashboard T={T} themeKey={themeKey} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
       {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} sidebarEl={budgetSidebarEl}/>}
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
+      {view==="settings"&&(()=>{
+        const budgetYears=Object.keys(budgets).length;
+        const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
+        const rowSection=({title,desc,stat,action,label,disabled})=>(
+          <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>{title}</div>
+              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480}}>{desc}</div>
+              <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif"}}>{stat}</div>
+            </div>
+            <Btn onClick={action} variant="danger" size="sm" T={T} disabled={disabled} style={{flexShrink:0}}>{label}</Btn>
+          </div>
+        );
+        return(
+          <div style={{flex:1,overflow:"auto",background:T.bg}}>
+            <div style={{maxWidth:760,margin:"0 auto",padding:"48px 32px"}}>
+              <div style={{marginBottom:32}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                  <div style={{width:36,height:36,borderRadius:10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="gear" size={17} color={T.text}/></div>
+                  <h1 style={{fontSize:22,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:"Inter,sans-serif"}}>Settings</h1>
+                </div>
+                <p style={{fontSize:13,color:T.textSub,fontFamily:"Inter,sans-serif"}}>Manage the data stored in this BudgetHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                {rowSection({
+                  title:"Clear Tagger data",
+                  desc:"Removes every imported spend row, campaign tag, and custom tag dimension. Budget allocations are kept.",
+                  stat:`${mergedNormRows.length.toLocaleString()} spend rows · ${Object.keys(tags).length.toLocaleString()} tagged campaigns`,
+                  action:clearTaggerData,label:"Clear Tagger data",disabled:!mergedNormRows.length&&!Object.keys(tags).length,
+                })}
+                {rowSection({
+                  title:"Clear Budget data",
+                  desc:"Removes every budget allocation, segment, and annotation dimension across all years. Tagged campaign data is kept.",
+                  stat:`${budgetSegs.toLocaleString()} budget row${budgetSegs===1?"":"s"} across ${budgetYears} year${budgetYears===1?"":"s"}`,
+                  action:clearBudgetData,label:"Clear Budget data",disabled:!budgetSegs,
+                })}
+                <div style={{marginTop:8,paddingTop:20,borderTop:`1px solid ${T.border}`}}>
+                  {rowSection({
+                    title:"Delete all data",
+                    desc:"Clears Tagger data AND Budget data at once — everything above, in one step. Theme and layout preferences are kept.",
+                    stat:"This is the only irreversible action on this page — there's no undo.",
+                    action:clearAllData,label:"Delete all data",disabled:!mergedNormRows.length&&!Object.keys(tags).length&&!budgetSegs,
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       </main>
 
