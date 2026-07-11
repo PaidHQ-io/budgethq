@@ -247,6 +247,7 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"gear":return<svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.4 7.4 0 0 0 0-2l2-1.5-2-3.4-2.4.7a7.4 7.4 0 0 0-1.7-1L14.9 3h-3.8l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-.7-2 3.4L6.6 11a7.4 7.4 0 0 0 0 2l-2 1.5 2 3.4 2.4-.7a7.4 7.4 0 0 0 1.7 1l.4 2.4h3.8l.4-2.4a7.4 7.4 0 0 0 1.7-1l2.4.7 2-3.4-2-1.5Z"/></svg>;
     case"clock":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>;
     case"save":return<svg {...p}><path d="M5 3h11l3 3v15H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M8 3v6h7V3"/><path d="M8 21v-7h8v7"/></svg>;
+    case"dots":return<svg {...p}><circle cx="5" cy="12" r="1.6" fill={color} stroke="none"/><circle cx="12" cy="12" r="1.6" fill={color} stroke="none"/><circle cx="19" cy="12" r="1.6" fill={color} stroke="none"/></svg>;
     default:return null;
   }
 };
@@ -2612,33 +2613,16 @@ export default function BudgetHQ(){
           hairline). Instead every piece (logo, each tab, the trailing filler, actions) draws its
           OWN bottom border at the same fixed height, and the active tab's is simply colored to
           match the body (T.bg) instead of T.border, so it reads as blank/seamless there.
-          The "File" menu is stacked above the logo INSIDE this same 46px row (not a separate
-          row above it) — the dropdown itself is positioned relative to this outer wrapper so it
-          isn't clipped by the logo column's overflow:hidden (which exists for its width transition). ── */}
+          The "···" menu on the right (Notion-style) covers file-level actions (version history)
+          instead of a dedicated "File" trigger — its dropdown is positioned relative to this
+          outer wrapper so it isn't clipped by any child's overflow:hidden. ── */}
       <div style={{display:"flex",alignItems:"stretch",height:46,flexShrink:0,background:T.topbarBg,zIndex:30,position:"relative"}}>
-        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",flexDirection:"column",alignItems:statsOpen||isMobile?"flex-start":"center",justifyContent:"center",gap:1,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`,borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
-          <button className="bhq-menubtn" onClick={()=>setFileMenuOpen(o=>!o)}
-            style={{background:fileMenuOpen?T.surfaceHover:"transparent",border:"none",borderRadius:4,color:T.textSub,fontSize:10,fontWeight:500,padding:"0 4px",margin:"0 0 0 -4px",cursor:"pointer",fontFamily:"Inter,sans-serif",lineHeight:1.5,flexShrink:0}}>File</button>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:20,height:20,borderRadius:6,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-              <Icon name="bolt" size={12} color={T.text}/>
-            </div>
-            {(statsOpen||isMobile)&&<div style={{fontSize:13,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
+        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:8,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`,borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
+          <div style={{width:22,height:22,borderRadius:6,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <Icon name="bolt" size={13} color={T.text}/>
           </div>
+          {(statsOpen||isMobile)&&<div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
         </div>
-        {fileMenuOpen&&(<>
-          <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-          <div style={{position:"absolute",top:44,left:12,zIndex:250,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-            <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
-              style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
-              <Icon name="save" size={14} color={T.textSub}/> Name current version…
-            </button>
-            <button className="bhq-row" onClick={openVersionHistory}
-              style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
-              <Icon name="clock" size={14} color={T.textSub}/> Version history
-            </button>
-          </div>
-        </>)}
         <div style={{display:"flex",alignItems:"flex-end",gap:2,flex:1,paddingLeft:isMobile?4:16,minWidth:0,overflowX:isMobile?"auto":"visible"}}>
           {NAV.map(item=>{
             const active=view===item.key;
@@ -2667,10 +2651,23 @@ export default function BudgetHQ(){
             style={{width:30,height:30,borderRadius:8,background:view==="settings"?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
             <Icon name="gear" size={15} color={T.textSub}/>
           </button>
-          <button className="bhq-iconbtn" title={themeKey==="dark"?"Switch to light":"Switch to dark"} onClick={()=>setThemeKey(k=>k==="dark"?"light":"dark")}
-            style={{width:30,height:30,borderRadius:8,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
-            <Icon name={themeKey==="dark"?"sun":"moon"} size={15} color={T.textSub}/>
+          <button className="bhq-iconbtn" title="More" onClick={()=>setFileMenuOpen(o=>!o)}
+            style={{width:30,height:30,borderRadius:8,background:fileMenuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
+            <Icon name="dots" size={15} color={T.textSub}/>
           </button>
+          {fileMenuOpen&&(<>
+            <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
+            <div style={{position:"absolute",top:44,right:isMobile?8:14,zIndex:250,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+              <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
+                style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                <Icon name="save" size={14} color={T.textSub}/> Name current version…
+              </button>
+              <button className="bhq-row" onClick={openVersionHistory}
+                style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                <Icon name="clock" size={14} color={T.textSub}/> Version history
+              </button>
+            </div>
+          </>)}
         </div>
       </div>
 
@@ -3091,6 +3088,16 @@ export default function BudgetHQ(){
                 <p style={{fontSize:13,color:T.textSub,fontFamily:"Inter,sans-serif"}}>Manage the data stored in this BudgetHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Appearance</div>
+                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480}}>Switch between light and dark mode.</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                    <Icon name={themeKey==="dark"?"moon":"sun"} size={15} color={T.textSub}/>
+                    <Tog value={themeKey==="dark"} onChange={v=>setThemeKey(v?"dark":"light")} T={T}/>
+                  </div>
+                </div>
                 {rowSection({
                   title:"Clear Tagger data",
                   desc:"Removes every imported spend row, campaign tag, and custom tag dimension. Budget allocations are kept.",
@@ -3146,7 +3153,7 @@ export default function BudgetHQ(){
             <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div>
                 <div style={{fontSize:15,fontWeight:700,color:T.text}}>Version history</div>
-                <div style={{fontSize:12,color:T.textSub,marginTop:2}}>Saved automatically after imports and data clears, or manually via File → Name current version.</div>
+                <div style={{fontSize:12,color:T.textSub,marginTop:2}}>Saved automatically after imports and data clears, or manually via ⋯ → Name current version.</div>
               </div>
               <button onClick={()=>setVersionHistoryOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:"Inter,sans-serif"}}>×</button>
             </div>
@@ -3156,7 +3163,7 @@ export default function BudgetHQ(){
                   <span style={{width:14,height:14,border:`2px solid ${T.border}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Loading versions…
                 </div>
               ):versions.length===0?(
-                <div style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No saved versions yet. They're created automatically after imports and data clears — or save one now from File → Name current version.</div>
+                <div style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No saved versions yet. They're created automatically after imports and data clears — or save one now from ⋯ → Name current version.</div>
               ):(
                 groupVersionsByDay(versions).map(g=>(
                   <div key={g.label} style={{marginBottom:14}}>
@@ -3204,7 +3211,6 @@ export default function BudgetHQ(){
         .bhq-tab:hover{background:${T.surfaceHover} !important;color:${T.text} !important;}
         .bhq-iconbtn:hover{background:${T.surfaceHover} !important;}
         .bhq-row:hover{background:${T.surfaceHover} !important;}
-        .bhq-menubtn:hover{background:${T.surfaceHover} !important;}
         .bhq-tr:hover td{background:${T.rowHover} !important;}
       `}</style>
     </div>
