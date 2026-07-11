@@ -113,14 +113,14 @@ const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={}})=>{
   const v={primary:{background:T.accent,color:T.text,border:`1px solid ${T.accentHover}`},ghost:{background:T.surface,color:T.text,border:`1px solid ${T.border}`},subtle:{background:T.surfaceEl,color:T.text,border:`1px solid ${T.border}`},success:{background:T.successBg,color:T.success,border:`1px solid ${T.successBorder}`},danger:{background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerBorder}`}};
   return <button disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:8,cursor:disabled?"not-allowed":"pointer",fontWeight:600,transition:"all 0.12s",fontFamily:"Inter,sans-serif",boxShadow:disabled?"none":T.shadow,opacity:disabled?0.5:1,...s[size],...v[variant],...style}}>{children}</button>;
 };
-const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"'JetBrains Mono',monospace":"Inter,sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
+const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"Inter,sans-serif":"Inter,sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
 const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"Inter,sans-serif",width:"100%",...style}}>{children}</select>);
 // stopPropagation on both: several call sites wrap these in a parent <div> that has its own
 // onClick doing the same toggle (for a bigger click target). Without stopping propagation here,
 // clicking directly on the switch/checkbox fires both handlers and the toggle cancels itself out.
 const Tog=({value,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange(!value);}} style={{width:30,height:17,borderRadius:9,background:value?T.accent:T.borderStrong,position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0}}><div style={{position:"absolute",top:2,left:value?15:2,width:13,height:13,borderRadius:7,background:"#fff",transition:"left 0.18s",boxShadow:"0 1px 3px rgba(0,0,0,0.25)"}}/></div>);
 const Chk=({checked,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange();}} style={{width:15,height:15,borderRadius:4,border:`1.5px solid ${checked?T.accent:T.borderStrong}`,background:checked?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all 0.12s"}}>{checked&&<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>);
-const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",fontWeight:600,color:color||T.text}}>{value}</span></div>);
+const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:color||T.text}}>{value}</span></div>);
 const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
 // Pixel-block icon set (retro redesign, July 2026) — replaces the flat line-icon set.
 // Every glyph is built from a handful of solid squares, no curves/strokes, matching the
@@ -569,7 +569,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
 
   const cellIn=(val,onChange,over=false,cap=false)=>(
     <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
-      style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:T.text,padding:"4px 6px",fontSize:11,width:"100%",boxSizing:"border-box",fontFamily:"'JetBrains Mono',monospace",textAlign:"right",outline:"none",display:"block"}}/>
+      style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:T.text,padding:"4px 6px",fontSize:11,width:"100%",boxSizing:"border-box",fontFamily:"Inter,sans-serif",textAlign:"right",outline:"none",display:"block"}}/>
   );
   const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",textAlign:"right"};
 
@@ -622,7 +622,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
               <div key={d} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?T.accentBg:"transparent",border:on?`1px solid ${T.accentBorder}`:"1px solid transparent",marginBottom:2}}>
                 <Chk checked={on} onChange={()=>toggleDim(d)} T={T}/>
                 <span style={{fontSize:13,color:T.text,fontWeight:on?700:400}}>{d}</span>
-                <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontFamily:"'JetBrains Mono',monospace"}}>{dimCount(d)}</span>
+                <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontFamily:"Inter,sans-serif"}}>{dimCount(d)}</span>
               </div>
             );})}
           </div>
@@ -704,9 +704,9 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                     {editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
                       <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                         onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
-                        style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"'JetBrains Mono',monospace",minWidth:80}}/>
+                        style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",minWidth:80}}/>
                     ):(
-                      <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600,cursor:"text",borderRadius:6}}
+                      <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"Inter,sans-serif",fontWeight:600,cursor:"text",borderRadius:6}}
                         onClick={()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
                     )}
                     {i===budgetDims.length-1&&segMatchCount(seg.key)===0&&(
@@ -731,10 +731,10 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                     );
                   })}
                   {MONTHS.map(m=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo)}</td>;})}
-                  {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:T.textSub,background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
-                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:ao?T.danger:T.text,whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
-                  {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"'JetBrains Mono',monospace",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
-                  {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"'JetBrains Mono',monospace",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
+                  {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:11,color:T.textSub,background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
+                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",fontWeight:700,color:ao?T.danger:T.text,whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
+                  {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
+                  {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
                   <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
                     <button onClick={()=>deleteRow(seg.key,budgetDims.map(d=>seg[d]).join(" · "))} title="Delete row"
                       style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
@@ -746,9 +746,9 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                 <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
                 {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals</SectionLabel>}</td>)}
                 {budgetMetaDims.map(d=><td key={d}/>)}
-                {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:600,color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
-                {QUARTERS.map(q=>{const qt=filteredSegs.reduce((s,sg)=>s+qTotal(sg.key,q),0);return <td key={"qt-"+q.key} style={{padding:"10px 10px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:600,color:T.textSub}}>{qt>0?fmt$(qt):"—"}</td>;})}
-                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontSize:12,fontWeight:700,color:T.text}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
+                {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:11,fontWeight:600,color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
+                {QUARTERS.map(q=>{const qt=filteredSegs.reduce((s,sg)=>s+qTotal(sg.key,q),0);return <td key={"qt-"+q.key} style={{padding:"10px 10px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:11,fontWeight:600,color:T.textSub}}>{qt>0?fmt$(qt):"—"}</td>;})}
+                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
                 {showQ&&QUARTERS.map(q=><td key={"qc-"+q.key}/>)}
                 {showA&&<td/>}
                 <td/>
@@ -834,7 +834,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                     {[{label:"Wide format",example:"Product | Jan | Feb | Mar | Apr..."},{label:"Long format",example:"Product | Platform | Month | Budget"}].map(f=>(
                       <div key={f.label} style={{padding:"10px 12px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8}}>
                         <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:3}}>{f.label}</div>
-                        <div style={{fontSize:11,color:T.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>{f.example}</div>
+                        <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{f.example}</div>
                       </div>
                     ))}
                   </div>
@@ -876,7 +876,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                                 {isHeader?"→":ri+1}
                               </td>
                               {row.slice(0,8).map((cell,ci)=>(
-                                <td key={ci} style={{padding:"6px 10px",color:isHeader?T.accent:isSkip?T.danger:isEmpty?T.textDim:T.text,fontWeight:isHeader?600:400,fontFamily:isHeader?"Inter,sans-serif":"'JetBrains Mono',monospace",fontSize:isHeader?11:11,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                <td key={ci} style={{padding:"6px 10px",color:isHeader?T.accent:isSkip?T.danger:isEmpty?T.textDim:T.text,fontWeight:isHeader?600:400,fontFamily:isHeader?"Inter,sans-serif":"Inter,sans-serif",fontSize:isHeader?11:11,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                                   {cell||""}
                                 </td>
                               ))}
@@ -1018,8 +1018,8 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                         {pvGrouped.map((sg,i)=>{const rt=Object.values(sg.months).reduce((s,v)=>s+v,0);return(
                           <tr key={i}>
                             {dimCols.map(d=><td key={d} style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,color:T.text}}>{sg.dims[d]||"—"}</td>)}
-                            {MONTHS.filter(m=>(preview||[]).some(e=>e.monthKey===m.key)).map(m=><td key={m.key} style={{padding:"7px 6px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:sg.months[m.key]?T.text:T.textDim}}>{sg.months[m.key]?fmt$(sg.months[m.key]):"—"}</td>)}
-                            <td style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:T.accent}}>{fmt$(rt)}</td>
+                            {MONTHS.filter(m=>(preview||[]).some(e=>e.monthKey===m.key)).map(m=><td key={m.key} style={{padding:"7px 6px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"Inter,sans-serif",color:sg.months[m.key]?T.text:T.textDim}}>{sg.months[m.key]?fmt$(sg.months[m.key]):"—"}</td>)}
+                            <td style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"Inter,sans-serif",fontWeight:700,color:T.accent}}>{fmt$(rt)}</td>
                           </tr>
                         );})}
                       </tbody>
@@ -1120,7 +1120,7 @@ function Dashboard({T,onNavigate,stats,hasData,themeKey}){
         {hasData&&stats.dateRange&&(
           <div style={{marginTop:24,padding:"10px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,display:"inline-flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>Data loaded:</span>
-            <span style={{fontSize:11,color:T.text,fontFamily:"'JetBrains Mono',monospace",fontWeight:500}}>{stats.dateRange}</span>
+            <span style={{fontSize:11,color:T.text,fontFamily:"Inter,sans-serif",fontWeight:500}}>{stats.dateRange}</span>
             <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>· {stats.totalRows.toLocaleString()} rows</span>
           </div>
         )}
@@ -1507,7 +1507,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
             ].map(s=>(
               <PixelPanel key={s.label} T={T} contentStyle={{padding:"12px 14px",background:T.bg}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>{s.label}</div>
-                <div style={{fontSize:19,fontWeight:700,color:s.color,fontFamily:"'JetBrains Mono',monospace"}}>{s.value}</div>
+                <div style={{fontSize:19,fontWeight:700,color:s.color,fontFamily:"Inter,sans-serif"}}>{s.value}</div>
               </PixelPanel>
             ))}
           </div>
@@ -1596,28 +1596,28 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                       {editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(
                         <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                           onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
-                          style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"'JetBrains Mono',monospace",minWidth:80}}/>
+                          style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",minWidth:80}}/>
                       ):(
-                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600,cursor:"text",borderRadius:6}}
+                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"Inter,sans-serif",fontWeight:600,cursor:"text",borderRadius:6}}
                           onClick={()=>{setEditingSegVal({segKey:seg.segKey,dim:budgetDims[i]});setEditSegVal(v);}}>{v}</Pill>
                       )}
                       {i===seg.dims.length-1&&seg.budget>0&&seg.matchCount===0&&(
                         <WarnTip T={T} text="No tagged campaigns match this segment. Spend will always show as $0 here, regardless of period, until a campaign is tagged with this exact combination in the Tagger."/>
                       )}
                     </td>)}
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:T.text}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:T.text}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.text}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.text}}>{fmtFull(seg.spend)}</td>
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
-                        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:600,color:safeTextColor(meta.color)}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
+                        <span style={{fontFamily:"Inter,sans-serif",fontWeight:600,color:safeTextColor(meta.color)}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
                         <PacingBar actualPct={seg.actualPct} expectedPct={pacing.expectedPct} status={seg.status} T={T}/>
                       </div>
                     </td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
-                      <div style={{fontFamily:"'JetBrains Mono',monospace",color:T.text}}>{seg.projected!=null?fmtFull(seg.projected):"—"}</div>
-                      {seg.projectedVariance!=null&&<div style={{fontSize:10,color:seg.projectedVariance>0?T.danger:T.success,fontFamily:"'JetBrains Mono',monospace"}}>{fmtSigned(seg.projectedVariance)}</div>}
+                      <div style={{fontFamily:"Inter,sans-serif",color:T.text}}>{seg.projected!=null?fmtFull(seg.projected):"—"}</div>
+                      {seg.projectedVariance!=null&&<div style={{fontSize:10,color:seg.projectedVariance>0?T.danger:T.success,fontFamily:"Inter,sans-serif"}}>{fmtSigned(seg.projectedVariance)}</div>}
                     </td>
                     <td style={{padding:"8px 14px",borderBottom:rbb}}>
                       <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border}>{meta.label}</Pill>
@@ -1643,7 +1643,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                     <td/><td/>
                     <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:12,color:T.textSub}}>↳ {b.value}</td>
                     <td style={{borderBottom:rbb}}/>
-                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontSize:12}}>
+                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12}}>
                       {fmtFull(b.spend)}<span style={{color:T.textMuted,marginLeft:6,fontSize:11}}>({Math.round(b.pct*100)}%)</span>
                     </td>
                     <td colSpan={6} style={{borderBottom:rbb}}/>
@@ -1976,7 +1976,7 @@ export default function BudgetHQ(){
 
   return(
     <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"Inter,sans-serif",overflow:"hidden",position:"relative"}}>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 
       {/* ── TOP BAR ──
           The divider under the bar is NOT one continuous border on this outer div — that made
@@ -2042,7 +2042,7 @@ export default function BudgetHQ(){
                 {tagDims.map(dim=>(
                   <div key={dim} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent",border:applyDim===dim?`1px solid ${T.accentBorder}`:"1px solid transparent"}}>
                     <span style={{fontSize:13,color:T.text,fontWeight:applyDim===dim?700:400}}>{dim}</span>
-                    <span style={{fontSize:11,color:T.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
+                    <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
                   </div>
                 ))}
               </div>
@@ -2054,7 +2054,7 @@ export default function BudgetHQ(){
               <div style={{padding:"12px 0",flex:1}}>
                 <SectionLabel T={T}>Overview</SectionLabel>
                 {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T}/>)}
-                {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"'JetBrains Mono',monospace",lineHeight:1.6}}>{stats.dateRange}</div>}
+                {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif",lineHeight:1.6}}>{stats.dateRange}</div>}
                 <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accent,transition:"width 0.4s",borderRadius:2}}/></div>
                 <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
                 <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
@@ -2109,7 +2109,7 @@ export default function BudgetHQ(){
           ):(<>
           <PixelPanel T={T} style={{opacity:hasSidebarData?1:0.7}} contentStyle={{padding:"14px 16px",background:T.accentBg}}>
             <div style={{fontSize:10,fontWeight:700,color:T.textSub,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>Total spend</div>
-            <div style={{fontSize:20,fontWeight:800,color:T.text,fontFamily:"'JetBrains Mono',monospace"}}>{hasSidebarData?"$"+Math.round(stats.totalSpend).toLocaleString():"$482,600"}</div>
+            <div style={{fontSize:20,fontWeight:800,color:T.text,fontFamily:"Inter,sans-serif"}}>{hasSidebarData?"$"+Math.round(stats.totalSpend).toLocaleString():"$482,600"}</div>
           </PixelPanel>
           {!hasSidebarData&&(
             <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 10px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:20,alignSelf:"flex-start"}}>
@@ -2123,7 +2123,7 @@ export default function BudgetHQ(){
                 <span style={{width:7,height:7,borderRadius:"50%",background:s.dot,flexShrink:0}}/>
                 <span style={{fontSize:10,fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>{s.label}</span>
               </div>
-              <div style={{fontSize:19,fontWeight:700,color:T.text,fontFamily:"'JetBrains Mono',monospace"}}>{s.value}</div>
+              <div style={{fontSize:19,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>{s.value}</div>
             </PixelPanel>
           ))}
           </>)}
@@ -2356,8 +2356,8 @@ export default function BudgetHQ(){
                   <div key={c.name} onClick={()=>toggleSel(c.name)}
                     style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px dashed ${T.borderStrong}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.name)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
-                    <div style={{minWidth:0}}><div style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>{c.adsetCount>0&&<div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{c.adsetCount} ad sets</div>}</div>
-                    <div style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
+                    <div style={{minWidth:0}}><div style={{fontSize:11,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>{c.adsetCount>0&&<div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{c.adsetCount} ad sets</div>}</div>
+                    <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
                       {editingPlatform===c.name?(
                         <select autoFocus value={c.platform}
@@ -2417,7 +2417,7 @@ export default function BudgetHQ(){
         *{box-sizing:border-box;margin:0;padding:0;}
         html,body{height:100%;width:100%;overflow:hidden;}
         #root{height:100%;width:100%;display:flex;flex-direction:column;}
-        body{font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+        body{font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;}
         input,select,button,textarea{font-family:'Inter',sans-serif;}
         input::placeholder{color:${T.textDim};}
         select option{background:${T.surface};color:${T.text};}
