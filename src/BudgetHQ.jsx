@@ -123,6 +123,91 @@ function downloadCSV(rows, filename){
   const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);
 }
 
+// \u2500\u2500\u2500 VERSION HISTORY (IndexedDB) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Full-app snapshots (Tagger + Budget data together, since they're interdependent \u2014 e.g. a
+// budget-import merge also retags campaigns, so restoring one without the other could leave
+// spend attribution broken) stored via IndexedDB rather than localStorage: a handful of
+// snapshots of budgets+tags+spend rows can easily exceed localStorage's ~5-10MB ceiling, while
+// IndexedDB has effectively no practical limit for data this size. A new version is saved
+// automatically after major actions (imports, clears, merge resolutions) \u2014 not on every
+// keystroke \u2014 plus on demand via "Name current version\u2026", mirroring Google Sheets' model of
+// checkpointing meaningful moments rather than every edit.
+const VERSIONS_DB_NAME="paidhq_versions";
+const VERSIONS_STORE_NAME="versions";
+const MAX_VERSIONS=40;
+
+function openVersionsDB(){
+  return new Promise((resolve,reject)=>{
+    if(typeof indexedDB==="undefined"){reject(new Error("IndexedDB not available"));return;}
+    const req=indexedDB.open(VERSIONS_DB_NAME,1);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(VERSIONS_STORE_NAME)){
+        const store=db.createObjectStore(VERSIONS_STORE_NAME,{keyPath:"id"});
+        store.createIndex("timestamp","timestamp");
+      }
+    };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+
+async function saveVersionRecord(record){
+  const db=await openVersionsDB();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(VERSIONS_STORE_NAME,"readwrite");
+    tx.objectStore(VERSIONS_STORE_NAME).put(record);
+    tx.oncomplete=()=>resolve();
+    tx.onerror=()=>reject(tx.error);
+  });
+  // Prune anything beyond the cap, oldest first, so storage doesn't grow unbounded across a
+  // long-lived instance.
+  const all=await listVersionRecords();
+  if(all.length>MAX_VERSIONS){
+    const toDelete=all.slice(MAX_VERSIONS);
+    const db2=await openVersionsDB();
+    const tx2=db2.transaction(VERSIONS_STORE_NAME,"readwrite");
+    toDelete.forEach(v=>tx2.objectStore(VERSIONS_STORE_NAME).delete(v.id));
+  }
+}
+
+function listVersionRecords(){
+  return openVersionsDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(VERSIONS_STORE_NAME,"readonly");
+    const req=tx.objectStore(VERSIONS_STORE_NAME).getAll();
+    req.onsuccess=()=>resolve((req.result||[]).sort((a,b)=>b.timestamp-a.timestamp));
+    req.onerror=()=>reject(req.error);
+  }));
+}
+
+function deleteVersionRecord(id){
+  return openVersionsDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(VERSIONS_STORE_NAME,"readwrite");
+    tx.objectStore(VERSIONS_STORE_NAME).delete(id);
+    tx.oncomplete=()=>resolve();
+    tx.onerror=()=>reject(tx.error);
+  }));
+}
+
+// Groups version records into "Today" / "Yesterday" / weekday-or-date buckets, same convention
+// Google Sheets' version history panel uses, so the list reads as a scannable timeline instead
+// of a flat log of timestamps.
+function groupVersionsByDay(versions){
+  const now=new Date();
+  const startOfDay=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();
+  const today=startOfDay(now);
+  const yesterday=today-86400000;
+  const groups=[];
+  versions.forEach(v=>{
+    const day=startOfDay(new Date(v.timestamp));
+    const label=day===today?"Today":day===yesterday?"Yesterday":new Date(v.timestamp).toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
+    let g=groups.find(g=>g.label===label);
+    if(!g){g={label,items:[]};groups.push(g);}
+    g.items.push(v);
+  });
+  return groups;
+}
+
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,marginBottom:6,...style}}>{children}</div>);
 const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 9px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",...style}} {...rest}>{children}</span>);
@@ -160,6 +245,8 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"moon":return<svg {...p}><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>;
     case"alert":return<svg {...p}><path d="M12 3.5 21.5 20H2.5Z"/><path d="M12 9.5v4.5"/><circle cx="12" cy="17" r="0.6" fill={color} stroke="none"/></svg>;
     case"gear":return<svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.4 7.4 0 0 0 0-2l2-1.5-2-3.4-2.4.7a7.4 7.4 0 0 0-1.7-1L14.9 3h-3.8l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-.7-2 3.4L6.6 11a7.4 7.4 0 0 0 0 2l-2 1.5 2 3.4 2.4-.7a7.4 7.4 0 0 0 1.7 1l.4 2.4h3.8l.4-2.4a7.4 7.4 0 0 0 1.7-1l2.4.7 2-3.4-2-1.5Z"/></svg>;
+    case"clock":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>;
+    case"save":return<svg {...p}><path d="M5 3h11l3 3v15H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M8 3v6h7V3"/><path d="M8 21v-7h8v7"/></svg>;
     default:return null;
   }
 };
@@ -190,7 +277,7 @@ const WarnTip=({T,text,size=12,color})=>(
 );
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,mergedNormRows,sidebarEl}){
+function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,mergedNormRows,onCheckpoint,sidebarEl}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
@@ -667,7 +754,9 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     const hasAnnualTotal=iHeaders.some(h=>/^(total|annual)/i.test(h.trim()));
     setBudgetImportMeta?.(p=>({...p,[iYear]:{hasQuarterlyTotals,hasAnnualTotal,importedAt:Date.now()}}));
     setImportOpen(false);setMergeReviewOpen(false);setMergeCandidates([]);pendingImportRef.current=null;resetImport();
-    showNotif(mergeDecisions.length?`Imported ${preview.length} entries into ${iYear} — merged ${mergeDecisions.length} segment${mergeDecisions.length>1?"s":""} with existing rows`:`Imported ${preview.length} budget entries into ${iYear}`);
+    const summary=mergeDecisions.length?`Imported ${preview.length} entries into ${iYear} — merged ${mergeDecisions.length} segment${mergeDecisions.length>1?"s":""} with existing rows`:`Imported ${preview.length} budget entries into ${iYear}`;
+    onCheckpoint?.(summary,"budget_import");
+    showNotif(summary);
   };
 
   // Entry point for the "Import N entries" button. Detects whether this import maps MORE
@@ -2161,6 +2250,62 @@ export default function BudgetHQ(){
   const[budgetMetaDims,setBudgetMetaDims]=useState([]); // annotation dims on budget rows
   const[budgetImportMeta,setBudgetImportMeta]=useState({}); // {year: {hasQuarterlyTotals, hasAnnualTotal}} — captured at import time, used to inform the export-time AI granularity suggestion
 
+  // ── Version history ──
+  const[fileMenuOpen,setFileMenuOpen]=useState(false);
+  const[versionHistoryOpen,setVersionHistoryOpen]=useState(false);
+  const[versions,setVersions]=useState([]);
+  const[versionsLoading,setVersionsLoading]=useState(false);
+  const[nameVersionOpen,setNameVersionOpen]=useState(false);
+  const[nameVersionInput,setNameVersionInput]=useState("");
+  const[pendingVersionLabel,setPendingVersionLabel]=useState(null); // {label,trigger} — set right after a mutation, consumed once state has actually settled (see effect below)
+
+  const buildSnapshot=useCallback(()=>({tags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta}),
+    [tags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta]);
+  const persistVersion=useCallback((label,trigger,snapshot)=>{
+    const record={id:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,timestamp:Date.now(),label,trigger,snapshot};
+    saveVersionRecord(record).catch(e=>console.error("[version save]",e));
+  },[]);
+  // Call right AFTER triggering a mutation (setState calls already issued). Multiple setState
+  // calls from the same event handler are batched by React into one render, so by the time this
+  // effect's dependencies actually change and it runs, every sibling update from that same
+  // handler — not just this flag — is already reflected in the values buildSnapshot() reads.
+  const checkpoint=useCallback((label,trigger="auto")=>setPendingVersionLabel({label,trigger}),[]);
+  useEffect(()=>{
+    if(!pendingVersionLabel)return;
+    persistVersion(pendingVersionLabel.label,pendingVersionLabel.trigger,buildSnapshot());
+    setPendingVersionLabel(null);
+  },[pendingVersionLabel,buildSnapshot,persistVersion]);
+  // Call BEFORE mutating state, when the CURRENT (about-to-change) values need capturing rather
+  // than whatever they become after — used by restoreVersion so undoing a restore is possible.
+  const snapshotNow=useCallback((label,trigger="auto")=>persistVersion(label,trigger,buildSnapshot()),[persistVersion,buildSnapshot]);
+
+  const openVersionHistory=useCallback(()=>{
+    setFileMenuOpen(false);setVersionHistoryOpen(true);setVersionsLoading(true);
+    listVersionRecords().then(setVersions).catch(e=>{console.error("[version list]",e);setVersions([]);}).finally(()=>setVersionsLoading(false));
+  },[]);
+  const saveNamedVersion=useCallback(()=>{
+    const label=nameVersionInput.trim();
+    if(!label)return;
+    snapshotNow(label,"manual");
+    setNameVersionOpen(false);setNameVersionInput("");setFileMenuOpen(false);
+    showNotif(`Saved version "${label}"`);
+  },[nameVersionInput,snapshotNow]);
+  const restoreVersion=useCallback(record=>{
+    if(!window.confirm(`Restore "${record.label}"?\n\nFrom ${new Date(record.timestamp).toLocaleString()}. Your current data will be saved as a new version first, so you can always come back to it.\n\nThis replaces your current Tagger and Budget data.`))return;
+    snapshotNow("Before restoring an earlier version","pre_restore");
+    const s=record.snapshot||{};
+    setTags(s.tags||{});setTagDims(s.tagDims||DEFAULT_DIMS);setMergedNormRows(s.mergedNormRows||[]);
+    setBudgets(s.budgets||{});setBudgetDims(s.budgetDims||[]);setBudgetRowMeta(s.budgetRowMeta||{});setBudgetMetaDims(s.budgetMetaDims||[]);setBudgetImportMeta(s.budgetImportMeta||{});
+    setStep((s.mergedNormRows||[]).length?"tag":"upload");
+    setVersionHistoryOpen(false);
+    showNotif("Version restored");
+  },[snapshotNow]);
+  const deleteVersion=useCallback((id,e)=>{
+    e.stopPropagation();
+    if(!window.confirm("Delete this saved version? This can't be undone."))return;
+    deleteVersionRecord(id).then(()=>setVersions(p=>p.filter(v=>v.id!==id))).catch(err=>console.error("[version delete]",err));
+  },[]);
+
   useEffect(()=>{try{
     // Migrate legacy tags from before the two-level campaign group + campaign model: old keys
     // were the plain campaign name alone (e.g. "My Campaign"), but campaignKey() now looks up
@@ -2248,11 +2393,12 @@ export default function BudgetHQ(){
       setSyncState(p=>({...p,[platformKey]:"done"}));
       setLastSyncRange({start:syncDateRange.start,end:syncDateRange.end});
       try{localStorage.setItem("paidhq_sync_range",JSON.stringify({start:syncDateRange.start,end:syncDateRange.end}));}catch(e){}
+      checkpoint(`Synced ${platformKey} spend data (${rows.length} rows)`,"tagger_sync");
       showNotif(`Loaded ${rows.length} ${platformKey} campaigns — merged with existing data`);
     }catch(e){
       setSyncState(p=>({...p,[platformKey]:"error:"+e.message}));
     }
-  },[syncDateRange]);
+  },[syncDateRange,checkpoint]);
 
   const handleFile=useCallback(file=>{
     if(!file)return;setFileName(file.name);
@@ -2414,19 +2560,22 @@ export default function BudgetHQ(){
   // computed pacing view over Budget + Tagger data), so there's no separate "clear reporting"
   // action — clearing either of the two source datasets is reflected there automatically.
   const clearTaggerData=()=>{
-    if(!window.confirm("Clear all Tagger data?\n\nThis removes every imported spend row, every campaign tag, and your custom tag dimensions. Budget allocations are not affected.\n\nThis cannot be undone."))return;
+    if(!window.confirm("Clear all Tagger data?\n\nThis removes every imported spend row, every campaign tag, and your custom tag dimensions. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
+    snapshotNow("Before clearing Tagger data","pre_clear");
     setMergedNormRows([]);setTags({});setTagDims(DEFAULT_DIMS);setColMap({});setStep("upload");setLastSyncRange(null);setTagsHistory([]);
     try{["paidhq_rows","paidhq_tags","paidhq_dims","paidhq_sync_range"].forEach(k=>localStorage.removeItem(k));}catch(e){}
     showNotif("Tagger data cleared");
   };
   const clearBudgetData=()=>{
-    if(!window.confirm("Clear all Budget data?\n\nThis removes every budget allocation, budget segment, and annotation dimension across all years. Tagged campaign data is not affected.\n\nThis cannot be undone."))return;
+    if(!window.confirm("Clear all Budget data?\n\nThis removes every budget allocation, budget segment, and annotation dimension across all years. Tagged campaign data is not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
+    snapshotNow("Before clearing Budget data","pre_clear");
     setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);setBudgetImportMeta({});
     try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta"].forEach(k=>localStorage.removeItem(k));}catch(e){}
     showNotif("Budget data cleared");
   };
   const clearAllData=()=>{
-    if(!window.confirm("Delete ALL data for this instance?\n\nThis clears Tagger data (spend rows, tags, dimensions) AND Budget data (allocations, segments) across every year. Your theme and layout preferences are kept.\n\nThis cannot be undone."))return;
+    if(!window.confirm("Delete ALL data for this instance?\n\nThis clears Tagger data (spend rows, tags, dimensions) AND Budget data (allocations, segments) across every year. Your theme and layout preferences are kept.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
+    snapshotNow("Before deleting all data","pre_clear");
     clearTaggerDataSilent();clearBudgetDataSilent();
     showNotif("All data deleted");
   };
@@ -2456,6 +2605,26 @@ export default function BudgetHQ(){
   return(
     <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"Inter,sans-serif",overflow:"hidden",position:"relative"}}>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+
+      {/* ── MENU BAR — just "File" for now (Version History), styled like Google Sheets' menu
+          row sitting above its toolbar rather than folded into the tab strip. ── */}
+      <div style={{height:26,flexShrink:0,display:"flex",alignItems:"center",padding:"0 12px",background:T.bg,position:"relative"}}>
+        <button className="bhq-menubtn" onClick={()=>setFileMenuOpen(o=>!o)}
+          style={{background:fileMenuOpen?T.surfaceHover:"transparent",border:"none",borderRadius:5,color:T.textSub,fontSize:12,fontWeight:500,padding:"3px 9px",cursor:"pointer",fontFamily:"Inter,sans-serif"}}>File</button>
+        {fileMenuOpen&&(<>
+          <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
+          <div style={{position:"absolute",top:24,left:12,zIndex:250,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+            <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+              <Icon name="save" size={14} color={T.textSub}/> Name current version…
+            </button>
+            <button className="bhq-row" onClick={openVersionHistory}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+              <Icon name="clock" size={14} color={T.textSub}/> Version history
+            </button>
+          </div>
+        </>)}
+      </div>
 
       {/* ── TOP BAR ──
           The divider under the bar is NOT one continuous border on this outer div — that made
@@ -2765,6 +2934,7 @@ export default function BudgetHQ(){
                 const norm=normalizeRows(rawRows,colMap);
                 const withPlatform=uploadPlatform==="auto"?norm:norm.map(r=>({...r,platform:uploadPlatform}));
                 setMergedNormRows(prev=>mergeRows(prev,withPlatform));
+                checkpoint(`Imported spend data — ${fileName||"CSV"} (${withPlatform.length} rows)`,"tagger_import");
                 showNotif(`Added ${withPlatform.length} rows — merged with existing data`);
                 setUploadPlatform("auto");
                 setStep("tag");
@@ -2895,7 +3065,7 @@ export default function BudgetHQ(){
       )}
 
       {view==="dashboard"&&<Dashboard T={T} themeKey={themeKey} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
-      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} sidebarEl={budgetSidebarEl}/>}
+      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl}/>}
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
@@ -2951,6 +3121,68 @@ export default function BudgetHQ(){
 
       </div>
 
+      {/* ── NAME CURRENT VERSION ── */}
+      {nameVersionOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{width:"100%",maxWidth:400,background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,boxShadow:T.shadowMd}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.text}}>Name current version</div>
+            <div style={{padding:20}}>
+              <div style={{fontSize:12,color:T.textSub,marginBottom:10}}>Saves a snapshot of everything — Tagger and Budget data — as it is right now, so you can come back to this exact point later.</div>
+              <input autoFocus value={nameVersionInput} onChange={e=>setNameVersionInput(e.target.value)} placeholder="e.g. Before Q3 revision" onKeyDown={e=>{if(e.key==="Enter")saveNamedVersion();if(e.key==="Escape")setNameVersionOpen(false);}}
+                style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+            </div>
+            <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn onClick={()=>{setNameVersionOpen(false);setNameVersionInput("");}} variant="ghost" T={T}>Cancel</Btn>
+              <Btn onClick={saveNamedVersion} disabled={!nameVersionInput.trim()} variant="primary" T={T}>Save version</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── VERSION HISTORY ── */}
+      {versionHistoryOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{width:"100%",maxWidth:520,maxHeight:"85vh",background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,boxShadow:T.shadowMd,display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700,color:T.text}}>Version history</div>
+                <div style={{fontSize:12,color:T.textSub,marginTop:2}}>Saved automatically after imports and data clears, or manually via File → Name current version.</div>
+              </div>
+              <button onClick={()=>setVersionHistoryOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:"Inter,sans-serif"}}>×</button>
+            </div>
+            <div style={{flex:1,overflow:"auto",padding:"8px 12px"}}>
+              {versionsLoading?(
+                <div style={{display:"flex",alignItems:"center",gap:8,color:T.textSub,fontSize:13,padding:"20px 8px"}}>
+                  <span style={{width:14,height:14,border:`2px solid ${T.border}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Loading versions…
+                </div>
+              ):versions.length===0?(
+                <div style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No saved versions yet. They're created automatically after imports and data clears — or save one now from File → Name current version.</div>
+              ):(
+                groupVersionsByDay(versions).map(g=>(
+                  <div key={g.label} style={{marginBottom:14}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,padding:"8px 8px 4px"}}>{g.label}</div>
+                    {g.items.map(v=>(
+                      <div key={v.id} onClick={()=>restoreVersion(v)}
+                        style={{display:"flex",alignItems:"center",gap:10,padding:"9px 10px",borderRadius:8,cursor:"pointer"}}
+                        className="bhq-row">
+                        <Icon name={v.trigger==="manual"?"save":v.trigger?.startsWith("pre_")?"alert":"clock"} size={14} color={T.textMuted}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,color:T.text,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v.label}</div>
+                          <div style={{fontSize:11,color:T.textMuted}}>{new Date(v.timestamp).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}</div>
+                        </div>
+                        <button onClick={e=>{e.stopPropagation();restoreVersion(v);}} style={{fontSize:11,fontWeight:600,color:T.accent,background:"transparent",border:`1px solid ${T.accentBorder}`,borderRadius:6,padding:"4px 9px",cursor:"pointer",fontFamily:"Inter,sans-serif",flexShrink:0}}>Restore</button>
+                        <button onClick={e=>deleteVersion(v.id,e)} title="Delete this version"
+                          style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,flexShrink:0}}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0;}
         html,body{height:100%;width:100%;overflow:hidden;}
@@ -2972,6 +3204,7 @@ export default function BudgetHQ(){
         .bhq-tab:hover{background:${T.surfaceHover} !important;color:${T.text} !important;}
         .bhq-iconbtn:hover{background:${T.surfaceHover} !important;}
         .bhq-row:hover{background:${T.surfaceHover} !important;}
+        .bhq-menubtn:hover{background:${T.surfaceHover} !important;}
         .bhq-tr:hover td{background:${T.rowHover} !important;}
       `}</style>
     </div>
