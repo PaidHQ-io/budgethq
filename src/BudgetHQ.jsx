@@ -2606,14 +2606,29 @@ export default function BudgetHQ(){
     <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"Inter,sans-serif",overflow:"hidden",position:"relative"}}>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 
-      {/* ── MENU BAR — just "File" for now (Version History), styled like Google Sheets' menu
-          row sitting above its toolbar rather than folded into the tab strip. ── */}
-      <div style={{height:26,flexShrink:0,display:"flex",alignItems:"center",padding:"0 12px",background:T.bg,position:"relative"}}>
-        <button className="bhq-menubtn" onClick={()=>setFileMenuOpen(o=>!o)}
-          style={{background:fileMenuOpen?T.surfaceHover:"transparent",border:"none",borderRadius:5,color:T.textSub,fontSize:12,fontWeight:500,padding:"3px 9px",cursor:"pointer",fontFamily:"Inter,sans-serif"}}>File</button>
+      {/* ── TOP BAR ──
+          The divider under the bar is NOT one continuous border on this outer div — that made
+          "erasing" it under just the active tab fragile (overlap/margin tricks kept leaving a
+          hairline). Instead every piece (logo, each tab, the trailing filler, actions) draws its
+          OWN bottom border at the same fixed height, and the active tab's is simply colored to
+          match the body (T.bg) instead of T.border, so it reads as blank/seamless there.
+          The "File" menu is stacked above the logo INSIDE this same 46px row (not a separate
+          row above it) — the dropdown itself is positioned relative to this outer wrapper so it
+          isn't clipped by the logo column's overflow:hidden (which exists for its width transition). ── */}
+      <div style={{display:"flex",alignItems:"stretch",height:46,flexShrink:0,background:T.topbarBg,zIndex:30,position:"relative"}}>
+        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",flexDirection:"column",alignItems:statsOpen||isMobile?"flex-start":"center",justifyContent:"center",gap:1,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`,borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
+          <button className="bhq-menubtn" onClick={()=>setFileMenuOpen(o=>!o)}
+            style={{background:fileMenuOpen?T.surfaceHover:"transparent",border:"none",borderRadius:4,color:T.textSub,fontSize:10,fontWeight:500,padding:"0 4px",margin:"0 0 0 -4px",cursor:"pointer",fontFamily:"Inter,sans-serif",lineHeight:1.5,flexShrink:0}}>File</button>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:20,height:20,borderRadius:6,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <Icon name="bolt" size={12} color={T.text}/>
+            </div>
+            {(statsOpen||isMobile)&&<div style={{fontSize:13,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
+          </div>
+        </div>
         {fileMenuOpen&&(<>
           <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-          <div style={{position:"absolute",top:24,left:12,zIndex:250,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+          <div style={{position:"absolute",top:44,left:12,zIndex:250,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
             <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
               style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
               <Icon name="save" size={14} color={T.textSub}/> Name current version…
@@ -2624,21 +2639,6 @@ export default function BudgetHQ(){
             </button>
           </div>
         </>)}
-      </div>
-
-      {/* ── TOP BAR ──
-          The divider under the bar is NOT one continuous border on this outer div — that made
-          "erasing" it under just the active tab fragile (overlap/margin tricks kept leaving a
-          hairline). Instead every piece (logo, each tab, the trailing filler, actions) draws its
-          OWN bottom border at the same fixed height, and the active tab's is simply colored to
-          match the body (T.bg) instead of T.border, so it reads as blank/seamless there. */}
-      <div style={{display:"flex",alignItems:"stretch",height:46,flexShrink:0,background:T.topbarBg,zIndex:30}}>
-        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:8,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`,borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
-          <div style={{width:22,height:22,borderRadius:6,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Icon name="bolt" size={13} color={T.text}/>
-          </div>
-          {(statsOpen||isMobile)&&<div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
-        </div>
         <div style={{display:"flex",alignItems:"flex-end",gap:2,flex:1,paddingLeft:isMobile?4:16,minWidth:0,overflowX:isMobile?"auto":"visible"}}>
           {NAV.map(item=>{
             const active=view===item.key;
