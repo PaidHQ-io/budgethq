@@ -216,6 +216,11 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const[mergeAiError,setMergeAiError]=useState("");
   const[mergeCandidates,setMergeCandidates]=useState([]); // [{newSegKey,oldSegKey,newLabel,oldLabel,confidence,reason,approved}]
   const pendingImportRef=useRef(null); // {oldBudgetDims,newActiveDims} captured at beginImport time
+  // Dims-contracted warning — shown instead of merge review when this import maps FEWER
+  // dimensions than the year already tracks (no safe auto-merge, so just warn + let user decide).
+  const[contractionWarningOpen,setContractionWarningOpen]=useState(false);
+  const[contractionInfo,setContractionInfo]=useState([]); // [{newSegKey,newLabel,matchCount,examples}]
+  const[contractionNewDims,setContractionNewDims]=useState([]); // this import's active dims — for display only, kept in state (not read from the ref) since refs can't be read during render
   // Budget row tagging
   const[selRows,setSelRows]=useState(new Set());
   const[segFilters,setSegFilters]=useState({}); // {dim: filterText} — substring match, ANDed across dims
@@ -679,6 +684,37 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     const oldBudgetDims=budgetDims;
     const existingSegKeys=Object.keys(budgets[iYear]||{});
     const dimsExpanded=oldBudgetDims.length>0&&newActiveDims.length>oldBudgetDims.length&&oldBudgetDims.every(d=>newActiveDims.includes(d))&&existingSegKeys.length>0;
+    // The opposite of "expanded": this import maps FEWER dimensions than the year already
+    // tracks (e.g. skipping Pillar/BU that a previous import included). Unlike the expanded
+    // case, this is NOT safe to auto-merge — collapsing dimensions is lossy and can be
+    // many-to-one (several detailed segments can all project down to the same shorter key), so
+    // there's no single unambiguous "old segment" to merge into. Instead, warn clearly and let
+    // the user choose to go back and remap, or proceed knowingly.
+    const dimsContracted=!dimsExpanded&&oldBudgetDims.length>0&&newActiveDims.length<oldBudgetDims.length&&newActiveDims.every(d=>oldBudgetDims.includes(d))&&existingSegKeys.length>0;
+
+    if(dimsContracted){
+      const newSegMap={};
+      preview.forEach(e=>{if(!newSegMap[e.segKey])newSegMap[e.segKey]=e.dims;});
+      const info=Object.entries(newSegMap).map(([sk,dims])=>{
+        const matches=existingSegKeys.filter(ok=>{
+          const vals=ok.split("|");
+          return newActiveDims.every(d=>vals[oldBudgetDims.indexOf(d)]===dims[d]);
+        });
+        return{
+          newSegKey:sk,
+          newLabel:newActiveDims.map(d=>dims[d]||"—").join(" · "),
+          matchCount:matches.length,
+          examples:matches.slice(0,3).map(ok=>oldBudgetDims.map((d,i)=>ok.split("|")[i]||"—").join(" · ")),
+        };
+      }).filter(i=>i.matchCount>0);
+      if(info.length){
+        pendingImportRef.current={oldBudgetDims,newActiveDims};
+        setContractionInfo(info);
+        setContractionNewDims(newActiveDims);
+        setContractionWarningOpen(true);
+        return;
+      }
+    }
 
     if(!dimsExpanded){doImport([]);return;}
     pendingImportRef.current={oldBudgetDims,newActiveDims};
@@ -750,6 +786,8 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const toggleMergeCandidate=idx=>setMergeCandidates(p=>p.map((c,i)=>i===idx?{...c,approved:!c.approved}:c));
   const confirmMergeReview=()=>{doImport(mergeCandidates.filter(c=>c.approved).map(({newSegKey,oldSegKey})=>({newSegKey,oldSegKey})));};
   const skipMergeReview=()=>{doImport([]);};
+  const cancelContraction=()=>{setContractionWarningOpen(false);setContractionInfo([]);setContractionNewDims([]);pendingImportRef.current=null;setIStep("map");};
+  const continueContraction=()=>{setContractionWarningOpen(false);setContractionInfo([]);setContractionNewDims([]);doImport([]);};
   const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);setAiError("");setISegDim("Campaign");setIGroupHeaderRow(-1);setIGroupDim("Channel");};
   const closeImport=()=>{setImportOpen(false);resetImport();};
 
@@ -1370,6 +1408,32 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
             <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",gap:8}}>
               <Btn onClick={skipMergeReview} variant="ghost" T={T}>Keep all separate</Btn>
               <Btn onClick={confirmMergeReview} variant="primary" T={T}>✓ Import & merge {mergeCandidates.filter(c=>c.approved).length} segment{mergeCandidates.filter(c=>c.approved).length===1?"":"s"}</Btn>
+            </div>
+          </PixelPanel>
+        </div>
+      )}
+
+      {contractionWarningOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <PixelPanel T={T} style={{width:"100%",maxWidth:560,maxHeight:"85vh"}} contentStyle={{background:T.surface,padding:0,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8}}><Icon name="alert" size={16} color={T.warning}/> This import tracks fewer dimensions</div>
+              <div style={{fontSize:12,color:T.textSub,marginTop:4,lineHeight:1.6}}>Your {year} budget already uses <strong style={{color:T.text}}>{budgetDims.join(", ")}</strong>. This file only maps <strong style={{color:T.text}}>{contractionNewDims.join(", ")}</strong>. These are lossy, shorter keys — they can't be safely auto-merged into your existing detailed segments, since more than one of those could match the same shorter key.</div>
+            </div>
+            <div style={{flex:1,overflow:"auto",padding:22}}>
+              <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>If you continue, this import will create <strong style={{color:T.text}}>{contractionInfo.length}</strong> new, less-specific segment{contractionInfo.length===1?"":"s"} — separate from your existing rows below, not combined with them:</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {contractionInfo.map((c,i)=>(
+                  <div key={i} style={{padding:"10px 12px",borderRadius:8,border:`1px solid ${T.border}`}}>
+                    <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:4}}>New: {c.newLabel}</div>
+                    <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6}}>Sits alongside {c.matchCount} existing segment{c.matchCount===1?"":"s"} that also match{c.matchCount===1?"es":""}: {c.examples.join(" · ")}{c.matchCount>c.examples.length?` +${c.matchCount-c.examples.length} more`:""}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",gap:8}}>
+              <Btn onClick={cancelContraction} variant="primary" T={T}>← Back and remap columns</Btn>
+              <Btn onClick={continueContraction} variant="ghost" T={T} style={{color:T.danger}}>Continue anyway</Btn>
             </div>
           </PixelPanel>
         </div>
