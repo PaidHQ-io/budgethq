@@ -190,7 +190,7 @@ const WarnTip=({T,text,size=12,color})=>(
 );
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,sidebarEl}){
+function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,mergedNormRows,sidebarEl}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
@@ -252,18 +252,36 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     setShowAddRow(false);setNewRowVals({});
   };
 
+  // Export = original budget grid, unchanged, PLUS a full pacing snapshot appended as new
+  // columns to the right (same segment rows, same order) — actual spend to date, % of budget
+  // used, run rate, projected year-end spend + variance, and pacing status, mirroring exactly
+  // what the Reporting tab computes via computePacing(). Nothing about the existing columns
+  // changes, so a re-import of this same export still round-trips cleanly.
   const exportBudgets=()=>{
-    const header=[...budgetDims,...budgetMetaDims,...MONTHS.map(m=>m.label),"Total"];
+    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
+    const pacingBySeg={};
+    pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
+    const header=[...budgetDims,...budgetMetaDims,...MONTHS.map(m=>m.label),"Total",
+      "Actual Spend","% of Budget Used","Daily Run Rate","Projected Year-End Spend","Projected Variance ($)","Pacing Status"];
     const rows=[header];
     segs.forEach(seg=>{
       const monthly=budgets[year]?.[seg.key]?.monthly||{};
       const meta=budgetRowMeta[seg.key]||{};
       const amts=MONTHS.map(m=>monthly[m.key]||"");
       const total=MONTHS.reduce((s,m)=>s+(monthly[m.key]||0),0);
-      rows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),...amts,total||""]);
+      const p=pacingBySeg[seg.key];
+      const pacingCols=[
+        p?Math.round(p.spend*100)/100:0,
+        p&&p.actualPct!=null?`${Math.round(p.actualPct*100)}%`:"—",
+        p?Math.round(p.dailyRate*100)/100:0,
+        p&&p.projected!=null?Math.round(p.projected*100)/100:"—",
+        p&&p.projectedVariance!=null?Math.round(p.projectedVariance*100)/100:"—",
+        p?pacingStatusMeta(p.status,T).label:pacingStatusMeta("no-budget",T).label,
+      ];
+      rows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),...amts,total||"",...pacingCols]);
     });
-    downloadCSV(rows,`budgethq-budgets-${year}.csv`);
-    showNotif("Budgets exported");
+    downloadCSV(rows,`budgethq-budgets-pacing-${year}.csv`);
+    showNotif("Budgets + pacing snapshot exported");
   };
 
   // Budget row tagging
@@ -600,7 +618,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
         <div style={{display:"flex",flexDirection:"column",gap:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:12}}>
           <Btn onClick={()=>setImportOpen(true)} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import CSV / Excel</Btn>
-          <Btn onClick={exportBudgets} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export CSV</Btn>
+          <Btn onClick={exportBudgets} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export budgets + pacing</Btn>
 
           {/* Metadata dimensions */}
           <div style={{borderTop:`1px solid ${T.border}`,marginTop:10,paddingTop:12}}>
@@ -2498,7 +2516,7 @@ export default function BudgetHQ(){
       )}
 
       {view==="dashboard"&&<Dashboard T={T} themeKey={themeKey} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
-      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} sidebarEl={budgetSidebarEl}/>}
+      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} mergedNormRows={mergedNormRows} sidebarEl={budgetSidebarEl}/>}
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
