@@ -60,7 +60,7 @@ const MONTH_MAP={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",
 // nothing breaks for data that predates this two-level model.
 const REQUIRED_COLS=["campaign_group_name","spend","date"];
 const OPTIONAL_COLS=["campaign_name","platform","impressions","clicks","campaign_id","adset_id"];
-const COL_PATTERNS={campaign_group_name:/^campaign$/i,campaign_name:/ad.?set|ad.?group/i,spend:/cost|spend|amount/i,date:/^date$|^day$/i,platform:/platform|traffic.source|channel|source/i,impressions:/impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
+const COL_PATTERNS={campaign_group_name:/campaign.?group/i,campaign_name:/ad.?set|ad.?group/i,spend:/cost|spend|amount/i,date:/^date$|^day$/i,platform:/platform|traffic.source|channel|source/i,impressions:/impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
 const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campaign Name (Ad Set / Ad Group)",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
 // Composite identity key — ad set / ad group names often repeat across different campaigns
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
@@ -71,7 +71,19 @@ const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Disp
 const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Tagger",icon:"tag"},{key:"budget",label:"Budgets",icon:"wallet"},{key:"pacing",label:"Reporting",icon:"chart"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-function autoDetect(h){const m={};h.forEach(c=>{for(const[f,p]of Object.entries(COL_PATTERNS)){if(!m[f]&&p.test(c.trim()))m[f]=c;}});if(!m.campaign_group_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_group_name=c;}if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}return m;}
+function autoDetect(h){
+  const m={};
+  h.forEach(c=>{for(const[f,p]of Object.entries(COL_PATTERNS)){if(!m[f]&&p.test(c.trim()))m[f]=c;}});
+  // A bare "Campaign" header is ambiguous: for Meta/Google/Bing/Reddit it IS the campaign group
+  // (handled by the fallback below), but when a dedicated "Campaign Group" column was already
+  // found above (LinkedIn's export shape), "Campaign" is LinkedIn's own Campaign object — i.e.
+  // our leaf-level campaign_name — not the group.
+  if(!m.campaign_name){const c=h.find(c=>/^campaign$/i.test(c.trim()));if(c&&m.campaign_group_name)m.campaign_name=c;}
+  if(!m.campaign_group_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_group_name=c;}
+  if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}
+  if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}
+  return m;
+}
 function derivePlatform(n,pv){const u=(n||"").toUpperCase();const p=(pv||"").toLowerCase();if(/^LIN[-|]/.test(u)||p.includes("linkedin"))return"LinkedIn";if(/^FB[-|]/.test(u)||p.includes("facebook")||p.includes("meta"))return"Meta";if(/^BIN[-|]/.test(u)||p.includes("bing"))return"Bing";if(/^YT[-|]/.test(u)||p.includes("youtube"))return"YouTube";if(/^SEA[-|]/.test(u)||p==="search")return"Google Search";if(/^GDN[-|]/.test(u)||p==="display")return"Google Display";if(/demand.gen/i.test(u)||p==="demand gen")return"Demand Gen";if(/pmax|performance.max/i.test(u))return"Performance Max";if(p.includes("google"))return"Google Search";if(p.includes("capterra"))return"Capterra";return pv||"Unknown";}
 const parseMoney=v=>{if(v===""||v==null)return null;const n=parseFloat(String(v).replace(/[$,\s%]/g,""));return isNaN(n)?null:n;};
 const fmt$=n=>{if(!n)return"";return"$"+Math.round(n).toLocaleString();};
