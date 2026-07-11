@@ -307,11 +307,20 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   // budgetImportMeta). Falls back to a plain structural default (no LLM call needed) if the
   // request fails, so a flaky/unconfigured AI backend never blocks the export itself.
   const openExportPreview=async()=>{
-    const importMeta=budgetImportMeta?.[year]||{};
+    // budgetImportMeta only has an entry for years that were imported (or re-imported) AFTER
+    // this capture step existed — years synced live from an ad platform, or imported before this
+    // feature shipped, have no entry at all. That's a genuinely different state from "we checked
+    // and confirmed there's no quarterly/annual columns" and the prompt below must say so — the
+    // AI can only report false certainty about a file's structure if we hand it false certainty.
+    const importMeta=budgetImportMeta?.[year];
+    const structureKnown=!!importMeta;
     setExportPreviewOpen(true);setExportAnalyzing(true);setExportAiError("");setExportAiReason("");
-    const fallback=()=>{setExportIncludeMonthly(false);setExportIncludeQuarterly(!!importMeta.hasQuarterlyTotals);};
+    const fallback=()=>{setExportIncludeMonthly(!structureKnown);setExportIncludeQuarterly(!!importMeta?.hasQuarterlyTotals);};
     try{
-      const prompt=`A user is exporting a budget-vs-actual report from a paid media budgeting tool. Their original budget file for ${year} was ${importMeta.hasQuarterlyTotals?"structured with quarterly subtotal columns (Q1-Q4) alongside monthly columns":"structured with monthly columns only, no quarterly subtotal columns detected"}, and ${importMeta.hasAnnualTotal?"had an annual total column":"had no annual total column detected"}. There are ${segs.length} budget segment rows, tracked by: ${budgetDims.join(", ")||"(no dimensions set)"}.\n\nThe export always includes an annual actual-spend/projection summary. Recommend whether to ALSO append a month-by-month actual-spend breakdown and/or a quarter-by-quarter actual-spend breakdown, to mirror how this user already organizes their budget file.\n\nReply ONLY with this JSON (no markdown): {"includeMonthly": true/false, "includeQuarterly": true/false, "reason": "<one short sentence explaining the recommendation>"}`;
+      const structureDesc=!structureKnown
+        ?"This year's original import structure wasn't recorded — either it predates this feature, or the data came from a live platform sync rather than a file import — so it's unknown whether the source had quarterly or annual subtotal columns."
+        :`Their original budget file for ${year} was ${importMeta.hasQuarterlyTotals?"structured with quarterly subtotal columns (Q1-Q4) alongside monthly columns":"structured with monthly columns only, no quarterly subtotal columns detected"}, and ${importMeta.hasAnnualTotal?"had an annual total column":"had no annual total column detected"}.`;
+      const prompt=`A user is exporting a budget-vs-actual report from a paid media budgeting tool. ${structureDesc} There are ${segs.length} budget segment rows, tracked by: ${budgetDims.join(", ")||"(no dimensions set)"}.\n\nThe export always includes an annual actual-spend/projection summary. Recommend whether to ALSO append a month-by-month actual-spend breakdown and/or a quarter-by-quarter actual-spend breakdown, to mirror how this user already organizes their budget file. If the original structure is unknown, default to recommending the monthly breakdown (the safer, more granular option) and say so.\n\nReply ONLY with this JSON (no markdown): {"includeMonthly": true/false, "includeQuarterly": true/false, "reason": "<one short sentence explaining the recommendation>"}`;
       const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,maxTokens:300})});
       const data=await res.json();
       if(!res.ok)throw new Error(data?.error||"AI suggestion request failed");
