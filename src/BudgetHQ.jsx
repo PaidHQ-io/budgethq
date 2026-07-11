@@ -52,16 +52,26 @@ const THEMES = {
 const MONTHS=[{key:"01",label:"Jan"},{key:"02",label:"Feb"},{key:"03",label:"Mar"},{key:"04",label:"Apr"},{key:"05",label:"May"},{key:"06",label:"Jun"},{key:"07",label:"Jul"},{key:"08",label:"Aug"},{key:"09",label:"Sep"},{key:"10",label:"Oct"},{key:"11",label:"Nov"},{key:"12",label:"Dec"}];
 const QUARTERS=[{key:"Q1",months:["01","02","03"],label:"Q1 Cap"},{key:"Q2",months:["04","05","06"],label:"Q2 Cap"},{key:"Q3",months:["07","08","09"],label:"Q3 Cap"},{key:"Q4",months:["10","11","12"],label:"Q4 Cap"}];
 const MONTH_MAP={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12",january:"01",february:"02",march:"03",april:"04",june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
-const REQUIRED_COLS=["campaign_name","spend","date"];
-const OPTIONAL_COLS=["adset_name","platform","impressions","clicks","campaign_id","adset_id"];
-const COL_PATTERNS={campaign_name:/^campaign$/i,adset_name:/ad.?set|ad.?group/i,spend:/cost|spend|amount/i,date:/^date$|^day$/i,platform:/platform|traffic.source|channel|source/i,impressions:/impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
-const COL_LABELS={campaign_name:"Campaign Name",adset_name:"Ad Set / Ad Group Name",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
+// Two-level campaign hierarchy: "campaign_group_name" is the top level (LinkedIn's own
+// "Campaign Group"; what Meta/Google/Bing/Reddit simply call "Campaign"). "campaign_name" is
+// the leaf level actually being tagged (LinkedIn's own "Campaign" object; Meta/Reddit's
+// "Ad Set"; Google/Bing's "Ad Group"). Only campaign_group_name is required — campaign_name
+// falls back to it for platforms/exports that don't have a second level of breakdown, so
+// nothing breaks for data that predates this two-level model.
+const REQUIRED_COLS=["campaign_group_name","spend","date"];
+const OPTIONAL_COLS=["campaign_name","platform","impressions","clicks","campaign_id","adset_id"];
+const COL_PATTERNS={campaign_group_name:/^campaign$/i,campaign_name:/ad.?set|ad.?group/i,spend:/cost|spend|amount/i,date:/^date$|^day$/i,platform:/platform|traffic.source|channel|source/i,impressions:/impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
+const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campaign Name (Ad Set / Ad Group)",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
+// Composite identity key — ad set / ad group names often repeat across different campaigns
+// (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
+// combine both levels, not just the leaf name alone.
+const campaignKey=(groupName,name)=>`${groupName||name||""}||${name||groupName||""}`;
 const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
 const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Tagger",icon:"tag"},{key:"budget",label:"Budgets",icon:"wallet"},{key:"pacing",label:"Reporting",icon:"chart"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-function autoDetect(h){const m={};h.forEach(c=>{for(const[f,p]of Object.entries(COL_PATTERNS)){if(!m[f]&&p.test(c.trim()))m[f]=c;}});if(!m.campaign_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_name=c;}if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}return m;}
+function autoDetect(h){const m={};h.forEach(c=>{for(const[f,p]of Object.entries(COL_PATTERNS)){if(!m[f]&&p.test(c.trim()))m[f]=c;}});if(!m.campaign_group_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_group_name=c;}if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}return m;}
 function derivePlatform(n,pv){const u=(n||"").toUpperCase();const p=(pv||"").toLowerCase();if(/^LIN[-|]/.test(u)||p.includes("linkedin"))return"LinkedIn";if(/^FB[-|]/.test(u)||p.includes("facebook")||p.includes("meta"))return"Meta";if(/^BIN[-|]/.test(u)||p.includes("bing"))return"Bing";if(/^YT[-|]/.test(u)||p.includes("youtube"))return"YouTube";if(/^SEA[-|]/.test(u)||p==="search")return"Google Search";if(/^GDN[-|]/.test(u)||p==="display")return"Google Display";if(/demand.gen/i.test(u)||p==="demand gen")return"Demand Gen";if(/pmax|performance.max/i.test(u))return"Performance Max";if(p.includes("google"))return"Google Search";if(p.includes("capterra"))return"Capterra";return pv||"Unknown";}
 const parseMoney=v=>{if(v===""||v==null)return null;const n=parseFloat(String(v).replace(/[$,\s%]/g,""));return isNaN(n)?null:n;};
 const fmt$=n=>{if(!n)return"";return"$"+Math.round(n).toLocaleString();};
@@ -1126,21 +1136,28 @@ function Dashboard({T,onNavigate,stats,hasData,themeKey}){
   );
 }
 
-// Normalize raw CSV rows to standard format using colMap
+// Normalize raw CSV rows to standard format using colMap. campaign_name (the leaf level — ad
+// set/ad group/LinkedIn campaign) falls back to campaign_group_name when the CSV/export doesn't
+// have a second level of breakdown, so single-level data keeps working unchanged.
 function normalizeRows(rows,colMap){
-  return rows.map(row=>({
-    campaign_name:(row[colMap.campaign_name]||"").trim(),
-    spend:parseFloat(String(row[colMap.spend]||"0").replace(/[$, ]/g,""))||0,
-    platform:(row[colMap.platform]||"").trim()||"Unknown",
-    date:String(row[colMap.date]||"").trim(),
-    impressions:parseInt(String(row[colMap.impressions]||"0").replace(/,/g,""))||0,
-    clicks:parseInt(String(row[colMap.clicks]||"0").replace(/,/g,""))||0,
-  })).filter(r=>r.campaign_name&&r.spend>0);
+  return rows.map(row=>{
+    const groupName=(row[colMap.campaign_group_name]||"").trim();
+    const leafName=(row[colMap.campaign_name]||"").trim()||groupName;
+    return{
+      campaign_group_name:groupName,
+      campaign_name:leafName,
+      spend:parseFloat(String(row[colMap.spend]||"0").replace(/[$, ]/g,""))||0,
+      platform:(row[colMap.platform]||"").trim()||"Unknown",
+      date:String(row[colMap.date]||"").trim(),
+      impressions:parseInt(String(row[colMap.impressions]||"0").replace(/,/g,""))||0,
+      clicks:parseInt(String(row[colMap.clicks]||"0").replace(/,/g,""))||0,
+    };
+  }).filter(r=>r.campaign_group_name&&r.spend>0);
 }
 
-// Merge normalized rows — deduplicate by campaign_name+date, new data wins
+// Merge normalized rows — deduplicate by campaign group + campaign + date, new data wins
 function mergeRows(existing,incoming){
-  const key=r=>`${r.campaign_name}||${r.date}`;
+  const key=r=>`${campaignKey(r.campaign_group_name,r.campaign_name)}||${r.date}`;
   const map=new Map(existing.map(r=>[key(r),r]));
   incoming.forEach(r=>map.set(key(r),r));
   return Array.from(map.values());
@@ -1262,7 +1279,7 @@ function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownD
   mergedNormRows.forEach(row=>{
     const d=parseSpendDate(row.date);
     if(!d||d<start||d>end)return;
-    const rowTags=tags[row.campaign_name]||{};
+    const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
     if(!budgetDims.every((dim,i)=>rowTags[dim]===vals[i]))return;
     const bval=breakdownDim==="Platform"?derivePlatform(row.campaign_name,row.platform):(rowTags[breakdownDim]||"Untagged");
     map[bval]=(map[bval]||0)+row.spend;
@@ -1298,7 +1315,7 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
     mergedNormRows.forEach(row=>{
       const d=parseSpendDate(row.date);
       if(!d||d<start||d>end)return;
-      const vals=budgetDims.map(dim=>(tags[row.campaign_name]||{})[dim]);
+      const vals=budgetDims.map(dim=>(tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{})[dim]);
       if(vals.some(v=>!v))return;
       const sk=vals.join("|");
       spendMap[sk]=(spendMap[sk]||0)+row.spend;
@@ -1718,6 +1735,8 @@ export default function BudgetHQ(){
   const[sortDir,setSortDir]=useState("desc");
   const[fCamp,setFCamp]=useState("");
   const[fCampExclude,setFCampExclude]=useState("");
+  const[fGroup,setFGroup]=useState("");
+  const[fGroupExclude,setFGroupExclude]=useState("");
   const[fPlat,setFPlat]=useState("");
   const[fSMin,setFSMin]=useState("");
   const[fSMax,setFSMax]=useState("");
@@ -1737,16 +1756,30 @@ export default function BudgetHQ(){
   const[budgetMetaDims,setBudgetMetaDims]=useState([]); // annotation dims on budget rows
 
   useEffect(()=>{try{
-    const t=localStorage.getItem("paidhq_tags");if(t)setTags(JSON.parse(t));
+    // Migrate legacy tags from before the two-level campaign group + campaign model: old keys
+    // were the plain campaign name alone (e.g. "My Campaign"), but campaignKey() now looks up
+    // composite keys (e.g. "My Campaign||My Campaign" when group==name). Any key without the
+    // "||" separator is legacy and gets rewritten so existing tagged data isn't orphaned.
+    const t=localStorage.getItem("paidhq_tags");
+    if(t){
+      const parsed=JSON.parse(t);
+      const migrated={};
+      Object.entries(parsed).forEach(([k,v])=>{migrated[k.includes("||")?k:campaignKey(k,k)]=v;});
+      setTags(migrated);
+    }
     const d=localStorage.getItem("paidhq_dims");if(d)setTagDims(JSON.parse(d));
     const th=localStorage.getItem("paidhq_theme");if(th)setThemeKey(th);
     const b=localStorage.getItem("paidhq_budgets");if(b)setBudgets(JSON.parse(b));
     const bd=localStorage.getItem("paidhq_budget_dims");if(bd)setBudgetDims(JSON.parse(bd));
     const bm=localStorage.getItem("paidhq_budget_meta");if(bm)setBudgetRowMeta(JSON.parse(bm));
     const bmd=localStorage.getItem("paidhq_budget_meta_dims");if(bmd)setBudgetMetaDims(JSON.parse(bmd));
-    // Restore spend data
+    // Restore spend data — legacy rows predate campaign_group_name, so backfill it from
+    // campaign_name (matches how normalizeRows falls back when a CSV has no second level).
     const sr=localStorage.getItem("paidhq_rows");
-    if(sr){setMergedNormRows(JSON.parse(sr));setStep("tag");}
+    if(sr){
+      const rows=JSON.parse(sr).map(r=>r.campaign_group_name?r:{...r,campaign_group_name:r.campaign_name});
+      setMergedNormRows(rows);setStep("tag");
+    }
   }catch(e){};},[]);
   useEffect(()=>{try{localStorage.setItem("paidhq_tags",JSON.stringify(tags));}catch(e){};},[tags]);
   useEffect(()=>{try{localStorage.setItem("paidhq_dims",JSON.stringify(tagDims));}catch(e){};},[tagDims]);
@@ -1817,7 +1850,7 @@ export default function BudgetHQ(){
       setRawRows(r.data);setHeaders(r.meta.fields||[]);setColMap(autoDetect(r.meta.fields||[]));
       // Carry-forward: count how many campaigns already have tags
       const existingTagCount=r.data.reduce((count,row)=>{
-        const name=(row[autoDetect(r.meta.fields||[]).campaign_name]||"").trim();
+        const name=(row[autoDetect(r.meta.fields||[]).campaign_group_name]||"").trim();
         return count+(name&&Object.keys(tags[name]||{}).length>0?1:0);
       },0);
       if(existingTagCount>0) showNotif(`${existingTagCount} campaigns already tagged from previous session`);
@@ -1826,22 +1859,27 @@ export default function BudgetHQ(){
   },[tags]);
   const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);},[handleFile]);
 
+  // "key" is the composite identity (campaign group + campaign) used everywhere tags/selection
+  // are looked up — ad set/ad group names often repeat across different campaigns, so the leaf
+  // name alone isn't a safe identity. "name" (leaf) and "groupName" stay separate for display.
   const campaigns=useMemo(()=>{
     if(!mergedNormRows.length)return[];
     const map={};
     mergedNormRows.forEach(row=>{
       const name=row.campaign_name;if(!name)return;
+      const groupName=row.campaign_group_name||name;
+      const key=campaignKey(groupName,name);
       const platform=derivePlatform(name,row.platform);
-      if(!map[name])map[name]={name,platform,spend:0,rows:0};
-      map[name].spend+=row.spend;
-      map[name].rows++;
+      if(!map[key])map[key]={key,name,groupName,platform,spend:0,rows:0};
+      map[key].spend+=row.spend;
+      map[key].rows++;
     });
-    return Object.values(map).map(c=>({...c,adsetCount:0}));
+    return Object.values(map);
   },[mergedNormRows]);
   const allPlats=useMemo(()=>[...new Set(campaigns.map(c=>c.platform))].sort(),[campaigns]);
   const stats=useMemo(()=>{
     const totalSpend=campaigns.reduce((s,c)=>s+c.spend,0);
-    const tagged=campaigns.filter(c=>Object.keys(tags[c.name]||{}).length>0).length;
+    const tagged=campaigns.filter(c=>Object.keys(tags[c.key]||{}).length>0).length;
     const dates=mergedNormRows.map(r=>r.date).filter(Boolean).sort();
     const derivedRange=dates.length?`${dates[0]} → ${dates[dates.length-1]}`:"";
     const displayRange=lastSyncRange?`${lastSyncRange.start} → ${lastSyncRange.end}`:derivedRange;
@@ -1851,25 +1889,27 @@ export default function BudgetHQ(){
   const filtered=useMemo(()=>{let r=campaigns.filter(c=>{
     if(fCamp&&!c.name.toLowerCase().includes(fCamp.toLowerCase()))return false;
     if(fCampExclude&&c.name.toLowerCase().includes(fCampExclude.toLowerCase()))return false;
+    if(fGroup&&!c.groupName.toLowerCase().includes(fGroup.toLowerCase()))return false;
+    if(fGroupExclude&&c.groupName.toLowerCase().includes(fGroupExclude.toLowerCase()))return false;
     if(fPlat&&c.platform!==fPlat)return false;
     if(fSMin&&c.spend<parseFloat(fSMin))return false;
     if(fSMax&&c.spend>parseFloat(fSMax))return false;
-    if(fTag){const ts=tags[c.name]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(!s.includes(fTag.toLowerCase()))return false;}
-    if(fTagExclude){const ts=tags[c.name]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(s.includes(fTagExclude.toLowerCase()))return false;}
+    if(fTag){const ts=tags[c.key]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(!s.includes(fTag.toLowerCase()))return false;}
+    if(fTagExclude){const ts=tags[c.key]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(s.includes(fTagExclude.toLowerCase()))return false;}
     if(selectedTagFilters.size>0){
       // Group by dimension: AND across dims, OR within same dim
       const dimMap={};
       selectedTagFilters.forEach(key=>{const idx=key.indexOf(":");const d=key.slice(0,idx);const v=key.slice(idx+1).toLowerCase();if(!dimMap[d])dimMap[d]=new Set();dimMap[d].add(v);});
-      const ts=tags[c.name]||{};
+      const ts=tags[c.key]||{};
       const passes=Object.entries(dimMap).every(([dim,vals])=>vals.has((ts[dim]||"").toLowerCase()));
       if(!passes)return false;
     }
-    if(fStatus==="tagged"&&Object.keys(tags[c.name]||{}).length===0)return false;
-    if(fStatus==="untagged"&&Object.keys(tags[c.name]||{}).length>0)return false;
+    if(fStatus==="tagged"&&Object.keys(tags[c.key]||{}).length===0)return false;
+    if(fStatus==="untagged"&&Object.keys(tags[c.key]||{}).length>0)return false;
     return true;
-  });return[...r].sort((a,b)=>{if(sortCol==="spend")return sortDir==="asc"?a.spend-b.spend:b.spend-a.spend;if(sortCol==="campaign")return sortDir==="asc"?a.name.localeCompare(b.name):b.name.localeCompare(a.name);if(sortCol==="platform")return sortDir==="asc"?a.platform.localeCompare(b.platform):b.platform.localeCompare(a.platform);const at=Object.keys(tags[a.name]||{}).length;const bt=Object.keys(tags[b.name]||{}).length;return sortDir==="asc"?at-bt:bt-at;});},[campaigns,fCamp,fCampExclude,fPlat,fSMin,fSMax,fTag,fTagExclude,selectedTagFilters,fStatus,sortCol,sortDir,tags]);
+  });return[...r].sort((a,b)=>{if(sortCol==="spend")return sortDir==="asc"?a.spend-b.spend:b.spend-a.spend;if(sortCol==="campaign")return sortDir==="asc"?a.name.localeCompare(b.name):b.name.localeCompare(a.name);if(sortCol==="group")return sortDir==="asc"?a.groupName.localeCompare(b.groupName):b.groupName.localeCompare(a.groupName);if(sortCol==="platform")return sortDir==="asc"?a.platform.localeCompare(b.platform):b.platform.localeCompare(a.platform);const at=Object.keys(tags[a.key]||{}).length;const bt=Object.keys(tags[b.key]||{}).length;return sortDir==="asc"?at-bt:bt-at;});},[campaigns,fCamp,fCampExclude,fGroup,fGroupExclude,fPlat,fSMin,fSMax,fTag,fTagExclude,selectedTagFilters,fStatus,sortCol,sortDir,tags]);
 
-  const suggestions=useMemo(()=>{if(!fCamp||fCamp.length<3)return[];const term=fCamp.toLowerCase();const seen=new Set();const out=[];tagDims.forEach(dim=>{Object.entries(tags).forEach(([cn,ts])=>{if(ts[dim]&&cn.toLowerCase().includes(term)){const key=`${dim}:${ts[dim]}`;if(!seen.has(key)){seen.add(key);const count=filtered.filter(c=>!(tags[c.name]?.[dim])).length;if(count>0)out.push({key,dim,val:ts[dim],count});}}});});return out.slice(0,3);},[fCamp,filtered,tags,tagDims]);
+  const suggestions=useMemo(()=>{if(!fCamp||fCamp.length<3)return[];const term=fCamp.toLowerCase();const seen=new Set();const out=[];tagDims.forEach(dim=>{Object.entries(tags).forEach(([cn,ts])=>{if(ts[dim]&&cn.toLowerCase().includes(term)){const key=`${dim}:${ts[dim]}`;if(!seen.has(key)){seen.add(key);const count=filtered.filter(c=>!(tags[c.key]?.[dim])).length;if(count>0)out.push({key,dim,val:ts[dim],count});}}});});return out.slice(0,3);},[fCamp,filtered,tags,tagDims]);
 
   // Tag browser: all unique values per dimension with campaign counts
   const tagValueMap=useMemo(()=>{
@@ -1877,7 +1917,7 @@ export default function BudgetHQ(){
     tagDims.forEach(dim=>{
       result[dim]={};
       campaigns.forEach(c=>{
-        const val=(tags[c.name]||{})[dim];
+        const val=(tags[c.key]||{})[dim];
         if(val)result[dim][val]=(result[dim][val]||0)+1;
       });
     });
@@ -1888,7 +1928,7 @@ export default function BudgetHQ(){
   const pushHistory=useCallback(currentTags=>{setTagsHistory(h=>[...h.slice(-49),currentTags]);},[]);
   const undoTags=useCallback(()=>{if(!tagsHistory.length)return;setTags(tagsHistory[tagsHistory.length-1]);setTagsHistory(h=>h.slice(0,-1));showNotif("Undone");},[tagsHistory]);
   const applyTags=useCallback(()=>{if(!applyDim||!applyVal||!selected.size)return;pushHistory(tags);const u={};selected.forEach(n=>{u[n]={...(tags[n]||{}),[applyDim]:applyVal};});setTags(p=>({...p,...u}));showNotif(`Tagged ${selected.size} campaigns — ${applyDim}: ${applyVal}`);setSelected(new Set());setApplyVal("");},[applyDim,applyVal,selected,tags,pushHistory]);
-  const applySug=useCallback((dim,val)=>{pushHistory(tags);const u={};filtered.forEach(c=>{if(!(tags[c.name]?.[dim]))u[c.name]={...(tags[c.name]||{}),[dim]:val};});setTags(p=>({...p,...u}));showNotif(`Applied ${dim}: ${val} to ${Object.keys(u).length} campaigns`);},[filtered,tags,pushHistory]);
+  const applySug=useCallback((dim,val)=>{pushHistory(tags);const u={};filtered.forEach(c=>{if(!(tags[c.key]?.[dim]))u[c.key]={...(tags[c.key]||{}),[dim]:val};});setTags(p=>({...p,...u}));showNotif(`Applied ${dim}: ${val} to ${Object.keys(u).length} campaigns`);},[filtered,tags,pushHistory]);
   const removeTag=useCallback((cn,dim)=>{pushHistory(tags);setTags(p=>{const ts={...(p[cn]||{})};delete ts[dim];return{...p,[cn]:ts};});},[tags,pushHistory]);
   const bulkRemoveTag=useCallback(dim=>{if(!dim||!selected.size)return;pushHistory(tags);setTags(p=>{const nx={...p};selected.forEach(n=>{if(nx[n]){const ts={...nx[n]};delete ts[dim];nx[n]=ts;}});return nx;});showNotif(`Removed ${dim} tag from ${selected.size} campaigns`);setSelected(new Set());},[selected,tags,pushHistory]);
   const saveEdit=useCallback(()=>{
@@ -1905,8 +1945,8 @@ export default function BudgetHQ(){
     setEditingTag(null);setEditVal("");
   },[editingTag,editVal,tags,pushHistory]);
   const exportTags=()=>{
-    const header=["Campaign","Platform","Spend",...tagDims];
-    const rows=[header,...campaigns.map(c=>[c.name,c.platform,c.spend.toFixed(2),...tagDims.map(d=>(tags[c.name]||{})[d]||"")])];
+    const header=["Campaign Group","Campaign","Platform","Spend",...tagDims];
+    const rows=[header,...campaigns.map(c=>[c.groupName,c.name,c.platform,c.spend.toFixed(2),...tagDims.map(d=>(tags[c.key]||{})[d]||"")])];
     downloadCSV(rows,"budgethq-tags.csv");
     showNotif("Tags exported");
   };
@@ -1917,21 +1957,25 @@ export default function BudgetHQ(){
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
       const rows=r.data;
       const fields=r.meta.fields||[];
-      // Detect campaign name column
-      const campCol=fields.find(f=>/campaign/i.test(f));
+      // Detect campaign group + campaign columns (exported files have both; older exports from
+      // before the two-level model only have "Campaign", which is treated as both levels).
+      const groupCol=fields.find(f=>/campaign.?group/i.test(f));
+      const campCol=fields.find(f=>/campaign/i.test(f)&&f!==groupCol);
       if(!campCol){showNotif("Could not find Campaign column");return;}
-      // Detect dimension columns (exclude Campaign, Platform, Spend, Date)
-      const skipCols=new Set(["campaign","platform","spend","date","impressions","clicks","campaign_name","campaign_id"]);
-      const dimCols=fields.filter(f=>!skipCols.has(f.toLowerCase())&&f!==campCol);
+      // Detect dimension columns (exclude Campaign Group, Campaign, Platform, Spend, Date)
+      const skipCols=new Set(["campaign group","campaign","platform","spend","date","impressions","clicks","campaign_name","campaign_group_name","campaign_id"]);
+      const dimCols=fields.filter(f=>!skipCols.has(f.toLowerCase())&&f!==campCol&&f!==groupCol);
       let restored=0;
       setTags(p=>{
         const nx={...p};
         rows.forEach(row=>{
           const name=(row[campCol]||"").trim();
           if(!name)return;
-          const t={...(nx[name]||{})};
+          const groupName=(groupCol?row[groupCol]:"")?.trim()||name;
+          const key=campaignKey(groupName,name);
+          const t={...(nx[key]||{})};
           dimCols.forEach(d=>{if(row[d]&&row[d].trim())t[d]=row[d].trim();});
-          nx[name]=t;
+          nx[key]=t;
           restored++;
         });
         return nx;
@@ -1943,18 +1987,18 @@ export default function BudgetHQ(){
     }});
   },[tags,tagDims]);
   const toggleSel=n=>setSelected(p=>{const nx=new Set(p);nx.has(n)?nx.delete(n):nx.add(n);return nx;});
-  const selAll=()=>setSelected(selected.size===filtered.length?new Set():new Set(filtered.map(c=>c.name)));
+  const selAll=()=>setSelected(selected.size===filtered.length?new Set():new Set(filtered.map(c=>c.key)));
   const addDim=()=>{const n=newDim.trim();if(!n||tagDims.includes(n))return;setTagDims(p=>[...p,n]);setNewDim("");};
   const doSort=col=>{setSortDir(sortCol===col&&sortDir==="desc"?"asc":"desc");setSortCol(col);};
-  const clearF=()=>{setFCamp("");setFCampExclude("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFTagExclude("");setSelectedTagFilters(new Set());setFStatus("all");};
+  const clearF=()=>{setFCamp("");setFCampExclude("");setFGroup("");setFGroupExclude("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFTagExclude("");setSelectedTagFilters(new Set());setFStatus("all");};
 
   // Cmd+Z / Ctrl+Z undo
   useEffect(()=>{
     const handler=(e)=>{if((e.metaKey||e.ctrlKey)&&e.key==="z"&&!e.shiftKey){e.preventDefault();undoTags();}};
     window.addEventListener("keydown",handler);return()=>window.removeEventListener("keydown",handler);
   },[undoTags]);
-  const hasF=fCamp||fCampExclude||fPlat||fSMin||fSMax||fTag||fTagExclude||selectedTagFilters.size>0||fStatus!=="all";
-  const canProceed=colMap.campaign_name&&colMap.spend;
+  const hasF=fCamp||fCampExclude||fGroup||fGroupExclude||fPlat||fSMin||fSMax||fTag||fTagExclude||selectedTagFilters.size>0||fStatus!=="all";
+  const canProceed=colMap.campaign_group_name&&colMap.spend;
 
   const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3};
@@ -2313,8 +2357,9 @@ export default function BudgetHQ(){
             )}
 
             <div style={{borderBottom:`1px solid ${T.border}`,background:T.headerBg,flexShrink:0}}>
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr)",padding:"9px 16px 4px",alignItems:"end",gap:6}}>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"9px 16px 4px",alignItems:"end",gap:6}}>
                 <input type="checkbox" checked={filtered.length>0&&selected.size===filtered.length} onChange={selAll} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
+                {!isMobile&&<SH col="group" label="Campaign Group"/>}
                 <SH col="campaign" label="Campaign"/>
                 <SH col="spend" label="Spend"/>
                 {!isMobile&&<SH col="platform" label="Platform"/>}
@@ -2326,8 +2371,12 @@ export default function BudgetHQ(){
                   </button>}
                 </div>}
               </div>
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 8px",gap:6,alignItems:"start"}}>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 8px",gap:6,alignItems:"start"}}>
                 <div/>
+                {!isMobile&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  <input value={fGroup} onChange={e=>setFGroup(e.target.value)} placeholder="Group contains…" style={fIn}/>
+                  <input value={fGroupExclude} onChange={e=>setFGroupExclude(e.target.value)} placeholder="≠ excludes…" style={{...fIn,borderColor:fGroupExclude?"#ef4444":undefined,color:fGroupExclude?"#ef4444":undefined}}/>
+                </div>}
                 <div style={{display:"flex",flexDirection:"column",gap:3}}>
                   <input value={fCamp} onChange={e=>setFCamp(e.target.value)} placeholder="Campaign contains…" style={fIn}/>
                   <input value={fCampExclude} onChange={e=>setFCampExclude(e.target.value)} placeholder="≠ excludes…" style={{...fIn,borderColor:fCampExclude?"#ef4444":undefined,color:fCampExclude?"#ef4444":undefined}}/>
@@ -2347,23 +2396,24 @@ export default function BudgetHQ(){
 
             <div style={{overflow:"auto",flex:1}}>
               {filtered.map((c)=>{
-                const ts=tags[c.name]||{};const tc=Object.keys(ts).length;const isSel=selected.has(c.name);const pc=PLATFORM_COLORS[c.platform]||T.textMuted;
+                const ts=tags[c.key]||{};const tc=Object.keys(ts).length;const isSel=selected.has(c.key);const pc=PLATFORM_COLORS[c.platform]||T.textMuted;
                 return(
-                  <div key={c.name} className={isSel?undefined:"bhq-row"} onClick={()=>toggleSel(c.name)}
-                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(200px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px dashed ${T.borderStrong}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
-                    <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.name)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
-                    <div style={{minWidth:0}}><div style={{fontSize:11,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>{c.adsetCount>0&&<div style={{fontSize:10,color:T.textMuted,marginTop:1}}>{c.adsetCount} ad sets</div>}</div>
+                  <div key={c.key} className={isSel?undefined:"bhq-row"} onClick={()=>toggleSel(c.key)}
+                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px dashed ${T.borderStrong}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
+                    <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.key)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
+                    {!isMobile&&<div style={{fontSize:11,fontFamily:"Inter,sans-serif",color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
+                    <div style={{minWidth:0,fontSize:11,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
                     <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
-                      {editingPlatform===c.name?(
+                      {editingPlatform===c.key?(
                         <select autoFocus value={c.platform}
-                          onChange={e=>{const plat=e.target.value;setMergedNormRows(prev=>prev.map(r=>r.campaign_name===c.name?{...r,platform:plat}:r));setEditingPlatform(null);}}
+                          onChange={e=>{const plat=e.target.value;setMergedNormRows(prev=>prev.map(r=>campaignKey(r.campaign_group_name,r.campaign_name)===c.key?{...r,platform:plat}:r));setEditingPlatform(null);}}
                           onBlur={()=>setEditingPlatform(null)}
                           style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:11,padding:"2px 6px",outline:"none",fontFamily:"Inter,sans-serif",cursor:"pointer"}}>
                           {PLATFORM_OPTIONS.filter(p=>p!=="auto").map(p=><option key={p} value={p}>{p}</option>)}
                         </select>
                       ):(
-                        <span onClick={()=>setEditingPlatform(c.name)} title="Click to change platform"
+                        <span onClick={()=>setEditingPlatform(c.key)} title="Click to change platform"
                           style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:14,background:pc+"18",color:pc,border:`1px solid ${pc}`,whiteSpace:"nowrap",cursor:"pointer"}}>
                           {c.platform}
                         </span>
@@ -2374,21 +2424,21 @@ export default function BudgetHQ(){
                         Object.entries(ts).map(([dim,val])=>(
                           <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:14,background:T.accentBg,color:T.text,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Inter,sans-serif"}}>
                             <span style={{opacity:0.7,marginRight:1}}>{dim}:</span>
-                            {editingTag?.campaign===c.name&&editingTag?.dim===dim?(
+                            {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
                               <input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)}
                                 onBlur={saveEdit}
                                 onKeyDown={e=>{if(e.key==="Enter")saveEdit();if(e.key==="Escape"){setEditingTag(null);setEditVal("");}e.stopPropagation();}}
                                 onClick={e=>e.stopPropagation()}
                                 style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontWeight:600,width:Math.max(40,editVal.length*7)+"px",fontFamily:"Inter,sans-serif",padding:0}}/>
                             ):(
-                              <span onClick={e=>{e.stopPropagation();setEditingTag({campaign:c.name,dim});setEditVal(val);}} style={{cursor:"text",fontWeight:600}}>{val}</span>
+                              <span onClick={e=>{e.stopPropagation();setEditingTag({campaign:c.key,dim});setEditVal(val);}} style={{cursor:"text",fontWeight:600}}>{val}</span>
                             )}
-                            <span onClick={e=>{e.stopPropagation();removeTag(c.name,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13,lineHeight:1,marginLeft:1,padding:"0 2px"}}>×</span>
+                            <span onClick={e=>{e.stopPropagation();removeTag(c.key,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13,lineHeight:1,marginLeft:1,padding:"0 2px"}}>×</span>
                           </span>
                         ))
                       }
                     </div>}
-                    {!isMobile&&<button onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${c.name}" from this dataset?\n\nThis only affects the current session — your tags are kept. You can re-sync or re-upload to restore it.`)){setMergedNormRows(prev=>prev.filter(r=>r.campaign_name!==c.name));}}} title="Remove this campaign"
+                    {!isMobile&&<button onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${c.name}" from this dataset?\n\nThis only affects the current session — your tags are kept. You can re-sync or re-upload to restore it.`)){setMergedNormRows(prev=>prev.filter(r=>campaignKey(r.campaign_group_name,r.campaign_name)!==c.key));}}} title="Remove this campaign"
                       style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                       onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
                       onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>}
