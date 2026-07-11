@@ -320,7 +320,8 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       setExportIncludeQuarterly(!!result.includeQuarterly);
       setExportAiReason(result.reason||"");
     }catch(e){
-      setExportAiError("AI suggestion unavailable — defaulted based on your file's structure. You can still adjust below.");
+      console.error("[export AI suggestion]",e);
+      setExportAiError(`AI suggestion unavailable (${e.message||"unknown error"}) — defaulted based on your file's structure. You can still adjust below.`);
       fallback();
     }finally{setExportAnalyzing(false);}
   };
@@ -646,7 +647,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
 
       setIStep("map");
     }catch(e){
-      setAiError("AI analysis failed — please map columns manually.");
+      setAiError(`AI analysis failed (${e.message||"unknown error"}) — please map columns manually.`);
       console.error(e);
     }finally{setAiAnalyzing(false);}
   };
