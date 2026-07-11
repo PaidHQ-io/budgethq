@@ -2051,9 +2051,9 @@ export default function BudgetHQ(){
   const hasSidebarData=mergedNormRows.length>0;
   const sidebarBc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent];
   const sidebarStatRows=[
-    {label:"Campaigns",value:hasSidebarData?stats.total.toLocaleString():"128",dot:sidebarBc[1]},
-    {label:"Tagged",value:hasSidebarData?`${stats.tagged.toLocaleString()} (${stats.total?Math.round((stats.tagged/stats.total)*100):0}%)`:"104 (81%)",dot:sidebarBc[3]},
-    {label:"Needs review",value:hasSidebarData?stats.untagged.toLocaleString():"24",dot:hasSidebarData?(stats.untagged>0?sidebarBc[0]:sidebarBc[3]):sidebarBc[0]},
+    {label:"Campaigns",value:hasSidebarData?stats.total.toLocaleString():"—",dot:sidebarBc[1]},
+    {label:"Tagged",value:hasSidebarData?`${stats.tagged.toLocaleString()} (${stats.total?Math.round((stats.tagged/stats.total)*100):0}%)`:"—",dot:sidebarBc[3]},
+    {label:"Needs review",value:hasSidebarData?stats.untagged.toLocaleString():"—",dot:hasSidebarData?(stats.untagged>0?sidebarBc[0]:sidebarBc[3]):sidebarBc[0]},
   ];
 
   return(
@@ -2195,12 +2195,12 @@ export default function BudgetHQ(){
           ):(<>
           <PixelPanel T={T} style={{opacity:hasSidebarData?1:0.7}} contentStyle={{padding:"14px 16px",background:T.accentBg}}>
             <div style={{fontSize:10,fontWeight:700,color:T.textSub,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>Total spend</div>
-            <div style={{fontSize:20,fontWeight:800,color:T.text,fontFamily:"Inter,sans-serif"}}>{hasSidebarData?"$"+Math.round(stats.totalSpend).toLocaleString():"$482,600"}</div>
+            <div style={{fontSize:20,fontWeight:800,color:T.text,fontFamily:"Inter,sans-serif"}}>{hasSidebarData?"$"+Math.round(stats.totalSpend).toLocaleString():"No data yet"}</div>
           </PixelPanel>
           {!hasSidebarData&&(
             <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 10px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:20,alignSelf:"flex-start"}}>
               <span style={{width:6,height:6,borderRadius:"50%",background:T.textMuted,flexShrink:0}}/>
-              <span style={{fontSize:9,fontWeight:600,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase"}}>Sample data</span>
+              <span style={{fontSize:9,fontWeight:600,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase"}}>No data yet</span>
             </div>
           )}
           {sidebarStatRows.map(s=>(
