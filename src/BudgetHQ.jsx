@@ -206,6 +206,16 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const[exportAiError,setExportAiError]=useState("");
   const[exportIncludeMonthly,setExportIncludeMonthly]=useState(false);
   const[exportIncludeQuarterly,setExportIncludeQuarterly]=useState(false);
+  // Merge review — when a re-import maps MORE dimensions than the year's existing budgets used
+  // (e.g. adding "BU" on top of an already-imported Product Pillar/Product structure), the new
+  // segKeys won't match the old ones and would otherwise just pile up as parallel duplicate rows.
+  // Exact-projection matches are found locally for free; AI is only called to catch fuzzy/near
+  // matches (spelling, whitespace) among whatever's left unresolved.
+  const[mergeReviewOpen,setMergeReviewOpen]=useState(false);
+  const[importAnalyzing,setImportAnalyzing]=useState(false);
+  const[mergeAiError,setMergeAiError]=useState("");
+  const[mergeCandidates,setMergeCandidates]=useState([]); // [{newSegKey,oldSegKey,newLabel,oldLabel,confidence,reason,approved}]
+  const pendingImportRef=useRef(null); // {oldBudgetDims,newActiveDims} captured at beginImport time
   // Budget row tagging
   const[selRows,setSelRows]=useState(new Set());
   const[segFilters,setSegFilters]=useState({}); // {dim: filterText} — substring match, ANDed across dims
@@ -578,8 +588,60 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   },[iFmt,iHeaders,iRows,iSegDim,iGroupHeaderRow,iGroupDim,iRawRows,tagDimensions,dimMap,customDims,periodCol,amtCol,canonicalDims]);
 
   const goPreview=()=>{setPreview(buildPreview());setIStep("preview");};
-  const confirmImport=()=>{
-    setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[iYear])nx[iYear]={};preview.forEach(({segKey:sk,monthKey:mk,amount:amt})=>{if(!nx[iYear][sk])nx[iYear][sk]={};if(!nx[iYear][sk].monthly)nx[iYear][sk].monthly={};nx[iYear][sk].monthly[mk]=amt;});return nx;});
+
+  // Writes the import into state. mergeDecisions (approved pairs from the merge-review modal,
+  // or [] when there's nothing to merge) tells it which pre-existing segments are being
+  // superseded by a new, more-detailed segKey from this same import.
+  const doImport=(mergeDecisions=[])=>{
+    setBudgets(p=>{
+      const nx=JSON.parse(JSON.stringify(p));
+      if(!nx[iYear])nx[iYear]={};
+      preview.forEach(({segKey:sk,monthKey:mk,amount:amt})=>{
+        if(!nx[iYear][sk])nx[iYear][sk]={};
+        if(!nx[iYear][sk].monthly)nx[iYear][sk].monthly={};
+        nx[iYear][sk].monthly[mk]=amt;
+      });
+      // The old segKey is only removed from THIS year — other years may still legitimately use
+      // the old (shorter) key if they were never re-imported with the extra dimension.
+      mergeDecisions.forEach(({oldSegKey})=>{delete nx[iYear][oldSegKey];});
+      return nx;
+    });
+
+    if(mergeDecisions.length){
+      // Carry over any annotation-dimension values (Region, Pillar, etc.) from the retired old
+      // segKey onto the new one, without clobbering values the new import may already carry.
+      setBudgetRowMeta(p=>{
+        const nx={...p};
+        mergeDecisions.forEach(({newSegKey,oldSegKey})=>{
+          if(nx[oldSegKey]){nx[newSegKey]={...nx[oldSegKey],...(nx[newSegKey]||{})};delete nx[oldSegKey];}
+        });
+        return nx;
+      });
+      // Retag every campaign that matched the OLD (shorter) segment with the value(s) for
+      // whichever dimension(s) this import added — otherwise the segment rows get merged but
+      // spend still wouldn't roll up under the fuller key, since Tagger tags are what actually
+      // drive spend attribution, not the budget row itself.
+      const{oldBudgetDims,newActiveDims}=pendingImportRef.current||{oldBudgetDims:budgetDims,newActiveDims:budgetDims};
+      const addedDims=newActiveDims.filter(d=>!oldBudgetDims.includes(d));
+      if(addedDims.length){
+        const newSegMap={};preview.forEach(e=>{if(!newSegMap[e.segKey])newSegMap[e.segKey]=e.dims;});
+        setTags(p=>{
+          const nx={...p};
+          mergeDecisions.forEach(({newSegKey,oldSegKey})=>{
+            const oldVals=oldSegKey.split("|");
+            const newDims=newSegMap[newSegKey]||{};
+            Object.entries(p).forEach(([campaign,t])=>{
+              if(oldBudgetDims.every((d,i)=>t[d]===oldVals[i])){
+                const patch={};addedDims.forEach(d=>{if(newDims[d])patch[d]=newDims[d];});
+                nx[campaign]={...t,...patch};
+              }
+            });
+          });
+          return nx;
+        });
+      }
+    }
+
     setYear(iYear);
     // Add all mapped dims (existing + custom) to budgetDims, in the same canonical order used
     // to build segKeys above — keeps the two in sync so table columns and stored keys always
@@ -599,9 +661,95 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     const hasQuarterlyTotals=iHeaders.some(h=>/^q[1-4]\b/i.test(h.trim()));
     const hasAnnualTotal=iHeaders.some(h=>/^(total|annual)/i.test(h.trim()));
     setBudgetImportMeta?.(p=>({...p,[iYear]:{hasQuarterlyTotals,hasAnnualTotal,importedAt:Date.now()}}));
-    setImportOpen(false);resetImport();
-    showNotif(`Imported ${preview.length} budget entries into ${iYear}`);
+    setImportOpen(false);setMergeReviewOpen(false);setMergeCandidates([]);pendingImportRef.current=null;resetImport();
+    showNotif(mergeDecisions.length?`Imported ${preview.length} entries into ${iYear} — merged ${mergeDecisions.length} segment${mergeDecisions.length>1?"s":""} with existing rows`:`Imported ${preview.length} budget entries into ${iYear}`);
   };
+
+  // Entry point for the "Import N entries" button. Detects whether this import maps MORE
+  // dimensions than the year's existing budgets used (the "added BU on top of an already-
+  // imported Product Pillar/Product structure" case) — if so, finds likely-duplicate segments
+  // (exact matches locally, fuzzy/near matches via AI) and opens a review step before writing
+  // anything. Otherwise imports immediately, unchanged from before.
+  const beginImport=async()=>{
+    const rawMapped=[
+      ...(tagDimensions||[]).filter(d=>dimMap[d]).map(d=>({dim:d})),
+      ...customDims.filter(c=>c.name&&c.col).map(c=>({dim:c.name})),
+    ];
+    const newActiveDims=canonicalDims(rawMapped).map(d=>d.dim);
+    const oldBudgetDims=budgetDims;
+    const existingSegKeys=Object.keys(budgets[iYear]||{});
+    const dimsExpanded=oldBudgetDims.length>0&&newActiveDims.length>oldBudgetDims.length&&oldBudgetDims.every(d=>newActiveDims.includes(d))&&existingSegKeys.length>0;
+
+    if(!dimsExpanded){doImport([]);return;}
+    pendingImportRef.current={oldBudgetDims,newActiveDims};
+
+    const newSegMap={};
+    preview.forEach(e=>{if(!newSegMap[e.segKey])newSegMap[e.segKey]=e.dims;});
+
+    // Exact matches cost nothing and need no AI: project each new segment down to only the
+    // dimensions the year already tracked, and see if that exact combination already exists.
+    const exact=[];
+    const needsCheck=[];
+    Object.entries(newSegMap).forEach(([sk,dims])=>{
+      const projected=oldBudgetDims.map(d=>dims[d]||"").join("|");
+      if(sk!==projected&&existingSegKeys.includes(projected)){
+        exact.push({newSegKey:sk,oldSegKey:projected,confidence:"exact",reason:"Same values on your existing dimensions — this import just adds more detail."});
+      }else if(!existingSegKeys.includes(sk)){
+        needsCheck.push({segKey:sk,dims});
+      }
+    });
+
+    const claimedOld=new Set(exact.map(m=>m.oldSegKey));
+    const unclaimedOld=existingSegKeys.filter(k=>!claimedOld.has(k));
+
+    let fuzzy=[];setMergeAiError("");
+    if(needsCheck.length&&unclaimedOld.length){
+      setImportAnalyzing(true);
+      try{
+        const oldLabels=unclaimedOld.map(k=>({key:k,label:oldBudgetDims.map((d,i)=>k.split("|")[i]||"").join(" · ")}));
+        const newLabels=needsCheck.map(n=>({key:n.segKey,label:newActiveDims.map(d=>n.dims[d]||"").join(" · ")}));
+        const prompt=`A budgeting tool is importing new segment rows that may be the same underlying items as existing segments, just with an extra dimension added and/or minor spelling or whitespace differences.\n\nExisting segments (dimensions: ${oldBudgetDims.join(", ")}):\n${oldLabels.map(o=>`- ${o.label}`).join("\n")}\n\nNew segments from this import (dimensions: ${newActiveDims.join(", ")}):\n${newLabels.map(n=>`- ${n.label}`).join("\n")}\n\nFor each new segment that likely represents the SAME real-world item as an existing one, return a match — do not guess at unrelated items just because they share a category. Reply ONLY with this JSON (no markdown): {"matches":[{"newLabel":"<exact new segment label from the list above>","oldLabel":"<exact existing segment label from the list above>","confidence":"high"|"medium","reason":"<short reason>"}]}`;
+        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,maxTokens:1200})});
+        const data=await res.json();
+        if(!res.ok)throw new Error(data?.error||"AI match request failed");
+        const result=JSON.parse((data.text||"").replace(/```json|```/g,"").trim());
+        const oldByLabel=Object.fromEntries(oldLabels.map(o=>[o.label,o.key]));
+        const newByLabel=Object.fromEntries(newLabels.map(n=>[n.label,n.key]));
+        // Guard against the AI proposing the same old or new segment in more than one pair —
+        // each side can only be claimed once, first match wins, so a merge never targets or
+        // consumes a segment twice.
+        const usedOld=new Set(),usedNew=new Set();
+        fuzzy=(result.matches||[])
+          .filter(m=>oldByLabel[m.oldLabel]&&newByLabel[m.newLabel])
+          .filter(m=>{
+            const ok=oldByLabel[m.oldLabel],nk=newByLabel[m.newLabel];
+            if(usedOld.has(ok)||usedNew.has(nk))return false;
+            usedOld.add(ok);usedNew.add(nk);return true;
+          })
+          .map(m=>({
+            newSegKey:newByLabel[m.newLabel],oldSegKey:oldByLabel[m.oldLabel],
+            confidence:m.confidence==="high"?"high":"medium",reason:m.reason||"AI-detected likely match.",
+          }));
+      }catch(e){
+        console.error("[import merge detection]",e);
+        setMergeAiError(`AI overlap check unavailable (${e.message||"unknown error"}) — showing exact matches only. You can still adjust below.`);
+      }finally{setImportAnalyzing(false);}
+    }
+
+    const allCandidates=[...exact,...fuzzy].map(c=>({
+      ...c,
+      newLabel:newActiveDims.map(d=>(newSegMap[c.newSegKey]||{})[d]||"—").join(" · "),
+      oldLabel:oldBudgetDims.map((d,i)=>c.oldSegKey.split("|")[i]||"—").join(" · "),
+      approved:c.confidence!=="medium", // exact + high-confidence pre-checked; medium left for manual review
+    }));
+
+    if(!allCandidates.length){doImport([]);return;}
+    setMergeCandidates(allCandidates);
+    setMergeReviewOpen(true);
+  };
+  const toggleMergeCandidate=idx=>setMergeCandidates(p=>p.map((c,i)=>i===idx?{...c,approved:!c.approved}:c));
+  const confirmMergeReview=()=>{doImport(mergeCandidates.filter(c=>c.approved).map(({newSegKey,oldSegKey})=>({newSegKey,oldSegKey})));};
+  const skipMergeReview=()=>{doImport([]);};
   const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);setAiError("");setISegDim("Campaign");setIGroupHeaderRow(-1);setIGroupDim("Channel");};
   const closeImport=()=>{setImportOpen(false);resetImport();};
 
@@ -1139,7 +1287,9 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                 <Btn onClick={applyHeaderRow} variant="primary" T={T}>Confirm headers →</Btn>
               </div>}
                 {iStep==="map"&&<Btn onClick={goPreview} disabled={!canMap} variant="primary" T={T}>Preview import →</Btn>}
-                {iStep==="preview"&&<Btn onClick={confirmImport} variant="primary" T={T}>✓ Import {preview.length} entries into {iYear}</Btn>}
+                {iStep==="preview"&&<Btn onClick={beginImport} disabled={importAnalyzing} variant="primary" T={T} style={{gap:6}}>
+                  {importAnalyzing?<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,border:`2px solid rgba(255,255,255,0.3)`,borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Checking for overlaps…</span>:<span>✓ Import {preview.length} entries into {iYear}</span>}
+                </Btn>}
               </div>
             </div>
           </PixelPanel>
@@ -1182,6 +1332,44 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
             <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               <Btn onClick={()=>setExportPreviewOpen(false)} variant="ghost" T={T}>Cancel</Btn>
               <Btn onClick={confirmExport} disabled={exportAnalyzing} variant="primary" T={T}>↓ Download CSV</Btn>
+            </div>
+          </PixelPanel>
+        </div>
+      )}
+
+      {mergeReviewOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <PixelPanel T={T} style={{width:"100%",maxWidth:560,maxHeight:"85vh"}} contentStyle={{background:T.surface,padding:0,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Possible duplicate segments</div>
+              <div style={{fontSize:12,color:T.textSub,marginTop:2}}>This import adds a new dimension to segments you've already budgeted. Merge the ones below into your existing rows, or keep them separate.</div>
+            </div>
+            <div style={{flex:1,overflow:"auto",padding:22}}>
+              {mergeAiError&&(
+                <div style={{padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:8,marginBottom:16,fontSize:12,color:T.warning,lineHeight:1.5}}>{mergeAiError}</div>
+              )}
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {mergeCandidates.map((c,i)=>{
+                  const confMeta=c.confidence==="exact"?{label:"Exact match",color:T.success,bg:T.successBg,border:T.successBorder}:c.confidence==="high"?{label:"High confidence",color:T.accent,bg:T.accentBg,border:T.accentBorder}:{label:"Review suggested",color:T.warning,bg:T.warningBg,border:T.warningBorder};
+                  return(
+                    <label key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",background:c.approved?T.accentBg:"transparent"}}>
+                      <input type="checkbox" checked={c.approved} onChange={()=>toggleMergeCandidate(i)} style={{marginTop:3,cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                          <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:12,color:confMeta.color,background:confMeta.bg,border:`1px solid ${confMeta.border}`}}>{confMeta.label}</span>
+                        </div>
+                        <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:2}}>{c.newLabel}</div>
+                        <div style={{fontSize:12,color:T.textMuted,marginBottom:4}}>↳ merges into existing: <strong style={{color:T.textSub}}>{c.oldLabel}</strong></div>
+                        <div style={{fontSize:11,color:T.textMuted,lineHeight:1.5}}>{c.reason}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",gap:8}}>
+              <Btn onClick={skipMergeReview} variant="ghost" T={T}>Keep all separate</Btn>
+              <Btn onClick={confirmMergeReview} variant="primary" T={T}>✓ Import & merge {mergeCandidates.filter(c=>c.approved).length} segment{mergeCandidates.filter(c=>c.approved).length===1?"":"s"}</Btn>
             </div>
           </PixelPanel>
         </div>
