@@ -68,7 +68,7 @@ const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campa
 const campaignKey=(groupName,name)=>`${groupName||name||""}||${name||groupName||""}`;
 const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
-const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Tagger",icon:"tag"},{key:"budget",label:"Budgets",icon:"wallet"},{key:"pacing",label:"Reporting",icon:"chart"}];
+const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function autoDetect(h){
@@ -1086,7 +1086,7 @@ function Dashboard({T,onNavigate,stats,hasData,themeKey}){
       action:"Import budget file →",color:bc[1],primary:true,
     },
     {
-      key:"pacing",icon:"chart",title:"Pacing & Reporting",
+      key:"pacing",icon:"chart",title:"Reporting & Pacing",
       desc:"Track burn rate, PTD spend vs budget, forecast to end of period, and break down spend by region, platform, funnel, or any other dimension.",
       action:"Open reporting →",color:bc[3],
     },
@@ -1126,7 +1126,7 @@ function Dashboard({T,onNavigate,stats,hasData,themeKey}){
               style={{opacity:card.disabled?0.5:1}}
               contentStyle={{padding:"24px 26px",background:cardBg,cursor:card.disabled?"default":"pointer",transition:"all 0.1s"}}>
               <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
-                <div style={{width:42,height:42,borderRadius:10,background:card.disabled?T.surfaceEl:card.color,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={19} color={card.disabled?T.textMuted:T.text}/></div>
+                <div style={{width:42,height:42,borderRadius:10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={19} color={card.disabled?T.textMuted:T.textSub}/></div>
                 {!card.disabled&&<span style={{fontSize:16,fontWeight:700,color:T.textMuted,lineHeight:1}}>→</span>}
               </div>
               <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>{card.title}</div>
