@@ -2153,8 +2153,39 @@ function computeActualsByMonth({mergedNormRows,tags,budgetDims,year}){
   return map;
 }
 
-// Core pacing calculation: aggregates spend into budget segments for a period and
-// compares actual spend-to-date against time-elapsed expectation.
+// For each derived platform, the most recent date we actually have spend data for — global,
+// not scoped to any one period. This is what "last updated" means per source: live-synced
+// platforms (LinkedIn, Capterra) are current as of the last sync, but manually-uploaded ones
+// (Google, Bing CSVs) are only as fresh as the last time someone re-uploaded a file, which is
+// often days behind "today". Used both to drive the corrected pacing projection below and to
+// show a per-platform freshness indicator in the Pacing UI.
+function computePlatformFreshness(mergedNormRows){
+  const map={};
+  (mergedNormRows||[]).forEach(row=>{
+    const d=parseSpendDate(row.date);
+    if(!d)return;
+    const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+    if(!map[platform]||d>map[platform])map[platform]=d;
+  });
+  return map;
+}
+
+// Core pacing calculation: aggregates spend into budget segments for a period and compares
+// actual spend-to-date against time-elapsed expectation.
+//
+// PROJECTION NOTE (fixed 2026-07): the naive version of this divided a segment's TOTAL blended
+// spend (across every platform) by ONE shared "days elapsed since period start" figure based on
+// calendar "today". That's wrong whenever platforms don't all report in real time — e.g. Google/
+// Bing here are manually re-uploaded roughly weekly, so their spend total is frozen as of the
+// last upload while "days elapsed" keeps climbing every calendar day regardless. That understated
+// their daily rate more and more between uploads, then jumped all at once when fresh data landed.
+// LinkedIn/Capterra are live-synced and always current, so they didn't have this problem — but
+// blending them together with the stale platforms let the stale ones drag the whole segment's
+// projection down.
+//
+// Fix: each platform's rate is computed against ITS OWN as-of date (computePlatformFreshness,
+// clamped to the period and to today), then each platform's projection is summed per segment —
+// instead of blending raw spend first and dividing by one shared calendar-elapsed-days number.
 function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today}){
   const{start,end,months}=getPeriodRange(periodType,year,month,quarter);
   const totalDays=Math.round((end-start)/86400000)+1;
@@ -2164,8 +2195,10 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
   else elapsedDays=Math.floor((today-start)/86400000)+1;
   const daysRemaining=Math.max(0,totalDays-elapsedDays);
   const expectedPct=totalDays?elapsedDays/totalDays:0;
+  const platformFreshness=computePlatformFreshness(mergedNormRows);
 
   const spendMap={};
+  const platformSpendMap={}; // {segKey: {platform: spend}} — feeds the per-platform projection
   // Independent of the period/date range — how many tagged campaigns exist for each segment
   // at all. If this is 0 for a segment that has a budget, spend will NEVER show up for it no
   // matter what period you're looking at — it's a tagging/dimension mismatch, not "no spend yet".
@@ -2184,6 +2217,9 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
       if(vals.some(v=>!v))return;
       const sk=vals.join("|");
       spendMap[sk]=(spendMap[sk]||0)+row.spend;
+      const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+      if(!platformSpendMap[sk])platformSpendMap[sk]={};
+      platformSpendMap[sk][platform]=(platformSpendMap[sk][platform]||0)+row.spend;
     });
   }
 
@@ -2196,8 +2232,18 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
     const spend=spendMap[sk]||0;
     const dims=sk.split("|");
     const actualPct=budget>0?spend/budget:null;
-    const dailyRate=elapsedDays>0?spend/elapsedDays:0;
-    const projected=elapsedDays>0?dailyRate*totalDays:null;
+
+    // Sum each platform's own projection rather than one blended rate — see PROJECTION NOTE.
+    let platformProjectedSum=0;
+    Object.entries(platformSpendMap[sk]||{}).forEach(([platform,pSpend])=>{
+      const freshest=platformFreshness[platform];
+      let asOf=freshest&&freshest<today?freshest:today;
+      if(asOf>end)asOf=end;
+      const pElapsedDays=asOf<start?0:Math.min(totalDays,Math.floor((asOf-start)/86400000)+1);
+      if(pElapsedDays>0)platformProjectedSum+=(pSpend/pElapsedDays)*totalDays;
+    });
+    const projected=elapsedDays>0?platformProjectedSum:null;
+    const dailyRate=totalDays?platformProjectedSum/totalDays:0;
     const projectedVariance=budget>0&&projected!=null?projected-budget:null;
     let status="no-budget";
     if(budget>0){
@@ -2213,7 +2259,7 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
   }).filter(s=>s.budget>0||s.spend>0).sort((a,b)=>b.spend-a.spend);
 
   const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
-  return{segments,totals,totalDays,elapsedDays,daysRemaining,expectedPct,start,end};
+  return{segments,totals,totalDays,elapsedDays,daysRemaining,expectedPct,start,end,platformFreshness};
 }
 
 function pacingStatusMeta(status,T){
@@ -2636,6 +2682,23 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                 <div style={{fontSize:19,fontWeight:700,color:s.color,fontFamily:"Inter,sans-serif"}}>{s.value}</div>
               </PixelPanel>
             ))}
+          </div>
+          <Divider T={T}/>
+          <div style={{padding:"12px 0 4px",display:"flex",flexDirection:"column",gap:6}}>
+            <SectionLabel T={T} style={{marginBottom:2}}>Data freshness</SectionLabel>
+            <div style={{fontSize:10,color:T.textMuted,lineHeight:1.5,marginBottom:4}}>Last date each platform actually has spend data for — projections use this per platform instead of assuming everyone's current through today.</div>
+            {Object.entries(pacing.platformFreshness||{}).sort(([,a],[,b])=>b-a).map(([platform,date])=>{
+              const daysStale=Math.floor((now-date)/86400000);
+              const color=daysStale<=1?T.success:daysStale<=6?T.warning:T.danger;
+              const label=daysStale<=0?"Today":daysStale===1?"Yesterday":`${daysStale} days ago`;
+              return(
+                <div key={platform} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:11,fontFamily:"Inter,sans-serif"}}>
+                  <span style={{color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{platform}</span>
+                  <span style={{color,fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>
+                </div>
+              );
+            })}
+            {Object.keys(pacing.platformFreshness||{}).length===0&&<div style={{fontSize:11,color:T.textMuted}}>No spend data yet</div>}
           </div>
         </div>,
         sidebarEl
