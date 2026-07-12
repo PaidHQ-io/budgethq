@@ -68,7 +68,16 @@ const OPTIONAL_COLS=["campaign_name","platform","campaign_type","impressions","c
 // e.g. Google's Demand Gen campaigns are frequently still named with a legacy "GDN-" prefix
 // (carried over from before Display/Discovery rolled into Demand Gen) with no text in the name
 // that distinguishes them from real Display campaigns.
-const COL_PATTERNS={campaign_group_name:/campaign.?group/i,campaign_name:/ad.?set|ad.?group/i,spend:/cost|spend|amount/i,date:/^date$|^day$/i,platform:/platform|traffic.source|channel|source/i,campaign_type:/campaign.?type/i,impressions:/impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
+// Negative lookaheads on campaign_group_name/campaign_name guard against "status" columns —
+// Google's "Ad group status" otherwise matches the bare /ad.?group/i pattern just as eagerly as
+// the real "Ad group" column, and since autoDetect() takes the first match per header order, a
+// "status" column earlier in the file silently wins and the real name column never gets mapped.
+// date matches "Month" too — Google/Bing's manual exports report one row per ad group PER MONTH,
+// with a column literally named "Month" (not "Date"/"Day"), which the old pattern never caught.
+// impressions matches "Impr."/"Imp." (Google/Bing's actual abbreviated header) in addition to the
+// full word "impression" — anchored so it doesn't also grab "Impr. (Top) %" or similar columns
+// that start the same way but aren't the impressions count itself.
+const COL_PATTERNS={campaign_group_name:/^(?!.*status)campaign.?group/i,campaign_name:/^(?!.*status)(ad.?set|ad.?group)/i,spend:/cost|spend|amount/i,date:/^date$|^day$|^month$/i,platform:/platform|traffic.source|channel|source/i,campaign_type:/campaign.?type/i,impressions:/^impr?\.?$|impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
 const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campaign Name (Ad Set / Ad Group)",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",campaign_type:"Campaign Type (Search/Display/Demand Gen)",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
 // Composite identity key — ad set / ad group names often repeat across different campaigns
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
@@ -89,7 +98,7 @@ function autoDetect(h){
   if(!m.campaign_name){const c=h.find(c=>/^campaign$/i.test(c.trim()));if(c&&m.campaign_group_name)m.campaign_name=c;}
   if(!m.campaign_group_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_group_name=c;}
   if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}
-  if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}
+  if(!m.date){const c=h.find(c=>/date|day|month/i.test(c));if(c)m.date=c;}
   return m;
 }
 // Infers a specific platform label (Google Search vs Google Display vs Demand Gen vs YouTube,
