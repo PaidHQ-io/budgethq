@@ -2162,7 +2162,11 @@ function computeActualsByMonth({mergedNormRows,tags,budgetDims,year}){
 function computePlatformFreshness(mergedNormRows){
   const map={};
   (mergedNormRows||[]).forEach(row=>{
-    const d=parseSpendDate(row.date);
+    // as_of_date (set at upload time via the "Data accurate through" override) takes priority
+    // over the row's own Date column — needed for range-exported platforms (Google/Bing) where
+    // Date often reflects the range's START rather than the as-of/end date the spend is actually
+    // current through. See uploadAsOf state comment in the map step for the full explanation.
+    const d=row.as_of_date?parseSpendDate(row.as_of_date):parseSpendDate(row.date);
     if(!d)return;
     const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
     if(!map[platform]||d>map[platform])map[platform]=d;
@@ -2235,12 +2239,20 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
 
     // Sum each platform's own projection rather than one blended rate — see PROJECTION NOTE.
     let platformProjectedSum=0;
+    // Platforms whose projection here was extrapolated from a single day of data across a
+    // multi-day period — i.e. pElapsedDays collapsed to 1 despite totalDays being bigger. That's
+    // exactly the failure mode a mis-mapped range-start date (instead of the true as-of date)
+    // produces: a spend total sitting on day 1 gets divided by 1 and re-multiplied by every day
+    // in the period, wildly overstating the projection. Surfaced in the UI as a warning rather
+    // than silently trusted, since one data point is a weak basis for any multi-day extrapolation.
+    const lowConfidencePlatforms=[];
     Object.entries(platformSpendMap[sk]||{}).forEach(([platform,pSpend])=>{
       const freshest=platformFreshness[platform];
       let asOf=freshest&&freshest<today?freshest:today;
       if(asOf>end)asOf=end;
       const pElapsedDays=asOf<start?0:Math.min(totalDays,Math.floor((asOf-start)/86400000)+1);
       if(pElapsedDays>0)platformProjectedSum+=(pSpend/pElapsedDays)*totalDays;
+      if(pElapsedDays===1&&totalDays>1)lowConfidencePlatforms.push(platform);
     });
     const projected=elapsedDays>0?platformProjectedSum:null;
     const dailyRate=totalDays?platformProjectedSum/totalDays:0;
@@ -2255,7 +2267,7 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
         else status="on-track";
       }
     }
-    return{segKey:sk,dims,budget,spend,actualPct,dailyRate,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0};
+    return{segKey:sk,dims,budget,spend,actualPct,dailyRate,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0,lowConfidencePlatforms};
   }).filter(s=>s.budget>0||s.spend>0).sort((a,b)=>b.spend-a.spend);
 
   const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
@@ -2805,7 +2817,12 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
-                      <div style={{fontFamily:"Inter,sans-serif",color:T.text}}>{seg.projected!=null?fmtFull(seg.projected):"—"}</div>
+                      <div style={{fontFamily:"Inter,sans-serif",color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
+                        {seg.projected!=null?fmtFull(seg.projected):"—"}
+                        {seg.lowConfidencePlatforms?.length>0&&(
+                          <WarnTip T={T} text={`Projection may be unreliable — ${seg.lowConfidencePlatforms.join(", ")} only has a single as-of data point for this period, so its spend is being extrapolated across every day instead of an actual daily rate. Check that platform's Date/"Data accurate through" mapping.`}/>
+                        )}
+                      </div>
                       {seg.projectedVariance!=null&&<div style={{fontSize:10,color:seg.projectedVariance>0?T.danger:T.success,fontFamily:"Inter,sans-serif"}}>{fmtSigned(seg.projectedVariance)}</div>}
                     </td>
                     <td style={{padding:"8px 14px",borderBottom:rbb}}>
@@ -2892,6 +2909,13 @@ export default function BudgetHQ(){
   const[headers,setHeaders]=useState([]);
   const[colMap,setColMap]=useState({});
   const[uploadPlatform,setUploadPlatform]=useState("auto"); // "auto" or specific platform
+  // Explicit "data accurate through" override for this upload — see PROJECTION NOTE near
+  // computePlatformFreshness. Needed because platforms like Google/Bing can only be exported as a
+  // cumulative date RANGE (daily API pulls aren't allowed), and whatever gets mapped to the Date
+  // column is often the range's START, not the as-of/end date the spend figure is actually current
+  // through. Left blank, freshness keeps falling back to row dates as before (no behavior change
+  // for platforms — LinkedIn, Capterra — whose Date column already reflects true daily data).
+  const[uploadAsOf,setUploadAsOf]=useState("");
   const[editingPlatform,setEditingPlatform]=useState(null); // campaign name being edited
   const PLATFORM_OPTIONS=["auto","Google","Meta","LinkedIn","Bing","Capterra","Reddit","Pinterest","TikTok","YouTube","Other"];
   const[mergedNormRows,setMergedNormRows]=useState([]); // normalized rows across ALL platform uploads
@@ -3798,6 +3822,15 @@ export default function BudgetHQ(){
                   {PLATFORM_OPTIONS.map(p=><option key={p} value={p}>{p==="auto"?"— Auto-detect from data —":p}</option>)}
                 </Sel>
               </div>
+              {/* Data-as-of override — see uploadAsOf state comment for why this exists */}
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",background:T.accentBg}}>
+                <div>
+                  <span style={{fontSize:13,fontWeight:500,color:T.text}}>Data accurate through</span>
+                  <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Optional. Set this if the file covers a date RANGE (e.g. Google/Bing) — use the actual last day of spend, not the range's start date. Leave blank for true daily data.</div>
+                </div>
+                <input type="date" value={uploadAsOf} onChange={e=>setUploadAsOf(e.target.value)}
+                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+              </div>
               {[...REQUIRED_COLS,...OPTIONAL_COLS].map((field,i)=>{
                 // Hide platform column mapping if a specific platform is selected
                 if(field==="platform"&&uploadPlatform!=="auto")return null;
@@ -3815,10 +3848,12 @@ export default function BudgetHQ(){
               <Btn onClick={()=>{
                 const norm=normalizeRows(rawRows,colMap);
                 const withPlatform=uploadPlatform==="auto"?norm:norm.map(r=>({...r,platform:uploadPlatform}));
-                setMergedNormRows(prev=>mergeRows(prev,withPlatform));
-                checkpoint(`Imported spend data — ${fileName||"CSV"} (${withPlatform.length} rows)`,"tagger_import");
-                showNotif(`Added ${withPlatform.length} rows — merged with existing data`);
+                const withAsOf=uploadAsOf?withPlatform.map(r=>({...r,as_of_date:uploadAsOf})):withPlatform;
+                setMergedNormRows(prev=>mergeRows(prev,withAsOf));
+                checkpoint(`Imported spend data — ${fileName||"CSV"} (${withAsOf.length} rows)`,"tagger_import");
+                showNotif(`Added ${withAsOf.length} rows — merged with existing data`);
                 setUploadPlatform("auto");
+                setUploadAsOf("");
                 setStep("tag");
               }} disabled={!canProceed} variant="primary" T={T} size="md">Continue to tagging →</Btn>
             </div>
