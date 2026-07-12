@@ -21,13 +21,17 @@
  * "getapp", and "software advice" (note the space). A key only covering "capterra" undercounts
  * total spend substantially, so every campaign is queried against all three and merged.
  *
- * AGGREGATION NOTE: the API can return multiple rows for the same category on the same date,
- * broken out by country (confirmed live — e.g. two "Spreadsheet" rows on the same date, one
- * per country, each with its own cost). mergeRows() upstream (src/BudgetHQ.jsx) de-dupes by
- * campaign_group_name + campaign_name + date and OVERWRITES on a collision rather than summing
- * — so this connector pre-aggregates (sums cost/clicks) down to one row per
- * campaign+category+channel+date before returning, otherwise country-level splits would
- * silently disappear on merge.
+ * campaign_name (the ad set/ad group equivalent in BudgetHQ) is Capterra's `product_name` field
+ * (e.g. "Jet Reports", "Spreadsheet Server") — the named product within the campaign, not the
+ * category or channel. Falls back to `category` only if a row is ever missing product_name.
+ *
+ * AGGREGATION NOTE: the API can return multiple rows for the same product on the same date,
+ * broken out by channel and/or country (confirmed live — e.g. two "Spreadsheet" rows on the
+ * same date, one per country, each with its own cost). mergeRows() upstream (src/BudgetHQ.jsx)
+ * de-dupes by campaign_group_name + campaign_name + date and OVERWRITES on a collision rather
+ * than summing — so this connector pre-aggregates (sums cost/clicks) down to one row per
+ * campaign+product+date before returning, otherwise those channel/country splits would silently
+ * disappear on merge instead of adding up to the true total.
  *
  * Pagination: no scroll/cursor field was observed in any confirmed response, just an unopened
  * `meta` object of unknown shape. This connector does a single request per campaign per channel
@@ -89,8 +93,7 @@ export async function getSpend({ startDate, endDate }) {
             // Prefer the campaign name Capterra itself reports (authoritative) over our own
             // env-var label, falling back to the label only if the response ever omits it.
             const group = c.campaign_name || campaignLabel;
-            const category = c.category || c.product_name || "General";
-            const leaf = `${category} (${c.channel || channel})`;
+            const leaf = c.product_name || c.category || "General";
             const key = `${group}||${leaf}||${date}`;
             const clickCount = parseInt(c.clicks, 10) || 0;
             const prior = agg.get(key);
