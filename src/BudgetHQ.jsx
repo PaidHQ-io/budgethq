@@ -3438,6 +3438,18 @@ export default function BudgetHQ(){
     setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);setBudgetImportMeta({});
     try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta"].forEach(k=>localStorage.removeItem(k));}catch(e){}
   }
+  // Per-channel clear — same idea as "Delete from dataset" in the Tagger's multi-select toolbar
+  // (bulkRemoveCampaigns), just reachable from Settings without having to filter/select rows by
+  // hand first. Only drops spend rows for that platform; tags on a campaign are left as-is (same
+  // convention as bulkRemoveCampaigns/the Tagger's single-row delete) — if that campaign's other
+  // rows are gone too, it just won't appear until re-imported, at which point it'll need retagging.
+  const clearPlatformData=(platform,rowCount)=>{
+    if(!rowCount)return;
+    if(!window.confirm(`Clear all "${platform}" spend data?\n\nThis removes ${rowCount.toLocaleString()} spend row${rowCount===1?"":"s"} for ${platform} from the Tagger. Tags are kept — a campaign only disappears here if none of its rows are left. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here.`))return;
+    snapshotNow(`Before clearing ${platform} data`,"pre_clear");
+    setMergedNormRows(prev=>prev.filter(r=>derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type)!==platform));
+    showNotif(`${platform} data cleared — ${rowCount.toLocaleString()} row${rowCount===1?"":"s"} removed`);
+  };
 
   // ── Export (the ··· menu's "Export [view]" + "Email a copy") ──
   // dashboard/tagger/budget/pacing each build their own report from state that already lives in
@@ -4042,6 +4054,15 @@ export default function BudgetHQ(){
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
+        const platformBreakdown=(()=>{
+          const map={};
+          mergedNormRows.forEach(r=>{
+            const p=derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type);
+            if(!map[p])map[p]={platform:p,rows:0,spend:0,campaigns:new Set()};
+            map[p].rows++;map[p].spend+=r.spend;map[p].campaigns.add(campaignKey(r.campaign_group_name,r.campaign_name));
+          });
+          return Object.values(map).map(m=>({platform:m.platform,rows:m.rows,spend:m.spend,campaigns:m.campaigns.size})).sort((a,b)=>b.spend-a.spend);
+        })();
         const rowSection=({title,desc,stat,action,label,disabled})=>(
           <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
             <div>
@@ -4079,6 +4100,26 @@ export default function BudgetHQ(){
                   stat:`${mergedNormRows.length.toLocaleString()} spend rows · ${Object.keys(tags).length.toLocaleString()} tagged campaigns`,
                   action:clearTaggerData,label:"Clear Tagger data",disabled:!mergedNormRows.length&&!Object.keys(tags).length,
                 })}
+                {platformBreakdown.length>0&&(
+                  <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px"}}>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Clear Tagger data by channel</div>
+                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480,marginBottom:14}}>Remove just one platform's spend rows — handy if you imported the wrong file and need to isolate and undo it. Tags are kept; a campaign only disappears once none of its rows are left.</div>
+                    <div>
+                      {platformBreakdown.map((p,i)=>(
+                        <div key={p.platform} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"10px 0",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                            <span style={{width:8,height:8,borderRadius:"50%",background:PLATFORM_COLORS[p.platform]||T.textMuted,flexShrink:0}}/>
+                            <div style={{minWidth:0}}>
+                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{p.platform}</div>
+                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{p.rows.toLocaleString()} row{p.rows===1?"":"s"} · {p.campaigns.toLocaleString()} campaign{p.campaigns===1?"":"s"} · {fmt$(p.spend)}</div>
+                            </div>
+                          </div>
+                          <Btn onClick={()=>clearPlatformData(p.platform,p.rows)} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Clear</Btn>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {rowSection({
                   title:"Clear Budget data",
                   desc:"Removes every budget allocation, segment, and annotation dimension across all years. Tagged campaign data is kept.",
