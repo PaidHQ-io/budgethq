@@ -3170,21 +3170,27 @@ export default function BudgetHQ(){
   },[tags]);
   const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);},[handleFile]);
 
-  // Auto-default "Data accurate through" for coarse-grained exports (Google/Bing report one row
-  // per month — e.g. "Jul-26" or "2026-07-01" repeated across thousands of rows — rather than a
-  // real per-day date). Runs off colMap.date (the field actually being used), not the raw
-  // auto-detect result, because Google's "Month" header doesn't match the auto-detect pattern
-  // (/^date$|^day$/i) — it only gets mapped once you pick it manually in the dropdown below, and
-  // that has to be able to trigger this too, not just the initial auto-detect at file-parse time.
-  // Fewer than ~15 distinct values across the file is a strong signal it's month-level, not daily,
-  // so default to yesterday (matching Mo's actual export habit: always pull through the day before
-  // today, since today isn't finished yet). Genuinely daily exports (LinkedIn, Capterra CSVs, or
-  // any file with real day-by-day rows) have far more distinct dates and are left blank. Only
-  // fires when the field is still blank, so it never overwrites a value you've already set.
+  // Auto-default "Data accurate through" for month-grain exports (Google/Bing report one row per
+  // ad group PER MONTH — e.g. "Jul-26" — not a real per-day date). Runs off colMap.date (the field
+  // actually being used), not the raw auto-detect result, because Google's "Month" header doesn't
+  // match the auto-detect pattern (/^date$|^day$/i) — it only gets mapped once picked manually in
+  // the dropdown below, and that has to be able to trigger this too, not just the initial
+  // auto-detect at file-parse time.
+  //
+  // Detection: a distinct-value COUNT threshold doesn't work here — Google's own exports are often
+  // a full historical dump (one row per ad group per month, going back many months/years), so a
+  // real file can easily have 15+ distinct month labels even though every single one is month-grain,
+  // not daily. The reliable signal instead: every unique date value parses to the 1st of its month.
+  // Real daily data (LinkedIn, Capterra, or any file with genuine per-day rows) will have dates
+  // scattered across day 1-31 and essentially never satisfy that for real data. Only fires when the
+  // field is still blank, so it never overwrites a value already set.
   useEffect(()=>{
     if(!colMap.date||!rawRows.length||uploadAsOf)return;
     const uniqueDates=new Set(rawRows.map(row=>(row[colMap.date]||"").trim()).filter(Boolean));
-    if(uniqueDates.size>0&&uniqueDates.size<15){
+    if(!uniqueDates.size)return;
+    const parsedDates=[...uniqueDates].map(v=>parseSpendDate(v)).filter(Boolean);
+    const looksMonthly=parsedDates.length>0&&parsedDates.every(d=>d.getDate()===1);
+    if(looksMonthly){
       const y=new Date();y.setDate(y.getDate()-1);
       setUploadAsOf(`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`);
     }
