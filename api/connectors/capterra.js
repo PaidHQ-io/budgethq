@@ -6,20 +6,29 @@
  * account manager team (Vendor Portal → pick a campaign → API docs → "Email Account Manager").
  * CAPTERRA_API_KEYS holds all of them as one JSON object, so adding a new product later is
  * just an env var edit, not a code change:
- *   CAPTERRA_API_KEYS = {"Auth0":"key1","EZ Lease":"key2","insightsoftware - Financial Reporting":"key3"}
+ *   CAPTERRA_API_KEYS = {"Auth0":"key1","insightsoftware - Financial Reporting":"key2"}
  *
  * Request/response shape below is confirmed against real requests run from the Vendor Portal's
  * own docs page (2026-07), not guessed:
- *   GET https://public-api.capterra.com/v2/clicks?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&channel=<channel>&include_conversion_type=false
+ *   GET https://public-api.capterra.com/v2/clicks?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&include_conversion_type=false
  *   Header: Authorization: <raw api key>  (no "Bearer " prefix, no custom header name)
  *   Response: { clicks: [{date_of_report, campaign_name, product_name, category, channel,
  *               country, campaign_id, cost, clicks, avg_cpc, avg_position, conversions,
- *               conversion_rate, cpl, landing_page, conversions_by_type}], meta: {...} }
+ *               conversion_rate, cpl, landing_page, conversions_by_type}], meta: {next?: string} }
  *
- * `channel` is a single-value filter, not a label — one API key's spend is split across three
- * separate Gartner Digital Markets properties (confirmed via live test requests): "capterra",
- * "getapp", and "software advice" (note the space). A key only covering "capterra" undercounts
- * total spend substantially, so every campaign is queried against all three and merged.
+ * `channel` (Capterra/GetApp/Software Advice) is left OFF the request entirely — confirmed live
+ * that an unfiltered request returns rows spanning all three Gartner Digital Markets properties
+ * in a single response (each row carries its own `channel` field), so querying per channel isn't
+ * necessary. An earlier version of this connector queried each of the three channel values
+ * separately and merged — harmless, but not the actual source of the undercount below.
+ *
+ * PAGINATION (this WAS the source of a ~5x undercount, found 2026-07): the API paginates via
+ * `meta.next`, a full URL with a `cursor` param, present whenever more results remain — confirmed
+ * live that one page for a ~6-month range only covered the most recent ~3 weeks. This connector
+ * follows `meta.next` until it's absent, capped at MAX_PAGES as a runaway guard. Skipping this
+ * (the original implementation only read `data.clicks` from page 1) silently dropped most of the
+ * year's data, and dropped a different amount per campaign depending on that campaign's daily
+ * volume — which is why the undercount wasn't a clean multiplier across products.
  *
  * campaign_name (the ad set/ad group equivalent in BudgetHQ) is Capterra's `product_name` field
  * (e.g. "Jet Reports", "Spreadsheet Server") — the named product within the campaign, not the
@@ -38,34 +47,35 @@
  * before returning, otherwise those channel/country splits would silently disappear on merge
  * instead of adding up to the true total.
  *
- * Pagination: no scroll/cursor field was observed in any confirmed response, just an unopened
- * `meta` object of unknown shape. This connector does a single request per campaign per channel
- * per sync. If a very large date range ever looks truncated, check what's inside `meta`.
- *
  * Also worth knowing: Capterra's own docs note click data isn't final until the monthly
  * invoice is issued, so numbers pulled mid-month may be a slight overstatement versus the
  * eventual invoice.
  */
 
 const BASE = "https://public-api.capterra.com/v2";
-const CHANNELS = ["capterra", "getapp", "software advice"];
+const MAX_PAGES = 200; // runaway guard — a normal sync is a handful of pages per key
 
-async function fetchClicksForKey(apiKey, startDate, endDate, channel) {
-  const params = new URLSearchParams({
+async function fetchAllClicksForKey(apiKey, startDate, endDate) {
+  const rows = [];
+  let url = `${BASE}/clicks?${new URLSearchParams({
     start_date: startDate,
     end_date: endDate,
-    channel,
     include_conversion_type: "false",
-  });
-  const res = await fetch(`${BASE}/clicks?${params.toString()}`, {
-    headers: {
-      accept: "application/json",
-      Authorization: apiKey,
-    },
-  });
-  if (!res.ok) throw new Error(`Capterra API ${res.status} (channel=${channel}): ${await res.text()}`);
-  const data = await res.json();
-  return data.clicks || [];
+  }).toString()}`;
+
+  for (let page = 0; url && page < MAX_PAGES; page++) {
+    const res = await fetch(url, {
+      headers: {
+        accept: "application/json",
+        Authorization: apiKey,
+      },
+    });
+    if (!res.ok) throw new Error(`Capterra API ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    rows.push(...(data.clicks || []));
+    url = data.meta?.next || null;
+  }
+  return rows;
 }
 
 export async function getSpend({ startDate, endDate }) {
@@ -86,53 +96,50 @@ export async function getSpend({ startDate, endDate }) {
   const errors = [];
 
   await Promise.all(
-    campaigns.flatMap(([campaignLabel, apiKey]) =>
-      CHANNELS.map(async (channel) => {
-        try {
-          const clicks = await fetchClicksForKey(apiKey, startDate, endDate, channel);
-          clicks.forEach((c) => {
-            const cost = parseFloat(c.cost ?? 0) || 0;
-            if (cost <= 0) return;
-            const date = c.date_of_report;
-            if (!date) return;
-            // Prefer the campaign name Capterra itself reports (authoritative) over our own
-            // env-var label, falling back to the label only if the response ever omits it.
-            const group = c.campaign_name || campaignLabel;
-            const leaf = c.product_name || c.category || "General";
-            const key = `${group}||${leaf}||${date}`;
-            const clickCount = parseInt(c.clicks, 10) || 0;
-            const prior = agg.get(key);
-            if (prior) {
-              prior.spend = Math.round((prior.spend + cost) * 100) / 100;
-              prior.clicks += clickCount;
-            } else {
-              agg.set(key, {
-                campaign_group_name: group,
-                campaign_name: leaf,
-                campaign_id: c.campaign_id != null ? String(c.campaign_id) : `capterra-${group}-${leaf}`.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-                platform: "Capterra",
-                date,
-                spend: Math.round(cost * 100) / 100,
-                impressions: 0,
-                clicks: clickCount,
-              });
-            }
-          });
-        } catch (err) {
-          errors.push(`${campaignLabel} (${channel}): ${err.message}`);
-        }
-      })
-    )
+    campaigns.map(async ([campaignLabel, apiKey]) => {
+      try {
+        const clicks = await fetchAllClicksForKey(apiKey, startDate, endDate);
+        clicks.forEach((c) => {
+          const cost = parseFloat(c.cost ?? 0) || 0;
+          if (cost <= 0) return;
+          const date = c.date_of_report;
+          if (!date) return;
+          // Prefer the campaign name Capterra itself reports (authoritative) over our own
+          // env-var label, falling back to the label only if the response ever omits it.
+          const group = c.campaign_name || campaignLabel;
+          const leaf = c.product_name || c.category || "General";
+          const key = `${group}||${leaf}||${date}`;
+          const clickCount = parseInt(c.clicks, 10) || 0;
+          const prior = agg.get(key);
+          if (prior) {
+            prior.spend = Math.round((prior.spend + cost) * 100) / 100;
+            prior.clicks += clickCount;
+          } else {
+            agg.set(key, {
+              campaign_group_name: group,
+              campaign_name: leaf,
+              campaign_id: c.campaign_id != null ? String(c.campaign_id) : `capterra-${group}-${leaf}`.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+              platform: "Capterra",
+              date,
+              spend: Math.round(cost * 100) / 100,
+              impressions: 0,
+              clicks: clickCount,
+            });
+          }
+        });
+      } catch (err) {
+        errors.push(`${campaignLabel}: ${err.message}`);
+      }
+    })
   );
 
   const allRows = Array.from(agg.values());
   if (!allRows.length && errors.length) {
     throw new Error(`Capterra sync failed for all campaigns — ${errors.join("; ")}`);
   }
-  // Partial failure (some campaign/channel combos worked, some didn't) still returns what
-  // succeeded rather than blocking the whole sync — logged server-side so a bad key or a
-  // hiccup on one channel doesn't silently vanish, it just shows up in Vercel's function
-  // logs instead of the UI.
+  // Partial failure (some campaigns worked, some didn't) still returns what succeeded rather
+  // than blocking the whole sync — logged server-side so a bad key or a hiccup doesn't silently
+  // vanish, it just shows up in Vercel's function logs instead of the UI.
   if (errors.length) console.error("[capterra] partial failure:", errors.join(" | "));
 
   return allRows;
