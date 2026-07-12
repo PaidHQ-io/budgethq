@@ -2999,6 +2999,11 @@ export default function BudgetHQ(){
   const[nameVersionInput,setNameVersionInput]=useState("");
   const[pendingVersionLabel,setPendingVersionLabel]=useState(null); // {label,trigger} — set right after a mutation, consumed once state has actually settled (see effect below)
 
+  // ── Settings → Clear Tagger data by date range ──
+  const[clearRangePlatform,setClearRangePlatform]=useState("all");
+  const[clearRangeStart,setClearRangeStart]=useState("");
+  const[clearRangeEnd,setClearRangeEnd]=useState("");
+
   // ── Export (CSV/XLSX/PDF/HTML downloads + email) ──
   const[emailExportOpen,setEmailExportOpen]=useState(false);
   const[emailExportFormat,setEmailExportFormat]=useState("pdf");
@@ -3449,6 +3454,30 @@ export default function BudgetHQ(){
     snapshotNow(`Before clearing ${platform} data`,"pre_clear");
     setMergedNormRows(prev=>prev.filter(r=>derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type)!==platform));
     showNotif(`${platform} data cleared — ${rowCount.toLocaleString()} row${rowCount===1?"":"s"} removed`);
+  };
+  // Date-range-scoped clear — closes the gap platform-level clear doesn't cover: redoing or
+  // purging just one slice of time (e.g. "March's Google data was wrong, but April/May are fine")
+  // without touching everything else for that platform. Matches on row.date, same parseSpendDate
+  // used everywhere else, so it's consistent with how spend gets bucketed into periods elsewhere.
+  const clearRangeMatch=useCallback(r=>{
+    if(clearRangePlatform!=="all"&&derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type)!==clearRangePlatform)return false;
+    const d=parseSpendDate(r.date);
+    if(!d)return false;
+    if(clearRangeStart){const s=parseSpendDate(clearRangeStart);if(s&&d<s)return false;}
+    if(clearRangeEnd){const e=parseSpendDate(clearRangeEnd);if(e&&d>e)return false;}
+    return true;
+  },[clearRangePlatform,clearRangeStart,clearRangeEnd]);
+  const clearDateRangeData=()=>{
+    const matches=mergedNormRows.filter(clearRangeMatch);
+    if(!matches.length)return;
+    const campaignCount=new Set(matches.map(r=>campaignKey(r.campaign_group_name,r.campaign_name))).size;
+    const platLabel=clearRangePlatform==="all"?"all platforms":clearRangePlatform;
+    const rangeLabel=`${clearRangeStart||"the beginning"} through ${clearRangeEnd||"today"}`;
+    if(!window.confirm(`Clear spend data for ${platLabel}, ${rangeLabel}?\n\nThis removes ${matches.length.toLocaleString()} spend row${matches.length===1?"":"s"} across ${campaignCount.toLocaleString()} campaign${campaignCount===1?"":"s"}. Tags are kept — a campaign only disappears here if none of its rows are left. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here.`))return;
+    snapshotNow(`Before clearing ${platLabel} data (${rangeLabel})`,"pre_clear");
+    setMergedNormRows(prev=>prev.filter(r=>!clearRangeMatch(r)));
+    showNotif(`Cleared ${matches.length.toLocaleString()} row${matches.length===1?"":"s"} for ${platLabel}, ${rangeLabel}`);
+    setClearRangeStart("");setClearRangeEnd("");
   };
 
   // ── Export (the ··· menu's "Export [view]" + "Email a copy") ──
@@ -4118,6 +4147,45 @@ export default function BudgetHQ(){
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+                {mergedNormRows.length>0&&(
+                  <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px"}}>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Clear Tagger data by date range</div>
+                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>Remove spend rows within a specific date range, optionally scoped to one platform — e.g. redo or purge just one month without touching the rest. Tags are kept; a campaign only disappears once none of its rows are left.</div>
+                    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
+                      <div>
+                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Platform</div>
+                        <Sel value={clearRangePlatform} onChange={setClearRangePlatform} T={T} style={{width:180}}>
+                          <option value="all">All platforms</option>
+                          {platformBreakdown.map(p=><option key={p.platform} value={p.platform}>{p.platform}</option>)}
+                        </Sel>
+                      </div>
+                      <div>
+                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"Inter,sans-serif"}}>From</div>
+                        <input type="date" value={clearRangeStart} onChange={e=>setClearRangeStart(e.target.value)}
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Through</div>
+                        <input type="date" value={clearRangeEnd} onChange={e=>setClearRangeEnd(e.target.value)}
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                      </div>
+                    </div>
+                    {(()=>{
+                      const matches=mergedNormRows.filter(clearRangeMatch);
+                      const campaignCount=new Set(matches.map(r=>campaignKey(r.campaign_group_name,r.campaign_name))).size;
+                      const spend=matches.reduce((s,r)=>s+r.spend,0);
+                      const hasRange=clearRangeStart||clearRangeEnd;
+                      return(
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
+                          <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>
+                            {hasRange?`${matches.length.toLocaleString()} row${matches.length===1?"":"s"} · ${campaignCount.toLocaleString()} campaign${campaignCount===1?"":"s"} · ${fmt$(spend)} match this range`:"Pick a start and/or end date to see what matches"}
+                          </div>
+                          <Btn onClick={clearDateRangeData} variant="danger" size="sm" T={T} disabled={!hasRange||!matches.length} style={{flexShrink:0}}>Clear range</Btn>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 {rowSection({
