@@ -76,7 +76,7 @@ const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campa
 const campaignKey=(groupName,name)=>`${groupName||name||""}||${name||groupName||""}`;
 const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
-const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"}];
+const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function autoDetect(h){
@@ -298,6 +298,7 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"dots":return<svg {...p}><circle cx="5" cy="12" r="1.6" fill={color} stroke="none"/><circle cx="12" cy="12" r="1.6" fill={color} stroke="none"/><circle cx="19" cy="12" r="1.6" fill={color} stroke="none"/></svg>;
     case"mail":return<svg {...p}><path d="M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"/><path d="M3.5 7 12 13l8.5-6"/></svg>;
     case"download":return<svg {...p}><path d="M12 4v11"/><path d="M7.5 11 12 15.5 16.5 11"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>;
+    case"sparkle":return<svg {...p}><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="M12 8a4 4 0 0 0 4 4 4 4 0 0 0-4 4 4 4 0 0 0-4-4 4 4 0 0 0 4-4Z"/></svg>;
     default:return null;
   }
 };
@@ -1583,6 +1584,99 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
+// Chat UI for the Ask AI view. Keeps two parallel message lists: `messages` (display-only,
+// {role,text}) for rendering, and a ref holding the raw Anthropic-shape history (including
+// tool_use/tool_result blocks) that askAIRun() needs to keep the model aware of prior tool
+// calls across turns — those blocks aren't meant for display but do need to round-trip.
+function AskAI({T,mergedNormRows,tags,tagDims,hasData}){
+  const[messages,setMessages]=useState([]);
+  const[input,setInput]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const historyRef=useRef([]);
+  const scrollRef=useRef(null);
+
+  useEffect(()=>{if(scrollRef.current)scrollRef.current.scrollTop=scrollRef.current.scrollHeight;},[messages,loading]);
+
+  const send=useCallback(async(question)=>{
+    const q=(question||input).trim();
+    if(!q||loading)return;
+    setInput("");setError("");
+    setMessages(m=>[...m,{role:"user",text:q}]);
+    setLoading(true);
+    try{
+      const{answer,messages:newHistory}=await askAIRun({question:q,history:historyRef.current,ctx:{mergedNormRows,tags,tagDims}});
+      historyRef.current=[...newHistory,{role:"assistant",content:answer}];
+      setMessages(m=>[...m,{role:"assistant",text:answer}]);
+    }catch(err){
+      setError(err.message);
+    }finally{
+      setLoading(false);
+    }
+  },[input,loading,mergedNormRows,tags,tagDims]);
+
+  const EXAMPLES=[
+    "How much did we spend on Spreadsheet Server in January vs March?",
+    "What platform drove the most spend last month?",
+    "Break down this year's spend by Region",
+  ];
+
+  if(!hasData){
+    return(
+      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:T.bg}}>
+        <div style={{textAlign:"center",maxWidth:380}}>
+          <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",boxShadow:T.shadow}}>
+            <Icon name="sparkle" size={24} color={T.text}/>
+          </div>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI needs spend data first</div>
+          <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Import or sync spend data in the Campaign Tagger, then come back here to ask questions about it.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return(
+    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
+      <div ref={scrollRef} style={{flex:1,overflow:"auto",padding:"24px 0"}}>
+        <div style={{maxWidth:720,margin:"0 auto",padding:"0 24px"}}>
+          {messages.length===0&&(
+            <div style={{padding:"12px 0 32px"}}>
+              <div style={{fontSize:20,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI about your spend data</div>
+              <div style={{fontSize:13,color:T.textSub,marginBottom:20,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Ask in plain language — answers are pulled from your actual tagged campaigns, not guessed.</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {EXAMPLES.map(ex=>(
+                  <button key={ex} onClick={()=>send(ex)} style={{textAlign:"left",padding:"10px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                    {ex}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {messages.map((m,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:14}}>
+              <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:m.role==="user"?T.accent:T.surface,border:m.role==="user"?"none":`1px solid ${T.border}`,color:T.text,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",fontFamily:"Inter,sans-serif"}}>
+                {m.text}
+              </div>
+            </div>
+          ))}
+          {loading&&(
+            <div style={{display:"flex",justifyContent:"flex-start",marginBottom:14}}>
+              <div style={{padding:"10px 14px",borderRadius:12,background:T.surface,border:`1px solid ${T.border}`,color:T.textMuted,fontSize:13,fontFamily:"Inter,sans-serif"}}>Thinking…</div>
+            </div>
+          )}
+          {error&&<div style={{padding:"10px 14px",borderRadius:10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,marginBottom:14,fontFamily:"Inter,sans-serif"}}>{error}</div>}
+        </div>
+      </div>
+      <div style={{borderTop:`1px solid ${T.border}`,padding:16,flexShrink:0}}>
+        <div style={{maxWidth:720,margin:"0 auto",display:"flex",gap:8}}>
+          <Inp value={input} onChange={setInput} placeholder="Ask about your spend data…" T={T} onKeyDown={e=>{if(e.key==="Enter")send();}}/>
+          <Btn onClick={()=>send()} disabled={loading||!input.trim()} variant="primary" T={T}>Send</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({T,onNavigate,stats,hasData,themeKey}){
   const cardBg=themeKey==="light"?"#FFFFFF":T.surface;
   const bc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent,T.accent];
@@ -1812,6 +1906,130 @@ function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownD
   });
   const total=Object.values(map).reduce((s,v)=>s+v,0);
   return Object.entries(map).map(([value,spend])=>({value,spend,pct:total>0?spend/total:0})).sort((a,b)=>b.spend-a.spend);
+}
+
+// ─── ASK AI ───────────────────────────────────────────────────────────────────
+// Grounded query tools + tool-use loop backing the "Ask AI" chat. Rather than dumping raw
+// spend rows into a prompt and hoping the model's arithmetic is right, Claude is given a small
+// set of tools that run REAL JS aggregation (the same kind of filter+sum used by Pacing's
+// breakdown above) and can only answer from what those tools actually return — the model does
+// the natural-language understanding (parsing "January vs March", matching "EMEA" to a Region
+// tag) but never invents a number itself.
+
+// Tool schemas in Anthropic's tool-use format. Kept intentionally small (3 tools) — enough to
+// answer filtered spend questions across any tag dimension or Platform, for any date range.
+const ASK_AI_TOOLS=[
+  {
+    name:"list_tag_dimensions",
+    description:"List the tag dimension names available for filtering/grouping (e.g. Product, Region, Funnel, Pillar, plus any custom ones the user has added). \"Platform\" is always also available as a synthetic dimension even though it isn't in this list.",
+    input_schema:{type:"object",properties:{},required:[]},
+  },
+  {
+    name:"list_dimension_values",
+    description:"List the exact distinct values actually present for one dimension (a tag dimension, or \"Platform\"). ALWAYS call this before filtering on a dimension value from a user's question, since tag values are free text and spelling/capitalization must match exactly (e.g. the user might say \"emea\" but the real tag value is \"EMEA\").",
+    input_schema:{type:"object",properties:{dimension:{type:"string",description:"A dimension name from list_tag_dimensions, or \"Platform\"."}},required:["dimension"]},
+  },
+  {
+    name:"query_spend",
+    description:"Get total spend/clicks/impressions for campaigns matching a set of dimension filters within a date range, optionally broken down by one more dimension. This is the only source of truth for numbers — never estimate or recall a figure without calling this.",
+    input_schema:{type:"object",properties:{
+      filters:{type:"object",description:"Map of dimension name -> exact value to filter to (use \"Platform\" as a key for platform filtering). Omit a dimension entirely to not filter on it.",additionalProperties:{type:"string"}},
+      start_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no lower bound."},
+      end_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no upper bound."},
+      group_by:{type:"string",description:"Optional dimension name (or \"Platform\") to break the total down by."},
+    },required:[]},
+  },
+];
+
+function askAIListDimensionValues({mergedNormRows,tags,dimension}){
+  const vals=new Set();
+  const isPlatform=dimension.toLowerCase()==="platform";
+  mergedNormRows.forEach(row=>{
+    if(isPlatform){
+      vals.add(derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type));
+    }else{
+      const key=campaignKey(row.campaign_group_name,row.campaign_name);
+      const v=(tags[key]||{})[dimension];
+      if(v)vals.add(v);
+    }
+  });
+  return Array.from(vals).sort();
+}
+
+function askAIQuerySpend({mergedNormRows,tags,filters,startDate,endDate,groupBy}){
+  const start=startDate?parseSpendDate(startDate):null;
+  const end=endDate?parseSpendDate(endDate):null;
+  const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
+  const groupMap={};
+  const seenCampaigns=new Set();
+  let totalSpend=0,totalClicks=0,totalImpr=0;
+  mergedNormRows.forEach(row=>{
+    const d=parseSpendDate(row.date);
+    if(start&&(!d||d<start))return;
+    if(end&&(!d||d>end))return;
+    const key=campaignKey(row.campaign_group_name,row.campaign_name);
+    const rowTags=tags[key]||{};
+    const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+    const matches=filterEntries.every(([dim,val])=>{
+      const actual=dim.toLowerCase()==="platform"?platform:(rowTags[dim]||"");
+      return actual.toLowerCase()===String(val).toLowerCase();
+    });
+    if(!matches)return;
+    totalSpend+=row.spend||0;totalClicks+=row.clicks||0;totalImpr+=row.impressions||0;
+    seenCampaigns.add(key);
+    if(groupBy){
+      const gv=groupBy.toLowerCase()==="platform"?platform:(rowTags[groupBy]||"Untagged");
+      groupMap[gv]=(groupMap[gv]||0)+(row.spend||0);
+    }
+  });
+  const result={
+    total_spend:Math.round(totalSpend*100)/100,
+    total_clicks:totalClicks,
+    total_impressions:totalImpr,
+    campaign_count:seenCampaigns.size,
+  };
+  if(groupBy){
+    result.breakdown=Object.entries(groupMap).sort((a,b)=>b[1]-a[1]).map(([value,spend])=>({value,spend:Math.round(spend*100)/100}));
+  }
+  return result;
+}
+
+// Executes one tool_use block against the app's actual in-memory data — this is what keeps
+// answers grounded, since the model never sees raw rows, only what these return.
+function askAIExecuteTool(toolName,input,ctx){
+  if(toolName==="list_tag_dimensions")return{dimensions:ctx.tagDims};
+  if(toolName==="list_dimension_values")return{values:askAIListDimensionValues({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,dimension:input.dimension})};
+  if(toolName==="query_spend")return askAIQuerySpend({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,filters:input.filters,startDate:input.start_date,endDate:input.end_date,groupBy:input.group_by});
+  return{error:`Unknown tool: ${toolName}`};
+}
+
+// Runs the full tool-use loop against /api/analyze: send the conversation, execute any tool
+// calls the model makes against real local data, send the results back, repeat until the model
+// gives a final text answer. Capped at MAX_TOOL_ROUNDS as a runaway guard.
+const ASK_AI_MAX_ROUNDS=6;
+async function askAIRun({question,history,ctx}){
+  const today=new Date().toISOString().slice(0,10);
+  const system=`You are answering questions about the user's paid-media spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform" is always available). Dates for query_spend must be YYYY-MM-DD. Always use the tools to get real numbers — never state a spend figure you didn't get from query_spend. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. Answer conversationally and concisely, citing the actual numbers returned.`;
+  const messages=[...history,{role:"user",content:question}];
+  for(let round=0;round<ASK_AI_MAX_ROUNDS;round++){
+    const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200})});
+    const data=await res.json();
+    if(!res.ok)throw new Error(data?.error||"Ask AI request failed");
+    if(data.stop_reason!=="tool_use"){
+      return{answer:data.text||"(no response)",messages};
+    }
+    messages.push({role:"assistant",content:data.content});
+    const toolResults=[];
+    for(const block of data.content){
+      if(block.type!=="tool_use")continue;
+      let output;
+      try{output=askAIExecuteTool(block.name,block.input||{},ctx);}
+      catch(err){output={error:err.message};}
+      toolResults.push({type:"tool_result",tool_use_id:block.id,content:JSON.stringify(output)});
+    }
+    messages.push({role:"user",content:toolResults});
+  }
+  throw new Error("Ask AI took too many steps without a final answer");
 }
 
 // One pass over mergedNormRows producing {segKey: {monthKey: actualSpend}} for a given calendar
@@ -2542,6 +2760,11 @@ export default function BudgetHQ(){
   },[]);
   const[fStatus,setFStatus]=useState("all");
   const fileRef=useRef();
+  const screenshotRef=useRef();
+  const[screenshotProcessing,setScreenshotProcessing]=useState(false);
+  const[screenshotError,setScreenshotError]=useState("");
+  const[screenshotPreview,setScreenshotPreview]=useState([]); // rows extracted from an image, pending confirm
+  const[screenshotFileName,setScreenshotFileName]=useState("");
 
   const[budgets,setBudgets]=useState({});
   const[budgetDims,setBudgetDims]=useState([]);
@@ -2632,7 +2855,7 @@ export default function BudgetHQ(){
     const bm=localStorage.getItem("paidhq_budget_meta");if(bm)setBudgetRowMeta(JSON.parse(bm));
     const bmd=localStorage.getItem("paidhq_budget_meta_dims");if(bmd)setBudgetMetaDims(JSON.parse(bmd));
     const bim=localStorage.getItem("paidhq_budget_import_meta");if(bim)setBudgetImportMeta(JSON.parse(bim));
-    const v=localStorage.getItem("paidhq_view");if(v&&["dashboard","tagger","budget","pacing","settings"].includes(v))setView(v);
+    const v=localStorage.getItem("paidhq_view");if(v&&["dashboard","tagger","budget","pacing","settings","ask"].includes(v))setView(v);
     const le=localStorage.getItem("paidhq_last_export_email");if(le)setEmailExportTo(le);
     // Restore spend data — legacy rows predate campaign_group_name, so backfill it from
     // campaign_name (matches how normalizeRows falls back when a CSV has no second level).
@@ -2722,6 +2945,62 @@ export default function BudgetHQ(){
     }});
   },[tags]);
   const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);},[handleFile]);
+
+  // Screenshot-to-data: sends the image to Claude (vision, via /api/analyze) with instructions
+  // to extract whatever spend rows it can read into the same shape normalizeRows() produces for
+  // a CSV upload, then lands in a review step (screenshotPreview) — never auto-committed, since
+  // vision extraction from a photo/screenshot can misread a digit or a column in a way a person
+  // reviewing the source CSV directly wouldn't. Confirming pushes it through mergeRows() exactly
+  // like a normal CSV import would.
+  const handleScreenshotFile=useCallback(file=>{
+    if(!file)return;
+    setScreenshotFileName(file.name);setScreenshotError("");setScreenshotProcessing(true);
+    const reader=new FileReader();
+    reader.onload=async e=>{
+      try{
+        const dataUrl=String(e.target.result||"");
+        const m=dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+        if(!m)throw new Error("Could not read image file");
+        const[,mediaType,base64]=m;
+        const prompt=`You are extracting advertising spend data from a screenshot of a report, dashboard, or spreadsheet. Look at the image and extract every row of spend data you can find.\n\nFor each row, output an object with these fields (use "" or 0 for anything not visible/applicable):\n{"campaign_group_name": <campaign or product name>, "campaign_name": <ad set/ad group/sub-item name, or same as campaign_group_name if there's no second level shown>, "platform": <ad platform if identifiable, e.g. "Google", "Meta", "LinkedIn", "Capterra", "Bing", else "">, "date": <YYYY-MM-DD if a specific day is shown, or YYYY-MM-01 if only a month/period is shown>, "spend": <numeric spend/cost, no currency symbols or commas>, "impressions": <numeric, 0 if not shown>, "clicks": <numeric, 0 if not shown>}\n\nReturn ONLY a JSON array of these objects, no markdown fences, no explanation. If a table has a grand-total row, skip it — only extract individual line items. If you can't confidently read any spend data, return [].`;
+        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+          messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:prompt}]}],
+          maxTokens:4000,
+        })});
+        const data=await res.json();
+        if(!res.ok)throw new Error(data?.error||"Screenshot analysis failed");
+        const parsed=JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim());
+        if(!Array.isArray(parsed))throw new Error("Unexpected response shape from AI");
+        const rows=parsed.map(r=>({
+          campaign_group_name:String(r.campaign_group_name||"").trim(),
+          campaign_name:String(r.campaign_name||r.campaign_group_name||"").trim(),
+          platform:String(r.platform||"").trim()||"Unknown",
+          campaign_type:"",
+          date:String(r.date||"").trim(),
+          spend:parseFloat(r.spend)||0,
+          impressions:parseInt(r.impressions,10)||0,
+          clicks:parseInt(r.clicks,10)||0,
+        })).filter(r=>r.campaign_group_name&&r.spend>0);
+        if(!rows.length)throw new Error("Couldn't find any spend rows in that screenshot — try a clearer image or a wider crop.");
+        setScreenshotPreview(rows);
+        setStep("screenshot");
+      }catch(err){
+        setScreenshotError(err.message);
+      }finally{
+        setScreenshotProcessing(false);
+      }
+    };
+    reader.onerror=()=>{setScreenshotError("Could not read image file");setScreenshotProcessing(false);};
+    reader.readAsDataURL(file);
+  },[]);
+  const handleScreenshotDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleScreenshotFile(f);},[handleScreenshotFile]);
+  const confirmScreenshotImport=useCallback(()=>{
+    setMergedNormRows(prev=>mergeRows(prev,screenshotPreview));
+    checkpoint(`Imported spend data from screenshot — ${screenshotFileName||"image"} (${screenshotPreview.length} rows)`,"tagger_import");
+    showNotif(`Added ${screenshotPreview.length} rows from screenshot — merged with existing data`);
+    setScreenshotPreview([]);setScreenshotFileName("");
+    setStep("tag");
+  },[screenshotPreview,screenshotFileName,checkpoint]);
 
   // "key" is the composite identity (campaign group + campaign) used everywhere tags/selection
   // are looked up — ad set/ad group names often repeat across different campaigns, so the leaf
@@ -3243,8 +3522,8 @@ export default function BudgetHQ(){
               )}
             </div>
 
-            {/* Two import options */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
+            {/* Three import options */}
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:16,marginBottom:24}}>
               <PixelPanel T={T} contentStyle={{background:T.surface,padding:"16px"}}>
                 <div style={{marginBottom:8}}><Icon name="chart" size={22} color={T.text}/></div>
                 <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Spend data</div>
@@ -3254,6 +3533,17 @@ export default function BudgetHQ(){
                   <div style={{fontSize:12,fontWeight:600,color:T.accent}}>Drop CSV or click to browse</div>
                   <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
                 </div>
+              </PixelPanel>
+              <PixelPanel T={T} contentStyle={{background:T.surface,padding:"16px"}}>
+                <div style={{marginBottom:8}}><Icon name="sparkle" size={22} color={T.text}/></div>
+                <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Screenshot</div>
+                <div style={{fontSize:12,color:T.textMuted,marginBottom:12,lineHeight:1.5}}>Share a screenshot of a spend report — AI reads it into data</div>
+                <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleScreenshotDrop} onClick={()=>!screenshotProcessing&&screenshotRef.current?.click()}
+                  style={{border:`1.5px dashed ${dragOver?T.accent:T.borderStrong}`,borderRadius:10,padding:"14px",textAlign:"center",cursor:screenshotProcessing?"default":"pointer",background:dragOver?T.accentBg:"transparent",transition:"all 0.15s"}}>
+                  <div style={{fontSize:12,fontWeight:600,color:T.accent}}>{screenshotProcessing?"Reading screenshot…":"Drop image or click to browse"}</div>
+                  <input ref={screenshotRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleScreenshotFile(e.target.files[0])}/>
+                </div>
+                {screenshotError&&<div style={{marginTop:8,fontSize:11,color:T.danger}}>{screenshotError}</div>}
               </PixelPanel>
               <PixelPanel T={T} onClick={()=>{setView("budget");}} contentStyle={{background:T.surface,padding:"16px",cursor:"pointer"}}>
                 <div style={{marginBottom:8}}><Icon name="wallet" size={22} color={T.text}/></div>
@@ -3272,6 +3562,45 @@ export default function BudgetHQ(){
               </div>
             </PixelPanel>
           </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── SCREENSHOT PREVIEW ── */}
+      {step==="screenshot"&&(
+        <div style={{flex:1,overflow:"auto"}}>
+          <div style={{maxWidth:720,margin:"0 auto",padding:isMobile?"16px":"32px 24px"}}>
+            <div style={{marginBottom:22}}>
+              <h2 style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4}}>Review extracted data</h2>
+              <p style={{fontSize:13,color:T.textSub}}><strong style={{color:T.text,fontWeight:600}}>{screenshotFileName}</strong> · {screenshotPreview.length.toLocaleString()} rows found — check these against the screenshot before adding.</p>
+            </div>
+            <PixelPanel T={T} style={{marginBottom:18}} contentStyle={{background:T.surface,overflow:"hidden"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 90px 90px 90px",padding:"8px 16px",borderBottom:`1px solid ${T.border}`,background:T.headerBg}}>
+                <SectionLabel T={T} style={{marginBottom:0}}>Campaign</SectionLabel>
+                <SectionLabel T={T} style={{marginBottom:0}}>Ad Set / Group</SectionLabel>
+                <SectionLabel T={T} style={{marginBottom:0}}>Platform</SectionLabel>
+                <SectionLabel T={T} style={{marginBottom:0}}>Date</SectionLabel>
+                <SectionLabel T={T} style={{marginBottom:0}}>Spend</SectionLabel>
+              </div>
+              <div style={{maxHeight:420,overflow:"auto"}}>
+                {screenshotPreview.map((r,i)=>(
+                  <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 90px 90px 90px",padding:"7px 16px",borderBottom:`1px dashed ${T.borderStrong}`,alignItems:"center",gap:4}}>
+                    <div style={{fontSize:11,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaign_group_name}</div>
+                    <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaign_name}</div>
+                    <div style={{fontSize:11,color:T.textSub}}>{r.platform}</div>
+                    <div style={{fontSize:11,color:T.textSub}}>{r.date}</div>
+                    <div style={{fontSize:12,fontWeight:600,color:T.text}}>{fmt$(r.spend)}</div>
+                  </div>
+                ))}
+              </div>
+            </PixelPanel>
+            <div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>
+              ✓ <strong>{screenshotPreview.length}</strong> rows · <strong>{fmt$(screenshotPreview.reduce((s,r)=>s+r.spend,0))}</strong> total spend — this was read by AI and may contain mistakes, double-check against the source before confirming.
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <Btn onClick={()=>{setScreenshotPreview([]);setScreenshotFileName("");setStep("upload");}} variant="ghost" T={T}>← Cancel</Btn>
+              <Btn onClick={confirmScreenshotImport} variant="primary" T={T} size="md">Add {screenshotPreview.length} rows →</Btn>
+            </div>
           </div>
         </div>
       )}
@@ -3448,6 +3777,7 @@ export default function BudgetHQ(){
       {view==="dashboard"&&<Dashboard T={T} themeKey={themeKey} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
       {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl}/>}
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
+      {view==="ask"&&<AskAI T={T} mergedNormRows={mergedNormRows} tags={tags} tagDims={tagDims} hasData={mergedNormRows.length>0}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
