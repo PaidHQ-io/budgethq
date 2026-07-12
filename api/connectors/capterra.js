@@ -8,22 +8,30 @@
  * just an env var edit, not a code change:
  *   CAPTERRA_API_KEYS = {"Auth0":"key1","EZ Lease":"key2","insightsoftware - Financial Reporting":"key3"}
  *
- * Request/response shape below is confirmed against a real request run from the Vendor Portal's
+ * Request/response shape below is confirmed against real requests run from the Vendor Portal's
  * own docs page (2026-07), not guessed:
- *   GET https://public-api.capterra.com/v2/clicks?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&channel=capterra&include_conversion_type=false
+ *   GET https://public-api.capterra.com/v2/clicks?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&channel=<channel>&include_conversion_type=false
  *   Header: Authorization: <raw api key>  (no "Bearer " prefix, no custom header name)
  *   Response: { clicks: [{date_of_report, campaign_name, product_name, category, channel,
  *               country, campaign_id, cost, clicks, avg_cpc, avg_position, conversions,
  *               conversion_rate, cpl, landing_page, conversions_by_type}], meta: {...} }
  *
- * `channel` is hardcoded to "capterra" — Gartner Digital Markets keys can apparently also cover
- * GetApp and Software Advice clicks under the same vendor account, which this connector doesn't
- * pull today. Worth revisiting if those channels matter later.
+ * `channel` is a single-value filter, not a label — one API key's spend is split across three
+ * separate Gartner Digital Markets properties (confirmed via live test requests): "capterra",
+ * "getapp", and "software advice" (note the space). A key only covering "capterra" undercounts
+ * total spend substantially, so every campaign is queried against all three and merged.
  *
- * Pagination: the confirmed response didn't include a scroll/cursor field at the top level of
- * `clicks`, just an unopened `meta` object of unknown shape. This connector does a single
- * request per campaign per sync for now. If a very large date range ever looks truncated,
- * check what's inside `meta` — that's almost certainly where a page cursor would live.
+ * AGGREGATION NOTE: the API can return multiple rows for the same category on the same date,
+ * broken out by country (confirmed live — e.g. two "Spreadsheet" rows on the same date, one
+ * per country, each with its own cost). mergeRows() upstream (src/BudgetHQ.jsx) de-dupes by
+ * campaign_group_name + campaign_name + date and OVERWRITES on a collision rather than summing
+ * — so this connector pre-aggregates (sums cost/clicks) down to one row per
+ * campaign+category+channel+date before returning, otherwise country-level splits would
+ * silently disappear on merge.
+ *
+ * Pagination: no scroll/cursor field was observed in any confirmed response, just an unopened
+ * `meta` object of unknown shape. This connector does a single request per campaign per channel
+ * per sync. If a very large date range ever looks truncated, check what's inside `meta`.
  *
  * Also worth knowing: Capterra's own docs note click data isn't final until the monthly
  * invoice is issued, so numbers pulled mid-month may be a slight overstatement versus the
@@ -31,12 +39,13 @@
  */
 
 const BASE = "https://public-api.capterra.com/v2";
+const CHANNELS = ["capterra", "getapp", "software advice"];
 
-async function fetchClicksForKey(apiKey, startDate, endDate) {
+async function fetchClicksForKey(apiKey, startDate, endDate, channel) {
   const params = new URLSearchParams({
     start_date: startDate,
     end_date: endDate,
-    channel: "capterra",
+    channel,
     include_conversion_type: "false",
   });
   const res = await fetch(`${BASE}/clicks?${params.toString()}`, {
@@ -45,7 +54,7 @@ async function fetchClicksForKey(apiKey, startDate, endDate) {
       Authorization: apiKey,
     },
   });
-  if (!res.ok) throw new Error(`Capterra API ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`Capterra API ${res.status} (channel=${channel}): ${await res.text()}`);
   const data = await res.json();
   return data.clicks || [];
 }
@@ -62,45 +71,63 @@ export async function getSpend({ startDate, endDate }) {
   const campaigns = Object.entries(keyMap);
   if (!campaigns.length) throw new Error("CAPTERRA_API_KEYS has no campaigns configured");
 
-  const allRows = [];
+  // Keyed by campaign_group_name+campaign_name+date and summed as rows come in — see
+  // AGGREGATION NOTE above for why this can't just push every row and let mergeRows() dedupe.
+  const agg = new Map();
   const errors = [];
+
   await Promise.all(
-    campaigns.map(async ([campaignLabel, apiKey]) => {
-      try {
-        const clicks = await fetchClicksForKey(apiKey, startDate, endDate);
-        clicks.forEach((c) => {
-          const cost = parseFloat(c.cost ?? 0) || 0;
-          if (cost <= 0) return;
-          // Prefer the campaign name Capterra itself reports (authoritative) over our own
-          // env-var label, falling back to the label only if the response ever omits it.
-          const group = c.campaign_name || campaignLabel;
-          const leaf = c.category || c.product_name || "General";
-          allRows.push({
-            campaign_group_name: group,
-            campaign_name: leaf,
-            campaign_id: c.campaign_id != null ? String(c.campaign_id) : `capterra-${group}-${leaf}`.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-            platform: "Capterra",
-            date: c.date_of_report || null,
-            spend: Math.round(cost * 100) / 100,
-            impressions: 0,
-            clicks: parseInt(c.clicks, 10) || 0,
+    campaigns.flatMap(([campaignLabel, apiKey]) =>
+      CHANNELS.map(async (channel) => {
+        try {
+          const clicks = await fetchClicksForKey(apiKey, startDate, endDate, channel);
+          clicks.forEach((c) => {
+            const cost = parseFloat(c.cost ?? 0) || 0;
+            if (cost <= 0) return;
+            const date = c.date_of_report;
+            if (!date) return;
+            // Prefer the campaign name Capterra itself reports (authoritative) over our own
+            // env-var label, falling back to the label only if the response ever omits it.
+            const group = c.campaign_name || campaignLabel;
+            const category = c.category || c.product_name || "General";
+            const leaf = `${category} (${c.channel || channel})`;
+            const key = `${group}||${leaf}||${date}`;
+            const clickCount = parseInt(c.clicks, 10) || 0;
+            const prior = agg.get(key);
+            if (prior) {
+              prior.spend = Math.round((prior.spend + cost) * 100) / 100;
+              prior.clicks += clickCount;
+            } else {
+              agg.set(key, {
+                campaign_group_name: group,
+                campaign_name: leaf,
+                campaign_id: c.campaign_id != null ? String(c.campaign_id) : `capterra-${group}-${leaf}`.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+                platform: "Capterra",
+                date,
+                spend: Math.round(cost * 100) / 100,
+                impressions: 0,
+                clicks: clickCount,
+              });
+            }
           });
-        });
-      } catch (err) {
-        errors.push(`${campaignLabel}: ${err.message}`);
-      }
-    })
+        } catch (err) {
+          errors.push(`${campaignLabel} (${channel}): ${err.message}`);
+        }
+      })
+    )
   );
 
+  const allRows = Array.from(agg.values());
   if (!allRows.length && errors.length) {
     throw new Error(`Capterra sync failed for all campaigns — ${errors.join("; ")}`);
   }
-  // Partial failure (some campaigns worked, some didn't) still returns what succeeded rather
-  // than blocking the whole sync — logged server-side so a bad/expired key for one product
-  // doesn't silently vanish, it just shows up in Vercel's function logs instead of the UI.
+  // Partial failure (some campaign/channel combos worked, some didn't) still returns what
+  // succeeded rather than blocking the whole sync — logged server-side so a bad key or a
+  // hiccup on one channel doesn't silently vanish, it just shows up in Vercel's function
+  // logs instead of the UI.
   if (errors.length) console.error("[capterra] partial failure:", errors.join(" | "));
 
-  return allRows.filter((r) => r.date);
+  return allRows;
 }
 
 export const meta = {
