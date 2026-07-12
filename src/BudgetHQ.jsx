@@ -2910,11 +2910,12 @@ export default function BudgetHQ(){
   const[colMap,setColMap]=useState({});
   const[uploadPlatform,setUploadPlatform]=useState("auto"); // "auto" or specific platform
   // Explicit "data accurate through" override for this upload — see PROJECTION NOTE near
-  // computePlatformFreshness. Needed because platforms like Google/Bing can only be exported as a
-  // cumulative date RANGE (daily API pulls aren't allowed), and whatever gets mapped to the Date
-  // column is often the range's START, not the as-of/end date the spend figure is actually current
-  // through. Left blank, freshness keeps falling back to row dates as before (no behavior change
-  // for platforms — LinkedIn, Capterra — whose Date column already reflects true daily data).
+  // computePlatformFreshness. Needed because Google/Bing exports (manual only — daily API pulls
+  // aren't allowed) report ONE ROW PER MONTH — the Date column is a month label like "Jan-26" or
+  // "2026-01-01", not a real per-day date — even though the spend figure itself is accurate
+  // spend-to-date (Mo always pulls through the day before export). Auto-defaulted to yesterday
+  // for files that look month-grained (see handleFile), editable, and left blank for files with
+  // real daily dates (LinkedIn, Capterra), where freshness keeps using row dates as before.
   const[uploadAsOf,setUploadAsOf]=useState("");
   const[editingPlatform,setEditingPlatform]=useState(null); // campaign name being edited
   const PLATFORM_OPTIONS=["auto","Google","Meta","LinkedIn","Bing","Capterra","Reddit","Pinterest","TikTok","YouTube","Other"];
@@ -3132,13 +3133,28 @@ export default function BudgetHQ(){
   const handleFile=useCallback(file=>{
     if(!file)return;setFileName(file.name);
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
-      setRawRows(r.data);setHeaders(r.meta.fields||[]);setColMap(autoDetect(r.meta.fields||[]));
+      const detected=autoDetect(r.meta.fields||[]);
+      setRawRows(r.data);setHeaders(r.meta.fields||[]);setColMap(detected);
       // Carry-forward: count how many campaigns already have tags
       const existingTagCount=r.data.reduce((count,row)=>{
-        const name=(row[autoDetect(r.meta.fields||[]).campaign_group_name]||"").trim();
+        const name=(row[detected.campaign_group_name]||"").trim();
         return count+(name&&Object.keys(tags[name]||{}).length>0?1:0);
       },0);
       if(existingTagCount>0) showNotif(`${existingTagCount} campaigns already tagged from previous session`);
+      // Auto-default "Data accurate through" for coarse-grained exports (Google/Bing report one
+      // row per month — e.g. "Jan-26" or "2026-01-01" repeated across thousands of rows — rather
+      // than a real per-day date). Fewer than ~15 distinct date values across a file this size is
+      // a strong signal it's month-level, not daily, so default to yesterday (matching Mo's actual
+      // export habit: always pull through the day before today, since today isn't finished yet).
+      // Genuinely daily exports (LinkedIn, Capterra CSVs, or any file with real day-by-day rows)
+      // will have far more distinct dates and are left blank, same as before.
+      const uniqueDates=new Set(r.data.map(row=>(row[detected.date]||"").trim()).filter(Boolean));
+      if(uniqueDates.size>0&&uniqueDates.size<15){
+        const y=new Date();y.setDate(y.getDate()-1);
+        setUploadAsOf(`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`);
+      }else{
+        setUploadAsOf("");
+      }
       setStep("map");
     }});
   },[tags]);
@@ -3826,7 +3842,7 @@ export default function BudgetHQ(){
               <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",background:T.accentBg}}>
                 <div>
                   <span style={{fontSize:13,fontWeight:500,color:T.text}}>Data accurate through</span>
-                  <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Optional. Set this if the file covers a date RANGE (e.g. Google/Bing) — use the actual last day of spend, not the range's start date. Leave blank for true daily data.</div>
+                  <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Auto-filled to yesterday when this file looks like a monthly export (Google/Bing report one row per month, e.g. "Jan-26" — not a real daily date). Adjust if you pulled the data on a different day than today, or clear it if this file actually has real per-day rows.</div>
                 </div>
                 <input type="date" value={uploadAsOf} onChange={e=>setUploadAsOf(e.target.value)}
                   style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
