@@ -7,53 +7,47 @@
  * CAPTERRA_API_KEYS holds all of them as one JSON object, so adding a new product later is
  * just an env var edit, not a code change:
  *   CAPTERRA_API_KEYS = {"Auth0":"key1","EZ Lease":"key2","insightsoftware - Financial Reporting":"key3"}
- * Each object key becomes that campaign's campaign_group_name in BudgetHQ.
  *
- * VERIFICATION NEEDED: Capterra's CORS policy blocks testing this endpoint from anywhere but
- * their own docs page, so this is built against the endpoint's documented v1 field shape
- * (cost, clicks, date, category, country, channel — confirmed via a major ad-reporting
- * platform's public integration docs) rather than something we could test directly. The
- * Vendor Portal shows a v2 endpoint, which is assumed to be response-compatible but hasn't
- * been confirmed. Search this file for "VERIFY" for the exact spots to check once a real key
- * is available — auth header name/scheme and the date-range query param names are the two
- * genuine guesses here.
+ * Request/response shape below is confirmed against a real request run from the Vendor Portal's
+ * own docs page (2026-07), not guessed:
+ *   GET https://public-api.capterra.com/v2/clicks?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&channel=capterra&include_conversion_type=false
+ *   Header: Authorization: <raw api key>  (no "Bearer " prefix, no custom header name)
+ *   Response: { clicks: [{date_of_report, campaign_name, product_name, category, channel,
+ *               country, campaign_id, cost, clicks, avg_cpc, avg_position, conversions,
+ *               conversion_rate, cpl, landing_page, conversions_by_type}], meta: {...} }
+ *
+ * `channel` is hardcoded to "capterra" — Gartner Digital Markets keys can apparently also cover
+ * GetApp and Software Advice clicks under the same vendor account, which this connector doesn't
+ * pull today. Worth revisiting if those channels matter later.
+ *
+ * Pagination: the confirmed response didn't include a scroll/cursor field at the top level of
+ * `clicks`, just an unopened `meta` object of unknown shape. This connector does a single
+ * request per campaign per sync for now. If a very large date range ever looks truncated,
+ * check what's inside `meta` — that's almost certainly where a page cursor would live.
  *
  * Also worth knowing: Capterra's own docs note click data isn't final until the monthly
  * invoice is issued, so numbers pulled mid-month may be a slight overstatement versus the
  * eventual invoice.
- *
- * Endpoint: GET https://public-api.capterra.com/v2/clicks
- * Docs: sign in to the Capterra Vendor Portal → pick a campaign → API docs
  */
 
 const BASE = "https://public-api.capterra.com/v2";
 
 async function fetchClicksForKey(apiKey, startDate, endDate) {
-  const rows = [];
-  let scrollId = null;
-  do {
-    const params = new URLSearchParams({
-      // VERIFY: confirm these date-range param names against a real v2 response — guessed
-      // from the "date_of_report" field name the response itself is documented to use.
-      date_of_report_start: startDate,
-      date_of_report_end: endDate,
-    });
-    if (scrollId) params.set("scroll_id", scrollId);
-    const res = await fetch(`${BASE}/clicks?${params.toString()}`, {
-      headers: {
-        // VERIFY: the Vendor Portal's "Authorize" dialog asks for an "api_key" value but
-        // doesn't publicly document whether it's sent as a header (and under what name) or
-        // a query param — this guesses header.
-        api_key: apiKey,
-      },
-    });
-    if (!res.ok) throw new Error(`Capterra API ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    const page = data.clicks || data.results || data.data || [];
-    rows.push(...page);
-    scrollId = data.scroll_id || null;
-  } while (scrollId);
-  return rows;
+  const params = new URLSearchParams({
+    start_date: startDate,
+    end_date: endDate,
+    channel: "capterra",
+    include_conversion_type: "false",
+  });
+  const res = await fetch(`${BASE}/clicks?${params.toString()}`, {
+    headers: {
+      accept: "application/json",
+      Authorization: apiKey,
+    },
+  });
+  if (!res.ok) throw new Error(`Capterra API ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return data.clicks || [];
 }
 
 export async function getSpend({ startDate, endDate }) {
@@ -71,26 +65,29 @@ export async function getSpend({ startDate, endDate }) {
   const allRows = [];
   const errors = [];
   await Promise.all(
-    campaigns.map(async ([campaignName, apiKey]) => {
+    campaigns.map(async ([campaignLabel, apiKey]) => {
       try {
         const clicks = await fetchClicksForKey(apiKey, startDate, endDate);
         clicks.forEach((c) => {
-          const cost = parseFloat(c.cost ?? c.total_cost ?? 0) || 0;
+          const cost = parseFloat(c.cost ?? 0) || 0;
           if (cost <= 0) return;
-          const category = c.category || "General";
+          // Prefer the campaign name Capterra itself reports (authoritative) over our own
+          // env-var label, falling back to the label only if the response ever omits it.
+          const group = c.campaign_name || campaignLabel;
+          const leaf = c.category || c.product_name || "General";
           allRows.push({
-            campaign_group_name: campaignName,
-            campaign_name: category,
-            campaign_id: `capterra-${campaignName}-${category}`.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+            campaign_group_name: group,
+            campaign_name: leaf,
+            campaign_id: c.campaign_id != null ? String(c.campaign_id) : `capterra-${group}-${leaf}`.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
             platform: "Capterra",
-            date: c.date || c.date_of_report || null,
+            date: c.date_of_report || null,
             spend: Math.round(cost * 100) / 100,
             impressions: 0,
             clicks: parseInt(c.clicks, 10) || 0,
           });
         });
       } catch (err) {
-        errors.push(`${campaignName}: ${err.message}`);
+        errors.push(`${campaignLabel}: ${err.message}`);
       }
     })
   );
