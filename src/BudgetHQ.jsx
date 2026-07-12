@@ -299,6 +299,9 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"mail":return<svg {...p}><path d="M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"/><path d="M3.5 7 12 13l8.5-6"/></svg>;
     case"download":return<svg {...p}><path d="M12 4v11"/><path d="M7.5 11 12 15.5 16.5 11"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>;
     case"sparkle":return<svg {...p}><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="M12 8a4 4 0 0 0 4 4 4 4 0 0 0-4 4 4 4 0 0 0-4-4 4 4 0 0 0 4-4Z"/></svg>;
+    case"send":return<svg {...p}><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>;
+    case"plus":return<svg {...p}><path d="M12 5v14M5 12h14"/></svg>;
+    case"history":return<svg {...p}><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg>;
     default:return null;
   }
 };
@@ -1583,43 +1586,86 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   );
 }
 
-// ─── DASHBOARD ────────────────────────────────────────────────────────────────
-// Chat UI for the Ask AI view. Keeps two parallel message lists: `messages` (display-only,
-// {role,text}) for rendering, and a ref holding the raw Anthropic-shape history (including
-// tool_use/tool_result blocks) that askAIRun() needs to keep the model aware of prior tool
-// calls across turns — those blocks aren't meant for display but do need to round-trip.
-function AskAI({T,mergedNormRows,tags,tagDims,hasData}){
-  const[messages,setMessages]=useState([]);
+// ─── ASK AI CHAT UI ───────────────────────────────────────────────────────────
+// A larger, rotating pool of example prompts — 3 are sampled fresh each time a blank/new chat
+// is shown, rather than the same 3 every time, and lean toward questions that actually show off
+// what the grounded tool-use can do (comparisons, breakdowns, trends), not just a single lookup.
+const ASK_AI_EXAMPLE_POOL=[
+  "How much did we spend on Spreadsheet Server in January vs March?",
+  "Which product had the highest spend last quarter?",
+  "Compare Google vs LinkedIn spend in EMEA this year",
+  "What's our total spend broken down by Region?",
+  "Which platform drove the most spend last month?",
+  "How did Demand Gen spend trend month over month?",
+  "What percentage of spend went to APAC vs NA this year?",
+  "Break down Capterra spend by product for this year",
+  "Which Funnel stage got the most spend in Q1?",
+  "Compare this month's spend to last month by Platform",
+];
+function pickAskAIExamples(){
+  const pool=[...ASK_AI_EXAMPLE_POOL];
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+  return pool.slice(0,3);
+}
+
+// Chat UI for the Ask AI view. Chats are lifted to the parent (askChats/setAskChats) so they
+// persist to localStorage the same way tags/budgets/spend data already do — surviving both
+// in-app navigation and a full page reload. activeAskChatId===null is the "blank/new chat"
+// state; a chat record only gets created in askChats once its first message actually sends, so
+// clicking "New chat" repeatedly doesn't leave a trail of empty entries behind.
+function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activeAskChatId,setActiveAskChatId}){
   const[input,setInput]=useState("");
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
-  const historyRef=useRef([]);
+  const[historyOpen,setHistoryOpen]=useState(false);
+  const[examples,setExamples]=useState(pickAskAIExamples);
   const scrollRef=useRef(null);
+  const taRef=useRef(null);
+
+  const activeChat=askChats.find(c=>c.id===activeAskChatId)||null;
+  const messages=activeChat?.messages||[];
 
   useEffect(()=>{if(scrollRef.current)scrollRef.current.scrollTop=scrollRef.current.scrollHeight;},[messages,loading]);
+  useEffect(()=>{if(taRef.current){taRef.current.style.height="auto";taRef.current.style.height=Math.min(taRef.current.scrollHeight,140)+"px";}},[input]);
+
+  const startNewChat=useCallback(()=>{setActiveAskChatId(null);setHistoryOpen(false);setExamples(pickAskAIExamples());setError("");},[setActiveAskChatId]);
+  const deleteChat=useCallback((id,e)=>{
+    e?.stopPropagation();
+    setAskChats(prev=>prev.filter(c=>c.id!==id));
+    if(activeAskChatId===id)setActiveAskChatId(null);
+  },[activeAskChatId,setAskChats,setActiveAskChatId]);
 
   const send=useCallback(async(question)=>{
     const q=(question||input).trim();
     if(!q||loading)return;
     setInput("");setError("");
-    setMessages(m=>[...m,{role:"user",text:q}]);
+    let chatId=activeAskChatId;
+    let priorMessages=[];
+    let priorHistory=[];
+    if(chatId){
+      const existing=askChats.find(c=>c.id===chatId);
+      priorMessages=existing?.messages||[];
+      priorHistory=existing?.history||[];
+    }else{
+      chatId=`chat_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      const title=q.length>60?q.slice(0,57)+"…":q;
+      setAskChats(prev=>[{id:chatId,title,messages:[],history:[],updatedAt:Date.now()},...prev]);
+      setActiveAskChatId(chatId);
+    }
+    const newMessages=[...priorMessages,{role:"user",text:q}];
+    setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:newMessages,updatedAt:Date.now()}:c));
     setLoading(true);
     try{
-      const{answer,messages:newHistory}=await askAIRun({question:q,history:historyRef.current,ctx:{mergedNormRows,tags,tagDims}});
-      historyRef.current=[...newHistory,{role:"assistant",content:answer}];
-      setMessages(m=>[...m,{role:"assistant",text:answer}]);
+      const{answer,messages:newHistory}=await askAIRun({question:q,history:priorHistory,ctx:{mergedNormRows,tags,tagDims}});
+      const finalHistory=[...newHistory,{role:"assistant",content:answer}];
+      const finalMessages=[...newMessages,{role:"assistant",text:answer}];
+      setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
     }catch(err){
       setError(err.message);
     }finally{
       setLoading(false);
     }
-  },[input,loading,mergedNormRows,tags,tagDims]);
-
-  const EXAMPLES=[
-    "How much did we spend on Spreadsheet Server in January vs March?",
-    "What platform drove the most spend last month?",
-    "Break down this year's spend by Region",
-  ];
+  },[input,loading,activeAskChatId,askChats,mergedNormRows,tags,tagDims,setAskChats,setActiveAskChatId]);
 
   if(!hasData){
     return(
@@ -1635,48 +1681,103 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData}){
     );
   }
 
+  const composer=(
+    <div style={{display:"flex",alignItems:"flex-end",gap:8,background:T.surface,border:`1px solid ${T.borderStrong}`,borderRadius:22,padding:"8px 8px 8px 20px",boxShadow:T.shadowMd}}>
+      <textarea
+        ref={taRef}
+        value={input}
+        onChange={e=>setInput(e.target.value)}
+        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
+        placeholder="Ask about your spend data…"
+        rows={1}
+        style={{flex:1,resize:"none",border:"none",outline:"none",background:"transparent",color:T.text,fontSize:15,lineHeight:1.55,fontFamily:"Inter,sans-serif",padding:"8px 0",maxHeight:140,overflow:"auto"}}
+      />
+      <button onClick={()=>send()} disabled={loading||!input.trim()}
+        style={{width:36,height:36,borderRadius:"50%",background:input.trim()&&!loading?T.accent:T.surfaceEl,border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:input.trim()&&!loading?"pointer":"default",flexShrink:0,transition:"background 0.15s"}}>
+        <Icon name="send" size={16} color={input.trim()&&!loading?T.text:T.textMuted}/>
+      </button>
+    </div>
+  );
+
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
-      <div ref={scrollRef} style={{flex:1,overflow:"auto",padding:"24px 0"}}>
-        <div style={{maxWidth:720,margin:"0 auto",padding:"0 24px"}}>
-          {messages.length===0&&(
-            <div style={{padding:"12px 0 32px"}}>
-              <div style={{fontSize:20,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI about your spend data</div>
-              <div style={{fontSize:13,color:T.textSub,marginBottom:20,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Ask in plain language — answers are pulled from your actual tagged campaigns, not guessed.</div>
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                {EXAMPLES.map(ex=>(
-                  <button key={ex} onClick={()=>send(ex)} style={{textAlign:"left",padding:"10px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
-                    {ex}
-                  </button>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 24px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6,fontFamily:"Inter,sans-serif"}}>
+          <Icon name="sparkle" size={15} color={T.text}/> Ask AI
+        </div>
+        <div style={{display:"flex",gap:8,position:"relative"}}>
+          <Btn onClick={()=>setHistoryOpen(o=>!o)} variant="ghost" size="sm" T={T} style={{gap:6}}>
+            <Icon name="history" size={13} color={T.text}/> History{askChats.length>0?` (${askChats.length})`:""}
+          </Btn>
+          <Btn onClick={startNewChat} variant="ghost" size="sm" T={T} style={{gap:6}}>
+            <Icon name="plus" size={13} color={T.text}/> New chat
+          </Btn>
+          {historyOpen&&(
+            <>
+              <div onClick={()=>setHistoryOpen(false)} style={{position:"fixed",inset:0,zIndex:35}}/>
+              <div style={{position:"absolute",top:"120%",right:0,width:300,maxHeight:380,overflow:"auto",background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,boxShadow:T.shadowLg,zIndex:40}}>
+                {askChats.length===0&&<div style={{padding:18,fontSize:12,color:T.textMuted,textAlign:"center",fontFamily:"Inter,sans-serif"}}>No past chats yet</div>}
+                {[...askChats].sort((a,b)=>b.updatedAt-a.updatedAt).map(c=>(
+                  <div key={c.id} onClick={()=>{setActiveAskChatId(c.id);setHistoryOpen(false);}}
+                    style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"10px 14px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:c.id===activeAskChatId?T.rowSelected:"transparent"}}>
+                    <span style={{fontSize:12,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,fontFamily:"Inter,sans-serif"}}>{c.title}</span>
+                    <span onClick={e=>deleteChat(c.id,e)} title="Delete chat"
+                      style={{color:T.textMuted,cursor:"pointer",fontSize:14,padding:"2px 4px",flexShrink:0,lineHeight:1}}>✕</span>
+                  </div>
                 ))}
               </div>
-            </div>
+            </>
           )}
-          {messages.map((m,i)=>(
-            <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:14}}>
-              <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:m.role==="user"?T.accent:T.surface,border:m.role==="user"?"none":`1px solid ${T.border}`,color:T.text,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",fontFamily:"Inter,sans-serif"}}>
-                {m.text}
-              </div>
-            </div>
-          ))}
-          {loading&&(
-            <div style={{display:"flex",justifyContent:"flex-start",marginBottom:14}}>
-              <div style={{padding:"10px 14px",borderRadius:12,background:T.surface,border:`1px solid ${T.border}`,color:T.textMuted,fontSize:13,fontFamily:"Inter,sans-serif"}}>Thinking…</div>
-            </div>
-          )}
-          {error&&<div style={{padding:"10px 14px",borderRadius:10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,marginBottom:14,fontFamily:"Inter,sans-serif"}}>{error}</div>}
         </div>
       </div>
-      <div style={{borderTop:`1px solid ${T.border}`,padding:16,flexShrink:0}}>
-        <div style={{maxWidth:720,margin:"0 auto",display:"flex",gap:8}}>
-          <Inp value={input} onChange={setInput} placeholder="Ask about your spend data…" T={T} onKeyDown={e=>{if(e.key==="Enter")send();}}/>
-          <Btn onClick={()=>send()} disabled={loading||!input.trim()} variant="primary" T={T}>Send</Btn>
+
+      {messages.length===0?(
+        <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+          <div style={{width:"100%",maxWidth:640}}>
+            <div style={{textAlign:"center",marginBottom:24}}>
+              <div style={{fontSize:22,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI about your spend data</div>
+              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Ask in plain language — answers are pulled from your actual tagged campaigns, not guessed.</div>
+            </div>
+            {composer}
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
+              {examples.map(ex=>(
+                <button key={ex} onClick={()=>send(ex)} style={{textAlign:"left",padding:"10px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                  {ex}
+                </button>
+              ))}
+            </div>
+            {error&&<div style={{marginTop:14,padding:"10px 14px",borderRadius:10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,fontFamily:"Inter,sans-serif"}}>{error}</div>}
+          </div>
         </div>
-      </div>
+      ):(
+        <>
+          <div ref={scrollRef} style={{flex:1,overflow:"auto",padding:"24px 0"}}>
+            <div style={{maxWidth:720,margin:"0 auto",padding:"0 24px"}}>
+              {messages.map((m,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:14}}>
+                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:m.role==="user"?T.accent:T.surface,border:m.role==="user"?"none":`1px solid ${T.border}`,color:T.text,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",fontFamily:"Inter,sans-serif"}}>
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+              {loading&&(
+                <div style={{display:"flex",justifyContent:"flex-start",marginBottom:14}}>
+                  <div style={{padding:"10px 14px",borderRadius:12,background:T.surface,border:`1px solid ${T.border}`,color:T.textMuted,fontSize:13,fontFamily:"Inter,sans-serif"}}>Thinking…</div>
+                </div>
+              )}
+              {error&&<div style={{padding:"10px 14px",borderRadius:10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,marginBottom:14,fontFamily:"Inter,sans-serif"}}>{error}</div>}
+            </div>
+          </div>
+          <div style={{borderTop:`1px solid ${T.border}`,padding:"14px 16px 18px",flexShrink:0}}>
+            <div style={{maxWidth:720,margin:"0 auto"}}>{composer}</div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function Dashboard({T,onNavigate,stats,hasData,themeKey}){
   const cardBg=themeKey==="light"?"#FFFFFF":T.surface;
   const bc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent,T.accent];
@@ -2765,6 +2866,12 @@ export default function BudgetHQ(){
   const[screenshotError,setScreenshotError]=useState("");
   const[screenshotPreview,setScreenshotPreview]=useState([]); // rows extracted from an image, pending confirm
   const[screenshotFileName,setScreenshotFileName]=useState("");
+  // Ask AI chats — {id,title,messages,history,updatedAt}[], persisted to localStorage same as
+  // everything else in the app. activeAskChatId=null means "viewing a blank/new chat"; a chat
+  // record is only actually created (and added to askChats) once its first message is sent, so
+  // clicking "New chat" repeatedly doesn't pile up empty entries.
+  const[askChats,setAskChats]=useState([]);
+  const[activeAskChatId,setActiveAskChatId]=useState(null);
 
   const[budgets,setBudgets]=useState({});
   const[budgetDims,setBudgetDims]=useState([]);
@@ -2857,6 +2964,8 @@ export default function BudgetHQ(){
     const bim=localStorage.getItem("paidhq_budget_import_meta");if(bim)setBudgetImportMeta(JSON.parse(bim));
     const v=localStorage.getItem("paidhq_view");if(v&&["dashboard","tagger","budget","pacing","settings","ask"].includes(v))setView(v);
     const le=localStorage.getItem("paidhq_last_export_email");if(le)setEmailExportTo(le);
+    const ac=localStorage.getItem("paidhq_ask_chats");if(ac)setAskChats(JSON.parse(ac));
+    const aid=localStorage.getItem("paidhq_ask_active_chat");if(aid)setActiveAskChatId(aid);
     // Restore spend data — legacy rows predate campaign_group_name, so backfill it from
     // campaign_name (matches how normalizeRows falls back when a CSV has no second level).
     const sr=localStorage.getItem("paidhq_rows");
@@ -2874,6 +2983,8 @@ export default function BudgetHQ(){
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta_dims",JSON.stringify(budgetMetaDims));}catch(e){};},[budgetMetaDims]);
   useEffect(()=>{try{localStorage.setItem("paidhq_view",view);}catch(e){};},[view]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_import_meta",JSON.stringify(budgetImportMeta));}catch(e){};},[budgetImportMeta]);
+  useEffect(()=>{try{localStorage.setItem("paidhq_ask_chats",JSON.stringify(askChats));}catch(e){};},[askChats]);
+  useEffect(()=>{try{if(activeAskChatId)localStorage.setItem("paidhq_ask_active_chat",activeAskChatId);else localStorage.removeItem("paidhq_ask_active_chat");}catch(e){};},[activeAskChatId]);
   useEffect(()=>{try{
     if(mergedNormRows.length){
       localStorage.setItem("paidhq_rows",JSON.stringify(mergedNormRows));
@@ -3777,7 +3888,7 @@ export default function BudgetHQ(){
       {view==="dashboard"&&<Dashboard T={T} themeKey={themeKey} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
       {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl}/>}
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
-      {view==="ask"&&<AskAI T={T} mergedNormRows={mergedNormRows} tags={tags} tagDims={tagDims} hasData={mergedNormRows.length>0}/>}
+      {view==="ask"&&<AskAI T={T} mergedNormRows={mergedNormRows} tags={tags} tagDims={tagDims} hasData={mergedNormRows.length>0} askChats={askChats} setAskChats={setAskChats} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
