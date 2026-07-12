@@ -1884,8 +1884,22 @@ function mergeRows(existing,incoming){
   return Array.from(map.values());
 }
 
+const MONTH_ABBR={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+
 // ─── PACING ENGINE ────────────────────────────────────────────────────────────
-// Robust date parser — handles "YYYY-MM-DD", "M/D/YYYY", "MM/DD/YY", and falls back to native Date parsing.
+// Robust date parser — handles "YYYY-MM-DD", "M/D/YYYY", "MM/DD/YY", month-label formats
+// (see below), "YYYY-MM", and falls back to native Date parsing for anything else.
+//
+// MONTH-LABEL FIX (2026-07): Google/Bing's manual monthly exports report one row per month, with
+// values like "Jul-26" (Google) or "2026-07-01" (Bing) rather than a real per-day date — both mean
+// "the whole month," not a specific day. "2026-07-01" was already handled fine by the YYYY-MM-DD
+// case above. "Jul-26" was NOT — it fell through to native `new Date("Jul-26")`, which (confirmed
+// directly) parses it as day=26 of a fixed default year (2001), not July 2026. That's a real bug:
+// silently sending a date decades in the past into every downstream calculation, which either drops
+// the row from every period entirely (date never falls in range) or, combined with the per-platform
+// freshness projection, feeds garbage into the pacing math. Handled explicitly now instead of
+// trusting native parsing for this ambiguous shape. Represented as the 1st of that month, same
+// convention as the existing YYYY-MM-DD handling of Bing's format.
 function parseSpendDate(v){
   if(!v)return null;
   const s=String(v).trim();
@@ -1893,6 +1907,15 @@ function parseSpendDate(v){
   if(m)return new Date(+m[1],+m[2]-1,+m[3]);
   m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if(m){let y=+m[3];if(y<100)y+=2000;return new Date(y,+m[1]-1,+m[2]);}
+  // "Jul-26", "Jul 2026", "July-2026", "Jul/26" — month name/abbreviation + 2-or-4-digit year
+  m=s.match(/^([A-Za-z]{3,9})[\s\-/]+(\d{2,4})$/);
+  if(m){
+    const mon=MONTH_ABBR[m[1].slice(0,3).toLowerCase()];
+    if(mon!=null){let y=+m[2];if(y<100)y+=2000;return new Date(y,mon,1);}
+  }
+  // "2026-07" — year-month, no day
+  m=s.match(/^(\d{4})-(\d{1,2})$/);
+  if(m)return new Date(+m[1],+m[2]-1,1);
   const d=new Date(s);
   return isNaN(d.getTime())?null:d;
 }
@@ -3141,24 +3164,31 @@ export default function BudgetHQ(){
         return count+(name&&Object.keys(tags[name]||{}).length>0?1:0);
       },0);
       if(existingTagCount>0) showNotif(`${existingTagCount} campaigns already tagged from previous session`);
-      // Auto-default "Data accurate through" for coarse-grained exports (Google/Bing report one
-      // row per month — e.g. "Jan-26" or "2026-01-01" repeated across thousands of rows — rather
-      // than a real per-day date). Fewer than ~15 distinct date values across a file this size is
-      // a strong signal it's month-level, not daily, so default to yesterday (matching Mo's actual
-      // export habit: always pull through the day before today, since today isn't finished yet).
-      // Genuinely daily exports (LinkedIn, Capterra CSVs, or any file with real day-by-day rows)
-      // will have far more distinct dates and are left blank, same as before.
-      const uniqueDates=new Set(r.data.map(row=>(row[detected.date]||"").trim()).filter(Boolean));
-      if(uniqueDates.size>0&&uniqueDates.size<15){
-        const y=new Date();y.setDate(y.getDate()-1);
-        setUploadAsOf(`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`);
-      }else{
-        setUploadAsOf("");
-      }
+      setUploadAsOf(""); // reset per-file; the effect below fills it once colMap.date is known
       setStep("map");
     }});
   },[tags]);
   const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);},[handleFile]);
+
+  // Auto-default "Data accurate through" for coarse-grained exports (Google/Bing report one row
+  // per month — e.g. "Jul-26" or "2026-07-01" repeated across thousands of rows — rather than a
+  // real per-day date). Runs off colMap.date (the field actually being used), not the raw
+  // auto-detect result, because Google's "Month" header doesn't match the auto-detect pattern
+  // (/^date$|^day$/i) — it only gets mapped once you pick it manually in the dropdown below, and
+  // that has to be able to trigger this too, not just the initial auto-detect at file-parse time.
+  // Fewer than ~15 distinct values across the file is a strong signal it's month-level, not daily,
+  // so default to yesterday (matching Mo's actual export habit: always pull through the day before
+  // today, since today isn't finished yet). Genuinely daily exports (LinkedIn, Capterra CSVs, or
+  // any file with real day-by-day rows) have far more distinct dates and are left blank. Only
+  // fires when the field is still blank, so it never overwrites a value you've already set.
+  useEffect(()=>{
+    if(!colMap.date||!rawRows.length||uploadAsOf)return;
+    const uniqueDates=new Set(rawRows.map(row=>(row[colMap.date]||"").trim()).filter(Boolean));
+    if(uniqueDates.size>0&&uniqueDates.size<15){
+      const y=new Date();y.setDate(y.getDate()-1);
+      setUploadAsOf(`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`);
+    }
+  },[colMap.date,rawRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Screenshot-to-data: sends the image to Claude (vision, via /api/analyze) with instructions
   // to extract whatever spend rows it can read into the same shape normalizeRows() produces for
