@@ -2805,6 +2805,20 @@ export default function BudgetHQ(){
   },[tags,tagDims]);
   const toggleSel=n=>setSelected(p=>{const nx=new Set(p);nx.has(n)?nx.delete(n):nx.add(n);return nx;});
   const selAll=()=>setSelected(selected.size===filtered.length?new Set():new Set(filtered.map(c=>c.key)));
+  // Isolate-and-delete-an-import: filter the table down to what you want gone (e.g. Platform =
+  // Google), select-all within that filter, then this removes exactly those campaigns' spend
+  // rows from mergedNormRows. Tags are left untouched (matches the single-row "Remove" behavior)
+  // so re-syncing or re-uploading the same campaigns later restores them pre-tagged.
+  const bulkRemoveCampaigns=useCallback(()=>{
+    if(!selected.size)return;
+    const n=selected.size;
+    const removedSpend=campaigns.filter(c=>selected.has(c.key)).reduce((s,c)=>s+c.spend,0);
+    if(!window.confirm(`Remove ${n} campaign${n>1?"s":""} (${fmt$(removedSpend)} total spend) from this dataset?\n\nThis only affects the current session's spend data — your tags are kept. You can re-sync or re-upload to restore it.\n\nA version is saved first — you can undo from ··· → Version History.`))return;
+    snapshotNow(`Before removing ${n} campaign${n>1?"s":""} from dataset (${fmt$(removedSpend)})`,"pre_clear");
+    setMergedNormRows(prev=>prev.filter(r=>!selected.has(campaignKey(r.campaign_group_name,r.campaign_name))));
+    showNotif(`Removed ${n} campaign${n>1?"s":""} — ${fmt$(removedSpend)}`);
+    setSelected(new Set());
+  },[selected,campaigns,snapshotNow]);
   const addDim=()=>{const n=newDim.trim();if(!n||tagDims.includes(n))return;setTagDims(p=>[...p,n]);setNewDim("");};
   const doSort=col=>{setSortDir(sortCol===col&&sortDir==="desc"?"asc":"desc");setSortCol(col);};
   const clearF=()=>{setFCamp("");setFCampExclude("");setFGroup("");setFGroupExclude("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFTagExclude("");setSelectedTagFilters(new Set());setFStatus("all");};
@@ -3280,6 +3294,8 @@ export default function BudgetHQ(){
                 <Inp value={applyVal} onChange={setApplyVal} placeholder="Tag value…" T={T} style={{width:130,fontSize:12}} onKeyDown={e=>e.key==="Enter"&&applyTags()}/>
                 <Btn onClick={applyTags} disabled={!applyDim||!applyVal} variant="primary" size="sm" T={T}>Apply</Btn>
                 <Btn onClick={()=>bulkRemoveTag(applyDim)} disabled={!applyDim} variant="danger" size="sm" T={T}>Remove</Btn>
+                <div style={{width:1,height:16,background:T.border}}/>
+                <Btn onClick={bulkRemoveCampaigns} variant="danger" size="sm" T={T} title="Delete these campaigns' spend rows entirely — e.g. filter Platform to isolate a bad import, select-all, then delete">Delete from dataset</Btn>
                 <Btn onClick={()=>setSelected(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
                 <div style={{marginLeft:"auto"}}>
                   <Btn onClick={undoTags} disabled={!tagsHistory.length} variant="ghost" size="sm" T={T} title="Undo last tag action (⌘Z)">↩ Undo {tagsHistory.length>0&&`(${tagsHistory.length})`}</Btn>
