@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
 // Cool-gray "Obsidian" palette (redesign, July 2026) — Mo asked to move away from the
@@ -248,6 +250,8 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"clock":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>;
     case"save":return<svg {...p}><path d="M5 3h11l3 3v15H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M8 3v6h7V3"/><path d="M8 21v-7h8v7"/></svg>;
     case"dots":return<svg {...p}><circle cx="5" cy="12" r="1.6" fill={color} stroke="none"/><circle cx="12" cy="12" r="1.6" fill={color} stroke="none"/><circle cx="19" cy="12" r="1.6" fill={color} stroke="none"/></svg>;
+    case"mail":return<svg {...p}><path d="M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"/><path d="M3.5 7 12 13l8.5-6"/></svg>;
+    case"download":return<svg {...p}><path d="M12 4v11"/><path d="M7.5 11 12 15.5 16.5 11"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>;
     default:return null;
   }
 };
@@ -1858,6 +1862,253 @@ function pacingStatusMeta(status,T){
 
 const fmtSigned=n=>n==null?"—":(n>0?"+":n<0?"−":"")+"$"+Math.round(Math.abs(n)).toLocaleString();
 
+// ─── EXPORTS (CSV / XLSX / PDF / HTML / Email) ─────────────────────────────────
+// Every exportable view (Dashboard, Campaign Tagger, Budget Panel, Reporting & Pacing) is first
+// turned into one common shape — {title, subtitle, sections:[{heading,headers,rows}]} — regardless
+// of which tab it came from. The four format generators below only have to be written once against
+// that shape, and "Email a copy" reuses the exact same generators (as a Blob instead of a download),
+// so a report never has to be built twice or risk drifting between the download and email paths.
+
+function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims}){
+  const campaignMap={};
+  (mergedNormRows||[]).forEach(row=>{
+    const name=row.campaign_name;if(!name)return;
+    const key=campaignKey(row.campaign_group_name||name,name);
+    if(!campaignMap[key])campaignMap[key]={spend:0};
+    campaignMap[key].spend+=row.spend||0;
+  });
+  const keys=Object.keys(campaignMap);
+  const totalSpend=keys.reduce((s,k)=>s+campaignMap[k].spend,0);
+  const taggedCount=keys.filter(k=>Object.keys(tags[k]||{}).length>0).length;
+  const untaggedCount=keys.length-taggedCount;
+
+  const overviewRows=[
+    ["Total spend",`$${Math.round(totalSpend).toLocaleString()}`],
+    ["Campaigns",keys.length.toLocaleString()],
+    ["Tagged",`${taggedCount.toLocaleString()} (${keys.length?Math.round(taggedCount/keys.length*100):0}%)`],
+    ["Needs review",untaggedCount.toLocaleString()],
+  ];
+
+  const dimSections=(tagDims||[]).map(dim=>{
+    const map={};
+    (mergedNormRows||[]).forEach(row=>{
+      const key=campaignKey(row.campaign_group_name||row.campaign_name,row.campaign_name);
+      const val=(tags[key]||{})[dim]||"Untagged";
+      map[val]=(map[val]||0)+(row.spend||0);
+    });
+    const rows=Object.entries(map).sort((a,b)=>b[1]-a[1]).map(([val,spend])=>[val,`$${Math.round(spend).toLocaleString()}`]);
+    return{heading:`Spend by ${dim}`,headers:[dim,"Spend"],rows};
+  });
+
+  const statusCounts={};
+  if((budgetDims||[]).length){
+    Object.keys(budgets||{}).forEach(year=>{
+      const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
+      pacing.segments.forEach(s=>{statusCounts[s.status]=(statusCounts[s.status]||0)+1;});
+    });
+  }
+  const pacingRows=Object.entries(statusCounts).map(([status,count])=>[pacingStatusMeta(status,THEMES.light).label,String(count)]);
+
+  return{
+    title:"Dashboard summary",
+    subtitle:`Generated ${new Date().toLocaleString()}`,
+    sections:[
+      {heading:"Overview",headers:["Metric","Value"],rows:overviewRows},
+      ...dimSections,
+      ...(pacingRows.length?[{heading:"Budget pacing status (all years)",headers:["Status","Segments"],rows:pacingRows}]:[]),
+    ],
+  };
+}
+
+function buildTaggerReport({mergedNormRows,tags,tagDims}){
+  const campaignMap={};
+  (mergedNormRows||[]).forEach(row=>{
+    const name=row.campaign_name;if(!name)return;
+    const groupName=row.campaign_group_name||name;
+    const key=campaignKey(groupName,name);
+    const platform=derivePlatform(name,row.platform);
+    if(!campaignMap[key])campaignMap[key]={key,name,groupName,platform,spend:0};
+    campaignMap[key].spend+=row.spend||0;
+  });
+  const campaigns=Object.values(campaignMap).sort((a,b)=>b.spend-a.spend);
+  const headers=["Campaign Group","Campaign","Platform","Spend",...(tagDims||[])];
+  const rows=campaigns.map(c=>{
+    const t=tags[c.key]||{};
+    return[c.groupName,c.name,c.platform,`$${Math.round(c.spend).toLocaleString()}`,...(tagDims||[]).map(d=>t[d]||"")];
+  });
+  return{
+    title:"Campaign Tagger export",
+    subtitle:`Generated ${new Date().toLocaleString()} · ${campaigns.length.toLocaleString()} campaigns`,
+    sections:[{heading:"Campaigns",headers,rows}],
+  };
+}
+
+function buildBudgetReport({budgets,budgetDims,budgetRowMeta,budgetMetaDims,mergedNormRows,tags}){
+  const years=Object.keys(budgets||{}).sort();
+  const sections=years.map(year=>{
+    const yearBudgets=budgets[year]||{};
+    const pacing=(budgetDims||[]).length?computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()}):{segments:[]};
+    const pacingBySeg={};
+    pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
+    const headers=[...budgetDims,...(budgetMetaDims||[]),"Annual Budget","Actual Spend","% Used","Pacing Status"];
+    const rows=Object.keys(yearBudgets).sort().map(segKey=>{
+      const vals=segKey.split("|");
+      if(vals.length!==budgetDims.length)return null;
+      const meta=(budgetRowMeta||{})[segKey]||{};
+      const monthly=yearBudgets[segKey]?.monthly||{};
+      const total=Object.values(monthly).reduce((s,v)=>s+(v||0),0);
+      const p=pacingBySeg[segKey];
+      return[...vals,...(budgetMetaDims||[]).map(d=>meta[d]||""),
+        `$${Math.round(total).toLocaleString()}`,
+        p?`$${Math.round(p.spend).toLocaleString()}`:"$0",
+        p&&p.actualPct!=null?`${Math.round(p.actualPct*100)}%`:"—",
+        p?pacingStatusMeta(p.status,THEMES.light).label:pacingStatusMeta("no-budget",THEMES.light).label,
+      ];
+    }).filter(Boolean);
+    return{heading:`${year} budgets`,headers,rows};
+  });
+  return{
+    title:"Budget Panel export",
+    subtitle:`Generated ${new Date().toLocaleString()}`,
+    sections:sections.length?sections:[{heading:"Budgets",headers:["No budget data yet"],rows:[]}],
+  };
+}
+
+function buildPacingReport({budgets,budgetDims,mergedNormRows,tags}){
+  const years=Object.keys(budgets||{}).sort();
+  const headers=[...(budgetDims||[]),"Year","Budget","Actual Spend","% Used","Daily Run Rate","Projected Year-End","Variance","Status"];
+  const rows=[];
+  years.forEach(year=>{
+    if(!(budgetDims||[]).length)return;
+    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
+    pacing.segments.forEach(s=>{
+      rows.push([...s.dims,year,
+        `$${Math.round(s.budget).toLocaleString()}`,
+        `$${Math.round(s.spend).toLocaleString()}`,
+        s.actualPct!=null?`${Math.round(s.actualPct*100)}%`:"—",
+        `$${Math.round(s.dailyRate).toLocaleString()}`,
+        s.projected!=null?`$${Math.round(s.projected).toLocaleString()}`:"—",
+        s.projectedVariance!=null?fmtSigned(s.projectedVariance):"—",
+        pacingStatusMeta(s.status,THEMES.light).label,
+      ]);
+    });
+  });
+  return{
+    title:"Reporting & Pacing export",
+    subtitle:`Generated ${new Date().toLocaleString()}`,
+    sections:[{heading:"Pacing by segment",headers,rows:rows.length?rows:[]}],
+  };
+}
+
+const EXPORTABLE_VIEWS={
+  dashboard:{label:"Dashboard",build:buildDashboardReport,filenameBase:"budgethq-dashboard"},
+  tagger:{label:"Campaign Tagger",build:buildTaggerReport,filenameBase:"budgethq-campaign-tagger"},
+  budget:{label:"Budget Panel",build:buildBudgetReport,filenameBase:"budgethq-budget-panel"},
+  pacing:{label:"Reporting & Pacing",build:buildPacingReport,filenameBase:"budgethq-reporting-pacing"},
+};
+const EXPORT_FORMATS=[{key:"csv",label:"CSV",mime:"text/csv;charset=utf-8"},{key:"xlsx",label:"Excel",mime:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},{key:"pdf",label:"PDF",mime:"application/pdf"},{key:"html",label:"HTML",mime:"text/html;charset=utf-8"}];
+
+const escHtml=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+function reportToCSVString(report){
+  const rows=[];
+  report.sections.forEach((sec,i)=>{
+    if(i>0)rows.push([]);
+    rows.push([sec.heading]);
+    rows.push(sec.headers);
+    (sec.rows.length?sec.rows:[["No data"]]).forEach(r=>rows.push(r));
+  });
+  return rows.map(r=>r.map(v=>`"${String(v==null?"":v).replace(/"/g,'""')}"`).join(",")).join("\n");
+}
+
+function reportToHTMLString(report){
+  const sectionsHtml=report.sections.map(sec=>`
+    <h2 style="font-size:16px;font-weight:700;color:#1E222A;margin:28px 0 10px;">${escHtml(sec.heading)}</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr>${sec.headers.map(h=>`<th style="text-align:left;padding:8px 10px;background:#F7F8FA;border-bottom:2px solid #CED2DB;color:#5B6272;font-weight:600;">${escHtml(h)}</th>`).join("")}</tr></thead>
+      <tbody>${(sec.rows.length?sec.rows:null)?sec.rows.map((r,i)=>`<tr style="background:${i%2?"#FAFBFC":"#FFFFFF"};">${r.map(c=>`<td style="padding:7px 10px;border-bottom:1px solid #EEF0F3;color:#1E222A;">${escHtml(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${sec.headers.length}" style="padding:14px 10px;color:#8A90A0;">No data</td></tr>`}</tbody>
+    </table>`).join("");
+  return`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(report.title)}</title></head>
+  <body style="font-family:-apple-system,Inter,sans-serif;background:#F0F1F5;padding:32px;margin:0;">
+    <div style="max-width:900px;margin:0 auto;background:#FFFFFF;border-radius:12px;padding:32px 36px;border:1px solid #CED2DB;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+        <span style="width:26px;height:26px;border-radius:7px;background:#FFC249;display:inline-block;"></span>
+        <span style="font-size:15px;font-weight:700;color:#1E222A;">BudgetHQ</span>
+      </div>
+      <h1 style="font-size:22px;font-weight:800;color:#1E222A;margin:18px 0 2px;">${escHtml(report.title)}</h1>
+      <p style="font-size:12px;color:#8A90A0;margin:0 0 8px;">${escHtml(report.subtitle)}</p>
+      ${sectionsHtml}
+    </div>
+  </body></html>`;
+}
+
+function buildReportPDFDoc(report){
+  const doc=new jsPDF({unit:"pt",format:"letter"});
+  const marginX=40;let y=50;
+  doc.setFillColor(255,194,73);
+  doc.roundedRect(marginX,y-14,18,18,4,4,"F");
+  doc.setFontSize(13);doc.setTextColor(30,34,42);doc.setFont(undefined,"bold");
+  doc.text("BudgetHQ",marginX+26,y+1);
+  y+=28;
+  doc.setFontSize(18);doc.text(report.title,marginX,y);
+  y+=15;
+  doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(138,144,160);
+  doc.text(report.subtitle,marginX,y);
+  y+=12;
+  report.sections.forEach(sec=>{
+    if(y>700){doc.addPage();y=50;}
+    doc.setFontSize(12);doc.setTextColor(30,34,42);doc.setFont(undefined,"bold");
+    doc.text(sec.heading,marginX,y+16);
+    autoTable(doc,{
+      startY:y+22,margin:{left:marginX,right:marginX},
+      head:[sec.headers],
+      body:sec.rows.length?sec.rows:[sec.headers.map((h,i)=>i===0?"No data":"")],
+      styles:{fontSize:8.5,cellPadding:5,textColor:[30,34,42]},
+      headStyles:{fillColor:[247,248,250],textColor:[91,98,114],fontStyle:"bold",lineWidth:0.5,lineColor:[206,210,219]},
+      alternateRowStyles:{fillColor:[250,251,252]},
+      theme:"grid",
+    });
+    y=doc.lastAutoTable.finalY+26;
+  });
+  return doc;
+}
+
+// Builds the same file either format produces, as a Blob — shared by the download buttons and
+// "Email a copy" (which base64-encodes this same Blob as an email attachment) so there's exactly
+// one code path per format, not two that could quietly drift apart.
+function buildReportBlob(report,format){
+  if(format==="csv")return new Blob(["﻿"+reportToCSVString(report)],{type:"text/csv;charset=utf-8"});
+  if(format==="xlsx"){
+    const wb=XLSX.utils.book_new();
+    report.sections.forEach((sec,i)=>{
+      const aoa=[[sec.heading],sec.headers,...(sec.rows.length?sec.rows:[["No data"]])];
+      const ws=XLSX.utils.aoa_to_sheet(aoa);
+      const name=(sec.heading||`Sheet${i+1}`).replace(/[\\/*?:[\]]/g,"").slice(0,31)||`Sheet${i+1}`;
+      XLSX.utils.book_append_sheet(wb,ws,name);
+    });
+    const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+    return new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  }
+  if(format==="html")return new Blob([reportToHTMLString(report)],{type:"text/html;charset=utf-8"});
+  if(format==="pdf")return buildReportPDFDoc(report).output("blob");
+  throw new Error(`Unknown export format: ${format}`);
+}
+
+function downloadReport(report,format,filenameBase){
+  const blob=buildReportBlob(report,format);
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=`${filenameBase}.${format}`;a.click();URL.revokeObjectURL(url);
+}
+
+function blobToBase64(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onloadend=()=>resolve(String(reader.result).split(",")[1]||"");
+    reader.onerror=reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 const PacingBar=({actualPct,expectedPct,status,T})=>{
   const pct=Math.min(1,Math.max(0,actualPct||0));
   const meta=pacingStatusMeta(status,T);
@@ -2260,6 +2511,14 @@ export default function BudgetHQ(){
   const[nameVersionInput,setNameVersionInput]=useState("");
   const[pendingVersionLabel,setPendingVersionLabel]=useState(null); // {label,trigger} — set right after a mutation, consumed once state has actually settled (see effect below)
 
+  // ── Export (CSV/XLSX/PDF/HTML downloads + email) ──
+  const[emailExportOpen,setEmailExportOpen]=useState(false);
+  const[emailExportFormat,setEmailExportFormat]=useState("pdf");
+  const[emailExportTo,setEmailExportTo]=useState("");
+  const[emailExportNote,setEmailExportNote]=useState("");
+  const[emailSending,setEmailSending]=useState(false);
+  const[emailError,setEmailError]=useState("");
+
   const buildSnapshot=useCallback(()=>({tags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta}),
     [tags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta]);
   const persistVersion=useCallback((label,trigger,snapshot)=>{
@@ -2327,6 +2586,7 @@ export default function BudgetHQ(){
     const bmd=localStorage.getItem("paidhq_budget_meta_dims");if(bmd)setBudgetMetaDims(JSON.parse(bmd));
     const bim=localStorage.getItem("paidhq_budget_import_meta");if(bim)setBudgetImportMeta(JSON.parse(bim));
     const v=localStorage.getItem("paidhq_view");if(v&&["dashboard","tagger","budget","pacing","settings"].includes(v))setView(v);
+    const le=localStorage.getItem("paidhq_last_export_email");if(le)setEmailExportTo(le);
     // Restore spend data — legacy rows predate campaign_group_name, so backfill it from
     // campaign_name (matches how normalizeRows falls back when a CSV has no second level).
     const sr=localStorage.getItem("paidhq_rows");
@@ -2589,6 +2849,51 @@ export default function BudgetHQ(){
     try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta"].forEach(k=>localStorage.removeItem(k));}catch(e){}
   }
 
+  // ── Export (the ··· menu's "Export [view]" + "Email a copy") ──
+  // dashboard/tagger/budget/pacing each build their own report from state that already lives in
+  // this top-level component — settings has nothing to export, so exportableView is null there
+  // and the dots menu just shows the version-history items on its own.
+  const exportableView=EXPORTABLE_VIEWS[view]||null;
+  const buildCurrentReport=useCallback(()=>{
+    if(!exportableView)return null;
+    return exportableView.build({mergedNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims});
+  },[exportableView,mergedNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims]);
+  const handleExportDownload=useCallback(format=>{
+    const report=buildCurrentReport();
+    if(!report||!exportableView)return;
+    downloadReport(report,format,exportableView.filenameBase);
+    showNotif(`Exported ${exportableView.label} as ${EXPORT_FORMATS.find(f=>f.key===format)?.label||format.toUpperCase()}`);
+  },[buildCurrentReport,exportableView]);
+  const openEmailExport=useCallback(()=>{
+    setEmailError("");setEmailExportOpen(true);
+  },[]);
+  const sendEmailExport=useCallback(async()=>{
+    const report=buildCurrentReport();
+    if(!report||!exportableView)return;
+    const to=emailExportTo.trim();
+    if(!to){setEmailError("Enter a recipient email address.");return;}
+    setEmailSending(true);setEmailError("");
+    try{
+      const blob=buildReportBlob(report,emailExportFormat);
+      const base64=await blobToBase64(blob);
+      const fmt=EXPORT_FORMATS.find(f=>f.key===emailExportFormat);
+      const filename=`${exportableView.filenameBase}.${emailExportFormat}`;
+      const res=await fetch("/api/email",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        to,subject:`${report.title} — BudgetHQ`,note:emailExportNote,reportTitle:report.title,reportSubtitle:report.subtitle,
+        filename,mime:fmt?.mime||"application/octet-stream",base64,
+      })});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok)throw new Error(data?.error||"Failed to send email");
+      try{localStorage.setItem("paidhq_last_export_email",to);}catch(e){}
+      setEmailExportOpen(false);setEmailExportNote("");
+      showNotif(`Emailed ${exportableView.label} to ${to}`);
+    }catch(err){
+      setEmailError(err.message||"Failed to send email");
+    }finally{
+      setEmailSending(false);
+    }
+  },[buildCurrentReport,exportableView,emailExportTo,emailExportFormat,emailExportNote]);
+
   const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3};
 
@@ -2657,7 +2962,23 @@ export default function BudgetHQ(){
           </button>
           {fileMenuOpen&&(<>
             <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-            <div style={{position:"absolute",top:44,right:isMobile?8:14,zIndex:250,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+            <div style={{position:"absolute",top:44,right:isMobile?8:14,zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+              {exportableView&&(<>
+                <div style={{padding:"5px 10px 5px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Export {exportableView.label}</div>
+                <div style={{display:"flex",gap:4,padding:"0 6px 6px"}}>
+                  {EXPORT_FORMATS.map(f=>(
+                    <button key={f.key} className="bhq-row" onClick={()=>{setFileMenuOpen(false);handleExportDownload(f.key);}}
+                      style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);openEmailExport();}}
+                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                  <Icon name="mail" size={14} color={T.textSub}/> Email a copy…
+                </button>
+                <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
+              </>)}
               <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
                 style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
                 <Icon name="save" size={14} color={T.textSub}/> Name current version…
@@ -3141,6 +3462,43 @@ export default function BudgetHQ(){
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               <Btn onClick={()=>{setNameVersionOpen(false);setNameVersionInput("");}} variant="ghost" T={T}>Cancel</Btn>
               <Btn onClick={saveNamedVersion} disabled={!nameVersionInput.trim()} variant="primary" T={T}>Save version</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EMAIL A COPY ── */}
+      {emailExportOpen&&exportableView&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{width:"100%",maxWidth:420,background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,boxShadow:T.shadowMd}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.text}}>Email {exportableView.label}</div>
+            <div style={{padding:20,display:"flex",flexDirection:"column",gap:14}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>To</div>
+                <input autoFocus type="email" value={emailExportTo} onChange={e=>setEmailExportTo(e.target.value)} placeholder="name@company.com"
+                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>Format</div>
+                <div style={{display:"flex",gap:6}}>
+                  {EXPORT_FORMATS.map(f=>(
+                    <button key={f.key} onClick={()=>setEmailExportFormat(f.key)}
+                      style={{flex:1,padding:"7px 0",borderRadius:6,border:`1.5px solid ${emailExportFormat===f.key?T.accentHover:T.border}`,background:emailExportFormat===f.key?T.accent:"transparent",color:emailExportFormat===f.key?T.text:T.textMuted,fontSize:12,fontWeight:emailExportFormat===f.key?700:500,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>Note <span style={{fontWeight:400,color:T.textMuted}}>(optional)</span></div>
+                <textarea value={emailExportNote} onChange={e=>setEmailExportNote(e.target.value)} placeholder="Add a message for the recipient…" rows={3}
+                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
+              </div>
+              {emailError&&<div style={{fontSize:12,color:T.danger,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:7,padding:"8px 10px"}}>{emailError}</div>}
+            </div>
+            <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn onClick={()=>{setEmailExportOpen(false);setEmailError("");}} variant="ghost" T={T} disabled={emailSending}>Cancel</Btn>
+              <Btn onClick={sendEmailExport} disabled={emailSending||!emailExportTo.trim()} variant="primary" T={T}>{emailSending?"Sending…":"Send email"}</Btn>
             </div>
           </div>
         </div>
