@@ -82,7 +82,16 @@ async function fetchAnalytics(token, accountId, startDate, endDate) {
   const s = new Date(startDate);
   const e = new Date(endDate);
 
-  // adAnalyticsV2 uses bracket notation for accounts, not List()
+  // timeGranularity=DAILY (found 2026-07, was MONTHLY): MONTHLY collapses an entire month's spend
+  // into ONE row per campaign, dated to the 1st of that month (see the date-mapping fix below) —
+  // BudgetHQ's pacing engine (computePlatformFreshness/computePacing in src/BudgetHQ.jsx) assumes
+  // "live-synced" platforms like LinkedIn report true day-by-day data and derives each platform's
+  // projection off the most recent date it actually has spend for. With MONTHLY granularity, the
+  // current month's row is always dated the 1st, so freshness "as of" the 1st plus a large lump
+  // sum reads as one day's spend, wildly overstating the projected total for the rest of the month
+  // (same failure mode Google/Bing's manual monthly CSV exports hit, just baked into the live sync
+  // instead). DAILY returns one row per campaign per real day, which is what the pacing math
+  // actually needs and removes the need for any as-of override for this platform.
   const url =
     `${BASE}/adAnalyticsV2` +
     `?q=analytics` +
@@ -93,7 +102,7 @@ async function fetchAnalytics(token, accountId, startDate, endDate) {
     `&dateRange.end.year=${e.getFullYear()}` +
     `&dateRange.end.month=${e.getMonth() + 1}` +
     `&dateRange.end.day=${e.getDate()}` +
-    `&timeGranularity=MONTHLY` +
+    `&timeGranularity=DAILY` +
     `&accounts[0]=urn:li:sponsoredAccount:${accountId}` +
     `&fields=dateRange,pivotValues,costInLocalCurrency,impressions,clicks`;
 
@@ -128,7 +137,7 @@ export async function getSpend({ startDate, endDate }) {
         campaign_name: c.name,
         campaign_id: c.id,
         platform: "LinkedIn",
-        date: dr ? `${dr.year}-${String(dr.month).padStart(2, "0")}-01` : null,
+        date: dr ? `${dr.year}-${String(dr.month).padStart(2, "0")}-${String(dr.day || 1).padStart(2, "0")}` : null,
         spend: Math.round(parseFloat(el.costInLocalCurrency) * 100) / 100,
         impressions: el.impressions || 0,
         clicks: el.clicks || 0,
