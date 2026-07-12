@@ -25,13 +25,22 @@
  * (e.g. "Jet Reports", "Spreadsheet Server") — the named product within the campaign, not the
  * category or channel. Falls back to `category` only if a row is ever missing product_name.
  *
- * AGGREGATION NOTE: the API can return multiple rows for the same product on the same date,
- * broken out by channel and/or country (confirmed live — e.g. two "Spreadsheet" rows on the
- * same date, one per country, each with its own cost). mergeRows() upstream (src/BudgetHQ.jsx)
- * de-dupes by campaign_group_name + campaign_name + date and OVERWRITES on a collision rather
- * than summing — so this connector pre-aggregates (sums cost/clicks) down to one row per
- * campaign+product+date before returning, otherwise those channel/country splits would silently
- * disappear on merge instead of adding up to the true total.
+ * Rows are aggregated to MONTHLY (dated the 1st of the month), not daily — matches how Capterra
+ * itself finalizes spend (click data isn't final until the monthly invoice, so daily data is
+ * provisional anyway) and keeps row counts sane across many product/channel/country splits.
+ * Note this trades off pacing's daily run-rate accuracy the same way LinkedIn's monthly-bucketed
+ * sync does: a whole month's cost lands on the 1st, so mid-month pacing for Capterra segments
+ * will look artificially "ahead" right after that date, then flat until the next month's data
+ * arrives — same known tradeoff, just a different source.
+ *
+ * AGGREGATION NOTE: the API returns multiple rows per product per day, broken out by channel
+ * and/or country (confirmed live — e.g. two "Spreadsheet" rows on the same date, one per
+ * country, each with its own cost) — and now also across every day within a month, since we're
+ * rolling up to monthly. mergeRows() upstream (src/BudgetHQ.jsx) de-dupes by
+ * campaign_group_name + campaign_name + date and OVERWRITES on a collision rather than summing
+ * — so this connector pre-aggregates (sums cost/clicks) down to one row per campaign+product+
+ * month before returning, otherwise those splits would silently disappear on merge instead of
+ * adding up to the true total.
  *
  * Pagination: no scroll/cursor field was observed in any confirmed response, just an unopened
  * `meta` object of unknown shape. This connector does a single request per campaign per channel
@@ -88,8 +97,9 @@ export async function getSpend({ startDate, endDate }) {
           clicks.forEach((c) => {
             const cost = parseFloat(c.cost ?? 0) || 0;
             if (cost <= 0) return;
-            const date = c.date_of_report;
-            if (!date) return;
+            if (!c.date_of_report) return;
+            // Roll every day up to the 1st of its month — see the file-level comment for why.
+            const date = `${c.date_of_report.slice(0, 7)}-01`;
             // Prefer the campaign name Capterra itself reports (authoritative) over our own
             // env-var label, falling back to the label only if the response ever omits it.
             const group = c.campaign_name || campaignLabel;
