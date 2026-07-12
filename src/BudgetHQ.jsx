@@ -61,9 +61,15 @@ const MONTH_MAP={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",
 // falls back to it for platforms/exports that don't have a second level of breakdown, so
 // nothing breaks for data that predates this two-level model.
 const REQUIRED_COLS=["campaign_group_name","spend","date"];
-const OPTIONAL_COLS=["campaign_name","platform","impressions","clicks","campaign_id","adset_id"];
-const COL_PATTERNS={campaign_group_name:/campaign.?group/i,campaign_name:/ad.?set|ad.?group/i,spend:/cost|spend|amount/i,date:/^date$|^day$/i,platform:/platform|traffic.source|channel|source/i,impressions:/impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
-const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campaign Name (Ad Set / Ad Group)",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
+const OPTIONAL_COLS=["campaign_name","platform","campaign_type","impressions","clicks","campaign_id","adset_id"];
+// campaign_type: the platform's own authoritative type field (Google Ads' "Campaign type" column
+// — Search/Display/Demand Gen/Performance Max/Video) when the export has one. This is trusted
+// over name-based guessing in derivePlatform() below, since naming conventions are ambiguous —
+// e.g. Google's Demand Gen campaigns are frequently still named with a legacy "GDN-" prefix
+// (carried over from before Display/Discovery rolled into Demand Gen) with no text in the name
+// that distinguishes them from real Display campaigns.
+const COL_PATTERNS={campaign_group_name:/campaign.?group/i,campaign_name:/ad.?set|ad.?group/i,spend:/cost|spend|amount/i,date:/^date$|^day$/i,platform:/platform|traffic.source|channel|source/i,campaign_type:/campaign.?type/i,impressions:/impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
+const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campaign Name (Ad Set / Ad Group)",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",campaign_type:"Campaign Type (Search/Display/Demand Gen)",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
 // Composite identity key — ad set / ad group names often repeat across different campaigns
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
 // combine both levels, not just the leaf name alone.
@@ -86,7 +92,47 @@ function autoDetect(h){
   if(!m.date){const c=h.find(c=>/date|day/i.test(c));if(c)m.date=c;}
   return m;
 }
-function derivePlatform(n,pv){const u=(n||"").toUpperCase();const p=(pv||"").toLowerCase();if(/^LIN[-|]/.test(u)||p.includes("linkedin"))return"LinkedIn";if(/^FB[-|]/.test(u)||p.includes("facebook")||p.includes("meta"))return"Meta";if(/^BIN[-|]/.test(u)||p.includes("bing"))return"Bing";if(/^YT[-|]/.test(u)||p.includes("youtube"))return"YouTube";if(/^SEA[-|]/.test(u)||p==="search")return"Google Search";if(/^GDN[-|]/.test(u)||p==="display")return"Google Display";if(/demand.gen/i.test(u)||p==="demand gen")return"Demand Gen";if(/pmax|performance.max/i.test(u))return"Performance Max";if(p.includes("google"))return"Google Search";if(p.includes("capterra"))return"Capterra";return pv||"Unknown";}
+// Infers a specific platform label (Google Search vs Google Display vs Demand Gen vs YouTube,
+// etc.). Trusts an explicit campaign_type value first — Google Ads' own "Campaign type" API/export
+// field (Search/Display/Demand Gen/Performance Max/Video) — since that's ground truth and naming
+// conventions are genuinely ambiguous (Google has been rolling Display into Demand Gen, so a
+// legacy "GDN-" prefixed campaign may really be Demand Gen with no text distinguishing it from
+// real Display). Only falls back to naming-convention prefixes when campaign_type isn't mapped —
+// e.g. platforms without a type field, or older exports. Checks the CAMPAIGN GROUP name before
+// the leaf (ad set/ad group) name — in every real export seen so far (Google Ads, LinkedIn), the
+// SEA-/GDN-/YT-/LIN-/FB-/BIN- prefix convention lives on the campaign, not the ad group.
+function derivePlatform(groupName,name,pv,campaignType){
+  const ct=(campaignType||"").trim().toLowerCase();
+  if(ct==="search")return"Google Search";
+  if(ct==="display")return"Google Display";
+  if(ct==="demand gen"||ct==="demandgen")return"Demand Gen";
+  if(ct==="performance max"||ct==="performancemax"||ct==="pmax")return"Performance Max";
+  if(ct==="video")return"YouTube";
+
+  const p=(pv||"").toLowerCase();
+  for(const raw of [groupName,name]){
+    const u=(raw||"").toUpperCase();
+    if(!u)continue;
+    if(/^LIN[-|]/.test(u))return"LinkedIn";
+    if(/^FB[-|]/.test(u))return"Meta";
+    if(/^BIN[-|]/.test(u))return"Bing";
+    if(/^YT[-|]/.test(u))return"YouTube";
+    if(/demand.?gen|discovery/i.test(u))return"Demand Gen";
+    if(/^SEA[-|]/.test(u))return"Google Search";
+    if(/^GDN[-|]/.test(u))return"Google Display";
+    if(/pmax|performance.max/i.test(u))return"Performance Max";
+  }
+  if(p.includes("linkedin"))return"LinkedIn";
+  if(p.includes("facebook")||p.includes("meta"))return"Meta";
+  if(p.includes("bing"))return"Bing";
+  if(p.includes("youtube"))return"YouTube";
+  if(p==="search")return"Google Search";
+  if(p==="display")return"Google Display";
+  if(p==="demand gen")return"Demand Gen";
+  if(p.includes("google"))return"Google Search";
+  if(p.includes("capterra"))return"Capterra";
+  return pv||"Unknown";
+}
 const parseMoney=v=>{if(v===""||v==null)return null;const n=parseFloat(String(v).replace(/[$,\s%]/g,""));return isNaN(n)?null:n;};
 const fmt$=n=>{if(!n)return"";return"$"+Math.round(n).toLocaleString();};
 const fmtFull=n=>n?"$"+Math.round(n).toLocaleString():"—";
@@ -1627,6 +1673,7 @@ function normalizeRows(rows,colMap){
       campaign_name:leafName,
       spend:parseFloat(String(row[colMap.spend]||"0").replace(/[$, ]/g,""))||0,
       platform:(row[colMap.platform]||"").trim()||"Unknown",
+      campaign_type:(row[colMap.campaign_type]||"").trim(),
       date:String(row[colMap.date]||"").trim(),
       impressions:parseInt(String(row[colMap.impressions]||"0").replace(/,/g,""))||0,
       clicks:parseInt(String(row[colMap.clicks]||"0").replace(/,/g,""))||0,
@@ -1760,7 +1807,7 @@ function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownD
     if(!d||d<start||d>end)return;
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
     if(!budgetDims.every((dim,i)=>rowTags[dim]===vals[i]))return;
-    const bval=breakdownDim==="Platform"?derivePlatform(row.campaign_name,row.platform):(rowTags[breakdownDim]||"Untagged");
+    const bval=breakdownDim==="Platform"?derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type):(rowTags[breakdownDim]||"Untagged");
     map[bval]=(map[bval]||0)+row.spend;
   });
   const total=Object.values(map).reduce((s,v)=>s+v,0);
@@ -1926,7 +1973,7 @@ function buildTaggerReport({mergedNormRows,tags,tagDims}){
     const name=row.campaign_name;if(!name)return;
     const groupName=row.campaign_group_name||name;
     const key=campaignKey(groupName,name);
-    const platform=derivePlatform(name,row.platform);
+    const platform=derivePlatform(groupName,name,row.platform,row.campaign_type);
     if(!campaignMap[key])campaignMap[key]={key,name,groupName,platform,spend:0};
     campaignMap[key].spend+=row.spend||0;
   });
@@ -2686,7 +2733,7 @@ export default function BudgetHQ(){
       const name=row.campaign_name;if(!name)return;
       const groupName=row.campaign_group_name||name;
       const key=campaignKey(groupName,name);
-      const platform=derivePlatform(name,row.platform);
+      const platform=derivePlatform(groupName,name,row.platform,row.campaign_type);
       if(!map[key])map[key]={key,name,groupName,platform,spend:0,rows:0};
       map[key].spend+=row.spend;
       map[key].rows++;
