@@ -2617,7 +2617,7 @@ export default function BudgetHQ(){
     {key:"bing",label:"Bing",status:"live",color:"#00809D"},
     {key:"google",label:"Google",status:"csv",color:"#EA4335"},
     {key:"meta",label:"Meta",status:"csv",color:"#1877F2"},
-    {key:"capterra",label:"Capterra",status:"csv",color:"#FF7043"},
+    {key:"capterra",label:"Capterra",status:"live",color:"#FF7043"},
   ];
   const[lastSyncRange,setLastSyncRange]=useState(()=>{
     try{const s=localStorage.getItem("paidhq_sync_range");return s?JSON.parse(s):null;}catch(e){return null;}
