@@ -83,6 +83,23 @@ const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campa
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
 // combine both levels, not just the leaf name alone.
 const campaignKey=(groupName,name)=>`${groupName||name||""}||${name||groupName||""}`;
+// Distinct value already used per budget dimension, across every year — feeds the Tagger's
+// autocomplete so typing a tag value can suggest e.g. "EPM Suite" for Pillar instead of risking a
+// typo that creates an orphaned segment. Segment keys are dims.join("|"), so splitting one back
+// apart and zipping against budgetDims recovers each dimension's actual value for that segment.
+function getBudgetDimValues(budgets,budgetDims){
+  const map={};
+  (budgetDims||[]).forEach(d=>map[d]=new Set());
+  Object.values(budgets||{}).forEach(yearBudgets=>{
+    Object.keys(yearBudgets||{}).forEach(segKey=>{
+      const vals=segKey.split("|");
+      (budgetDims||[]).forEach((d,i)=>{if(vals[i])map[d].add(vals[i]);});
+    });
+  });
+  const result={};
+  (budgetDims||[]).forEach(d=>result[d]=[...map[d]].sort((a,b)=>a.localeCompare(b)));
+  return result;
+}
 const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
 const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
@@ -283,6 +300,72 @@ const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChang
 const Tog=({value,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange(!value);}} style={{width:30,height:17,borderRadius:9,background:value?T.accent:T.borderStrong,position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0}}><div style={{position:"absolute",top:2,left:value?15:2,width:13,height:13,borderRadius:7,background:"#fff",transition:"left 0.18s",boxShadow:"0 1px 3px rgba(0,0,0,0.25)"}}/></div>);
 const Chk=({checked,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange();}} style={{width:15,height:15,borderRadius:4,border:`1.5px solid ${checked?T.accent:T.borderStrong}`,background:checked?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all 0.12s"}}>{checked&&<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>);
 const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:color||T.text}}>{value}</span></div>);
+// Free-text input with a suggestions dropdown — used for tag values in the Tagger, sourced from
+// values already used for that dimension in the Budget Panel (plus other campaigns' existing
+// tags), so typing "EP" for a Pillar tag can complete to "EPM Suite" instead of risking a typo
+// that silently creates a new, unmatched segment. Tab or a click accepts the highlighted/clicked
+// suggestion; arrow keys move the highlight; Escape closes the dropdown first, then falls through
+// to the caller's own onEscape (e.g. cancel-editing) on a second press.
+function TagAutocompleteInput({T,value,onChange,suggestions,onEnter,onEscape,onBlur,autoFocus,placeholder,style,inputStyle}){
+  const[open,setOpen]=useState(false);
+  const[hi,setHi]=useState(0);
+  const filtered=useMemo(()=>{
+    const q=(value||"").trim().toLowerCase();
+    const list=suggestions||[];
+    if(!q)return list.slice(0,8);
+    const starts=[],contains=[];
+    list.forEach(s=>{
+      const l=s.toLowerCase();
+      if(l===q)return;
+      if(l.startsWith(q))starts.push(s);
+      else if(l.includes(q))contains.push(s);
+    });
+    return[...starts.sort((a,b)=>a.localeCompare(b)),...contains.sort((a,b)=>a.localeCompare(b))].slice(0,8);
+  },[value,suggestions]);
+  // Clamped at render instead of reset via a useEffect (avoids a setState-in-effect cascade) —
+  // whenever the filtered list shrinks below the stored index, this just falls back to the top
+  // suggestion, which is what a reset-to-0 effect would have produced anyway.
+  const safeHi=hi<filtered.length?hi:0;
+  const commit=s=>{onChange(s);setOpen(false);setHi(0);};
+  return(
+    <div style={{position:"relative",...style}} onClick={e=>e.stopPropagation()}>
+      <input autoFocus={autoFocus} value={value} placeholder={placeholder}
+        onChange={e=>{onChange(e.target.value);setOpen(true);}}
+        onFocus={()=>setOpen(true)}
+        onBlur={()=>{setOpen(false);onBlur?.();}}
+        onKeyDown={e=>{
+          if(open&&filtered.length&&(e.key==="ArrowDown"||e.key==="ArrowUp")){
+            e.preventDefault();
+            const n=filtered.length;
+            setHi(e.key==="ArrowDown"?(safeHi+1)%n:(safeHi-1+n)%n);
+            return;
+          }
+          if(e.key==="Tab"&&open&&filtered.length){e.preventDefault();commit(filtered[safeHi]);return;}
+          if(e.key==="Enter"){
+            if(open&&filtered.length){const s=filtered[safeHi];e.preventDefault();commit(s);onEnter?.(s);}
+            else onEnter?.(value);
+            return;
+          }
+          if(e.key==="Escape"){
+            if(open){e.preventDefault();setOpen(false);return;}
+            onEscape?.();
+            return;
+          }
+        }}
+        style={{width:"100%",boxSizing:"border-box",...inputStyle}}/>
+      {open&&filtered.length>0&&(
+        <div style={{position:"absolute",top:"100%",left:0,marginTop:2,background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,boxShadow:T.shadowMd,zIndex:80,minWidth:140,maxWidth:240,overflow:"hidden"}}>
+          {filtered.map((s,i)=>(
+            <div key={s} onMouseDown={e=>{e.preventDefault();e.stopPropagation();commit(s);}}
+              style={{padding:"6px 10px",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif",background:i===safeHi?T.accentBg:"transparent",color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
 // Pixel-block icon set (retro redesign, July 2026) — replaces the flat line-icon set.
 // Every glyph is built from a handful of solid squares, no curves/strokes, matching the
@@ -2999,6 +3082,29 @@ export default function BudgetHQ(){
   const[budgetMetaDims,setBudgetMetaDims]=useState([]); // annotation dims on budget rows
   const[budgetImportMeta,setBudgetImportMeta]=useState({}); // {year: {hasQuarterlyTotals, hasAnnualTotal}} — captured at import time, used to inform the export-time AI granularity suggestion
 
+  // Tag-value autocomplete sources: values already used in the Budget Panel for each dimension,
+  // unioned with values already used on other campaigns' tags — either one matching exactly is
+  // what actually connects a tagged campaign to a budget segment, so suggesting both keeps new
+  // tags consistent with whichever already exists instead of drifting into near-duplicates.
+  const budgetDimValues=useMemo(()=>getBudgetDimValues(budgets,budgetDims),[budgets,budgetDims]);
+  const tagDimValues=useMemo(()=>{
+    const map={};
+    Object.values(tags||{}).forEach(t=>{
+      Object.entries(t||{}).forEach(([dim,val])=>{
+        if(!val)return;
+        if(!map[dim])map[dim]=new Set();
+        map[dim].add(val);
+      });
+    });
+    const result={};
+    Object.keys(map).forEach(d=>result[d]=[...map[d]]);
+    return result;
+  },[tags]);
+  const dimSuggestions=useCallback(dim=>{
+    if(!dim)return[];
+    return[...new Set([...(budgetDimValues[dim]||[]),...(tagDimValues[dim]||[])])].sort((a,b)=>a.localeCompare(b));
+  },[budgetDimValues,tagDimValues]);
+
   // ── Version history ──
   const[fileMenuOpen,setFileMenuOpen]=useState(false);
   const[versionHistoryOpen,setVersionHistoryOpen]=useState(false);
@@ -3334,13 +3440,28 @@ export default function BudgetHQ(){
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
   const pushHistory=useCallback(currentTags=>{setTagsHistory(h=>[...h.slice(-49),currentTags]);},[]);
   const undoTags=useCallback(()=>{if(!tagsHistory.length)return;setTags(tagsHistory[tagsHistory.length-1]);setTagsHistory(h=>h.slice(0,-1));showNotif("Undone");},[tagsHistory]);
-  const applyTags=useCallback(()=>{if(!applyDim||!applyVal||!selected.size)return;pushHistory(tags);const u={};selected.forEach(n=>{u[n]={...(tags[n]||{}),[applyDim]:applyVal};});setTags(p=>({...p,...u}));showNotif(`Tagged ${selected.size} campaigns — ${applyDim}: ${applyVal}`);setSelected(new Set());setApplyVal("");},[applyDim,applyVal,selected,tags,pushHistory]);
+  // Accepts an optional override value — used when TagAutocompleteInput's Enter handler commits a
+  // suggestion and calls onEnter(value) in the same tick as setApplyVal(value), before the state
+  // update has actually landed; reading applyVal here would still see the previous value. Guarded
+  // with typeof since this is also wired directly as a raw onClick handler (Btn passes the click
+  // event through as the first arg), which must NOT be mistaken for an override value.
+  const applyTags=useCallback((valOverride)=>{
+    const v=typeof valOverride==="string"?valOverride:applyVal;
+    if(!applyDim||!v||!selected.size)return;
+    pushHistory(tags);
+    const u={};selected.forEach(n=>{u[n]={...(tags[n]||{}),[applyDim]:v};});
+    setTags(p=>({...p,...u}));
+    showNotif(`Tagged ${selected.size} campaigns — ${applyDim}: ${v}`);
+    setSelected(new Set());setApplyVal("");
+  },[applyDim,applyVal,selected,tags,pushHistory]);
   const applySug=useCallback((dim,val)=>{pushHistory(tags);const u={};filtered.forEach(c=>{if(!(tags[c.key]?.[dim]))u[c.key]={...(tags[c.key]||{}),[dim]:val};});setTags(p=>({...p,...u}));showNotif(`Applied ${dim}: ${val} to ${Object.keys(u).length} campaigns`);},[filtered,tags,pushHistory]);
   const removeTag=useCallback((cn,dim)=>{pushHistory(tags);setTags(p=>{const ts={...(p[cn]||{})};delete ts[dim];return{...p,[cn]:ts};});},[tags,pushHistory]);
   const bulkRemoveTag=useCallback(dim=>{if(!dim||!selected.size)return;pushHistory(tags);setTags(p=>{const nx={...p};selected.forEach(n=>{if(nx[n]){const ts={...nx[n]};delete ts[dim];nx[n]=ts;}});return nx;});showNotif(`Removed ${dim} tag from ${selected.size} campaigns`);setSelected(new Set());},[selected,tags,pushHistory]);
-  const saveEdit=useCallback(()=>{
+  // Same override pattern as applyTags above, and for the same reason — also wired directly as a
+  // raw onBlur handler elsewhere, hence the typeof guard.
+  const saveEdit=useCallback((valOverride)=>{
     if(!editingTag)return;
-    const trimmed=editVal.trim();
+    const trimmed=(typeof valOverride==="string"?valOverride:editVal).trim();
     const current=(tags[editingTag.campaign]||{})[editingTag.dim];
     if(trimmed===current){setEditingTag(null);setEditVal("");return;}
     pushHistory(tags);
@@ -3978,7 +4099,8 @@ export default function BudgetHQ(){
                 <Pill color={T.text} bg={T.accent} border={T.text}>{selected.size} selected</Pill>
                 <span style={{color:T.textMuted,fontSize:13}}>→</span>
                 <Sel value={applyDim} onChange={setApplyDim} T={T} style={{width:130,fontSize:12}}><option value="">Dimension…</option>{tagDims.map(d=><option key={d} value={d}>{d}</option>)}</Sel>
-                <Inp value={applyVal} onChange={setApplyVal} placeholder="Tag value…" T={T} style={{width:130,fontSize:12}} onKeyDown={e=>e.key==="Enter"&&applyTags()}/>
+                <TagAutocompleteInput T={T} value={applyVal} onChange={setApplyVal} suggestions={dimSuggestions(applyDim)} onEnter={applyTags} placeholder="Tag value…" style={{width:130}}
+                  inputStyle={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",transition:"border-color 0.12s"}}/>
                 <Btn onClick={applyTags} disabled={!applyDim||!applyVal} variant="primary" size="sm" T={T}>Apply</Btn>
                 <Btn onClick={()=>bulkRemoveTag(applyDim)} disabled={!applyDim} variant="danger" size="sm" T={T}>Remove</Btn>
                 <div style={{width:1,height:16,background:T.border}}/>
@@ -4059,11 +4181,10 @@ export default function BudgetHQ(){
                           <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:14,background:T.accentBg,color:T.text,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Inter,sans-serif"}}>
                             <span style={{opacity:0.7,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
-                              <input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)}
-                                onBlur={saveEdit}
-                                onKeyDown={e=>{if(e.key==="Enter")saveEdit();if(e.key==="Escape"){setEditingTag(null);setEditVal("");}e.stopPropagation();}}
-                                onClick={e=>e.stopPropagation()}
-                                style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontWeight:600,width:Math.max(40,editVal.length*7)+"px",fontFamily:"Inter,sans-serif",padding:0}}/>
+                              <TagAutocompleteInput T={T} autoFocus value={editVal} onChange={setEditVal} suggestions={dimSuggestions(dim)}
+                                onEnter={saveEdit} onEscape={()=>{setEditingTag(null);setEditVal("");}} onBlur={saveEdit}
+                                style={{width:Math.max(60,editVal.length*7+20)+"px"}}
+                                inputStyle={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontWeight:600,width:"100%",fontFamily:"Inter,sans-serif",padding:0}}/>
                             ):(
                               <span onClick={e=>{e.stopPropagation();setEditingTag({campaign:c.key,dim});setEditVal(val);}} style={{cursor:"text",fontWeight:600}}>{val}</span>
                             )}
