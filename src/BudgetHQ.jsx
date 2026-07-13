@@ -289,6 +289,73 @@ function groupVersionsByDay(versions){
   return groups;
 }
 
+// ─── FILE STORE (IndexedDB) ────────────────────────────────────────────────────
+// Lightweight archive of raw uploaded/exported files (tagging CSVs, channel spend import CSVs,
+// PDFs, etc.) — separate DB from version snapshots since these are original file blobs a user may
+// want to keep indefinitely for reference/audit, not pruned checkpoints of app state. Auto-captured
+// at the CSV import/export call sites (see handleFile, exportTags, importTagsFromCSV) plus a manual
+// "Add file" upload for anything else (PDFs, insertion orders, etc.) the app never parses itself.
+const FILES_DB_NAME="paidhq_files";
+const FILES_STORE_NAME="files";
+
+function openFilesDB(){
+  return new Promise((resolve,reject)=>{
+    if(typeof indexedDB==="undefined"){reject(new Error("IndexedDB not available"));return;}
+    const req=indexedDB.open(FILES_DB_NAME,1);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(FILES_STORE_NAME)){
+        const store=db.createObjectStore(FILES_STORE_NAME,{keyPath:"id"});
+        store.createIndex("timestamp","timestamp");
+      }
+    };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+
+// record: {id,timestamp,name,category,size,type,blob}
+function saveFileRecord(record){
+  return openFilesDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(FILES_STORE_NAME,"readwrite");
+    tx.objectStore(FILES_STORE_NAME).put(record);
+    tx.oncomplete=()=>resolve();
+    tx.onerror=()=>reject(tx.error);
+  }));
+}
+
+function listFileRecords(){
+  return openFilesDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(FILES_STORE_NAME,"readonly");
+    const req=tx.objectStore(FILES_STORE_NAME).getAll();
+    req.onsuccess=()=>resolve((req.result||[]).sort((a,b)=>b.timestamp-a.timestamp));
+    req.onerror=()=>reject(req.error);
+  }));
+}
+
+function deleteFileRecord(id){
+  return openFilesDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(FILES_STORE_NAME,"readwrite");
+    tx.objectStore(FILES_STORE_NAME).delete(id);
+    tx.oncomplete=()=>resolve();
+    tx.onerror=()=>reject(tx.error);
+  }));
+}
+
+// Fire-and-forget wrapper for the auto-capture call sites — a File Store write should never block
+// or fail the actual import/export it's shadowing.
+function archiveFile(file,category){
+  if(!file)return;
+  const record={id:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,timestamp:Date.now(),name:file.name||"untitled",category,size:file.size||0,type:file.type||"",blob:file};
+  saveFileRecord(record).catch(e=>console.error("[file store save]",e));
+}
+
+const fmtFileSize=n=>{
+  if(!n)return"0 KB";
+  if(n<1024*1024)return`${Math.max(1,Math.round(n/1024))} KB`;
+  return`${(n/(1024*1024)).toFixed(1)} MB`;
+};
+
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,marginBottom:6,...style}}>{children}</div>);
 const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 9px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",...style}} {...rest}>{children}</span>);
@@ -416,6 +483,8 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"send":return<svg {...p}><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>;
     case"plus":return<svg {...p}><path d="M12 5v14M5 12h14"/></svg>;
     case"history":return<svg {...p}><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg>;
+    case"trash":return<svg {...p}><path d="M4 7h16"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6M14 11v6"/></svg>;
+    case"file":return<svg {...p}><path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/></svg>;
     default:return null;
   }
 };
@@ -3432,6 +3501,28 @@ export default function BudgetHQ(){
   const[clearRangeStart,setClearRangeStart]=useState("");
   const[clearRangeEnd,setClearRangeEnd]=useState("");
 
+  // ── Settings → File Store ──
+  const[fileStoreList,setFileStoreList]=useState([]);
+  const[fileStoreLoading,setFileStoreLoading]=useState(false);
+  const manualFileRef=useRef(null);
+  const refreshFileStore=useCallback(()=>{
+    setFileStoreLoading(true);
+    listFileRecords().then(setFileStoreList).catch(e=>console.error("[file store list]",e)).finally(()=>setFileStoreLoading(false));
+  },[]);
+  const deleteFileFromStore=useCallback((id)=>{
+    deleteFileRecord(id).then(refreshFileStore).catch(e=>console.error("[file store delete]",e));
+  },[refreshFileStore]);
+  const downloadFileFromStore=useCallback((rec)=>{
+    const url=URL.createObjectURL(rec.blob);
+    const a=document.createElement("a");a.href=url;a.download=rec.name;a.click();URL.revokeObjectURL(url);
+  },[]);
+  const addManualFile=useCallback((file)=>{
+    if(!file)return;
+    archiveFile(file,"Manual upload");
+    refreshFileStore();
+    showNotif(`Saved ${file.name} to File Store`);
+  },[refreshFileStore]);
+
   // ── Export (CSV/XLSX/PDF/HTML downloads + email) ──
   const[emailExportOpen,setEmailExportOpen]=useState(false);
   const[emailExportFormat,setEmailExportFormat]=useState("pdf");
@@ -3588,6 +3679,7 @@ export default function BudgetHQ(){
 
   const handleFile=useCallback(file=>{
     if(!file)return;setFileName(file.name);
+    archiveFile(file,"Spend import");
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
       const detected=autoDetect(r.meta.fields||[]);
       setRawRows(r.data);setHeaders(r.meta.fields||[]);setColMap(detected);
@@ -3792,12 +3884,18 @@ export default function BudgetHQ(){
     const header=["Campaign Group","Campaign","Platform","Spend",...tagDims];
     const rows=[header,...campaigns.map(c=>[c.groupName,c.name,c.platform,c.spend.toFixed(2),...tagDims.map(d=>(tags[c.key]||{})[d]||"")])];
     downloadCSV(rows,"budgethq-tags.csv");
+    // Archive a copy alongside the download — same CSV serialization downloadCSV uses internally,
+    // wrapped as a File so archiveFile has a .name/.size/.type to work with.
+    const csv=rows.map(r=>r.map(v=>`"${String(v==null?"":v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    archiveFile(new File(["﻿"+csv],"budgethq-tags.csv",{type:"text/csv;charset=utf-8"}),"Tag export");
+    refreshFileStore();
     showNotif("Tags exported");
   };
 
   const importTagsRef=useRef(null);
   const importTagsFromCSV=useCallback((file)=>{
     if(!file)return;
+    archiveFile(file,"Tag import");
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
       const rows=r.data;
       const fields=r.meta.fields||[];
@@ -4029,7 +4127,7 @@ export default function BudgetHQ(){
           )}
           {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>{isMobile?"↑":"↑ Add data"}</Btn>}
           {step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
-          <button className="bhq-iconbtn" title="Settings" onClick={()=>setView("settings")}
+          <button className="bhq-iconbtn" title="Settings" onClick={()=>{setView("settings");refreshFileStore();}}
             style={{width:30,height:30,borderRadius:8,background:view==="settings"?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
             <Icon name="gear" size={15} color={T.textSub}/>
           </button>
@@ -4593,6 +4691,46 @@ export default function BudgetHQ(){
                     <Icon name={themeKey==="dark"?"moon":"sun"} size={15} color={T.textSub}/>
                     <Tog value={themeKey==="dark"} onChange={v=>setThemeKey(v?"dark":"light")} T={T}/>
                   </div>
+                </div>
+                <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>File Store</div>
+                    <Btn onClick={()=>manualFileRef.current?.click()} variant="subtle" size="sm" T={T}>
+                      <Icon name="plus" size={12} color={T.text}/> Add file
+                    </Btn>
+                    <input ref={manualFileRef} type="file" style={{display:"none"}} onChange={e=>{addManualFile(e.target.files[0]);e.target.value="";}}/>
+                  </div>
+                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>Every spend CSV you import and every tag CSV you import or export is automatically archived here as a backup copy. Add anything else you want to keep on hand — PDFs, insertion orders, whatever — with "Add file". These are just stored for reference; nothing here is read by the rest of the app.</div>
+                  {fileStoreLoading?(
+                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif",padding:"12px 0"}}>Loading…</div>
+                  ):fileStoreList.length===0?(
+                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif",padding:"12px 0"}}>No files saved yet.</div>
+                  ):(
+                    <div style={{maxHeight:320,overflow:"auto"}}>
+                      {fileStoreList.map((f,i)=>(
+                        <div key={f.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"9px 0",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                            <Icon name="file" size={14} color={T.textMuted}/>
+                            <div style={{minWidth:0}}>
+                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:340}}>{f.name}</div>
+                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>
+                                <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{marginRight:6,fontSize:10}}>{f.category}</Pill>
+                                {fmtFileSize(f.size)} · {new Date(f.timestamp).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                            <button onClick={()=>downloadFileFromStore(f)} title="Download" style={{width:26,height:26,borderRadius:6,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              <Icon name="download" size={12} color={T.textSub}/>
+                            </button>
+                            <button onClick={()=>deleteFileFromStore(f.id)} title="Delete" style={{width:26,height:26,borderRadius:6,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              <Icon name="trash" size={12} color={T.danger}/>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {rowSection({
                   title:"Clear Tagger data",
