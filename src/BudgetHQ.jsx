@@ -4246,7 +4246,15 @@ export default function BudgetHQ(){
                     </div>}
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
                       {tc===0?<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>needs review</Pill>:
-                        Object.entries(ts).map(([dim,val])=>(
+                        // Ordered by tagDims (the canonical dimension order), not Object.entries(ts) —
+                        // a plain object's key order follows INSERTION order, which is whatever
+                        // sequence that specific campaign happened to get tagged in (BU-then-Product
+                        // for one row, Product-then-BU for another), so pills visibly reshuffled
+                        // between rows even though the underlying data was identical. tagDims order
+                        // is fixed regardless of tagging order, so every row's pills line up the same.
+                        [...tagDims.filter(d=>Object.prototype.hasOwnProperty.call(ts,d)),...Object.keys(ts).filter(d=>!tagDims.includes(d))].map(dim=>{
+                          const val=ts[dim];
+                          return(
                           <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:14,background:T.accentBg,color:T.text,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Inter,sans-serif"}}>
                             <span style={{opacity:0.7,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
@@ -4259,7 +4267,8 @@ export default function BudgetHQ(){
                             )}
                             <span onClick={e=>{e.stopPropagation();removeTag(c.key,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13,lineHeight:1,marginLeft:1,padding:"0 2px"}}>×</span>
                           </span>
-                        ))
+                          );
+                        })
                       }
                     </div>}
                     {!isMobile&&<button onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${c.name}" from this dataset?\n\nThis only affects the current session — your tags are kept. You can re-sync or re-upload to restore it.`)){setMergedNormRows(prev=>prev.filter(r=>campaignKey(r.campaign_group_name,r.campaign_name)!==c.key));}}} title="Remove this campaign"
