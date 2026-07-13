@@ -2972,6 +2972,38 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                 ));
                 return[parentRow,...breakdownRows];
               })}
+              {filteredSegments.length>0&&(()=>{
+                // Totals across whatever's currently filtered/visible, not the whole dataset —
+                // matches the Budget Panel's own totals-row behavior (sums filteredSegs, not segs)
+                // so a filtered view here answers "how much across just what I'm looking at."
+                const ft=filteredSegments.reduce((acc,s)=>({
+                  budget:acc.budget+s.budget,
+                  spend:acc.spend+s.spend,
+                  dailyRate:acc.dailyRate+s.dailyRate,
+                  projected:acc.projected+(s.projected||0),
+                  hasProjected:acc.hasProjected||s.projected!=null,
+                }),{budget:0,spend:0,dailyRate:0,projected:0,hasProjected:false});
+                const ftActualPct=ft.budget>0?ft.spend/ft.budget:null;
+                const ftVariance=ft.budget>0&&ft.hasProjected?ft.projected-ft.budget:null;
+                return(
+                  <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
+                    <td style={{padding:"10px 4px"}}/>
+                    <td style={{padding:"10px 8px"}}/>
+                    {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredSegments.length})</SectionLabel>}</td>)}
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{ft.budget>0?fmtFull(ft.budget):"—"}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{fmtFull(ft.spend)}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{ftActualPct!=null?`${Math.round(ftActualPct*100)}%`:"—"}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:11,color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{fmtFull(ft.dailyRate)}/day</td>
+                    <td style={{padding:"10px 8px",textAlign:"right"}}>
+                      <div style={{fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{ft.hasProjected?fmtFull(ft.projected):"—"}</div>
+                      {ftVariance!=null&&<div style={{fontSize:10,color:ftVariance>0?T.danger:T.success,fontFamily:"Inter,sans-serif"}}>{fmtSigned(ftVariance)}</div>}
+                    </td>
+                    <td/>
+                    <td/>
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
           </>
