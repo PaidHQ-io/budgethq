@@ -307,15 +307,18 @@ const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChang
 const Tog=({value,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange(!value);}} style={{width:30,height:17,borderRadius:9,background:value?T.accent:T.borderStrong,position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0}}><div style={{position:"absolute",top:2,left:value?15:2,width:13,height:13,borderRadius:7,background:"#fff",transition:"left 0.18s",boxShadow:"0 1px 3px rgba(0,0,0,0.25)"}}/></div>);
 const Chk=({checked,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange();}} style={{width:15,height:15,borderRadius:4,border:`1.5px solid ${checked?T.accent:T.borderStrong}`,background:checked?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all 0.12s"}}>{checked&&<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>);
 const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:color||T.text}}>{value}</span></div>);
-// Flips how a filter field's comma-separated terms combine — OR (matches/excludes on any term)
-// vs AND (only when every term is present). e.g. "google,bing" as an include filter usually means
-// "either" (OR), but "angles,sap" meaning "must have both" needs AND — no single default is right
-// for every search, so this is a per-field toggle rather than fixed behavior.
+// Flips how a filter field's comma-separated terms combine — "or" (matches/excludes on ANY term)
+// vs "and" (only when ALL terms are present in the same row). Labeled ANY/ALL rather than OR/AND —
+// tested "OR"/"AND" as button text and it was genuinely confusing on the exclude side specifically:
+// people read an exclude field's "AND" as "exclude on term1, AND ALSO exclude on term2" (natural
+// language, = ANY term triggers exclusion) rather than the boolean-logic meaning this toggle
+// actually implements ("and" = co-occurrence, both terms required in the same row). ANY/ALL avoids
+// that ambiguity since it describes the terms directly instead of the boolean operator.
 const MatchModeToggle=({mode,onChange,T})=>(
   <div style={{display:"flex",flexShrink:0}} title="How comma-separated terms combine">
-    {["or","and"].map(m=>(
+    {[["or","ANY"],["and","ALL"]].map(([m,label])=>(
       <button key={m} onClick={()=>onChange(m)}
-        style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em",padding:"2px 5px",border:`1px solid ${mode===m?T.accentHover:T.border}`,borderLeft:m==="and"?"none":undefined,borderRadius:m==="or"?"6px 0 0 6px":"0 6px 6px 0",background:mode===m?T.accent:"transparent",color:mode===m?T.text:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>{m.toUpperCase()}</button>
+        style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em",padding:"2px 5px",border:`1px solid ${mode===m?T.accentHover:T.border}`,borderLeft:m==="and"?"none":undefined,borderRadius:m==="or"?"6px 0 0 6px":"0 6px 6px 0",background:mode===m?T.accent:"transparent",color:mode===m?T.text:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>{label}</button>
     ))}
   </div>
 );
@@ -3108,24 +3111,28 @@ export default function BudgetHQ(){
   const[fSMax,setFSMax]=useState("");
   const[fTag,setFTag]=useState("");
   const[fTagExclude,setFTagExclude]=useState("");
-  // How comma-separated terms within one filter field combine — "or" (match/exclude ANY term) vs
-  // "and" (match/exclude only rows containing ALL terms). Defaults to "or" (e.g. "google,bing"
-  // naturally means "either"), but "angles,sap" as a Campaign filter needing to mean "both terms
-  // present" is an equally real case — shared per field across its include+exclude pair rather than
-  // a fixed global choice, since which one you want depends on what you're actually looking for.
-  // Include and exclude get INDEPENDENT modes per field (not shared) — include defaults to OR
-  // ("google,bing" naturally means "either"), exclude defaults to AND. Exclude-as-AND is the
-  // default because the common exclude need is narrowing out one specific combination ("drop the
-  // sap+angles campaign but leave other angles or other sap campaigns alone"), not blocklisting —
-  // though OR-exclude ("drop anything with test OR draft OR archived," same pattern as ad platforms'
-  // negative keyword lists) is a real, if less frequent, need too, hence still a toggle and not
-  // hardcoded.
+  // How comma-separated terms within one filter field combine — "or"/ANY vs "and"/ALL — with
+  // independent modes for include vs exclude on each field.
+  //
+  // CORRECTED (2026-07): exclude's default was briefly set to "and" (co-occurrence — only drop a
+  // row if it contains every term together) on the theory that that's what "AND" means for an
+  // exclude list. Live-tested against a real filter ("oracle,sap" excluding Campaign, mode set to
+  // AND) and it was wrong: rows containing only "oracle" kept showing, because under co-occurrence
+  // logic they correctly don't have BOTH terms — but that's not what "AND" means to a person reading
+  // an exclude field. In natural language, "exclude oracle AND exclude sap" means each term is its
+  // own drop rule — a row is gone if it has oracle, and ALSO gone if it has sap — which is "ANY term
+  // present" (terms.some), not "every term present" (terms.every). That's the classic De Morgan's
+  // mismatch: "excluded if A or B" and "kept only if not-A and not-B" describe the exact same set,
+  // but people asking for an exclude list say the second one and mean the first. So exclude now
+  // defaults to "or"/ANY (matches that reading), same default as include. "and"/ALL — only drop rows
+  // containing every term together — is still available as the narrower option for the rarer case of
+  // excluding one specific combination while leaving partial matches alone.
   const[fGroupInclMode,setFGroupInclMode]=useState("or");
-  const[fGroupExclMode,setFGroupExclMode]=useState("and");
+  const[fGroupExclMode,setFGroupExclMode]=useState("or");
   const[fCampInclMode,setFCampInclMode]=useState("or");
-  const[fCampExclMode,setFCampExclMode]=useState("and");
+  const[fCampExclMode,setFCampExclMode]=useState("or");
   const[fTagInclMode,setFTagInclMode]=useState("or");
-  const[fTagExclMode,setFTagExclMode]=useState("and");
+  const[fTagExclMode,setFTagExclMode]=useState("or");
   const[selectedTagFilters,setSelectedTagFilters]=useState(new Set()); // Set of "dim:val"
   const toggleTagFilter=useCallback((dim,val)=>{
     const key=`${dim}:${val}`;
