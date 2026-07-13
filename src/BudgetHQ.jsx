@@ -83,6 +83,12 @@ const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campa
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
 // combine both levels, not just the leaf name alone.
 const campaignKey=(groupName,name)=>`${groupName||name||""}||${name||groupName||""}`;
+// Comma-separated multi-term filter matching, used by the Tagger's Group/Campaign/Tag filters —
+// both the "contains" and "excludes" side of each. Terms are OR'd together: "google,bing" as an
+// include filter matches anything containing EITHER term; as an exclude filter, it drops anything
+// containing EITHER term. Empty/whitespace-only terms from stray commas are dropped.
+const splitFilterTerms=s=>(s||"").split(",").map(t=>t.trim().toLowerCase()).filter(Boolean);
+const matchesAnyTerm=(haystackLower,terms)=>terms.some(t=>haystackLower.includes(t));
 // Distinct value already used per budget dimension, across every year — feeds the Tagger's
 // autocomplete so typing a tag value can suggest e.g. "EPM Suite" for Pillar instead of risking a
 // typo that creates an orphaned segment. Segment keys are dims.join("|"), so splitting one back
@@ -3432,15 +3438,15 @@ export default function BudgetHQ(){
   },[campaigns,tags,rawRows,colMap,lastSyncRange]);
 
   const filtered=useMemo(()=>{let r=campaigns.filter(c=>{
-    if(fCamp&&!c.name.toLowerCase().includes(fCamp.toLowerCase()))return false;
-    if(fCampExclude&&c.name.toLowerCase().includes(fCampExclude.toLowerCase()))return false;
-    if(fGroup&&!c.groupName.toLowerCase().includes(fGroup.toLowerCase()))return false;
-    if(fGroupExclude&&c.groupName.toLowerCase().includes(fGroupExclude.toLowerCase()))return false;
+    if(fCamp){const terms=splitFilterTerms(fCamp);if(terms.length&&!matchesAnyTerm(c.name.toLowerCase(),terms))return false;}
+    if(fCampExclude){const terms=splitFilterTerms(fCampExclude);if(terms.length&&matchesAnyTerm(c.name.toLowerCase(),terms))return false;}
+    if(fGroup){const terms=splitFilterTerms(fGroup);if(terms.length&&!matchesAnyTerm(c.groupName.toLowerCase(),terms))return false;}
+    if(fGroupExclude){const terms=splitFilterTerms(fGroupExclude);if(terms.length&&matchesAnyTerm(c.groupName.toLowerCase(),terms))return false;}
     if(fPlat&&c.platform!==fPlat)return false;
     if(fSMin&&c.spend<parseFloat(fSMin))return false;
     if(fSMax&&c.spend>parseFloat(fSMax))return false;
-    if(fTag){const ts=tags[c.key]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(!s.includes(fTag.toLowerCase()))return false;}
-    if(fTagExclude){const ts=tags[c.key]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();if(s.includes(fTagExclude.toLowerCase()))return false;}
+    if(fTag){const ts=tags[c.key]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();const terms=splitFilterTerms(fTag);if(terms.length&&!matchesAnyTerm(s,terms))return false;}
+    if(fTagExclude){const ts=tags[c.key]||{};const s=Object.entries(ts).map(([d,v])=>`${d}:${v}`).join(" ").toLowerCase();const terms=splitFilterTerms(fTagExclude);if(terms.length&&matchesAnyTerm(s,terms))return false;}
     if(selectedTagFilters.size>0){
       // Group by dimension: AND across dims, OR within same dim
       const dimMap={};
@@ -4165,22 +4171,22 @@ export default function BudgetHQ(){
               <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 8px",gap:6,alignItems:"start"}}>
                 <div/>
                 {!isMobile&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
-                  <input value={fGroup} onChange={e=>setFGroup(e.target.value)} placeholder="Group contains…" style={fIn}/>
-                  <input value={fGroupExclude} onChange={e=>setFGroupExclude(e.target.value)} placeholder="≠ excludes…" style={{...fIn,borderColor:fGroupExclude?"#ef4444":undefined,color:fGroupExclude?"#ef4444":undefined}}/>
+                  <input value={fGroup} onChange={e=>setFGroup(e.target.value)} placeholder="Group contains… (a, b)" title="Comma-separate multiple terms — matches any of them" style={fIn}/>
+                  <input value={fGroupExclude} onChange={e=>setFGroupExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title="Comma-separate multiple terms — excludes any of them" style={{...fIn,borderColor:fGroupExclude?"#ef4444":undefined,color:fGroupExclude?"#ef4444":undefined}}/>
                 </div>}
                 <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                  <input value={fCamp} onChange={e=>setFCamp(e.target.value)} placeholder="Campaign contains…" style={fIn}/>
-                  <input value={fCampExclude} onChange={e=>setFCampExclude(e.target.value)} placeholder="≠ excludes…" style={{...fIn,borderColor:fCampExclude?"#ef4444":undefined,color:fCampExclude?"#ef4444":undefined}}/>
+                  <input value={fCamp} onChange={e=>setFCamp(e.target.value)} placeholder="Campaign contains… (a, b)" title="Comma-separate multiple terms — matches any of them" style={fIn}/>
+                  <input value={fCampExclude} onChange={e=>setFCampExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title="Comma-separate multiple terms — excludes any of them" style={{...fIn,borderColor:fCampExclude?"#ef4444":undefined,color:fCampExclude?"#ef4444":undefined}}/>
                 </div>
                 <div style={{display:"flex",gap:2}}><input value={fSMin} onChange={e=>setFSMin(e.target.value)} placeholder="Min" style={{...fIn,width:"50%"}}/><input value={fSMax} onChange={e=>setFSMax(e.target.value)} placeholder="Max" style={{...fIn,width:"50%"}}/></div>
                 {!isMobile&&<select value={fPlat} onChange={e=>setFPlat(e.target.value)} style={{...fIn,cursor:"pointer"}}><option value="">All platforms</option>{allPlats.map(p=><option key={p} value={p}>{p}</option>)}</select>}
                 {!isMobile&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
                   <div style={{display:"flex",gap:4}}>
-                    <input value={fTag} onChange={e=>setFTag(e.target.value)} placeholder="Tag contains…" style={{...fIn,flex:1}}/>
+                    <input value={fTag} onChange={e=>setFTag(e.target.value)} placeholder="Tag contains… (a, b)" title="Comma-separate multiple terms — matches any of them" style={{...fIn,flex:1}}/>
                     <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{...fIn,width:120,cursor:"pointer"}}><option value="all">All</option><option value="tagged">Tagged</option><option value="untagged">Needs review</option></select>
                     {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.danger}`,color:T.danger,borderRadius:6,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
                   </div>
-                  <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes…" style={{...fIn,borderColor:fTagExclude?"#ef4444":undefined,color:fTagExclude?"#ef4444":undefined}}/>
+                  <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes… (a, b)" title="Comma-separate multiple terms — excludes any of them" style={{...fIn,borderColor:fTagExclude?"#ef4444":undefined,color:fTagExclude?"#ef4444":undefined}}/>
                 </div>}
               </div>
             </div>
