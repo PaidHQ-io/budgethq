@@ -2327,6 +2327,35 @@ function computePlatformFreshness(mergedNormRows){
 // Fix: each platform's rate is computed against ITS OWN as-of date (computePlatformFreshness,
 // clamped to the period and to today), then each platform's projection is summed per segment —
 // instead of blending raw spend first and dividing by one shared calendar-elapsed-days number.
+//
+// Shared by both computePacing (budget segments) and computeCustomGrouping (arbitrary dimension
+// view) — the per-platform projection math doesn't care what a segment IS, only how much each
+// platform spent within it and how fresh that platform's data is.
+function projectPlatformSegment(platformSpendMap,platformFreshness,{start,end,today,totalDays}){
+  let platformProjectedSum=0;
+  // See PROJECTION NOTE above — platforms whose projection here was extrapolated from a single
+  // day of data across a multi-day period get flagged so the UI can warn instead of silently
+  // trusting a wildly inflated number.
+  const lowConfidencePlatforms=[];
+  Object.entries(platformSpendMap||{}).forEach(([platform,pSpend])=>{
+    const freshest=platformFreshness[platform];
+    let asOf=freshest&&freshest<today?freshest:today;
+    if(asOf>end)asOf=end;
+    const pElapsedDays=asOf<start?0:Math.min(totalDays,Math.floor((asOf-start)/86400000)+1);
+    if(pElapsedDays>0)platformProjectedSum+=(pSpend/pElapsedDays)*totalDays;
+    if(pElapsedDays===1&&totalDays>1)lowConfidencePlatforms.push(platform);
+  });
+  return{projectedSum:platformProjectedSum,dailyRate:totalDays?platformProjectedSum/totalDays:0,lowConfidencePlatforms};
+}
+
+// Resolves a single dimension's value for a spend row — "Platform" is derived per row (not a
+// manual tag), everything else comes from that campaign's tags. Shared by computePacing,
+// computeCustomGrouping, and their breakdown counterparts so "Platform" behaves identically
+// wherever it's used as a grouping or breakdown dimension.
+function resolveDimValue(row,rowTags,dim){
+  return dim==="Platform"?derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type):(rowTags[dim]||"");
+}
+
 function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today}){
   const{start,end,months}=getPeriodRange(periodType,year,month,quarter);
   const totalDays=Math.round((end-start)/86400000)+1;
@@ -2375,24 +2404,8 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
     const actualPct=budget>0?spend/budget:null;
 
     // Sum each platform's own projection rather than one blended rate — see PROJECTION NOTE.
-    let platformProjectedSum=0;
-    // Platforms whose projection here was extrapolated from a single day of data across a
-    // multi-day period — i.e. pElapsedDays collapsed to 1 despite totalDays being bigger. That's
-    // exactly the failure mode a mis-mapped range-start date (instead of the true as-of date)
-    // produces: a spend total sitting on day 1 gets divided by 1 and re-multiplied by every day
-    // in the period, wildly overstating the projection. Surfaced in the UI as a warning rather
-    // than silently trusted, since one data point is a weak basis for any multi-day extrapolation.
-    const lowConfidencePlatforms=[];
-    Object.entries(platformSpendMap[sk]||{}).forEach(([platform,pSpend])=>{
-      const freshest=platformFreshness[platform];
-      let asOf=freshest&&freshest<today?freshest:today;
-      if(asOf>end)asOf=end;
-      const pElapsedDays=asOf<start?0:Math.min(totalDays,Math.floor((asOf-start)/86400000)+1);
-      if(pElapsedDays>0)platformProjectedSum+=(pSpend/pElapsedDays)*totalDays;
-      if(pElapsedDays===1&&totalDays>1)lowConfidencePlatforms.push(platform);
-    });
-    const projected=elapsedDays>0?platformProjectedSum:null;
-    const dailyRate=totalDays?platformProjectedSum/totalDays:0;
+    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays});
+    const projected=elapsedDays>0?projectedSum:null;
     const projectedVariance=budget>0&&projected!=null?projected-budget:null;
     let status="no-budget";
     if(budget>0){
@@ -2409,6 +2422,72 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
 
   const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
   return{segments,totals,totalDays,elapsedDays,daysRemaining,expectedPct,start,end,platformFreshness};
+}
+
+// "View by" alternate to computePacing — groups spend by an arbitrary, user-chosen combination of
+// dimensions (any tag dimension, plus the derived "Platform" pseudo-dimension) instead of the
+// fixed budgetDims combo Budget Panel happens to be set up with. No Budget/Pacing/Status here —
+// budgets in this app are only ever entered against a budgetDims combo, so there's nothing to
+// compare an arbitrary grouping like "just Platform" against; this returns Spend/Daily Burn/
+// Projected only, using the exact same per-platform freshness projection as computePacing.
+function computeCustomGrouping({mergedNormRows,tags,dims,year,periodType,month,quarter,today}){
+  const{start,end}=getPeriodRange(periodType,year,month,quarter);
+  const totalDays=Math.round((end-start)/86400000)+1;
+  let elapsedDays;
+  if(today<start)elapsedDays=0;
+  else if(today>end)elapsedDays=totalDays;
+  else elapsedDays=Math.floor((today-start)/86400000)+1;
+  const daysRemaining=Math.max(0,totalDays-elapsedDays);
+  const expectedPct=totalDays?elapsedDays/totalDays:0;
+  const platformFreshness=computePlatformFreshness(mergedNormRows);
+
+  const spendMap={};
+  const platformSpendMap={};
+  const campaignSetMap={};
+  if(dims.length){
+    mergedNormRows.forEach(row=>{
+      const d=parseSpendDate(row.date);
+      if(!d||d<start||d>end)return;
+      const ck=campaignKey(row.campaign_group_name,row.campaign_name);
+      const rowTags=tags[ck]||{};
+      const vals=dims.map(dim=>resolveDimValue(row,rowTags,dim));
+      if(vals.some(v=>!v))return; // same convention as budget segments — every chosen dim must be present
+      const sk=vals.join("|");
+      spendMap[sk]=(spendMap[sk]||0)+row.spend;
+      const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+      if(!platformSpendMap[sk])platformSpendMap[sk]={};
+      platformSpendMap[sk][platform]=(platformSpendMap[sk][platform]||0)+row.spend;
+      if(!campaignSetMap[sk])campaignSetMap[sk]=new Set();
+      campaignSetMap[sk].add(ck);
+    });
+  }
+
+  const segments=Object.keys(spendMap).map(sk=>{
+    const spend=spendMap[sk];
+    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays});
+    const projected=elapsedDays>0?projectedSum:null;
+    return{segKey:sk,dims:sk.split("|"),spend,dailyRate,projected,lowConfidencePlatforms,campaignCount:campaignSetMap[sk]?.size||0};
+  }).sort((a,b)=>b.spend-a.spend);
+
+  const totals=segments.reduce((acc,s)=>({spend:acc.spend+s.spend}),{spend:0});
+  return{segments,totals,totalDays,elapsedDays,daysRemaining,expectedPct,start,end,platformFreshness,dims};
+}
+
+// Expand-row breakdown for computeCustomGrouping, mirroring computeSpendBreakdown but matching
+// against an arbitrary dims array (via resolveDimValue) instead of the fixed budgetDims.
+function computeCustomBreakdown({mergedNormRows,tags,dims,segKey,breakdownDim,start,end}){
+  const vals=segKey.split("|");
+  const map={};
+  mergedNormRows.forEach(row=>{
+    const d=parseSpendDate(row.date);
+    if(!d||d<start||d>end)return;
+    const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
+    if(!dims.every((dim,i)=>resolveDimValue(row,rowTags,dim)===vals[i]))return;
+    const bval=resolveDimValue(row,rowTags,breakdownDim)||"Untagged";
+    map[bval]=(map[bval]||0)+row.spend;
+  });
+  const total=Object.values(map).reduce((s,v)=>s+v,0);
+  return Object.entries(map).map(([value,spend])=>({value,spend,pct:total>0?spend/total:0})).sort((a,b)=>b.spend-a.spend);
 }
 
 function pacingStatusMeta(status,T){
@@ -2699,18 +2778,34 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   const[breakdownDim,setBreakdownDim]=useState(""); // "" = no drill-down; else "Platform" or a tag dimension
   const[expandedRows,setExpandedRows]=useState(new Set());
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
+
+  // "View by" — the table's PRIMARY grouping is normally your budget segments (BU/Pillar/Product,
+  // whatever budgetDims is set to), since that's the only grouping with a $ budget attached to
+  // compare against. "custom" lets you regroup the whole table by any combination of dimensions
+  // instead — e.g. Platform alone, or Platform + Region — trading the Budget/Pacing/Status columns
+  // (there's no budget defined at an arbitrary grouping like that) for Spend/Daily Burn/Projected
+  // computed fresh for whatever combination you pick.
+  const[viewMode,setViewMode]=useState("budget"); // "budget" | "custom"
+  const[customDims,setCustomDims]=useState([]);
+  const allDimOptions=["Platform",...(tagDimensions||[])];
+  const activeDims=viewMode==="custom"?customDims:budgetDims;
+  const changeViewMode=v=>{setViewMode(v);setSelRows(new Set());setExpandedRows(new Set());setBreakdownDim("");setSegFilters({});};
+  const toggleCustomDim=d=>{setCustomDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);setExpandedRows(new Set());setBreakdownDim("");setSegFilters({});};
+
   // Selecting rows only makes sense within the period/year currently being viewed — clear on change
   const changeYear=y=>{setYear(y);setSelRows(new Set());};
   const changePeriodType=k=>{setPeriodType(k);setSelRows(new Set());};
   const changeMonth=m=>{setMonth(m);setSelRows(new Set());};
   const changeQuarter=q=>{setQuarter(q);setSelRows(new Set());};
-  // Breakdown options: Platform is always available (derived per spend row, not a manual tag);
-  // any other tag dimension not already used as the primary segmentation is offered too.
-  const breakdownOptions=["Platform",...(tagDimensions||[]).filter(d=>!budgetDims.includes(d))];
+  // Breakdown options: whatever isn't already used as the primary grouping (budgetDims, or
+  // customDims in the custom view) is offered as a secondary drill-down.
+  const breakdownOptions=allDimOptions.filter(d=>!activeDims.includes(d));
   const toggleExpand=key=>setExpandedRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
 
   const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now}),
     [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const customPacing=useMemo(()=>viewMode==="custom"&&customDims.length?computeCustomGrouping({mergedNormRows,tags:campaignTags,dims:customDims,year,periodType,month,quarter,today:now}):null,
+    [viewMode,mergedNormRows,campaignTags,customDims,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredSegments=useMemo(()=>pacing.segments.filter(seg=>{
     if(statusFilter!=="all"&&seg.status!==statusFilter)return false;
@@ -2719,6 +2814,15 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
       return!f||(seg.dims[i]||"").toLowerCase().includes(f);
     });
   }),[pacing.segments,budgetDims,segFilters,statusFilter]);
+  // Same filtering, parametrized on customDims — kept separate from filteredSegments above rather
+  // than merging the two into one generalized function, so the existing budget-segment table (and
+  // everything wired to it — edit/delete/rename/bulk-actions) stays completely untouched.
+  const filteredCustomSegments=useMemo(()=>(customPacing?.segments||[]).filter(seg=>
+    customDims.every((d,i)=>{
+      const f=(segFilters[d]||"").trim().toLowerCase();
+      return!f||(seg.dims[i]||"").toLowerCase().includes(f);
+    })
+  ),[customPacing,customDims,segFilters]);
   const hasSegFilters=statusFilter!=="all"||Object.values(segFilters).some(v=>(v||"").trim());
   const clearSegFilters=()=>{setSegFilters({});setStatusFilter("all");};
   const toggleRowSel=key=>setSelRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
@@ -2855,7 +2959,31 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 
       {/* Segment table */}
       <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
-        {pacing.segments.length===0?(
+        {/* View by — Budget Segments (the only grouping with $ budgets) vs Custom (any dimension
+            combo, spend-only). Shown regardless of whether budget segments exist, since switching
+            away to Custom is exactly what you'd want to do if they don't. */}
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
+          <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>View by:</span>
+          <div style={{display:"flex",gap:4}}>
+            {[["budget","Budget Segments"],["custom","Custom"]].map(([k,l])=>(
+              <button key={k} onClick={()=>changeViewMode(k)}
+                style={{padding:"6px 12px",borderRadius:6,border:`1.5px solid ${viewMode===k?T.accentHover:T.border}`,background:viewMode===k?T.accent:"transparent",color:viewMode===k?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:viewMode===k?700:400,fontFamily:"Inter,sans-serif"}}>{l}</button>
+            ))}
+          </div>
+          {viewMode==="custom"&&(
+            <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{fontSize:11,color:T.textMuted}}>Group by:</span>
+              {allDimOptions.map(d=>{
+                const active=customDims.includes(d);
+                return(
+                  <button key={d} onClick={()=>toggleCustomDim(d)}
+                    style={{fontSize:11,padding:"4px 10px",borderRadius:14,border:`1.5px solid ${active?T.accentHover:T.border}`,background:active?T.accent:"transparent",color:active?T.text:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:active?700:500}}>{d}</button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {viewMode==="budget"&&(pacing.segments.length===0?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,textAlign:"center"}}>
             <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>No budget or spend data for {periodLabel}</div>
             <div style={{fontSize:13,color:T.textSub}}>Set a budget or import spend data for this period.</div>
@@ -3029,7 +3157,116 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
             </tbody>
           </table>
           </>
-        )}
+        ))}
+        {viewMode==="custom"&&(customDims.length===0?(
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,textAlign:"center"}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>Choose at least one dimension</div>
+            <div style={{fontSize:13,color:T.textSub}}>Pick Platform, Region, or any tag dimension above to group by.</div>
+          </div>
+        ):!customPacing||customPacing.segments.length===0?(
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,textAlign:"center"}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>No spend data for {periodLabel}</div>
+            <div style={{fontSize:13,color:T.textSub}}>Import spend data, or pick a different period or dimension combination.</div>
+          </div>
+        ):(
+          <>
+          {/* Filter bar */}
+          <div style={{padding:"8px 0",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
+            {customDims.map(d=>(
+              <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:120}}/>
+            ))}
+            {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
+            <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
+            <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Break down by:</span>
+            <Sel value={breakdownDim} onChange={v=>{setBreakdownDim(v);setExpandedRows(new Set());}} T={T} style={{width:150}}>
+              <option value="">None</option>
+              {breakdownOptions.map(d=><option key={d} value={d}>{d}</option>)}
+            </Sel>
+            <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredCustomSegments.length} of {customPacing.segments.length} groups</span>
+          </div>
+          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
+            <thead><tr>
+              <th style={{...TH,width:20}}/>
+              {customDims.map(d=><th key={d} style={{...TH,textAlign:"left"}}>{d}</th>)}
+              <th style={TH}>Spend PTD</th>
+              <th style={TH}>Daily Burn</th>
+              <th style={TH}>Projected</th>
+              <th style={{...TH,textAlign:"right"}}>Campaigns</th>
+            </tr></thead>
+            <tbody>
+              {filteredCustomSegments.length===0&&(
+                <tr><td colSpan={2+customDims.length+3} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No groups match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
+              )}
+              {filteredCustomSegments.flatMap(seg=>{
+                const isExpanded=breakdownDim&&expandedRows.has(seg.segKey);
+                const rbb=`1px dashed ${T.borderStrong}`;
+                const parentRow=(
+                  <tr key={seg.segKey} className="bhq-tr">
+                    <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center"}}>
+                      {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
+                        style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
+                    </td>
+                    {seg.dims.map((v,i)=><td key={i} style={{padding:"8px 14px",borderBottom:rbb,whiteSpace:"nowrap"}}>
+                      <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"Inter,sans-serif",fontWeight:600,borderRadius:6}}>{v}</Pill>
+                    </td>)}
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.text}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
+                      <div style={{fontFamily:"Inter,sans-serif",color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
+                        {seg.projected!=null?fmtFull(seg.projected):"—"}
+                        {seg.lowConfidencePlatforms?.length>0&&(
+                          <WarnTip T={T} text={`Projection may be unreliable — ${seg.lowConfidencePlatforms.join(", ")} only has a single as-of data point for this period, so its spend is being extrapolated across every day instead of an actual daily rate.`}/>
+                        )}
+                      </div>
+                    </td>
+                    <td style={{padding:"8px 14px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.textMuted}}>{seg.campaignCount}</td>
+                  </tr>
+                );
+                if(!isExpanded)return[parentRow];
+                const breakdown=computeCustomBreakdown({mergedNormRows,tags:campaignTags,dims:customDims,segKey:seg.segKey,breakdownDim,start:customPacing.start,end:customPacing.end});
+                const breakdownRows=breakdown.length===0?[
+                  <tr key={seg.segKey+"-empty"}>
+                    <td/>
+                    <td colSpan={customDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:11,color:T.textMuted,fontStyle:"italic"}}>No spend in this period to break down by {breakdownDim}</td>
+                    <td colSpan={3} style={{borderBottom:rbb}}/>
+                  </tr>
+                ]:breakdown.map(b=>(
+                  <tr key={seg.segKey+"-"+b.value}>
+                    <td/>
+                    <td colSpan={customDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:12,color:T.textSub}}>↳ {b.value}</td>
+                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12}}>
+                      {fmtFull(b.spend)}<span style={{color:T.textMuted,marginLeft:6,fontSize:11}}>({Math.round(b.pct*100)}%)</span>
+                    </td>
+                    <td colSpan={2} style={{borderBottom:rbb}}/>
+                  </tr>
+                ));
+                return[parentRow,...breakdownRows];
+              })}
+              {filteredCustomSegments.length>0&&(()=>{
+                const ft=filteredCustomSegments.reduce((acc,s)=>({
+                  spend:acc.spend+s.spend,
+                  dailyRate:acc.dailyRate+s.dailyRate,
+                  projected:acc.projected+(s.projected||0),
+                  hasProjected:acc.hasProjected||s.projected!=null,
+                  campaignCount:acc.campaignCount+s.campaignCount,
+                }),{spend:0,dailyRate:0,projected:0,hasProjected:false,campaignCount:0});
+                return(
+                  <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
+                    <td style={{padding:"10px 4px"}}/>
+                    {customDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredCustomSegments.length})</SectionLabel>}</td>)}
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{fmtFull(ft.spend)}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{fmtFull(ft.dailyRate)}/day</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{ft.hasProjected?fmtFull(ft.projected):"—"}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.textMuted}}>{ft.campaignCount}</td>
+                  </tr>
+                );
+              })()}
+            </tbody>
+          </table>
+          </>
+        ))}
       </div>
       {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"Inter,sans-serif"}}>{notif}</div>}
     </div>
