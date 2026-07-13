@@ -3484,7 +3484,10 @@ export default function BudgetHQ(){
     const u={};selected.forEach(n=>{u[n]={...(tags[n]||{}),[applyDim]:v};});
     setTags(p=>({...p,...u}));
     showNotif(`Tagged ${selected.size} campaigns — ${applyDim}: ${v}`);
-    setSelected(new Set());setApplyVal("");
+    // Selection deliberately NOT cleared here — tagging is usually done one dimension at a time
+    // (BU, then Pillar, then Product…) against the same set of rows, so clearing forced re-selecting
+    // the same campaigns after every single dimension. Use the toolbar's "Clear" button when done.
+    setApplyVal("");
   },[applyDim,applyVal,selected,tags,pushHistory]);
   const applySug=useCallback((dim,val)=>{pushHistory(tags);const u={};filtered.forEach(c=>{if(!(tags[c.key]?.[dim]))u[c.key]={...(tags[c.key]||{}),[dim]:val};});setTags(p=>({...p,...u}));showNotif(`Applied ${dim}: ${val} to ${Object.keys(u).length} campaigns`);},[filtered,tags,pushHistory]);
   const removeTag=useCallback((cn,dim)=>{pushHistory(tags);setTags(p=>{const ts={...(p[cn]||{})};delete ts[dim];return{...p,[cn]:ts};});},[tags,pushHistory]);
