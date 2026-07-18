@@ -1,4 +1,4 @@
-import BudgetHQ from './BudgetHQ'
+import AuthGate from './AuthGate'
 export default function App() {
-  return <BudgetHQ />
+  return <AuthGate />
 }
