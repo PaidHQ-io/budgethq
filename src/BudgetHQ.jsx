@@ -6,49 +6,29 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
-// Cool-gray "Obsidian" palette (redesign, July 2026) — Mo asked to move away from the
-// pixel/retro treatment back to a softer, rounded, conventional look, with a browser-tab
-// style top nav using exact colors he picked: topbar #DCE0E9, body #F0F1F5, left column
-// #E6E9F0, dividers #CED2DB. Gold (#FFC249) stays as the one accent color threaded through
-// both themes. Dark theme has no reference and is an original counterpart, built by
-// inverting these same structural roles (topbar/body/sidebar/divider) into dark grays.
-const THEMES = {
-  dark: {
-    bg:"#14171E",surface:"#1E222B",surfaceEl:"#262B35",surfaceHover:"#2E333F",
-    border:"#2A2E38",borderStrong:"#3A3F4C",
-    text:"#EDEEF2",textSub:"#A8AEBB",textMuted:"#6B7180",textDim:"#2A2E38",
-    accent:"#FFC249",accentHover:"#FFD375",
-    accentBg:"rgba(255,194,73,0.14)",accentBorder:"rgba(255,194,73,0.3)",accentText:"#FFC249",
-    success:"#5CBE86",successBg:"rgba(92,190,134,0.12)",successBorder:"rgba(92,190,134,0.28)",
-    warning:"#E2953F",warningBg:"rgba(226,149,63,0.12)",warningBorder:"rgba(226,149,63,0.3)",
-    danger:"#FF6259",dangerBg:"rgba(255,98,89,0.12)",dangerBorder:"rgba(255,98,89,0.3)",
-    rowHover:"#262B35",rowSelected:"rgba(255,194,73,0.08)",
-    inputBg:"#1E222B",headerBg:"#191C24",sidebarBg:"#181B23",topbarBg:"#20242E",
-    logo:"#FFC249",pill:"#262B35",pillBorder:"#2A2E38",railDivider:"#2A2E38",
-    badgeColors:["#FF6259","#8C6FFF","#FFC249","#B08D4F"],
-    heroGradient:"linear-gradient(135deg,#C24A78 0%,#2E7D6B 100%)",
-    shadow:"0 1px 2px rgba(0,0,0,0.4)",
-    shadowMd:"0 8px 24px rgba(0,0,0,0.45),0 2px 8px rgba(0,0,0,0.3)",
-    shadowLg:"0 16px 48px rgba(0,0,0,0.55),0 4px 16px rgba(0,0,0,0.35)",
-  },
-  light: {
-    bg:"#F0F1F5",surface:"#FFFFFF",surfaceEl:"#F7F8FA",surfaceHover:"#ECEEF2",
-    border:"#CED2DB",borderStrong:"#B7BCC8",
-    text:"#1E222A",textSub:"#5B6272",textMuted:"#8A90A0",textDim:"#CED2DB",
-    accent:"#FFC249",accentHover:"#F0AC2B",
-    accentBg:"rgba(255,194,73,0.16)",accentBorder:"rgba(255,194,73,0.35)",accentText:"#8A5F00",
-    success:"#2F8F5B",successBg:"rgba(47,143,91,0.1)",successBorder:"rgba(47,143,91,0.25)",
-    warning:"#C2721F",warningBg:"rgba(194,114,31,0.1)",warningBorder:"rgba(194,114,31,0.28)",
-    danger:"#FD4438",dangerBg:"rgba(253,68,56,0.1)",dangerBorder:"rgba(253,68,56,0.28)",
-    rowHover:"#F7F8FA",rowSelected:"rgba(255,194,73,0.1)",
-    inputBg:"#FFFFFF",headerBg:"#F7F8FA",sidebarBg:"#E6E9F0",topbarBg:"#DCE0E9",
-    logo:"#FFC249",pill:"#F7F8FA",pillBorder:"#CED2DB",railDivider:"#CED2DB",
-    badgeColors:["#FD4438","#4807EA","#FFC249","#452F01"],
-    heroGradient:"linear-gradient(135deg,#E8749A 0%,#5FBFA6 100%)",
-    shadow:"0 1px 3px rgba(30,34,42,0.06)",
-    shadowMd:"0 10px 30px rgba(30,34,42,0.08),0 2px 8px rgba(30,34,42,0.04)",
-    shadowLg:"0 20px 56px rgba(30,34,42,0.12),0 6px 18px rgba(30,34,42,0.06)",
-  },
+// VaultHQ-matched palette (redesign, July 2026) — Notion-inspired light theme shared across
+// the PaidHQ suite: near-white neutral surfaces, quiet 1px borders instead of card shadows,
+// a single restrained blue accent instead of a loud fill everywhere. Light mode only — the
+// dark/light toggle that used to live in Settings has been removed along with the old
+// dark-gray "Obsidian" theme it switched to.
+const THEME = {
+  bg:"#FFFFFF",surface:"#FFFFFF",surfaceEl:"#F7F7F5",surfaceHover:"#EFEFED",
+  border:"#E9E9E7",borderStrong:"#D8D8D5",
+  text:"#37352F",textSub:"#787774",textMuted:"#9B9A97",textDim:"#E3E2E0",
+  accent:"#2383E2",accentHover:"#1A73CE",
+  accentBg:"rgba(35,131,226,0.1)",accentBorder:"rgba(35,131,226,0.3)",accentText:"#0B6BC2",
+  success:"#2F9E44",successBg:"rgba(47,158,68,0.1)",successBorder:"rgba(47,158,68,0.25)",
+  warning:"#D9730D",warningBg:"rgba(217,115,13,0.1)",warningBorder:"rgba(217,115,13,0.25)",
+  danger:"#E03E3E",dangerBg:"rgba(224,62,62,0.1)",dangerBorder:"rgba(224,62,62,0.25)",
+  rowHover:"#F1F1EF",rowSelected:"rgba(35,131,226,0.08)",
+  inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#FBFBFA",topbarBg:"#FFFFFF",
+  pill:"#F1F1EF",pillBorder:"#EDEDEB",
+  badgeColors:["#E03E3E","#9065B0","#2383E2","#2F9E44","#D9730D","#787774","#0F7B6C"],
+  shadow:"none",
+  shadowMd:"0 9px 24px rgba(15,15,15,0.12),0 2px 6px rgba(15,15,15,0.06)",
+  // Not part of Mo's spec (only shadow/shadowMd were given) — derived slightly larger for
+  // full-screen modal overlays, which still read best with a touch more lift than dropdowns.
+  shadowLg:"0 20px 48px rgba(15,15,15,0.16),0 6px 16px rgba(15,15,15,0.08)",
 };
 
 const MONTHS=[{key:"01",label:"Jan"},{key:"02",label:"Feb"},{key:"03",label:"Mar"},{key:"04",label:"Apr"},{key:"05",label:"May"},{key:"06",label:"Jun"},{key:"07",label:"Jul"},{key:"08",label:"Aug"},{key:"09",label:"Sep"},{key:"10",label:"Oct"},{key:"11",label:"Nov"},{key:"12",label:"Dec"}];
@@ -359,15 +339,22 @@ const fmtFileSize=n=>{
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,marginBottom:6,...style}}>{children}</div>);
 const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 9px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",...style}} {...rest}>{children}</span>);
-// Soft rounded button — back to a conventional subtle-border, light-shadow style
-// (moved away from the pixel/retro hard-shadow treatment).
+// Flat, mostly-invisible-until-hover buttons — VaultHQ/Notion treatment. No shadows anywhere;
+// "primary" is the only filled variant, "subtle" (filled with surfaceEl, no border) is the
+// default choice for secondary actions, "ghost" and "danger" are transparent/bordered.
 const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={}})=>{
   const s={sm:{padding:"6px 14px",fontSize:12},md:{padding:"8px 18px",fontSize:13},lg:{padding:"10px 24px",fontSize:14}};
-  const v={primary:{background:T.accent,color:T.text,border:`1px solid ${T.accentHover}`},ghost:{background:T.surface,color:T.text,border:`1px solid ${T.border}`},subtle:{background:T.surfaceEl,color:T.text,border:`1px solid ${T.border}`},success:{background:T.successBg,color:T.success,border:`1px solid ${T.successBorder}`},danger:{background:T.dangerBg,color:T.danger,border:`1px solid ${T.dangerBorder}`}};
-  return <button className="bhq-btn" disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:8,cursor:disabled?"not-allowed":"pointer",fontWeight:600,transition:"all 0.12s",fontFamily:"Inter,sans-serif",boxShadow:disabled?"none":T.shadow,opacity:disabled?0.5:1,...s[size],...v[variant],...style}}>{children}</button>;
+  const v={
+    primary:{background:T.accent,color:"#FFFFFF",border:"1px solid transparent"},
+    ghost:{background:"transparent",color:T.text,border:`1px solid ${T.border}`},
+    subtle:{background:T.surfaceEl,color:T.text,border:"1px solid transparent"},
+    success:{background:"transparent",color:T.success,border:`1px solid ${T.successBorder}`},
+    danger:{background:"transparent",color:T.danger,border:`1px solid ${T.dangerBorder}`},
+  };
+  return <button className="bhq-btn" disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:6,cursor:disabled?"not-allowed":"pointer",fontWeight:500,transition:"background 0.1s",fontFamily:"Inter,sans-serif",boxShadow:"none",opacity:disabled?0.5:1,...s[size],...v[variant],...style}}>{children}</button>;
 };
-const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"Inter,sans-serif":"Inter,sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
-const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"Inter,sans-serif",width:"100%",...style}}>{children}</select>);
+const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"Inter,sans-serif":"Inter,sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
+const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"Inter,sans-serif",width:"100%",...style}}>{children}</select>);
 // stopPropagation on both: several call sites wrap these in a parent <div> that has its own
 // onClick doing the same toggle (for a bigger click target). Without stopping propagation here,
 // clicking directly on the switch/checkbox fires both handlers and the toggle cancels itself out.
@@ -493,7 +480,7 @@ const Icon=({name,size=18,color="currentColor"})=>{
 // Kept the same component name and prop shape (notch/border/shadowOffset are accepted
 // but no longer used) so the many existing call sites across the app didn't need to change.
 const PixelPanel=({T,children,style={},contentStyle={},onClick})=>(
-  <div onClick={onClick} style={{borderRadius:12,border:`1px solid ${T.border}`,background:T.surface,boxShadow:T.shadow,cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
+  <div onClick={onClick} style={{borderRadius:8,border:`1px solid ${T.border}`,background:T.surface,boxShadow:"none",cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
     {children}
   </div>
 );
@@ -1261,7 +1248,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       <div style={{flex:1,overflow:"auto",minWidth:0}}>
         {!budgetDims.length?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
-            <div style={{width:52,height:52,background:T.accent,border:`3px solid ${T.text}`,boxShadow:`4px 4px 0 0 ${T.text}`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="wallet" size={24} color={T.text}/></div>
+            <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="wallet" size={24} color="#FFFFFF"/></div>
             <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up your budget structure</div>
             <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Select dimensions to budget by, or import an existing budget file.</div>
             <Btn onClick={()=>setImportOpen(true)} variant="success" T={T} size="md">↑ Import CSV / Excel</Btn>
@@ -1307,7 +1294,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
               {filteredSegs.length===0&&segs.length>0&&(
                 <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+QUARTERS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
               )}
-              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px dashed ${T.borderStrong}`;const isSel=selRows.has(seg.key);return(
+              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);return(
                 <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:T.bg,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -1647,7 +1634,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
               <div style={{display:"flex",gap:8}}>
               {iStep==="header"&&<div style={{display:"flex",gap:8}}>
                 <Btn onClick={analyzeWithAI} disabled={aiAnalyzing} variant="success" T={T} style={{gap:6}}>
-                  {aiAnalyzing?<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,border:`2px solid rgba(255,255,255,0.3)`,borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Analyzing…</span>:<span>✨ Analyze with AI</span>}
+                  {aiAnalyzing?<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,border:`2px solid ${T.successBorder}`,borderTopColor:T.success,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Analyzing…</span>:<span>✨ Analyze with AI</span>}
                 </Btn>
                 <Btn onClick={applyHeaderRow} variant="primary" T={T}>Confirm headers →</Btn>
               </div>}
@@ -1721,7 +1708,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                       <input type="checkbox" checked={c.approved} onChange={()=>toggleMergeCandidate(i)} style={{marginTop:3,cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                          <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:12,color:confMeta.color,background:confMeta.bg,border:`1px solid ${confMeta.border}`}}>{confMeta.label}</span>
+                          <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,color:confMeta.color,background:confMeta.bg,border:`1px solid ${confMeta.border}`}}>{confMeta.label}</span>
                         </div>
                         <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:2}}>{c.newLabel}</div>
                         <div style={{fontSize:12,color:T.textMuted,marginBottom:4}}>↳ merges into existing: <strong style={{color:T.textSub}}>{c.oldLabel}</strong></div>
@@ -1854,8 +1841,8 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
     return(
       <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:T.bg}}>
         <div style={{textAlign:"center",maxWidth:380}}>
-          <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",boxShadow:T.shadow}}>
-            <Icon name="sparkle" size={24} color={T.text}/>
+          <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
+            <Icon name="sparkle" size={24} color="#FFFFFF"/>
           </div>
           <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI needs spend data first</div>
           <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Import or sync spend data in the Campaign Tagger, then come back here to ask questions about it.</div>
@@ -1877,7 +1864,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
       />
       <button onClick={()=>send()} disabled={loading||!input.trim()}
         style={{width:36,height:36,borderRadius:"50%",background:input.trim()&&!loading?T.accent:T.surfaceEl,border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:input.trim()&&!loading?"pointer":"default",flexShrink:0,transition:"background 0.15s"}}>
-        <Icon name="send" size={16} color={input.trim()&&!loading?T.text:T.textMuted}/>
+        <Icon name="send" size={16} color={input.trim()&&!loading?"#FFFFFF":T.textMuted}/>
       </button>
     </div>
   );
@@ -1938,7 +1925,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
             <div style={{maxWidth:720,margin:"0 auto",padding:"0 24px"}}>
               {messages.map((m,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:14}}>
-                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:m.role==="user"?T.accent:T.surface,border:m.role==="user"?"none":`1px solid ${T.border}`,color:T.text,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",fontFamily:"Inter,sans-serif"}}>
+                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:m.role==="user"?T.accent:T.surface,border:m.role==="user"?"none":`1px solid ${T.border}`,color:m.role==="user"?"#FFFFFF":T.text,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",fontFamily:"Inter,sans-serif"}}>
                     {m.text}
                   </div>
                 </div>
@@ -1961,8 +1948,8 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({T,onNavigate,stats,hasData,themeKey}){
-  const cardBg=themeKey==="light"?"#FFFFFF":T.surface;
+function Dashboard({T,onNavigate,stats,hasData}){
+  const cardBg=T.surface;
   const bc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent,T.accent];
   const cards=[
     {
@@ -1992,8 +1979,8 @@ function Dashboard({T,onNavigate,stats,hasData,themeKey}){
         {/* Hero */}
         <div style={{marginBottom:40,position:"relative"}}>
           <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
-            <div style={{width:48,height:48,borderRadius:12,background:T.accent,boxShadow:T.shadow,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-              <Icon name="bolt" size={24} color={T.text}/>
+            <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <Icon name="bolt" size={24} color="#FFFFFF"/>
             </div>
             <div>
               <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"Inter,sans-serif"}}>BudgetHQ</h1>
@@ -2616,7 +2603,7 @@ function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims}){
       pacing.segments.forEach(s=>{statusCounts[s.status]=(statusCounts[s.status]||0)+1;});
     });
   }
-  const pacingRows=Object.entries(statusCounts).map(([status,count])=>[pacingStatusMeta(status,THEMES.light).label,String(count)]);
+  const pacingRows=Object.entries(statusCounts).map(([status,count])=>[pacingStatusMeta(status,THEME).label,String(count)]);
 
   return{
     title:"Dashboard summary",
@@ -2671,7 +2658,7 @@ function buildBudgetReport({budgets,budgetDims,budgetRowMeta,budgetMetaDims,merg
         `$${Math.round(total).toLocaleString()}`,
         p?`$${Math.round(p.spend).toLocaleString()}`:"$0",
         p&&p.actualPct!=null?`${Math.round(p.actualPct*100)}%`:"—",
-        p?pacingStatusMeta(p.status,THEMES.light).label:pacingStatusMeta("no-budget",THEMES.light).label,
+        p?pacingStatusMeta(p.status,THEME).label:pacingStatusMeta("no-budget",THEME).label,
       ];
     }).filter(Boolean);
     return{heading:`${year} budgets`,headers,rows};
@@ -2698,7 +2685,7 @@ function buildPacingReport({budgets,budgetDims,mergedNormRows,tags}){
         `$${Math.round(s.dailyRate).toLocaleString()}`,
         s.projected!=null?`$${Math.round(s.projected).toLocaleString()}`:"—",
         s.projectedVariance!=null?fmtSigned(s.projectedVariance):"—",
-        pacingStatusMeta(s.status,THEMES.light).label,
+        pacingStatusMeta(s.status,THEME).label,
       ]);
     });
   });
@@ -2732,20 +2719,20 @@ function reportToCSVString(report){
 
 function reportToHTMLString(report){
   const sectionsHtml=report.sections.map(sec=>`
-    <h2 style="font-size:16px;font-weight:700;color:#1E222A;margin:28px 0 10px;">${escHtml(sec.heading)}</h2>
+    <h2 style="font-size:16px;font-weight:700;color:#37352F;margin:28px 0 10px;">${escHtml(sec.heading)}</h2>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr>${sec.headers.map(h=>`<th style="text-align:left;padding:8px 10px;background:#F7F8FA;border-bottom:2px solid #CED2DB;color:#5B6272;font-weight:600;">${escHtml(h)}</th>`).join("")}</tr></thead>
-      <tbody>${(sec.rows.length?sec.rows:null)?sec.rows.map((r,i)=>`<tr style="background:${i%2?"#FAFBFC":"#FFFFFF"};">${r.map(c=>`<td style="padding:7px 10px;border-bottom:1px solid #EEF0F3;color:#1E222A;">${escHtml(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${sec.headers.length}" style="padding:14px 10px;color:#8A90A0;">No data</td></tr>`}</tbody>
+      <thead><tr>${sec.headers.map(h=>`<th style="text-align:left;padding:8px 10px;background:#F7F7F5;border-bottom:2px solid #D8D8D5;color:#787774;font-weight:600;">${escHtml(h)}</th>`).join("")}</tr></thead>
+      <tbody>${(sec.rows.length?sec.rows:null)?sec.rows.map((r,i)=>`<tr style="background:${i%2?"#F7F7F5":"#FFFFFF"};">${r.map(c=>`<td style="padding:7px 10px;border-bottom:1px solid #E9E9E7;color:#37352F;">${escHtml(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${sec.headers.length}" style="padding:14px 10px;color:#9B9A97;">No data</td></tr>`}</tbody>
     </table>`).join("");
   return`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(report.title)}</title></head>
-  <body style="font-family:-apple-system,Inter,sans-serif;background:#F0F1F5;padding:32px;margin:0;">
-    <div style="max-width:900px;margin:0 auto;background:#FFFFFF;border-radius:12px;padding:32px 36px;border:1px solid #CED2DB;">
+  <body style="font-family:-apple-system,Inter,sans-serif;background:#FFFFFF;padding:32px;margin:0;">
+    <div style="max-width:900px;margin:0 auto;background:#FFFFFF;border-radius:8px;padding:32px 36px;border:1px solid #E9E9E7;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
-        <span style="width:26px;height:26px;border-radius:7px;background:#FFC249;display:inline-block;"></span>
-        <span style="font-size:15px;font-weight:700;color:#1E222A;">BudgetHQ</span>
+        <span style="width:26px;height:26px;border-radius:7px;background:#2383E2;display:inline-block;"></span>
+        <span style="font-size:15px;font-weight:700;color:#37352F;">BudgetHQ</span>
       </div>
-      <h1 style="font-size:22px;font-weight:800;color:#1E222A;margin:18px 0 2px;">${escHtml(report.title)}</h1>
-      <p style="font-size:12px;color:#8A90A0;margin:0 0 8px;">${escHtml(report.subtitle)}</p>
+      <h1 style="font-size:22px;font-weight:800;color:#37352F;margin:18px 0 2px;">${escHtml(report.title)}</h1>
+      <p style="font-size:12px;color:#9B9A97;margin:0 0 8px;">${escHtml(report.subtitle)}</p>
       ${sectionsHtml}
     </div>
   </body></html>`;
@@ -2754,27 +2741,27 @@ function reportToHTMLString(report){
 function buildReportPDFDoc(report){
   const doc=new jsPDF({unit:"pt",format:"letter"});
   const marginX=40;let y=50;
-  doc.setFillColor(255,194,73);
+  doc.setFillColor(35,131,226);
   doc.roundedRect(marginX,y-14,18,18,4,4,"F");
-  doc.setFontSize(13);doc.setTextColor(30,34,42);doc.setFont(undefined,"bold");
+  doc.setFontSize(13);doc.setTextColor(55,53,47);doc.setFont(undefined,"bold");
   doc.text("BudgetHQ",marginX+26,y+1);
   y+=28;
   doc.setFontSize(18);doc.text(report.title,marginX,y);
   y+=15;
-  doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(138,144,160);
+  doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(155,154,151);
   doc.text(report.subtitle,marginX,y);
   y+=12;
   report.sections.forEach(sec=>{
     if(y>700){doc.addPage();y=50;}
-    doc.setFontSize(12);doc.setTextColor(30,34,42);doc.setFont(undefined,"bold");
+    doc.setFontSize(12);doc.setTextColor(55,53,47);doc.setFont(undefined,"bold");
     doc.text(sec.heading,marginX,y+16);
     autoTable(doc,{
       startY:y+22,margin:{left:marginX,right:marginX},
       head:[sec.headers],
       body:sec.rows.length?sec.rows:[sec.headers.map((h,i)=>i===0?"No data":"")],
-      styles:{fontSize:8.5,cellPadding:5,textColor:[30,34,42]},
-      headStyles:{fillColor:[247,248,250],textColor:[91,98,114],fontStyle:"bold",lineWidth:0.5,lineColor:[206,210,219]},
-      alternateRowStyles:{fillColor:[250,251,252]},
+      styles:{fontSize:8.5,cellPadding:5,textColor:[55,53,47]},
+      headStyles:{fillColor:[247,247,245],textColor:[120,119,116],fontStyle:"bold",lineWidth:0.5,lineColor:[216,216,213]},
+      alternateRowStyles:{fillColor:[247,247,245]},
       theme:"grid",
     });
     y=doc.lastAutoTable.finalY+26;
@@ -2950,7 +2937,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   if(!budgetDims.length){
     return(
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40,background:T.bg}}>
-        <div style={{width:52,height:52,background:T.accent,border:`3px solid ${T.text}`,boxShadow:`4px 4px 0 0 ${T.text}`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="chart" size={24} color={T.text}/></div>
+        <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="chart" size={24} color="#FFFFFF"/></div>
         <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up budgets first</div>
         <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Pacing compares spend to your budget segments. Head to Budgets, choose dimensions to budget by, and set monthly amounts.</div>
         <Btn onClick={()=>onNavigate?.("budget")} variant="success" T={T} size="md">Go to Budgets →</Btn>
@@ -3117,7 +3104,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                 const label=budgetDims.map((d,i)=>seg.dims[i]).join(" · ");
                 const isExpanded=breakdownDim&&expandedRows.has(seg.segKey);
                 const rowBg=isSel?T.rowSelected:"transparent";
-                const rbb=`1px dashed ${T.borderStrong}`;
+                const rbb=`1px solid ${T.border}`;
                 const parentRow=(
                   <tr key={seg.segKey} className={isSel?undefined:"bhq-tr"} style={{background:rowBg}}>
                     <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center"}}>
@@ -3270,7 +3257,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
               )}
               {filteredCustomSegments.flatMap(seg=>{
                 const isExpanded=breakdownDim&&expandedRows.has(seg.segKey);
-                const rbb=`1px dashed ${T.borderStrong}`;
+                const rbb=`1px solid ${T.border}`;
                 const parentRow=(
                   <tr key={seg.segKey} className="bhq-tr">
                     <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center"}}>
@@ -3344,8 +3331,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function BudgetHQ(){
-  const[themeKey,setThemeKey]=useState("light");
-  const T=THEMES[themeKey];
+  const T=THEME;
   const[width,setWidth]=useState(typeof window!=="undefined"?window.innerWidth:1200);
   useEffect(()=>{const h=()=>setWidth(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const isMobile=width<768;
@@ -3591,7 +3577,6 @@ export default function BudgetHQ(){
       setTags(migrated);
     }
     const d=localStorage.getItem("paidhq_dims");if(d)setTagDims(JSON.parse(d));
-    const th=localStorage.getItem("paidhq_theme");if(th)setThemeKey(th);
     const b=localStorage.getItem("paidhq_budgets");if(b)setBudgets(JSON.parse(b));
     const bd=localStorage.getItem("paidhq_budget_dims");if(bd)setBudgetDims(JSON.parse(bd));
     const bm=localStorage.getItem("paidhq_budget_meta");if(bm)setBudgetRowMeta(JSON.parse(bm));
@@ -3611,7 +3596,6 @@ export default function BudgetHQ(){
   }catch(e){};},[]);
   useEffect(()=>{try{localStorage.setItem("paidhq_tags",JSON.stringify(tags));}catch(e){};},[tags]);
   useEffect(()=>{try{localStorage.setItem("paidhq_dims",JSON.stringify(tagDims));}catch(e){};},[tagDims]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_theme",themeKey);}catch(e){};},[themeKey]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budgets",JSON.stringify(budgets));}catch(e){};},[budgets]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_dims",JSON.stringify(budgetDims));}catch(e){};},[budgetDims]);
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta",JSON.stringify(budgetRowMeta));}catch(e){};},[budgetRowMeta]);
@@ -4096,29 +4080,29 @@ export default function BudgetHQ(){
           The "···" menu on the right (Notion-style) covers file-level actions (version history)
           instead of a dedicated "File" trigger — its dropdown is positioned relative to this
           outer wrapper so it isn't clipped by any child's overflow:hidden. ── */}
-      <div style={{display:"flex",alignItems:"stretch",height:46,flexShrink:0,background:T.topbarBg,zIndex:30,position:"relative"}}>
-        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:8,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`,borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
+      <div style={{display:"flex",alignItems:"stretch",height:48,flexShrink:0,background:T.topbarBg,borderBottom:`1px solid ${T.border}`,zIndex:30,position:"relative"}}>
+        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:8,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
           <div style={{width:22,height:22,borderRadius:6,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Icon name="bolt" size={13} color={T.text}/>
+            <Icon name="bolt" size={13} color="#FFFFFF"/>
           </div>
           {(statsOpen||isMobile)&&<div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
         </div>
-        <div style={{display:"flex",alignItems:"flex-end",gap:2,flex:1,paddingLeft:isMobile?4:16,minWidth:0,overflowX:isMobile?"auto":"visible"}}>
+        {/* Tabs underline the active one with a 2px accent bottom-border rather than the old
+            "browser tab" bordered-box treatment — flat until active/hover, per the VaultHQ
+            top-bar convention. */}
+        <div style={{display:"flex",alignItems:"stretch",gap:2,flex:1,paddingLeft:isMobile?4:16,minWidth:0,overflowX:isMobile?"auto":"visible"}}>
           {NAV.map(item=>{
             const active=view===item.key;
             return <button key={item.key} className={active?undefined:"bhq-tab"} onClick={()=>{
                 if(item.key==="tagger"){if(step!=="tag")setStep("upload");setView("tagger");}
                 else setView(item.key);
-              }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",height:38,marginTop:8,boxSizing:"border-box",flexShrink:0,borderRadius:"8px 8px 0 0",borderTop:`1px solid ${active?T.border:"transparent"}`,borderLeft:`1px solid ${active?T.border:"transparent"}`,borderRight:`1px solid ${active?T.border:"transparent"}`,borderBottom:`1px solid ${active?T.bg:T.border}`,background:active?T.bg:"transparent",color:active?T.text:T.textSub,fontSize:13,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",transition:"background 0.12s,color 0.12s"}}>
-              <Icon name={item.icon} size={15} color={active?T.text:T.textSub}/>
+              }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",boxSizing:"border-box",flexShrink:0,border:"none",borderBottom:`2px solid ${active?T.accent:"transparent"}`,background:"transparent",color:active?T.text:T.textSub,fontSize:13,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",transition:"color 0.12s,border-color 0.12s"}}>
+              <Icon name={item.icon} size={15} color={active?T.accent:T.textSub}/>
               {!isMobile&&item.label}
             </button>;
           })}
-          {/* Trailing filler — covers the gap after the last tab so the divider still runs the
-              full width of the tab strip before the right-side actions begin. */}
-          <div style={{flex:1,alignSelf:"stretch",boxSizing:"border-box",borderBottom:`1px solid ${T.border}`}}/>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box",borderBottom:`1px solid ${T.border}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box"}}>
           {step==="tag"&&!isMobile&&(
             <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:20}}>
               <span style={{width:6,height:6,borderRadius:"50%",background:stats.untagged>0?T.warning:T.success,flexShrink:0}}/>
@@ -4320,14 +4304,14 @@ export default function BudgetHQ(){
                   <button key={pl.key} onClick={()=>live&&!loading&&syncPlatform(pl.key)}
                     title={live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
                     style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,
-                      border:`1px solid ${live?(done?"#10B981":err?"#ef4444":T.accentBorder):T.border}`,
-                      background:live?(done?"rgba(16,185,129,0.08)":err?"rgba(239,68,68,0.08)":T.accentBg):T.surfaceEl,
+                      border:`1px solid ${live?(done?T.successBorder:err?T.dangerBorder:T.accentBorder):T.border}`,
+                      background:live?(done?T.successBg:err?T.dangerBg:T.accentBg):T.surfaceEl,
                       cursor:live&&!loading?"pointer":"default",opacity:live?1:0.55,transition:"all 0.15s"}}>
                     <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,
-                      background:live?(done?"#10B981":err?"#ef4444":pl.color):"#9ca3af",
+                      background:live?(done?T.success:err?T.danger:pl.color):T.textMuted,
                       ...(loading?{border:`2px solid rgba(0,0,0,0.1)`,borderTopColor:pl.color,background:"transparent",animation:"spin 0.7s linear infinite"}:{})}}/>
                     <span style={{fontSize:12,fontWeight:600,color:live?T.text:T.textMuted,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
-                    <span style={{fontSize:10,color:live?(done?"#10B981":err?"#ef4444":T.accent):T.textMuted,fontFamily:"Inter,sans-serif"}}>
+                    <span style={{fontSize:10,color:live?(done?T.success:err?T.danger:T.accent):T.textMuted,fontFamily:"Inter,sans-serif"}}>
                       {live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV"}
                     </span>
                   </button>
@@ -4335,7 +4319,7 @@ export default function BudgetHQ(){
               })}
             </div>
             {Object.entries(syncState).filter(([,s])=>s.startsWith("error:")).map(([k,s])=>(
-              <div key={k} style={{marginTop:6,fontSize:11,color:"#ef4444"}}>{k}: {s.replace("error:","")}</div>
+              <div key={k} style={{marginTop:6,fontSize:11,color:T.danger}}>{k}: {s.replace("error:","")}</div>
             ))}
           </div>
 
@@ -4419,7 +4403,7 @@ export default function BudgetHQ(){
               </div>
               <div style={{maxHeight:420,overflow:"auto"}}>
                 {screenshotPreview.map((r,i)=>(
-                  <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 90px 90px 90px",padding:"7px 16px",borderBottom:`1px dashed ${T.borderStrong}`,alignItems:"center",gap:4}}>
+                  <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 90px 90px 90px",padding:"7px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",gap:4}}>
                     <div style={{fontSize:11,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaign_group_name}</div>
                     <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaign_name}</div>
                     <div style={{fontSize:11,color:T.textSub}}>{r.platform}</div>
@@ -4549,7 +4533,7 @@ export default function BudgetHQ(){
                     <MatchModeToggle mode={fGroupInclMode} onChange={setFGroupInclMode} T={T}/>
                   </div>
                   <div style={{display:"flex",gap:3}}>
-                    <input value={fGroupExclude} onChange={e=>setFGroupExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title={`Comma-separate multiple terms — ${fGroupExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0,borderColor:fGroupExclude?"#ef4444":undefined,color:fGroupExclude?"#ef4444":undefined}}/>
+                    <input value={fGroupExclude} onChange={e=>setFGroupExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title={`Comma-separate multiple terms — ${fGroupExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0,borderColor:fGroupExclude?T.danger:undefined,color:fGroupExclude?T.danger:undefined}}/>
                     <MatchModeToggle mode={fGroupExclMode} onChange={setFGroupExclMode} T={T}/>
                   </div>
                 </div>}
@@ -4559,7 +4543,7 @@ export default function BudgetHQ(){
                     <MatchModeToggle mode={fCampInclMode} onChange={setFCampInclMode} T={T}/>
                   </div>
                   <div style={{display:"flex",gap:3}}>
-                    <input value={fCampExclude} onChange={e=>setFCampExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title={`Comma-separate multiple terms — ${fCampExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0,borderColor:fCampExclude?"#ef4444":undefined,color:fCampExclude?"#ef4444":undefined}}/>
+                    <input value={fCampExclude} onChange={e=>setFCampExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title={`Comma-separate multiple terms — ${fCampExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0,borderColor:fCampExclude?T.danger:undefined,color:fCampExclude?T.danger:undefined}}/>
                     <MatchModeToggle mode={fCampExclMode} onChange={setFCampExclMode} T={T}/>
                   </div>
                 </div>
@@ -4573,7 +4557,7 @@ export default function BudgetHQ(){
                     {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.danger}`,color:T.danger,borderRadius:6,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
                   </div>
                   <div style={{display:"flex",gap:4}}>
-                    <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes… (a, b)" title={`Comma-separate multiple terms — ${fTagExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0,borderColor:fTagExclude?"#ef4444":undefined,color:fTagExclude?"#ef4444":undefined}}/>
+                    <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes… (a, b)" title={`Comma-separate multiple terms — ${fTagExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0,borderColor:fTagExclude?T.danger:undefined,color:fTagExclude?T.danger:undefined}}/>
                     <MatchModeToggle mode={fTagExclMode} onChange={setFTagExclMode} T={T}/>
                   </div>
                 </div>}
@@ -4585,7 +4569,7 @@ export default function BudgetHQ(){
                 const ts=tags[c.key]||{};const tc=Object.keys(ts).length;const isSel=selected.has(c.key);const pc=PLATFORM_COLORS[c.platform]||T.textMuted;
                 return(
                   <div key={c.key} className={isSel?undefined:"bhq-row"} onClick={()=>toggleSel(c.key)}
-                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px dashed ${T.borderStrong}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
+                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.key)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                     {!isMobile&&<div style={{fontSize:11,fontFamily:"Inter,sans-serif",color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
                     <div style={{minWidth:0,fontSize:11,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
@@ -4645,7 +4629,7 @@ export default function BudgetHQ(){
         </div>
       )}
 
-      {view==="dashboard"&&<Dashboard T={T} themeKey={themeKey} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
       {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl}/>}
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
       {view==="ask"&&<AskAI T={T} mergedNormRows={mergedNormRows} tags={tags} tagDims={tagDims} hasData={mergedNormRows.length>0} askChats={askChats} setAskChats={setAskChats} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId}/>}
@@ -4662,7 +4646,7 @@ export default function BudgetHQ(){
           return Object.values(map).map(m=>({platform:m.platform,rows:m.rows,spend:m.spend,campaigns:m.campaigns.size})).sort((a,b)=>b.spend-a.spend);
         })();
         const rowSection=({title,desc,stat,action,label,disabled})=>(
-          <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
+          <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
             <div>
               <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>{title}</div>
               <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480}}>{desc}</div>
@@ -4682,17 +4666,7 @@ export default function BudgetHQ(){
                 <p style={{fontSize:13,color:T.textSub,fontFamily:"Inter,sans-serif"}}>Manage the data stored in this BudgetHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
-                  <div>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Appearance</div>
-                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480}}>Switch between light and dark mode.</div>
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-                    <Icon name={themeKey==="dark"?"moon":"sun"} size={15} color={T.textSub}/>
-                    <Tog value={themeKey==="dark"} onChange={v=>setThemeKey(v?"dark":"light")} T={T}/>
-                  </div>
-                </div>
-                <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px"}}>
+                <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
                     <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>File Store</div>
                     <Btn onClick={()=>manualFileRef.current?.click()} variant="subtle" size="sm" T={T}>
@@ -4739,7 +4713,7 @@ export default function BudgetHQ(){
                   action:clearTaggerData,label:"Clear Tagger data",disabled:!mergedNormRows.length&&!Object.keys(tags).length,
                 })}
                 {platformBreakdown.length>0&&(
-                  <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px"}}>
+                  <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                     <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Clear Tagger data by channel</div>
                     <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480,marginBottom:14}}>Remove just one platform's spend rows — handy if you imported the wrong file and need to isolate and undo it. Tags are kept; a campaign only disappears once none of its rows are left.</div>
                     <div>
@@ -4759,7 +4733,7 @@ export default function BudgetHQ(){
                   </div>
                 )}
                 {mergedNormRows.length>0&&(
-                  <div style={{border:`1px solid ${T.border}`,borderRadius:12,background:T.surface,padding:"20px 22px"}}>
+                  <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                     <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Clear Tagger data by date range</div>
                     <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>Remove spend rows within a specific date range, optionally scoped to one platform — e.g. redo or purge just one month without touching the rest. Tags are kept; a campaign only disappears once none of its rows are left.</div>
                     <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
@@ -4824,7 +4798,7 @@ export default function BudgetHQ(){
       {/* ── NAME CURRENT VERSION ── */}
       {nameVersionOpen&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div style={{width:"100%",maxWidth:400,background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,boxShadow:T.shadowMd}}>
+          <div style={{width:"100%",maxWidth:400,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
             <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.text}}>Name current version</div>
             <div style={{padding:20}}>
               <div style={{fontSize:12,color:T.textSub,marginBottom:10}}>Saves a snapshot of everything — Tagger and Budget data — as it is right now, so you can come back to this exact point later.</div>
@@ -4842,7 +4816,7 @@ export default function BudgetHQ(){
       {/* ── EMAIL A COPY ── */}
       {emailExportOpen&&exportableView&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div style={{width:"100%",maxWidth:420,background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,boxShadow:T.shadowMd}}>
+          <div style={{width:"100%",maxWidth:420,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
             <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.text}}>Email {exportableView.label}</div>
             <div style={{padding:20,display:"flex",flexDirection:"column",gap:14}}>
               <div>
@@ -4864,7 +4838,7 @@ export default function BudgetHQ(){
               <div>
                 <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>Note <span style={{fontWeight:400,color:T.textMuted}}>(optional)</span></div>
                 <textarea value={emailExportNote} onChange={e=>setEmailExportNote(e.target.value)} placeholder="Add a message for the recipient…" rows={3}
-                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
+                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
               </div>
               {emailError&&<div style={{fontSize:12,color:T.danger,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:7,padding:"8px 10px"}}>{emailError}</div>}
             </div>
@@ -4879,7 +4853,7 @@ export default function BudgetHQ(){
       {/* ── VERSION HISTORY ── */}
       {versionHistoryOpen&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div style={{width:"100%",maxWidth:520,maxHeight:"85vh",background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,boxShadow:T.shadowMd,display:"flex",flexDirection:"column"}}>
+          <div style={{width:"100%",maxWidth:520,maxHeight:"85vh",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,display:"flex",flexDirection:"column"}}>
             <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div>
                 <div style={{fontSize:15,fontWeight:700,color:T.text}}>Version history</div>

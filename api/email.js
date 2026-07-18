@@ -42,16 +42,16 @@ export default async function handler(req, res) {
 
   const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html = `
-    <div style="font-family:-apple-system,Inter,sans-serif;background:#F0F1F5;padding:32px;">
-      <div style="max-width:520px;margin:0 auto;background:#FFFFFF;border-radius:12px;padding:28px 32px;border:1px solid #CED2DB;">
+    <div style="font-family:-apple-system,Inter,sans-serif;background:#FFFFFF;padding:32px;">
+      <div style="max-width:520px;margin:0 auto;background:#FFFFFF;border-radius:8px;padding:28px 32px;border:1px solid #E9E9E7;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;">
-          <span style="width:20px;height:20px;border-radius:6px;background:#FFC249;display:inline-block;"></span>
-          <span style="font-size:14px;font-weight:700;color:#1E222A;">BudgetHQ</span>
+          <span style="width:20px;height:20px;border-radius:6px;background:#2383E2;display:inline-block;"></span>
+          <span style="font-size:14px;font-weight:700;color:#37352F;">BudgetHQ</span>
         </div>
-        <h1 style="font-size:18px;font-weight:700;color:#1E222A;margin:0 0 4px;">${esc(reportTitle) || "Your export"}</h1>
-        <p style="font-size:12px;color:#8A90A0;margin:0 0 16px;">${esc(reportSubtitle) || ""}</p>
-        ${note ? `<p style="font-size:13px;color:#1E222A;white-space:pre-wrap;margin:0 0 16px;">${esc(note)}</p>` : ""}
-        <p style="font-size:12px;color:#5B6272;margin:0;">Attached: ${esc(filename)}</p>
+        <h1 style="font-size:18px;font-weight:700;color:#37352F;margin:0 0 4px;">${esc(reportTitle) || "Your export"}</h1>
+        <p style="font-size:12px;color:#9B9A97;margin:0 0 16px;">${esc(reportSubtitle) || ""}</p>
+        ${note ? `<p style="font-size:13px;color:#37352F;white-space:pre-wrap;margin:0 0 16px;">${esc(note)}</p>` : ""}
+        <p style="font-size:12px;color:#787774;margin:0;">Attached: ${esc(filename)}</p>
       </div>
     </div>`;
 
