@@ -4,10 +4,17 @@
  * GET    ?start=YYYY-MM-DD&end=YYYY-MM-DD&platform=Google — list rows, optionally filtered.
  *        No filters returns everything for the workspace (fine at current data volumes; add
  *        pagination if a workspace's history grows large enough for this to matter).
- * POST   Body: { rows: [...] } — bulk insert. Pure append, no merge/de-dupe server-side — the
- *        existing client-side mergeRows() logic (matching on campaign identity + date, preferring
- *        the most complete row) stays the source of truth for what "duplicate" means, at least
- *        until the data-layer migration step decides whether that logic moves server-side too.
+ * POST   Body: { rows: [...] } — bulk insert. Pure append, no merge/de-dupe server-side.
+ * PUT    Body: { rows: [...] } — whole-dataset replace (delete everything for this workspace,
+ *        then bulk insert the given array), run as one transaction so a mid-insert failure can't
+ *        leave the workspace with zero rows. This is what the data-layer migration decided:
+ *        mergeRows() (matching on campaign identity + date, preferring the most complete row)
+ *        stays the client-side source of truth for what "duplicate" means — the frontend already
+ *        holds the fully-merged mergedNormRows array in memory after every upload/sync, so
+ *        treating spend_rows as a mirror of that (replace-all) avoids needing to reimplement the
+ *        same merge/dedupe logic server-side. Fine at current data volumes; would need to become
+ *        incremental if a workspace's row count grows large enough for whole-table replace on
+ *        every change to matter.
  * DELETE ?platform=Google&start=...&end=... — mirrors the existing "Clear Tagger data by
  *        channel" / "by date range" Settings panels. At least one filter is required; DELETE with
  *        no filters at all is rejected to avoid an accidental full wipe via a malformed request.
@@ -70,6 +77,26 @@ export default withApi(async (req, res) => {
     return res.status(201).json({ inserted: inserted.length });
   }
 
+  if (req.method === "PUT") {
+    const inputRows = (req.body || {}).rows;
+    if (!Array.isArray(inputRows)) {
+      return res.status(400).json({ error: "rows must be an array" });
+    }
+    await sql.transaction((tx) => [
+      tx`delete from budgethq.spend_rows where workspace_id = ${workspaceId}`,
+      ...inputRows.map((r) => tx`
+        insert into budgethq.spend_rows
+          (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
+           date, as_of_date, spend, impressions, clicks, source)
+        values
+          (${workspaceId}, ${r.campaign_group_name || ""}, ${r.campaign_name || ""}, ${r.campaign_id || null},
+           ${r.platform || null}, ${r.campaign_type || null}, ${r.date}, ${r.as_of_date || null},
+           ${r.spend || 0}, ${r.impressions || 0}, ${r.clicks || 0}, ${r.source || null})
+      `),
+    ]);
+    return res.status(200).json({ replaced: inputRows.length });
+  }
+
   if (req.method === "DELETE") {
     const { platform, start, end } = req.query;
     if (!platform && !start && !end) {
@@ -86,6 +113,6 @@ export default withApi(async (req, res) => {
     return res.status(200).json({ deleted: result.length });
   }
 
-  res.setHeader("Allow", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Allow", "GET, POST, PUT, DELETE, OPTIONS");
   return res.status(405).json({ error: "Method not allowed" });
 });

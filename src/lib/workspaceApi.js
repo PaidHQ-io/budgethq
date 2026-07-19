@@ -1,0 +1,50 @@
+/**
+ * Client for BudgetHQ's own workspace-scoped API routes (/api/workspaces/[id]/...) — same-origin,
+ * unlike paidhq-core's coreApi.js which calls a separate deployed service. Every call needs the
+ * Supabase access token so the API's requireAuth/requireWorkspaceMember/requireEntitlement chain
+ * can verify the request.
+ */
+async function apiFetch(session, path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+      ...(options.headers || {}),
+    },
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = new Error(body?.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return body;
+}
+
+// { tags, tagDims, budgets, budgetDims, budgetRowMeta, budgetMetaDims, budgetImportMeta, updatedAt }
+export function getWorkspaceConfig(session, workspaceId) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/data`);
+}
+
+export function putWorkspaceConfig(session, workspaceId, config) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/data`, {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+}
+
+export function getSpendRows(session, workspaceId) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/spend-rows`).then(
+    (d) => d.rows || []
+  );
+}
+
+// Whole-dataset replace — see spend-rows.js's PUT handler doc comment for why this is the
+// migration's chosen sync model instead of trying to move mergeRows()'s dedupe logic server-side.
+export function putSpendRows(session, workspaceId, rows) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/spend-rows`, {
+    method: "PUT",
+    body: JSON.stringify({ rows }),
+  });
+}

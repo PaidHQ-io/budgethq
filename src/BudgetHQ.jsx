@@ -4,6 +4,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows } from "./lib/workspaceApi";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
 // VaultHQ-matched palette (redesign, July 2026) — Notion-inspired light theme shared across
@@ -88,6 +89,9 @@ function getBudgetDimValues(budgets,budgetDims){
   return result;
 }
 const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
+// Pre-auth localStorage keys — see the "one-time import of pre-auth localStorage data" block in
+// BudgetHQ() for what reads/clears these.
+const LEGACY_LOCAL_KEYS=["paidhq_tags","paidhq_dims","paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta","paidhq_rows"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
 const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
@@ -3568,51 +3572,147 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     deleteVersionRecord(id).then(()=>setVersions(p=>p.filter(v=>v.id!==id))).catch(err=>console.error("[version delete]",err));
   },[]);
 
+  // Device-local preferences only (not workspace data — these stay in localStorage even after
+  // the data-layer migration below, since there's no reason a sidebar width or "last view you
+  // had open" should follow you to a different browser/device).
   useEffect(()=>{try{
-    // Migrate legacy tags from before the two-level campaign group + campaign model: old keys
-    // were the plain campaign name alone (e.g. "My Campaign"), but campaignKey() now looks up
-    // composite keys (e.g. "My Campaign||My Campaign" when group==name). Any key without the
-    // "||" separator is legacy and gets rewritten so existing tagged data isn't orphaned.
-    const t=localStorage.getItem("paidhq_tags");
-    if(t){
-      const parsed=JSON.parse(t);
-      const migrated={};
-      Object.entries(parsed).forEach(([k,v])=>{migrated[k.includes("||")?k:campaignKey(k,k)]=v;});
-      setTags(migrated);
-    }
-    const d=localStorage.getItem("paidhq_dims");if(d)setTagDims(JSON.parse(d));
-    const b=localStorage.getItem("paidhq_budgets");if(b)setBudgets(JSON.parse(b));
-    const bd=localStorage.getItem("paidhq_budget_dims");if(bd)setBudgetDims(JSON.parse(bd));
-    const bm=localStorage.getItem("paidhq_budget_meta");if(bm)setBudgetRowMeta(JSON.parse(bm));
-    const bmd=localStorage.getItem("paidhq_budget_meta_dims");if(bmd)setBudgetMetaDims(JSON.parse(bmd));
-    const bim=localStorage.getItem("paidhq_budget_import_meta");if(bim)setBudgetImportMeta(JSON.parse(bim));
     const v=localStorage.getItem("paidhq_view");if(v&&["dashboard","tagger","budget","pacing","settings","ask"].includes(v))setView(v);
     const le=localStorage.getItem("paidhq_last_export_email");if(le)setEmailExportTo(le);
     const ac=localStorage.getItem("paidhq_ask_chats");if(ac)setAskChats(JSON.parse(ac));
     const aid=localStorage.getItem("paidhq_ask_active_chat");if(aid)setActiveAskChatId(aid);
-    // Restore spend data — legacy rows predate campaign_group_name, so backfill it from
-    // campaign_name (matches how normalizeRows falls back when a CSV has no second level).
-    const sr=localStorage.getItem("paidhq_rows");
-    if(sr){
-      const rows=JSON.parse(sr).map(r=>r.campaign_group_name?r:{...r,campaign_group_name:r.campaign_name});
-      setMergedNormRows(rows);setStep("tag");
-    }
   }catch(e){};},[]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_tags",JSON.stringify(tags));}catch(e){};},[tags]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_dims",JSON.stringify(tagDims));}catch(e){};},[tagDims]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_budgets",JSON.stringify(budgets));}catch(e){};},[budgets]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_budget_dims",JSON.stringify(budgetDims));}catch(e){};},[budgetDims]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta",JSON.stringify(budgetRowMeta));}catch(e){};},[budgetRowMeta]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_budget_meta_dims",JSON.stringify(budgetMetaDims));}catch(e){};},[budgetMetaDims]);
   useEffect(()=>{try{localStorage.setItem("paidhq_view",view);}catch(e){};},[view]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_budget_import_meta",JSON.stringify(budgetImportMeta));}catch(e){};},[budgetImportMeta]);
   useEffect(()=>{try{localStorage.setItem("paidhq_ask_chats",JSON.stringify(askChats));}catch(e){};},[askChats]);
   useEffect(()=>{try{if(activeAskChatId)localStorage.setItem("paidhq_ask_active_chat",activeAskChatId);else localStorage.removeItem("paidhq_ask_active_chat");}catch(e){};},[activeAskChatId]);
-  useEffect(()=>{try{
-    if(mergedNormRows.length){
-      localStorage.setItem("paidhq_rows",JSON.stringify(mergedNormRows));
-    }
-  }catch(e){};},[mergedNormRows]);
+
+  // ── Workspace data (tags/dims/budgets/spend rows) — synced with the server, not localStorage ──
+  // Tags, tag dimensions, budgets, budget dimensions/annotations, and spend rows are the actual
+  // product data — the whole point of the multi-tenant backend is that this lives per-workspace
+  // on the server, not per-browser, so it's there on any device and shareable across a team. Two
+  // "loaded" refs (rather than state, since they don't need to trigger renders) gate the debounced
+  // save effects below so they never fire with the still-empty initial state before the real data
+  // has come back from the GETs — without that guard, mounting the component would briefly hold
+  // {}/[] and the save effects would immediately overwrite real server data with those defaults.
+  const[workspaceDataLoading,setWorkspaceDataLoading]=useState(true);
+  const[workspaceDataError,setWorkspaceDataError]=useState("");
+  const configLoadedRef=useRef(false);
+  const rowsLoadedRef=useRef(false);
+  const saveConfigTimer=useRef(null);
+  const saveRowsTimer=useRef(null);
+
+  // One-time import of pre-auth localStorage data — anyone who used BudgetHQ before login/
+  // workspaces existed has real tags/budgets/spend rows sitting under the old "paidhq_*" keys in
+  // this browser. That data doesn't disappear just because loading now goes through the server,
+  // but it also won't show up in a brand-new empty workspace on its own — this offers a one-time
+  // "import it into this workspace" prompt the first time a workspace with no server data yet is
+  // opened in a browser that still has that legacy local data lying around.
+  const[localImportPrompt,setLocalImportPrompt]=useState(null);
+  function readLegacyLocalData(){
+    try{
+      const t=localStorage.getItem("paidhq_tags");
+      let tags=null;
+      if(t){
+        const parsed=JSON.parse(t);
+        tags={};
+        // Same "||" composite-key migration the old mount-time loader used to do — old keys were
+        // the plain campaign name alone, campaignKey() now expects "group||name".
+        Object.entries(parsed).forEach(([k,v])=>{tags[k.includes("||")?k:campaignKey(k,k)]=v;});
+      }
+      const d=localStorage.getItem("paidhq_dims");
+      const b=localStorage.getItem("paidhq_budgets");
+      const bd=localStorage.getItem("paidhq_budget_dims");
+      const bm=localStorage.getItem("paidhq_budget_meta");
+      const bmd=localStorage.getItem("paidhq_budget_meta_dims");
+      const bim=localStorage.getItem("paidhq_budget_import_meta");
+      const sr=localStorage.getItem("paidhq_rows");
+      const rows=sr?JSON.parse(sr).map(r=>r.campaign_group_name?r:{...r,campaign_group_name:r.campaign_name}):null;
+      if(!tags&&!d&&!b&&!bd&&!bm&&!bmd&&!bim&&!rows)return null;
+      return{
+        tags:tags||{},
+        tagDims:d?JSON.parse(d):DEFAULT_DIMS,
+        budgets:b?JSON.parse(b):{},
+        budgetDims:bd?JSON.parse(bd):[],
+        budgetRowMeta:bm?JSON.parse(bm):{},
+        budgetMetaDims:bmd?JSON.parse(bmd):[],
+        budgetImportMeta:bim?JSON.parse(bim):{},
+        rows:rows||[],
+      };
+    }catch(e){console.error("[legacy local data read]",e);return null;}
+  }
+  const clearLegacyLocalKeys=useCallback(()=>{
+    try{LEGACY_LOCAL_KEYS.forEach(k=>localStorage.removeItem(k));}catch(e){console.error("[legacy local data clear]",e);}
+  },[]);
+  const importLegacyLocalData=useCallback(()=>{
+    if(!localImportPrompt)return;
+    setTags(localImportPrompt.tags);
+    setTagDims(localImportPrompt.tagDims.length?localImportPrompt.tagDims:DEFAULT_DIMS);
+    setBudgets(localImportPrompt.budgets);
+    setBudgetDims(localImportPrompt.budgetDims);
+    setBudgetRowMeta(localImportPrompt.budgetRowMeta);
+    setBudgetMetaDims(localImportPrompt.budgetMetaDims);
+    setBudgetImportMeta(localImportPrompt.budgetImportMeta);
+    setMergedNormRows(localImportPrompt.rows);
+    if(localImportPrompt.rows.length)setStep("tag");
+    clearLegacyLocalKeys();
+    setLocalImportPrompt(null);
+    checkpoint("Imported data from before sign-in","import_legacy");
+    showNotif("Imported your existing data into this workspace");
+  },[localImportPrompt,checkpoint,clearLegacyLocalKeys]);
+  const dismissLegacyLocalData=useCallback(()=>{
+    clearLegacyLocalKeys();
+    setLocalImportPrompt(null);
+  },[clearLegacyLocalKeys]);
+
+  useEffect(()=>{
+    if(!workspace?.id||!session){setWorkspaceDataLoading(false);return;}
+    setWorkspaceDataLoading(true);setWorkspaceDataError("");
+    configLoadedRef.current=false;rowsLoadedRef.current=false;
+    Promise.all([getWorkspaceConfig(session,workspace.id),getSpendRows(session,workspace.id)])
+      .then(([config,rows])=>{
+        setTags(config.tags||{});
+        setTagDims((config.tagDims||[]).length?config.tagDims:DEFAULT_DIMS);
+        setBudgets(config.budgets||{});
+        setBudgetDims(config.budgetDims||[]);
+        setBudgetRowMeta(config.budgetRowMeta||{});
+        setBudgetMetaDims(config.budgetMetaDims||[]);
+        setBudgetImportMeta(config.budgetImportMeta||{});
+        setMergedNormRows(rows||[]);
+        if((rows||[]).length)setStep("tag");
+        configLoadedRef.current=true;rowsLoadedRef.current=true;
+        const serverIsEmpty=!Object.keys(config.tags||{}).length&&!Object.keys(config.budgets||{}).length&&!(rows||[]).length;
+        if(serverIsEmpty){
+          const legacy=readLegacyLocalData();
+          if(legacy)setLocalImportPrompt(legacy);
+        }
+      })
+      .catch(e=>{
+        console.error("[workspace data load]",e);
+        setWorkspaceDataError(e.message||"Couldn't load this workspace's data.");
+      })
+      .finally(()=>setWorkspaceDataLoading(false));
+  },[workspace?.id,session]);
+
+  // Debounced whole-document save — mirrors the shape api/workspaces/[id]/data.js's PUT expects.
+  useEffect(()=>{
+    if(!workspace?.id||!session||!configLoadedRef.current)return;
+    clearTimeout(saveConfigTimer.current);
+    saveConfigTimer.current=setTimeout(()=>{
+      putWorkspaceConfig(session,workspace.id,{tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta})
+        .catch(e=>console.error("[workspace config save]",e));
+    },800);
+    return()=>clearTimeout(saveConfigTimer.current);
+  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,workspace?.id,session]);
+
+  // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
+  // replace-all (not incremental) is the sync model here.
+  useEffect(()=>{
+    if(!workspace?.id||!session||!rowsLoadedRef.current)return;
+    clearTimeout(saveRowsTimer.current);
+    saveRowsTimer.current=setTimeout(()=>{
+      putSpendRows(session,workspace.id,mergedNormRows).catch(e=>console.error("[spend rows save]",e));
+    },800);
+    return()=>clearTimeout(saveRowsTimer.current);
+  },[mergedNormRows,workspace?.id,session]);
 
   // ── Platform sync ──────────────────────────────────────────────────────────
   const[syncState,setSyncState]=useState({}); // {platform: "idle"|"loading"|"done"|"error"}
@@ -4070,6 +4170,26 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     {label:"Tagged",value:hasSidebarData?`${stats.tagged.toLocaleString()} (${stats.total?Math.round((stats.tagged/stats.total)*100):0}%)`:"—",dot:sidebarBc[3]},
     {label:"Needs review",value:hasSidebarData?stats.untagged.toLocaleString():"—",dot:hasSidebarData?(stats.untagged>0?sidebarBc[0]:sidebarBc[3]):sidebarBc[0]},
   ];
+
+  // While this workspace's tags/budgets/spend rows are still loading from the server (or failed
+  // to load), show that instead of the normal app shell — better than letting someone start
+  // interacting with an empty upload screen that's about to be overwritten once the real data
+  // lands, or silently losing data if a save effect fired against the pre-load empty state.
+  if(workspace&&workspaceDataLoading){
+    return(
+      <div style={{height:"100vh",width:"100vw",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.textMuted,fontFamily:"Inter,sans-serif",fontSize:13}}>
+        Loading {workspace.name}…
+      </div>
+    );
+  }
+  if(workspace&&workspaceDataError){
+    return(
+      <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.bg,fontFamily:"Inter,sans-serif",padding:24}}>
+        <div style={{padding:"12px 16px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:8,color:T.danger,fontSize:13,maxWidth:420,textAlign:"center"}}>{workspaceDataError}</div>
+        <button onClick={()=>window.location.reload()} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"7px 16px",fontSize:12,color:T.text,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>Reload</button>
+      </div>
+    );
+  }
 
   return(
     <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"Inter,sans-serif",overflow:"hidden",position:"relative"}}>
@@ -4844,6 +4964,24 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       </main>
 
       </div>
+
+      {/* ── IMPORT PRE-LOGIN LOCAL DATA ── */}
+      {localImportPrompt&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{width:"100%",maxWidth:440,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.text}}>Import your existing data?</div>
+            <div style={{padding:20,fontSize:13,color:T.textSub,lineHeight:1.6}}>
+              This browser has BudgetHQ data from before you signed in — {localImportPrompt.rows.length?`${localImportPrompt.rows.length.toLocaleString()} spend rows, `:""}{Object.keys(localImportPrompt.tags).length?`${Object.keys(localImportPrompt.tags).length.toLocaleString()} tagged campaigns, `:""}{Object.keys(localImportPrompt.budgets).length?"budget allocations":""}.
+              <br/><br/>
+              Import it into <strong style={{color:T.text}}>{workspace?.name}</strong>? This only happens once — if you skip it, this local data stays in your browser but won't be brought in automatically later.
+            </div>
+            <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn onClick={dismissLegacyLocalData} variant="ghost" T={T}>Start fresh instead</Btn>
+              <Btn onClick={importLegacyLocalData} variant="primary" T={T}>Import into {workspace?.name}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── NAME CURRENT VERSION ── */}
       {nameVersionOpen&&(
