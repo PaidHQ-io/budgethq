@@ -37,6 +37,18 @@ function loadGis() {
   return gisLoadPromise;
 }
 
+// Fetches Google's Identity Services script ahead of time so it's already cached by the time the
+// user clicks Export/Connect. This matters because requestAccessToken() opens a real browser
+// popup for the consent screen, and browsers only reliably allow popups that open synchronously
+// within a click handler — if getAccessToken() has to `await loadGis()` first (a real network
+// fetch on the very first use), that async gap can make the browser silently block the popup with
+// no error surfaced anywhere, which looks exactly like "I clicked Connect and nothing happened."
+// Safe to call speculatively and ignore failures — the real getAccessToken() call will surface a
+// proper error if the script truly can't load.
+export function preloadGoogleSheetsApi() {
+  loadGis().catch(() => {});
+}
+
 let tokenClient = null;
 let cachedToken = null; // { accessToken, expiresAt }
 let hasPromptedOnce = false;
@@ -58,7 +70,22 @@ async function getAccessToken() {
         callback: () => {}, // replaced per-request just below
       });
     }
+    // If the browser silently blocks the consent popup (most likely when it opens outside a
+    // synchronous click — see preloadGoogleSheetsApi's comment above), Google's callback never
+    // fires at all: no error, no resolve, nothing. Without this timeout that leaves the caller's
+    // UI stuck on "Connecting…"/"Exporting…" forever with no feedback. 25s comfortably covers a
+    // real consent flow (pick account, review scopes, click Allow) while still surfacing a
+    // specific, actionable error if the popup never actually appeared.
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("Google's sign-in window didn't open or wasn't completed — check if your browser blocked a popup for this site, allow it, and try again."));
+    }, 25000);
     tokenClient.callback = (resp) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       if (resp.error) {
         reject(new Error(resp.error_description || resp.error));
         return;

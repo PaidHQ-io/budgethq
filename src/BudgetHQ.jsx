@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows } from "./lib/workspaceApi";
-import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchSheetGrid } from "./lib/googleSheets";
+import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchSheetGrid, preloadGoogleSheetsApi } from "./lib/googleSheets";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
 // VaultHQ-matched palette (redesign, July 2026) — Notion-inspired light theme shared across
@@ -3713,6 +3713,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[width,setWidth]=useState(typeof window!=="undefined"?window.innerWidth:1200);
   useEffect(()=>{const h=()=>setWidth(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const isMobile=width<768;
+  // Fetch Google's Identity Services script as soon as the app loads rather than waiting for the
+  // first Sheets export/connect click — see preloadGoogleSheetsApi's doc comment for why the
+  // async gap otherwise risks the consent popup getting silently blocked by the browser.
+  useEffect(()=>{preloadGoogleSheetsApi();},[]);
 
   const[step,setStep]=useState("upload");
   const[view,setView]=useState("dashboard");
