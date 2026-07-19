@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows } from "./lib/workspaceApi";
-import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchSheetGrid, preloadGoogleSheetsApi } from "./lib/googleSheets";
+import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchSheetGrid, preloadGoogleSheetsApi, switchGoogleAccount } from "./lib/googleSheets";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
 // VaultHQ-matched palette (redesign, July 2026) — Notion-inspired light theme shared across
@@ -1762,7 +1762,16 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                         <Btn onClick={handleConnectGoogleSheet} disabled={gsheetFetching||!gsheetUrl.trim()} variant="primary" size="sm" T={T}>{gsheetFetching?"Connecting…":"Connect"}</Btn>
                       </div>
                     )}
-                    {gsheetError&&<div style={{marginTop:8,fontSize:11,color:T.danger}}>{gsheetError}</div>}
+                    {gsheetError&&(
+                      <div style={{marginTop:8,fontSize:11,color:T.danger}}>
+                        {gsheetError}
+                        {/(permission|forbidden|403)/i.test(gsheetError)&&(
+                          <div style={{marginTop:4}}>
+                            That usually means the Google account you're connected as doesn't have access to this sheet. <span onClick={()=>{switchGoogleAccount();handleConnectGoogleSheet();}} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different Google account</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{marginTop:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -4904,7 +4913,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           <Btn onClick={handleConnectGoogleSheetTags} disabled={gsheetTagFetching||!gsheetTagUrl.trim()} variant="primary" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{gsheetTagFetching?"Connecting…":"Connect"}</Btn>
                         </>
                       )}
-                      {gsheetTagError&&<div style={{marginTop:6,fontSize:11,color:T.danger}}>{gsheetTagError}</div>}
+                      {gsheetTagError&&(
+                        <div style={{marginTop:6,fontSize:11,color:T.danger}}>
+                          {gsheetTagError}
+                          {/(permission|forbidden|403)/i.test(gsheetTagError)&&(
+                            <div style={{marginTop:4}}>
+                              Wrong Google account for this sheet? <span onClick={()=>{switchGoogleAccount();handleConnectGoogleSheetTags();}} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different account</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

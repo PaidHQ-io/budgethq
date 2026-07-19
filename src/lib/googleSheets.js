@@ -52,13 +52,25 @@ export function preloadGoogleSheetsApi() {
 let tokenClient = null;
 let cachedToken = null; // { accessToken, expiresAt }
 let hasPromptedOnce = false;
+let forceAccountPickerNext = false;
+
+// The cached token/account is shared across every export and connect call in the page session —
+// by design, so a user isn't re-prompted for every single action. But that means once you've
+// granted access as Account A, every later call silently reuses Account A even if the sheet you
+// actually want lives under Account B, producing a permission error from Google's API rather than
+// any obvious "wrong account" signal. Call this before retrying to force Google's account chooser
+// on the next request instead of silently reusing whatever's cached.
+export function switchGoogleAccount() {
+  cachedToken = null;
+  forceAccountPickerNext = true;
+}
 
 async function getAccessToken() {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   if (!clientId) {
     throw new Error("Google Sheets export isn't configured yet — VITE_GOOGLE_CLIENT_ID is missing.");
   }
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 30000) {
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 30000 && !forceAccountPickerNext) {
     return cachedToken.accessToken;
   }
   await loadGis();
@@ -99,7 +111,10 @@ async function getAccessToken() {
     };
     // First grant in this page session shows the consent popup; later refreshes try silently
     // first (falls back to a popup on its own if Google decides silent reauth isn't possible).
-    tokenClient.requestAccessToken({ prompt: hasPromptedOnce ? "" : "consent" });
+    // switchGoogleAccount() forces Google's account chooser explicitly, overriding both of those.
+    const prompt = forceAccountPickerNext ? "select_account consent" : (hasPromptedOnce ? "" : "consent");
+    forceAccountPickerNext = false;
+    tokenClient.requestAccessToken({ prompt });
   });
 }
 
