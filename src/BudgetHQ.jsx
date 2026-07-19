@@ -519,7 +519,13 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
   const[showA,setShowA]=useState(false);
-  const[showRollups,setShowRollups]=useState(false);
+  // Persisted to localStorage (like the top-level view/askChats prefs) rather than plain useState
+  // — BudgetManager itself now stays mounted across tab switches (see the display:none wrapper in
+  // BudgetHQ's render), so this survives that on its own, but persisting it too means the toggle
+  // also survives a hard page reload, matching how every other "which view mode am I in" pref in
+  // the app behaves.
+  const[showRollups,setShowRollups]=useState(()=>{try{return localStorage.getItem("paidhq_budget_show_rollups")==="1";}catch(e){return false;}});
+  useEffect(()=>{try{localStorage.setItem("paidhq_budget_show_rollups",showRollups?"1":"0");}catch(e){}},[showRollups]);
   const[importOpen,setImportOpen]=useState(false);
   const[notif,setNotif]=useState(null);
   // Export preview — AI suggests which actual-spend granularity (monthly/quarterly) to append
