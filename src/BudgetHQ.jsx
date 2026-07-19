@@ -156,6 +156,11 @@ const fmt$=n=>{if(!n)return"";return"$"+Math.round(n).toLocaleString();};
 const fmtFull=n=>n?"$"+Math.round(n).toLocaleString():"—";
 const isMonthHdr=c=>{const x=c.trim().toLowerCase().replace(/\s+\d{4}$/,"");return!!MONTH_MAP[x];};
 const getMonthKey=c=>{const x=c.trim().toLowerCase().replace(/\s+\d{4}$/,"");return MONTH_MAP[x]||null;};
+// Detects a single flat recurring-monthly amount column (e.g. "Monthly Budget", "Monthly Spend")
+// — distinct from a genuine period/date column. Tables that have this AND no named-month columns
+// AND no parseable period column are a 4th import shape ("flat"): one row per segment, no
+// per-month breakdown at all, just a monthly run-rate figure to replicate across every month.
+const findFlatMonthlyCol=headers=>headers.find(h=>/monthly/i.test(h)&&/budget|amount|spend|cost/i.test(h));
 function parsePeriod(val){if(!val)return null;const s=String(val).trim();let m=s.match(/^(\d{4})-(\d{2})$/);if(m)return m[2];m=s.match(/^(\d{1,2})\/(\d{4})$/);if(m)return String(m[1]).padStart(2,"0");const l=s.toLowerCase().replace(/[,\s]+/g," ");for(const[n,k]of Object.entries(MONTH_MAP)){if(l.startsWith(n))return k;}return null;}
 
 // Parse any file (CSV or Excel) to array of arrays
@@ -907,17 +912,21 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const applyHeaderRow=()=>{
     const{headers,rows}=processRows(iRawRows,iHeaderRow,iSkipStr);
     setIHeaders(headers);setIRows(rows);
-    // Detect format: wide (months as cols), transposed (months as rows), long (period+amount cols)
+    // Detect format: wide (months as cols), transposed (months as rows), flat (one recurring
+    // monthly amount, no named months/period col), long (period+amount cols)
     const monthColCount=headers.filter(h=>isMonthHdr(h)).length;
     const firstColPeriods=rows.slice(0,6).filter(r=>parsePeriod(String(r[headers[0]]||""))).length;
+    const flatMonthlyCol=findFlatMonthlyCol(headers);
     let fmt="long";
     if(monthColCount>=3) fmt="wide";
     else if(firstColPeriods>=2) fmt="transposed";
+    else if(flatMonthlyCol) fmt="flat";
     setIFmt(fmt);
     // Auto-map existing dimensions
     const am={};(tagDimensions||[]).forEach(d=>{const m=headers.find(h=>h.toLowerCase()===d.toLowerCase()||h.toLowerCase().includes(d.toLowerCase()));if(m)am[d]=m;});
     setDimMap(am);
     if(fmt==="long"){setPeriodCol(headers.find(h=>/month|period|date/i.test(h))||"");setAmtCol(headers.find(h=>/budget|amount|spend|cost/i.test(h))||"");}
+    else if(fmt==="flat"){setAmtCol(flatMonthlyCol||"");}
     setIStep("map");
   };
 
@@ -976,6 +985,21 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
             entries.push({segKey:sk,dims,monthKey:mk,amount:amt});
           }
         });
+      });
+    }else if(iFmt==="flat"){
+      // No named months, no period column — just one recurring monthly amount per segment.
+      // Per-Mo decision: replicate that figure across all 12 months of the target year (the
+      // secondary "Quarterly Budget"-style column, if any, is intentionally not imported — it's
+      // redundant with Monthly×3). The user can then hand-adjust any individual month afterward
+      // in the Budget Panel grid, same as any other imported budget.
+      iRows.forEach(row=>{
+        const sp=activeDims.map(d=>({dim:d.dim,val:row[d.col]}));
+        if(sp.some(p=>!p.val))return;
+        const sk=sp.map(p=>p.val).join("|");
+        const amt=parseMoney(row[amtCol]);
+        if(amt!==null&&amt>0){
+          MONTHS.forEach(m=>entries.push({segKey:sk,dims:Object.fromEntries(sp.map(p=>[p.dim,p.val])),monthKey:m.key,amount:amt}));
+        }
       });
     }else{
       iRows.forEach(row=>{
@@ -1193,7 +1217,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     setAiAnalyzing(true);setAiError("");
     try{
       const sample=iRawRows.slice(0,300).map(row=>row.slice(0,20).map(v=>String(v||"").trim()));
-      const prompt=`Analyze this complete budget spreadsheet and return a JSON mapping.\n\nUser's existing tag dimensions: ${(tagDimensions||[]).join(", ")}\n\nComplete file data (${sample.length} rows, up to 20 columns shown — file has ${iRawRows[0]?.length||0} total columns):\n${sample.map((row,i)=>`Row ${i+1}: ${row.map(v=>v.replace(/#REF!/g,"0")).join(" | ")}`).join("\n")}\n\nReturn ONLY this JSON object (no markdown):\n{\n  \"headerRow\": <0-based row index of the main column header row>,\n  \"groupHeaderRow\": <row index of a channel/platform grouping row ABOVE the main header that groups columns, or -1 if none>,\n  \"groupDimension\": <name for the group dimension e.g. \"Channel\" or null>,\n  \"skipPattern\": <substring in subtotal/total rows to skip, or \"\">,\n  \"format\": \"wide\", \"long\", or \"transposed\",\n  \"segmentDimension\": <for transposed: name for the campaign column dimension e.g. \"Campaign\">,\n  \"dimensions\": [{\"name\": <existing dim name>, \"column\": <exact column header>}],\n  \"newDimensions\": [{\"name\": <new dim name>, \"column\": <exact column header>}],\n  \"periodColumn\": <for long format: period column, else null>,\n  \"amountColumn\": <for long format: amount column, else null>,\n  \"hasQuarterlyCaps\": <true/false>,\n  \"hasAnnualCap\": <true/false>\n}\nFormat rules: wide=month names as column headers; transposed=months as rows + campaigns as columns (if a row ABOVE the header groups columns into channels set groupHeaderRow); long=one row per period. Existing dimensions to map: ${(tagDimensions||[]).join(", ")}`;
+      const prompt=`Analyze this complete budget spreadsheet and return a JSON mapping.\n\nUser's existing tag dimensions: ${(tagDimensions||[]).join(", ")}\n\nComplete file data (${sample.length} rows, up to 20 columns shown — file has ${iRawRows[0]?.length||0} total columns):\n${sample.map((row,i)=>`Row ${i+1}: ${row.map(v=>v.replace(/#REF!/g,"0")).join(" | ")}`).join("\n")}\n\nReturn ONLY this JSON object (no markdown):\n{\n  \"headerRow\": <0-based row index of the main column header row>,\n  \"groupHeaderRow\": <row index of a channel/platform grouping row ABOVE the main header that groups columns, or -1 if none>,\n  \"groupDimension\": <name for the group dimension e.g. \"Channel\" or null>,\n  \"skipPattern\": <substring in subtotal/total rows to skip, or \"\">,\n  \"format\": \"wide\", \"long\", \"transposed\", or \"flat\",\n  \"segmentDimension\": <for transposed: name for the campaign column dimension e.g. \"Campaign\">,\n  \"dimensions\": [{\"name\": <existing dim name>, \"column\": <exact column header>}],\n  \"newDimensions\": [{\"name\": <new dim name>, \"column\": <exact column header>}],\n  \"periodColumn\": <for long format: period column, else null>,\n  \"amountColumn\": <for long or flat format: amount column, else null>,\n  \"hasQuarterlyCaps\": <true/false>,\n  \"hasAnnualCap\": <true/false>\n}\nFormat rules: wide=month names as column headers; transposed=months as rows + campaigns as columns (if a row ABOVE the header groups columns into channels set groupHeaderRow); long=one row per period with an explicit period/date column; flat=one row per segment with a single recurring monthly amount column (e.g. "Monthly Budget") and NO period/date column and NO per-month columns — do not force this into "long" just because there's a column with "month" in its name, that column IS the amount column, not a period. Existing dimensions to map: ${(tagDimensions||[]).join(", ")}`;
 
       const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
       const data=await res.json();
@@ -1210,10 +1234,12 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       // Detect format with same logic as applyHeaderRow
       const monthColCount=headers.filter(h=>isMonthHdr(h)).length;
       const firstColPeriods=rows.slice(0,6).filter(r=>parsePeriod(String(r[headers[0]]||""))).length;
+      const flatMonthlyCol=findFlatMonthlyCol(headers);
       let fmt=result.format||"long";
-      if(fmt!=="transposed"&&fmt!=="wide"&&fmt!=="long"){
+      if(fmt!=="transposed"&&fmt!=="wide"&&fmt!=="long"&&fmt!=="flat"){
         if(monthColCount>=3)fmt="wide";
         else if(firstColPeriods>=2)fmt="transposed";
+        else if(flatMonthlyCol)fmt="flat";
         else fmt="long";
       }
       setIFmt(fmt);
@@ -1237,6 +1263,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
 
       if(result.periodColumn&&headers.includes(result.periodColumn))setPeriodCol(result.periodColumn);
       if(result.amountColumn&&headers.includes(result.amountColumn))setAmtCol(result.amountColumn);
+      else if(fmt==="flat")setAmtCol(flatMonthlyCol||"");
 
       setIStep("map");
     }catch(e){
@@ -1247,7 +1274,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
 
   const pvGrouped=useMemo(()=>{const m={};(preview||[]).forEach(e=>{if(!m[e.segKey])m[e.segKey]={dims:e.dims,months:{}};m[e.segKey].months[e.monthKey]=e.amount;});return Object.values(m).sort((a,b)=>Object.values(a.dims).join("|").localeCompare(Object.values(b.dims).join("|")));},[preview]);
   const dimCols=(tagDimensions||[]).filter(d=>dimMap[d]);
-  const canMap=iFmt==="transposed"?!!iSegDim:((tagDimensions||[]).filter(d=>dimMap[d]).length>0||customDims.some(c=>c.name&&c.col))&&(iFmt==="wide"||(periodCol&&amtCol));
+  const canMap=iFmt==="transposed"?!!iSegDim:((tagDimensions||[]).filter(d=>dimMap[d]).length>0||customDims.some(c=>c.name&&c.col))&&(iFmt==="wide"||(iFmt==="flat"?!!amtCol:(periodCol&&amtCol)));
   const IMPORT_STEPS=["upload","header","map","preview"];
 
   const cellIn=(val,onChange,over=false,cap=false)=>(
@@ -1594,7 +1621,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                 <div>
                   <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:16}}>
                     <span style={{fontSize:12,color:T.accent,fontWeight:500}}>
-                      Year: <strong>{iYear}</strong> · {iFmt==="wide"?"Wide (months as columns)":iFmt==="transposed"?"Transposed (months as rows, campaigns as columns)":"Long (period + amount columns)"} · {iRows.length} data rows · {iHeaders.length} columns
+                      Year: <strong>{iYear}</strong> · {iFmt==="wide"?"Wide (months as columns)":iFmt==="transposed"?"Transposed (months as rows, campaigns as columns)":iFmt==="flat"?"Flat (one recurring monthly amount, no named months)":"Long (period + amount columns)"} · {iRows.length} data rows · {iHeaders.length} columns
                     </span>
                   </div>
 
@@ -1691,6 +1718,18 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                         <Sel value={v} onChange={s} T={T}><option value="">— select —</option>{iHeaders.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
                       </div>
                     ))}
+                  </div>}
+
+                  {/* Flat format extra — one recurring monthly amount, no named months/period col */}
+                  {iFmt==="flat"&&<div style={{borderTop:`1px solid ${T.border}`,paddingTop:16,marginTop:8}}>
+                    <SectionLabel T={T} style={{marginBottom:10}}>Monthly amount column</SectionLabel>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,alignItems:"center"}}>
+                      <div><div style={{fontSize:13,color:T.text,fontWeight:500}}>Monthly Budget</div><div style={{fontSize:11,color:T.textMuted}}>e.g. Monthly Budget, Monthly Spend</div></div>
+                      <Sel value={amtCol} onChange={setAmtCol} T={T}><option value="">— select —</option>{iHeaders.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
+                    </div>
+                    <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,fontSize:12,color:T.accent,lineHeight:1.5}}>
+                      This table has no named months, so this amount will be applied to <strong>all 12 months of {iYear}</strong> for each segment. Any secondary total column (e.g. Quarterly Budget) is skipped on import — it's redundant with this figure. You can hand-adjust any individual month afterward right in the Budget Panel grid.
+                    </div>
                   </div>}
                 </div>
               )}
