@@ -823,11 +823,24 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const ingestRawRows=(fileName,rawRows)=>{
     setIFileName(fileName);
     setIRawRows(rawRows);
-    // Auto-detect header row: first row where >2 cells have content
+    // Auto-detect header row: first row where >2 cells have content, PREFERRING one that
+    // contains recognizable month headers if any candidate does. Plain CSV/XLSX exports of a
+    // merged "year spanning 12 month columns" cell only store the year in one cell, so that row
+    // naturally has few filled cells and the real month-name row below it wins on its own. A
+    // screenshot has no cell-merge data though — a vision transcription of that same merged label
+    // is prone to repeating "2026" under every column it visually spans, making that row look
+    // fully filled and get picked first, which then makes month-column detection (isMonthHdr)
+    // find nothing and silently produce 0 imported rows. Preferring a month-header candidate row
+    // when one exists fixes that case without changing behavior for files that never have one.
     let headerIdx=0;
+    const candidates=[];
     for(let i=0;i<Math.min(rawRows.length,10);i++){
       const filled=rawRows[i].filter(v=>String(v||"").trim()).length;
-      if(filled>2){headerIdx=i;break;}
+      if(filled>2)candidates.push(i);
+    }
+    if(candidates.length){
+      const withMonths=candidates.find(i=>rawRows[i].filter(v=>isMonthHdr(String(v||""))).length>=2);
+      headerIdx=withMonths!==undefined?withMonths:candidates[0];
     }
     setIHeaderRow(headerIdx);
     setIStep("header");
@@ -4967,7 +4980,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       )}
 
       {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
-      {view==="budget"&&<BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl}/>}
+      {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
+          other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
+          dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
+          discarding an open import if the user navigated away mid-flow. sidebarEl naturally
+          becomes null while hidden (its portal target only exists when view==="budget"), so the
+          sidebar contents disappear correctly without any extra guard. */}
+      <div style={{display:view==="budget"?"contents":"none"}}>
+        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl}/>
+      </div>
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
       {view==="ask"&&<AskAI T={T} mergedNormRows={mergedNormRows} tags={tags} tagDims={tagDims} hasData={mergedNormRows.length>0} askChats={askChats} setAskChats={setAskChats} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId}/>}
       {view==="settings"&&(()=>{
