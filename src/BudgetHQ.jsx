@@ -4620,13 +4620,23 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const handleExportToGoogleSheets=useCallback(async()=>{
     const report=buildCurrentReport();
     if(!report||!exportableView)return;
+    // Open a blank tab SYNCHRONOUSLY, right here in the click handler, before any of the awaited
+    // API calls below — that's what makes the browser treat it as a direct result of the user's
+    // click and allow it. Once the real spreadsheet URL is ready we just navigate this already-
+    // open tab to it. Doing `window.open(url)` AFTER those awaits (the original code) opens the
+    // tab many ticks after the click, outside any "user gesture" window most browsers require,
+    // so it silently gets popup-blocked — this is exactly what just happened during testing.
+    const preOpened=window.open("","_blank","noopener,noreferrer");
+    if(preOpened)preOpened.document.write("<title>Exporting…</title><body style=\"font-family:sans-serif;color:#666;padding:40px\">Creating your Google Sheet…</body>");
     setSheetsExporting(true);
     try{
       const url=await exportReportToGoogleSheets(report);
       showNotif(`Exported ${exportableView.label} to Google Sheets`);
-      window.open(url,"_blank","noopener,noreferrer");
+      if(preOpened&&!preOpened.closed)preOpened.location.href=url;
+      else window.open(url,"_blank","noopener,noreferrer"); // fallback if even the blank tab got blocked
     }catch(e){
       console.error("[google sheets export]",e);
+      if(preOpened&&!preOpened.closed)preOpened.close();
       window.alert(e.message||"Couldn't export to Google Sheets. Try again.");
     }finally{
       setSheetsExporting(false);
