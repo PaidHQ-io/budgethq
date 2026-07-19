@@ -4450,14 +4450,38 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[gsheetTagError,setGsheetTagError]=useState("");
   const[gsheetTagTabs,setGsheetTagTabs]=useState(null);
   const[gsheetTagSpreadsheetId,setGsheetTagSpreadsheetId]=useState("");
+  // Auto-detects the header row (scans the first 10 rows) instead of always trusting row 0 — a
+  // title row, note, or blank spacer row above the real header would otherwise make this silently
+  // grab the wrong row and, since a tag import specifically needs a Campaign column, produce
+  // exactly the "Could not find Campaign column" error even when the sheet is perfectly valid.
+  // Prefers a row that actually contains something matching "campaign"; falls back to the first
+  // row with several filled cells (same style of heuristic as the Budget import's header-row
+  // detection) if no such row turns up in that window.
+  const findTagHeaderRow=rawRows=>{
+    const scanLimit=Math.min(rawRows.length,10);
+    for(let i=0;i<scanLimit;i++){if((rawRows[i]||[]).some(v=>/campaign/i.test(String(v||""))))return i;}
+    for(let i=0;i<scanLimit;i++){if((rawRows[i]||[]).filter(v=>String(v||"").trim()).length>2)return i;}
+    return 0;
+  };
   const gridToRecords=rawRows=>{
-    const fields=(rawRows[0]||[]).map(h=>String(h||"").trim()).filter(Boolean);
-    const rows=rawRows.slice(1).filter(r=>r.some(v=>String(v||"").trim())).map(r=>{
-      const obj={};fields.forEach((f,i)=>{obj[f]=String(r[i]||"").trim();});return obj;
+    const headerIdx=findTagHeaderRow(rawRows);
+    const headerRow=rawRows[headerIdx]||[];
+    // Keep each header's original column index so blank/unnamed columns can be dropped from
+    // `fields` without breaking the row[i]<->field alignment for the columns that remain.
+    const cols=[];
+    headerRow.forEach((h,i)=>{const name=String(h||"").trim();if(name)cols.push({name,i});});
+    const fields=cols.map(c=>c.name);
+    const rows=rawRows.slice(headerIdx+1).filter(r=>r.some(v=>String(v||"").trim())).map(r=>{
+      const obj={};cols.forEach(c=>{obj[c.name]=String(r[c.i]||"").trim();});return obj;
     });
     return{fields,rows};
   };
-  const fetchGoogleSheetTagsTab=useCallback(async(spreadsheetId,tabTitle)=>{
+  // Plain functions (not useCallback) — same reasoning as Budget's handleConnectGoogleSheet /
+  // fetchGoogleSheetTab: they close over gridToRecords/applyTagRowsFromRecords, which are
+  // themselves plain functions recreated every render, so a dependency array here can't ever be
+  // fully satisfied without churn either way — matching the rest of this file's existing style
+  // for this exact tension rather than fighting the linter with an unstable dependency.
+  const fetchGoogleSheetTagsTab=async(spreadsheetId,tabTitle)=>{
     setGsheetTagError("");setGsheetTagFetching(true);
     try{
       const rawRows=await fetchSheetGrid(spreadsheetId,tabTitle);
@@ -4471,8 +4495,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }finally{
       setGsheetTagFetching(false);
     }
-  },[applyTagRowsFromRecords]);
-  const handleConnectGoogleSheetTags=useCallback(async()=>{
+  };
+  const handleConnectGoogleSheetTags=async()=>{
     const id=parseSpreadsheetId(gsheetTagUrl);
     if(!id){setGsheetTagError("Couldn't find a spreadsheet ID in that link — paste the full Google Sheets URL.");return;}
     setGsheetTagError("");setGsheetTagFetching(true);setGsheetTagTabs(null);
@@ -4487,7 +4511,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }finally{
       setGsheetTagFetching(false);
     }
-  },[gsheetTagUrl,fetchGoogleSheetTagsTab]);
+  };
   // Clipboard paste (Ctrl/Cmd+V) for screenshots — lets someone with a screenshot already copied
   // (e.g. Cmd+Shift+4 / Snipping Tool) just paste it in rather than saving it as a file first and
   // clicking through a file picker. Scoped to whichever screenshot-import capability is actually
