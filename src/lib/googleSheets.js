@@ -129,3 +129,58 @@ export async function exportReportToGoogleSheets(report) {
 
   return created.spreadsheetUrl;
 }
+
+/**
+ * "Connect a Google Sheet" — manual pull, same client-only pattern as export above (reuses the
+ * same access token/scope, so there's no second consent prompt and no extra Google Cloud setup).
+ * This is deliberately the lightweight half of the live-connection feature: the user pastes a
+ * link, clicks a button, and the sheet's raw grid is fetched once and fed into the same
+ * header-row-picker / column-mapping pipeline a CSV upload or screenshot import already goes
+ * through. Nothing is stored — no refresh token, no server round-trip — so this can't run in the
+ * background or auto-refresh on its own; that's the separate, heavier piece (server-side OAuth
+ * authorization-code flow + stored refresh token + a sync schedule) planned as a follow-up.
+ */
+
+// Accepts either a full Sheets URL or a bare spreadsheet ID typed/pasted directly.
+export function parseSpreadsheetId(input) {
+  const s = (input || "").trim();
+  const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (m) return m[1];
+  if (/^[a-zA-Z0-9-_]{20,}$/.test(s)) return s; // looks like a bare ID
+  return null;
+}
+
+// Returns [{ sheetId, title }] for every tab in the spreadsheet, so the caller can ask the user
+// to pick one when there's more than one.
+export async function listSheetTabs(spreadsheetId) {
+  const accessToken = await getAccessToken();
+  const data = await sheetsFetch(
+    accessToken,
+    `/${spreadsheetId}?fields=properties.title,sheets.properties`,
+    {}
+  );
+  return {
+    title: data.properties?.title || "",
+    tabs: (data.sheets || []).map((s) => ({
+      sheetId: s.properties.sheetId,
+      title: s.properties.title,
+    })),
+  };
+}
+
+// Fetches one tab's full used range as a raw 2D array of strings — the exact same shape
+// ingestRawRows()/applyTagRowsFromRecords() already expect from a parsed CSV/XLSX file or a
+// vision-transcribed screenshot.
+export async function fetchSheetGrid(spreadsheetId, sheetTitle) {
+  const accessToken = await getAccessToken();
+  const escapedTitle = sheetTitle.replace(/'/g, "''");
+  const range = encodeURIComponent(`'${escapedTitle}'`);
+  const data = await sheetsFetch(accessToken, `/${spreadsheetId}/values/${range}`, {});
+  const values = data.values || [];
+  const width = values.reduce((w, row) => Math.max(w, row.length), 0);
+  return values.map((row) => {
+    const padded = row.map((v) => String(v ?? ""));
+    while (padded.length < width) padded.push("");
+    return padded;
+  });
+}
