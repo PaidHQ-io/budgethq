@@ -872,6 +872,24 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     reader.onerror=()=>{setScreenshotImportError("Could not read image file");setScreenshotImporting(false);};
     reader.readAsDataURL(file);
   };
+  // Clipboard paste (Ctrl/Cmd+V) support — only acts while the import modal is open on its
+  // upload step, mirroring the same "only intercept when the clipboard actually has an image"
+  // safety as the Tagger's paste handler, so pasting text elsewhere in the app is never affected.
+  useEffect(()=>{
+    if(!importOpen||iStep!=="upload")return;
+    const handler=e=>{
+      const items=e.clipboardData?.items;
+      if(!items)return;
+      const imageItem=Array.from(items).find(it=>it.type&&it.type.startsWith("image/"));
+      if(!imageItem)return;
+      const file=imageItem.getAsFile();
+      if(!file)return;
+      e.preventDefault();
+      handleImportScreenshot(file);
+    };
+    document.addEventListener("paste",handler);
+    return()=>document.removeEventListener("paste",handler);
+  },[importOpen,iStep]);
 
   const applyHeaderRow=()=>{
     const{headers,rows}=processRows(iRawRows,iHeaderRow,iSkipStr);
@@ -4116,6 +4134,32 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     reader.onerror=()=>{setTagScreenshotError("Could not read image file");setTagScreenshotImporting(false);};
     reader.readAsDataURL(file);
   },[applyTagRowsFromRecords]);
+  // Clipboard paste (Ctrl/Cmd+V) for screenshots — lets someone with a screenshot already copied
+  // (e.g. Cmd+Shift+4 / Snipping Tool) just paste it in rather than saving it as a file first and
+  // clicking through a file picker. Scoped to whichever screenshot-import capability is actually
+  // on screen right now rather than firing globally: step==="upload" is the Tagger's spend-data
+  // screenshot dropzone, step==="tag" is where the "Import tags from screenshot" button lives.
+  // Ordinary text pastes into filter boxes, tag values, etc. are untouched — this only ever acts
+  // when the clipboard payload itself contains an image, and only preventDefault()s in that case.
+  useEffect(()=>{
+    const handler=e=>{
+      const items=e.clipboardData?.items;
+      if(!items)return;
+      const imageItem=Array.from(items).find(it=>it.type&&it.type.startsWith("image/"));
+      if(!imageItem)return;
+      const file=imageItem.getAsFile();
+      if(!file)return;
+      if(view==="tagger"&&step==="upload"){
+        e.preventDefault();
+        handleScreenshotFile(file);
+      }else if(view==="tagger"&&step==="tag"){
+        e.preventDefault();
+        importTagsFromScreenshot(file);
+      }
+    };
+    document.addEventListener("paste",handler);
+    return()=>document.removeEventListener("paste",handler);
+  },[view,step,handleScreenshotFile,importTagsFromScreenshot]);
   const toggleSel=n=>setSelected(p=>{const nx=new Set(p);nx.has(n)?nx.delete(n):nx.add(n);return nx;});
   const selAll=()=>setSelected(selected.size===filtered.length?new Set():new Set(filtered.map(c=>c.key)));
   // Isolate-and-delete-an-import: filter the table down to what you want gone (e.g. Platform =
