@@ -519,6 +519,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
   const[showA,setShowA]=useState(false);
+  const[showRollups,setShowRollups]=useState(false);
   const[importOpen,setImportOpen]=useState(false);
   const[notif,setNotif]=useState(null);
   // Export preview — AI suggests which actual-spend granularity (monthly/quarterly) to append
@@ -804,6 +805,28 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const dimCount=d=>[...new Set(Object.values(campaignTags||{}).map(t=>t[d]).filter(Boolean))].length;
   const toggleDim=d=>setBudgetDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);
   const dcw=130;
+
+  // Rollup: budgets summed by ONE dimension at a time (e.g. Channel alone, ignoring Region and
+  // Segment), computed live from the already-loaded filteredSegs/budgets data. Deliberately NOT
+  // implemented by unchecking dimensions in "Budget By" above — that changes budgetDims, which
+  // changes the segKey grain budgets are actually stored under, and would make existing imported
+  // budgets stop matching their keys entirely. This is purely a display-time aggregation.
+  const rollupTables=useMemo(()=>{
+    return budgetDims.map(dim=>{
+      const byVal={};
+      filteredSegs.forEach(seg=>{
+        const v=seg[dim]||"—";
+        if(!byVal[v])byVal[v]={value:v,months:{},total:0};
+        MONTHS.forEach(m=>{
+          const amt=getMV(seg.key,m.key);
+          if(amt!==""&&amt!=null){byVal[v].months[m.key]=(byVal[v].months[m.key]||0)+(parseFloat(amt)||0);}
+        });
+        byVal[v].total+=rowTotal(seg.key);
+      });
+      const rows=Object.values(byVal).sort((a,b)=>b.total-a.total);
+      return{dim,rows,total:rows.reduce((s,r)=>s+r.total,0)};
+    });
+  },[budgetDims,filteredSegs,getMV,rowTotal]);
 
   // Build processed rows from selected header row
   const processRows=useCallback((rawRows,headerRowIdx,skipStr)=>{
@@ -1341,6 +1364,14 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           </div>
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
+            <div onClick={()=>setShowRollups(x=>!x)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",marginBottom:showRollups?8:0}}>
+              <SectionLabel T={T} style={{marginBottom:0}}>Rollups</SectionLabel>
+              <Tog value={showRollups} onChange={setShowRollups} T={T}/>
+            </div>
+            {showRollups&&<div style={{fontSize:11,color:T.textMuted,lineHeight:1.5}}>Shows budget totals by each Budget By dimension on its own — e.g. Channel summed across all regions/segments — above the table.</div>}
+          </div>
+          <Divider T={T}/>
+          <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Optional Caps</SectionLabel>
             {[{label:"Quarterly caps",v:showQ,s:setShowQ},{label:"Annual cap",v:showA,s:setShowA}].map(({label,v,s})=>(
               <div key={label} onClick={()=>s(x=>!x)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",cursor:"pointer"}}>
@@ -1374,6 +1405,30 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           </div>
         ):(
           <>
+          {/* Rollups — budget totals by one Budget By dimension at a time, independent of the
+              detail grid's row grain */}
+          {showRollups&&rollupTables.length>0&&(
+            <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,background:T.surface,display:"flex",flexWrap:"wrap",gap:16}}>
+              {rollupTables.map(({dim,rows,total})=>(
+                <div key={dim} style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden",minWidth:220}}>
+                  <div style={{padding:"8px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.text}}>By {dim}</span>
+                    <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{fmt$(total)}</span>
+                  </div>
+                  <table style={{borderCollapse:"collapse",width:"100%"}}>
+                    <tbody>
+                      {rows.map(r=>(
+                        <tr key={r.value}>
+                          <td style={{padding:"6px 10px",fontSize:12,color:T.text,borderBottom:`1px solid ${T.border}`}}>{r.value}</td>
+                          <td style={{padding:"6px 10px",fontSize:12,color:T.text,fontWeight:600,textAlign:"right",fontFamily:"Inter,sans-serif",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(r.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          )}
           {/* Bulk action bar */}
           {selRows.size>0&&(
             <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
