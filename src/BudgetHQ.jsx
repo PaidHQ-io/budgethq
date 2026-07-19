@@ -520,6 +520,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const[showQ,setShowQ]=useState(false);
   const[showA,setShowA]=useState(false);
   const[showRollups,setShowRollups]=useState(false);
+  const[rollupGran,setRollupGran]=useState("annual"); // "monthly" | "quarterly" | "annual"
   const[importOpen,setImportOpen]=useState(false);
   const[notif,setNotif]=useState(null);
   // Export preview — AI suggests which actual-spend granularity (monthly/quarterly) to append
@@ -1368,7 +1369,15 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
               <SectionLabel T={T} style={{marginBottom:0}}>Rollups</SectionLabel>
               <Tog value={showRollups} onChange={setShowRollups} T={T}/>
             </div>
-            {showRollups&&<div style={{fontSize:11,color:T.textMuted,lineHeight:1.5}}>Shows budget totals by each Budget By dimension on its own — e.g. Channel summed across all regions/segments — above the table.</div>}
+            {showRollups&&<>
+              <div style={{fontSize:11,color:T.textMuted,lineHeight:1.5,marginBottom:8}}>Shows budget totals by each Budget By dimension on its own — e.g. Channel summed across all regions/segments — above the table.</div>
+              <div style={{display:"flex",gap:4}}>
+                {[{k:"monthly",l:"Monthly"},{k:"quarterly",l:"Quarterly"},{k:"annual",l:"Annual"}].map(({k,l})=>(
+                  <button key={k} onClick={()=>setRollupGran(k)}
+                    style={{flex:1,padding:"5px 0",borderRadius:6,border:`1.5px solid ${rollupGran===k?T.accentHover:T.border}`,background:rollupGran===k?T.accent:"transparent",color:rollupGran===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:rollupGran===k?700:400,fontFamily:"Inter,sans-serif"}}>{l}</button>
+                ))}
+              </div>
+            </>}
           </div>
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
@@ -1408,18 +1417,36 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           {/* Rollups — budget totals by one Budget By dimension at a time, independent of the
               detail grid's row grain */}
           {showRollups&&rollupTables.length>0&&(
-            <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,background:T.surface,display:"flex",flexWrap:"wrap",gap:16}}>
+            <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,background:T.surface,display:"flex",flexWrap:"wrap",gap:16,overflowX:"auto"}}>
               {rollupTables.map(({dim,rows,total})=>(
-                <div key={dim} style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden",minWidth:220}}>
+                <div key={dim} style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden",minWidth:rollupGran==="monthly"?720:rollupGran==="quarterly"?360:220}}>
                   <div style={{padding:"8px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.text}}>By {dim}</span>
                     <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{fmt$(total)}</span>
                   </div>
                   <table style={{borderCollapse:"collapse",width:"100%"}}>
+                    {rollupGran!=="annual"&&(
+                      <thead>
+                        <tr>
+                          <th style={{padding:"5px 10px",fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,textAlign:"left",borderBottom:`1px solid ${T.border}`,background:T.bg}}></th>
+                          {(rollupGran==="monthly"?MONTHS.map(m=>m.label):QUARTERS.map(q=>q.key)).map(l=>(
+                            <th key={l} style={{padding:"5px 8px",fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,textAlign:"right",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap"}}>{l}</th>
+                          ))}
+                          <th style={{padding:"5px 10px",fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.text,textAlign:"right",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap"}}>Total</th>
+                        </tr>
+                      </thead>
+                    )}
                     <tbody>
                       {rows.map(r=>(
                         <tr key={r.value}>
-                          <td style={{padding:"6px 10px",fontSize:12,color:T.text,borderBottom:`1px solid ${T.border}`}}>{r.value}</td>
+                          <td style={{padding:"6px 10px",fontSize:12,color:T.text,borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.value}</td>
+                          {rollupGran==="monthly"&&MONTHS.map(m=>(
+                            <td key={m.key} style={{padding:"6px 8px",fontSize:12,color:r.months[m.key]?T.text:T.textDim,textAlign:"right",fontFamily:"Inter,sans-serif",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.months[m.key]?fmt$(r.months[m.key]):"—"}</td>
+                          ))}
+                          {rollupGran==="quarterly"&&QUARTERS.map(q=>{
+                            const qv=q.months.reduce((s,mk)=>s+(r.months[mk]||0),0);
+                            return <td key={q.key} style={{padding:"6px 8px",fontSize:12,color:qv?T.text:T.textDim,textAlign:"right",fontFamily:"Inter,sans-serif",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{qv?fmt$(qv):"—"}</td>;
+                          })}
                           <td style={{padding:"6px 10px",fontSize:12,color:T.text,fontWeight:600,textAlign:"right",fontFamily:"Inter,sans-serif",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(r.total)}</td>
                         </tr>
                       ))}
