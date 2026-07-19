@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { supabase, supabaseConfigured } from "./lib/supabaseClient";
 import AuthScreen from "./Auth";
-import BudgetHQ from "./BudgetHQ";
+import WorkspaceGate from "./WorkspaceGate";
 
 // Owns the Supabase session for the whole app. `session` is `undefined` while the initial check
 // is in flight, `null` once we know for sure the user is signed out, or the actual session object
-// once signed in. BudgetHQ itself stays untouched by any of this beyond receiving `session` and
-// `onSignOut` as props — workspace-scoped data fetching (task #75) is a separate follow-up.
+// once signed in. Workspace selection lives one level down in WorkspaceGate — this component only
+// cares about "is someone logged in," not which workspace they're in.
 export default function AuthGate() {
   // Lazy initializer instead of setting this in the effect below — avoids a synchronous
   // setState call during the effect when Supabase isn't configured at all.
@@ -43,5 +43,5 @@ export default function AuthGate() {
     return <AuthScreen />;
   }
 
-  return <BudgetHQ session={session} onSignOut={() => supabase.auth.signOut()} />;
+  return <WorkspaceGate session={session} onSignOut={() => supabase.auth.signOut()} />;
 }

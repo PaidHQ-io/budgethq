@@ -472,6 +472,8 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"history":return<svg {...p}><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg>;
     case"trash":return<svg {...p}><path d="M4 7h16"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6M14 11v6"/></svg>;
     case"file":return<svg {...p}><path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/></svg>;
+    case"chevronDown":return<svg {...p}><path d="M6 9l6 6 6-6"/></svg>;
+    case"check":return<svg {...p}><path d="M5 12.5l4.5 4.5L19 7"/></svg>;
     default:return null;
   }
 };
@@ -3330,9 +3332,10 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
-export default function BudgetHQ({session,onSignOut}={}){
+export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitchWorkspace,onCreateWorkspace}={}){
   const T=THEME;
   const[accountMenuOpen,setAccountMenuOpen]=useState(false);
+  const[workspaceMenuOpen,setWorkspaceMenuOpen]=useState(false);
   const[width,setWidth]=useState(typeof window!=="undefined"?window.innerWidth:1200);
   useEffect(()=>{const h=()=>setWidth(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const isMobile=width<768;
@@ -4112,6 +4115,33 @@ export default function BudgetHQ({session,onSignOut}={}){
           )}
           {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>{isMobile?"↑":"↑ Add data"}</Btn>}
           {step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
+          {workspace&&workspaces&&(
+            <div style={{position:"relative"}}>
+              <button className="bhq-iconbtn" onClick={()=>setWorkspaceMenuOpen(o=>!o)}
+                style={{display:"flex",alignItems:"center",gap:6,height:30,padding:"0 10px",borderRadius:8,background:workspaceMenuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",transition:"background 0.12s",fontFamily:"Inter,sans-serif"}}>
+                {!isMobile&&<span style={{fontSize:12,fontWeight:600,color:T.text,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{workspace.name}</span>}
+                <Icon name="chevronDown" size={11} color={T.textMuted}/>
+              </button>
+              {workspaceMenuOpen&&(<>
+                <div onClick={()=>setWorkspaceMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
+                <div style={{position:"absolute",top:38,right:0,zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                  <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Workspaces</div>
+                  {workspaces.map(w=>(
+                    <button key={w.id} className="bhq-row" onClick={()=>{setWorkspaceMenuOpen(false);onSwitchWorkspace&&onSwitchWorkspace(w.id);}}
+                      style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 10px",borderRadius:6,background:w.id===workspace.id?T.accentBg:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
+                      {w.id===workspace.id&&<Icon name="check" size={13} color={T.accent}/>}
+                    </button>
+                  ))}
+                  <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
+                  <button className="bhq-row" onClick={()=>{setWorkspaceMenuOpen(false);onCreateWorkspace&&onCreateWorkspace();}}
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                    + New workspace
+                  </button>
+                </div>
+              </>)}
+            </div>
+          )}
           {session&&(
             <div style={{position:"relative"}}>
               <button className="bhq-iconbtn" title={session.user?.email} onClick={()=>setAccountMenuOpen(o=>!o)}
