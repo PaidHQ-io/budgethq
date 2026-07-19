@@ -573,6 +573,12 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const[aiError,setAiError]=useState("");
   const fileRef=useRef();
   const years=[(yr-1).toString(),yr.toString(),(yr+1).toString()];
+  // Screenshot import — same downstream pipeline (header-row picker → dimension mapping → AI
+  // analysis → preview → merge review) as a CSV/XLSX upload, just fed by vision-transcribed grid
+  // data instead of Papa.parse/XLSX.utils output. See ingestRawRows below.
+  const[screenshotImporting,setScreenshotImporting]=useState(false);
+  const[screenshotImportError,setScreenshotImportError]=useState("");
+  const screenshotFileRef=useRef();
 
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
 
@@ -811,20 +817,60 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     return{headers,rows};
   },[]);
 
+  // Shared entry point for both a parsed CSV/XLSX file and a vision-transcribed screenshot —
+  // either way we end up with the same raw 2D grid shape, so everything past this point (header
+  // row detection, dimension mapping, AI column analysis, preview, merge review) is identical.
+  const ingestRawRows=(fileName,rawRows)=>{
+    setIFileName(fileName);
+    setIRawRows(rawRows);
+    // Auto-detect header row: first row where >2 cells have content
+    let headerIdx=0;
+    for(let i=0;i<Math.min(rawRows.length,10);i++){
+      const filled=rawRows[i].filter(v=>String(v||"").trim()).length;
+      if(filled>2){headerIdx=i;break;}
+    }
+    setIHeaderRow(headerIdx);
+    setIStep("header");
+  };
   const handleImportFile=file=>{
     if(!file)return;
-    setIFileName(file.name);
-    parseFileToRows(file,rawRows=>{
-      setIRawRows(rawRows);
-      // Auto-detect header row: first row where >2 cells have content
-      let headerIdx=0;
-      for(let i=0;i<Math.min(rawRows.length,10);i++){
-        const filled=rawRows[i].filter(v=>String(v||"").trim()).length;
-        if(filled>2){headerIdx=i;break;}
+    parseFileToRows(file,rawRows=>ingestRawRows(file.name,rawRows));
+  };
+  // Sends the screenshot to Claude (vision, via /api/analyze) with instructions to transcribe the
+  // visible table into a raw 2D grid — literally, no interpretation — then hands that grid to the
+  // exact same ingestRawRows() pipeline a CSV/XLSX upload uses. This is deliberately NOT a second
+  // "guess the budget structure" AI path — reusing the existing header-row picker + "Analyze with
+  // AI" column-mapping step means a screenshot import gets the same review/correction opportunity
+  // a file upload does, rather than silently trusting two AI passes stacked on top of each other.
+  const handleImportScreenshot=file=>{
+    if(!file)return;
+    setScreenshotImportError("");setScreenshotImporting(true);
+    const reader=new FileReader();
+    reader.onload=async e=>{
+      try{
+        const dataUrl=String(e.target.result||"");
+        const m=dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+        if(!m)throw new Error("Could not read image file");
+        const[,mediaType,base64]=m;
+        const prompt=`You are transcribing a table from a screenshot of a spreadsheet (Google Sheets, Excel, or similar) into raw grid data — a budget breakdown by some set of dimensions (e.g. Product, Region) and time period (e.g. monthly columns).\n\nLook at the image and transcribe EVERY visible row and column exactly as shown, including header rows, group/category header rows, and blank cells (use "" for empty cells). Preserve the exact left-to-right column order and top-to-bottom row order — do not summarize, merge, reformat, or interpret the data in any way, just transcribe each cell's visible text literally, the same way an export of this exact table to CSV would look.\n\nReturn ONLY a JSON array of arrays of strings — one inner array per row, one string per cell, all rows the same length (pad short rows with "") — no markdown fences, no explanation.`;
+        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+          messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:prompt}]}],
+          maxTokens:4000,
+        })});
+        const data=await res.json();
+        if(!res.ok)throw new Error(data?.error||"Screenshot analysis failed");
+        const parsed=JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim());
+        if(!Array.isArray(parsed)||!parsed.length)throw new Error("Couldn't read a table from that screenshot — try a clearer image or a wider crop.");
+        const rawRows=parsed.map(row=>Array.isArray(row)?row.map(v=>String(v??"")):[String(row??"")]);
+        ingestRawRows(file.name,rawRows);
+      }catch(err){
+        setScreenshotImportError(err.message);
+      }finally{
+        setScreenshotImporting(false);
       }
-      setIHeaderRow(headerIdx);
-      setIStep("header");
-    });
+    };
+    reader.onerror=()=>{setScreenshotImportError("Could not read image file");setScreenshotImporting(false);};
+    reader.readAsDataURL(file);
   };
 
   const applyHeaderRow=()=>{
@@ -1109,7 +1155,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const skipMergeReview=()=>{doImport([]);};
   const cancelContraction=()=>{setContractionWarningOpen(false);setContractionInfo([]);setContractionNewDims([]);pendingImportRef.current=null;setIStep("map");};
   const continueContraction=()=>{setContractionWarningOpen(false);setContractionInfo([]);setContractionNewDims([]);doImport([]);};
-  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);setAiError("");setISegDim("Campaign");setIGroupHeaderRow(-1);setIGroupDim("Channel");};
+  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);setAiError("");setISegDim("Campaign");setIGroupHeaderRow(-1);setIGroupDim("Channel");setScreenshotImportError("");};
   const closeImport=()=>{setImportOpen(false);resetImport();};
 
   const analyzeWithAI=async()=>{
@@ -1436,6 +1482,17 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                     <div style={{fontSize:12,color:T.textMuted}}>Supports <strong style={{color:T.textSub}}>.xlsx</strong> and <strong style={{color:T.textSub}}>.csv</strong> · any row/column layout</div>
                     <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleImportFile(e.target.files[0])}/>
                   </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,margin:"14px 0"}}>
+                    <div style={{flex:1,height:1,background:T.border}}/>
+                    <span style={{fontSize:11,color:T.textMuted}}>or</span>
+                    <div style={{flex:1,height:1,background:T.border}}/>
+                  </div>
+                  <div onClick={()=>!screenshotImporting&&screenshotFileRef.current?.click()} style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:10,padding:"20px",textAlign:"center",cursor:screenshotImporting?"default":"pointer",background:T.surfaceEl}}>
+                    <div style={{fontSize:13,fontWeight:600,color:T.accent,marginBottom:4}}>{screenshotImporting?"Reading screenshot…":"Or upload a screenshot of a budget table"}</div>
+                    <div style={{fontSize:12,color:T.textMuted}}>Google Sheets, Excel, a PDF export — AI reads the grid, then you review it in the same steps as a file upload</div>
+                    <input ref={screenshotFileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{handleImportScreenshot(e.target.files[0]);e.target.value="";}}/>
+                  </div>
+                  {screenshotImportError&&<div style={{marginTop:8,fontSize:11,color:T.danger}}>{screenshotImportError}</div>}
                   <div style={{marginTop:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     {[{label:"Wide format",example:"Product | Jan | Feb | Mar | Apr..."},{label:"Long format",example:"Product | Platform | Month | Budget"}].map(f=>(
                       <div key={f.label} style={{padding:"10px 12px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8}}>
@@ -3981,42 +4038,84 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     showNotif("Tags exported");
   };
 
+  // Shared row-processing core for both the CSV tag import and the screenshot tag import below —
+  // takes row objects keyed by column name (exactly what Papa.parse({header:true}) produces, and
+  // what the screenshot path asks Claude's vision to produce directly) and merges them into tags.
+  const applyTagRowsFromRecords=useCallback((rows,fields)=>{
+    // Detect campaign group + campaign columns (exported files have both; older exports from
+    // before the two-level model only have "Campaign", which is treated as both levels).
+    const groupCol=fields.find(f=>/campaign.?group/i.test(f));
+    const campCol=fields.find(f=>/campaign/i.test(f)&&f!==groupCol);
+    if(!campCol){showNotif("Could not find Campaign column");return;}
+    // Detect dimension columns (exclude Campaign Group, Campaign, Platform, Spend, Date)
+    const skipCols=new Set(["campaign group","campaign","platform","spend","date","impressions","clicks","campaign_name","campaign_group_name","campaign_id"]);
+    const dimCols=fields.filter(f=>!skipCols.has(f.toLowerCase())&&f!==campCol&&f!==groupCol);
+    let restored=0;
+    setTags(p=>{
+      const nx={...p};
+      rows.forEach(row=>{
+        const name=(row[campCol]||"").trim();
+        if(!name)return;
+        const groupName=(groupCol?row[groupCol]:"")?.trim()||name;
+        const key=campaignKey(groupName,name);
+        const t={...(nx[key]||{})};
+        dimCols.forEach(d=>{if(row[d]&&row[d].trim())t[d]=row[d].trim();});
+        nx[key]=t;
+        restored++;
+      });
+      return nx;
+    });
+    // Add any new dimensions found in the file
+    const newDims=dimCols.filter(d=>!tagDims.includes(d));
+    if(newDims.length)setTagDims(p=>[...new Set([...p,...newDims])]);
+    showNotif(`Restored tags for ${restored} campaigns`);
+  },[tagDims]);
   const importTagsRef=useRef(null);
   const importTagsFromCSV=useCallback((file)=>{
     if(!file)return;
     archiveFile(file,"Tag import");
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
-      const rows=r.data;
-      const fields=r.meta.fields||[];
-      // Detect campaign group + campaign columns (exported files have both; older exports from
-      // before the two-level model only have "Campaign", which is treated as both levels).
-      const groupCol=fields.find(f=>/campaign.?group/i.test(f));
-      const campCol=fields.find(f=>/campaign/i.test(f)&&f!==groupCol);
-      if(!campCol){showNotif("Could not find Campaign column");return;}
-      // Detect dimension columns (exclude Campaign Group, Campaign, Platform, Spend, Date)
-      const skipCols=new Set(["campaign group","campaign","platform","spend","date","impressions","clicks","campaign_name","campaign_group_name","campaign_id"]);
-      const dimCols=fields.filter(f=>!skipCols.has(f.toLowerCase())&&f!==campCol&&f!==groupCol);
-      let restored=0;
-      setTags(p=>{
-        const nx={...p};
-        rows.forEach(row=>{
-          const name=(row[campCol]||"").trim();
-          if(!name)return;
-          const groupName=(groupCol?row[groupCol]:"")?.trim()||name;
-          const key=campaignKey(groupName,name);
-          const t={...(nx[key]||{})};
-          dimCols.forEach(d=>{if(row[d]&&row[d].trim())t[d]=row[d].trim();});
-          nx[key]=t;
-          restored++;
-        });
-        return nx;
-      });
-      // Add any new dimensions found in the file
-      const newDims=dimCols.filter(d=>!tagDims.includes(d));
-      if(newDims.length)setTagDims(p=>[...new Set([...p,...newDims])]);
-      showNotif(`Restored tags for ${restored} campaigns`);
+      applyTagRowsFromRecords(r.data,r.meta.fields||[]);
     }});
-  },[tags,tagDims]);
+  },[applyTagRowsFromRecords]);
+  // Screenshot tag import — same idea as the spend-data screenshot flow, but asks Claude to read
+  // the header row itself and return row objects keyed by those header names (rather than a raw
+  // grid), since applyTagRowsFromRecords already knows how to find the Campaign/Campaign Group
+  // columns and treat everything else as a tag dimension — exactly what Papa.parse({header:true})
+  // hands it for a CSV, so no separate merge path is needed for the screenshot case.
+  const[tagScreenshotImporting,setTagScreenshotImporting]=useState(false);
+  const[tagScreenshotError,setTagScreenshotError]=useState("");
+  const importTagsScreenshotRef=useRef(null);
+  const importTagsFromScreenshot=useCallback((file)=>{
+    if(!file)return;
+    setTagScreenshotError("");setTagScreenshotImporting(true);
+    const reader=new FileReader();
+    reader.onload=async e=>{
+      try{
+        const dataUrl=String(e.target.result||"");
+        const m=dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+        if(!m)throw new Error("Could not read image file");
+        const[,mediaType,base64]=m;
+        const prompt=`You are extracting a campaign-tagging table from a screenshot of a spreadsheet (Google Sheets, Excel, or similar). It has a header row naming each column — things like "Campaign", "Campaign Group", and various tagging dimensions such as "Product", "Region", or "Funnel" — and one data row per campaign.\n\nRead the header row exactly as shown, then for each data row output an object keyed by those exact header names, e.g. {"Campaign":"...", "Campaign Group":"...", "Product":"...", ...}. Use "" for any empty cell.\n\nReturn ONLY a JSON array of these row objects — no markdown fences, no explanation.`;
+        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+          messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:prompt}]}],
+          maxTokens:4000,
+        })});
+        const data=await res.json();
+        if(!res.ok)throw new Error(data?.error||"Screenshot analysis failed");
+        const parsed=JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim());
+        if(!Array.isArray(parsed)||!parsed.length)throw new Error("Couldn't read a tagging table from that screenshot — try a clearer image or a wider crop.");
+        const fields=[...new Set(parsed.flatMap(r=>Object.keys(r||{})))];
+        applyTagRowsFromRecords(parsed,fields);
+      }catch(err){
+        setTagScreenshotError(err.message);
+      }finally{
+        setTagScreenshotImporting(false);
+      }
+    };
+    reader.onerror=()=>{setTagScreenshotError("Could not read image file");setTagScreenshotImporting(false);};
+    reader.readAsDataURL(file);
+  },[applyTagRowsFromRecords]);
   const toggleSel=n=>setSelected(p=>{const nx=new Set(p);nx.has(n)?nx.delete(n):nx.add(n);return nx;});
   const selAll=()=>setSelected(selected.size===filtered.length?new Set():new Set(filtered.map(c=>c.key)));
   // Isolate-and-delete-an-import: filter the table down to what you want gone (e.g. Platform =
@@ -4381,6 +4480,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   <Btn onClick={exportTags} disabled={!campaigns.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export tags CSV</Btn>
                   <Btn onClick={()=>importTagsRef.current?.click()} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import tags CSV</Btn>
                   <input ref={importTagsRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{importTagsFromCSV(e.target.files[0]);e.target.value="";}} />
+                  <Btn onClick={()=>!tagScreenshotImporting&&importTagsScreenshotRef.current?.click()} disabled={tagScreenshotImporting} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{tagScreenshotImporting?"Reading screenshot…":"📷 Import tags from screenshot"}</Btn>
+                  <input ref={importTagsScreenshotRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{importTagsFromScreenshot(e.target.files[0]);e.target.value="";}} />
+                  {tagScreenshotError&&<div style={{fontSize:11,color:T.danger}}>{tagScreenshotError}</div>}
                 </div>
 
                 {/* Tag browser */}
