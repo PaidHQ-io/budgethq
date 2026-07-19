@@ -484,6 +484,7 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"file":return<svg {...p}><path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/></svg>;
     case"chevronDown":return<svg {...p}><path d="M6 9l6 6 6-6"/></svg>;
     case"check":return<svg {...p}><path d="M5 12.5l4.5 4.5L19 7"/></svg>;
+    case"ban":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5l13 13"/></svg>;
     default:return null;
   }
 };
@@ -526,6 +527,10 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   // the app behaves.
   const[showRollups,setShowRollups]=useState(()=>{try{return localStorage.getItem("paidhq_budget_show_rollups")==="1";}catch(e){return false;}});
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_show_rollups",showRollups?"1":"0");}catch(e){}},[showRollups]);
+  // Same persistence pattern as showRollups. Filters segments marked "not budgeted" out of both
+  // the detail grid and rollupTables (which is derived from filteredSegs) in one place.
+  const[hideNotBudgeted,setHideNotBudgeted]=useState(()=>{try{return localStorage.getItem("paidhq_budget_hide_not_budgeted")==="1";}catch(e){return false;}});
+  useEffect(()=>{try{localStorage.setItem("paidhq_budget_hide_not_budgeted",hideNotBudgeted?"1":"0");}catch(e){}},[hideNotBudgeted]);
   const[importOpen,setImportOpen]=useState(false);
   const[notif,setNotif]=useState(null);
   // Export preview — AI suggests which actual-spend granularity (monthly/quarterly) to append
@@ -744,6 +749,25 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
     showNotif(matchCount>0?`Row deleted — un-tagged ${matchCount} campaign${matchCount>1?"s":""}`:"Row deleted");
   };
+  // "Not budgeted" — an explicit, per-segment flag distinct from just having $0 in every month.
+  // Every unique combination tagged in the Tagger auto-appears here as a segment row (by design,
+  // so nothing tagged silently goes unbudgeted) — but some of those combinations legitimately
+  // never need a budget (test campaigns, parked segments, etc). Marking one here is a deliberate
+  // "I looked at this, it doesn't need a budget" decision that persists, as opposed to a session-
+  // only display filter that can't distinguish "not budgeted yet" from "never will be." Stored as
+  // an underscore-prefixed key inside budgetRowMeta (same object/save-path as annotation
+  // dimensions like Region/Pillar) so it doesn't need its own schema field — it's never added to
+  // budgetMetaDims, so it never renders as a column.
+  const isNotBudgeted=segKey=>!!(budgetRowMeta[segKey]||{})._notBudgeted;
+  const toggleNotBudgeted=segKey=>{
+    setBudgetRowMeta(p=>{
+      const nx={...p};
+      const cur={...(nx[segKey]||{})};
+      if(cur._notBudgeted)delete cur._notBudgeted;else cur._notBudgeted=true;
+      nx[segKey]=cur;
+      return nx;
+    });
+  };
   const bulkDeleteSelected=()=>{
     if(!selRows.size)return;
     const n=selRows.size;
@@ -786,6 +810,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   // added as budgetMetaDims (e.g. Region, Pillar, Funnel — stored in budgetRowMeta per segment).
   const filteredSegs=useMemo(()=>segs.filter(seg=>{
     const meta=budgetRowMeta[seg.key]||{};
+    if(hideNotBudgeted&&meta._notBudgeted)return false;
     return budgetDims.every(d=>{
       const f=(segFilters[d]||"").trim().toLowerCase();
       return!f||(seg[d]||"").toLowerCase().includes(f);
@@ -793,7 +818,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       const f=(segFilters[d]||"").trim().toLowerCase();
       return!f||(meta[d]||"").toLowerCase().includes(f);
     });
-  }),[segs,budgetDims,budgetMetaDims,budgetRowMeta,segFilters]);
+  }),[segs,budgetDims,budgetMetaDims,budgetRowMeta,segFilters,hideNotBudgeted]);
   const hasSegFilters=Object.values(segFilters).some(v=>(v||"").trim());
   const clearSegFilters=()=>setSegFilters({});
 
@@ -1390,6 +1415,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
             <SectionLabel T={T}>Summary</SectionLabel>
             <StatRow label="Segments" value={segs.length.toString()} T={T}/>
             <StatRow label={`Total ${year}`} value={totalY>0?fmtFull(totalY):"$0"} T={T}/>
+            {segs.some(sg=>isNotBudgeted(sg.key))&&<StatRow label="Not budgeted" value={segs.filter(sg=>isNotBudgeted(sg.key)).length.toString()} T={T}/>}
           </div>
         </div>,
         sidebarEl
@@ -1497,10 +1523,13 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
             </tr></thead>
             <tbody>
               {filteredSegs.length===0&&segs.length>0&&(
-                <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+QUARTERS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>Clear filters</span></td></tr>
+                <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+QUARTERS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>
+                  {hideNotBudgeted&&!hasSegFilters?"All matching segments are marked not budgeted. ":"No segments match your filters. "}
+                  <span onClick={()=>{clearSegFilters();setHideNotBudgeted(false);}} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>{hideNotBudgeted&&!hasSegFilters?"Show them":"Clear filters"}</span>
+                </td></tr>
               )}
-              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);return(
-                <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb}}>
+              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
+                <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:T.bg,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   </td>
@@ -1513,8 +1542,11 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                       <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"Inter,sans-serif",fontWeight:600,cursor:"text",borderRadius:6}}
                         onClick={()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
                     )}
-                    {i===budgetDims.length-1&&segMatchCount(seg.key)===0&&(
+                    {i===budgetDims.length-1&&!nb&&segMatchCount(seg.key)===0&&(
                       <WarnTip T={T} text="No campaigns are tagged to this segment yet. Spend won't roll up here until a campaign is tagged with this exact combination in the Tagger."/>
+                    )}
+                    {i===budgetDims.length-1&&nb&&(
+                      <span style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textMuted,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"Inter,sans-serif"}}>Not budgeted</span>
                     )}
                   </td>)}
                   {budgetMetaDims.map(d=>{
@@ -1540,10 +1572,18 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                   {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
                   {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
                   <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
-                    <button onClick={()=>deleteRow(seg.key,budgetDims.map(d=>seg[d]).join(" · "))} title="Delete row"
-                      style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
-                      onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
-                      onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>
+                    <div style={{display:"flex",alignItems:"center",gap:2}}>
+                      <button onClick={()=>toggleNotBudgeted(seg.key)} title={nb?"Unmark — this segment does need a budget":"Mark as not budgeted — hides the missing-budget signal for this segment"}
+                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:nb?T.accentBg:"transparent",border:`1px solid ${nb?T.accentBorder:"transparent"}`,borderRadius:5,color:nb?T.accent:T.textMuted,cursor:"pointer",fontSize:11,lineHeight:1,padding:0,opacity:nb?1:0.4,transition:"all 0.1s"}}
+                        onMouseEnter={e=>{e.currentTarget.style.opacity=1;if(!nb){e.currentTarget.style.border=`1px solid ${T.border}`;}}}
+                        onMouseLeave={e=>{e.currentTarget.style.opacity=nb?1:0.4;if(!nb){e.currentTarget.style.border="1px solid transparent";}}}>
+                        <Icon name="ban" size={12} color={nb?T.accent:T.textMuted}/>
+                      </button>
+                      <button onClick={()=>deleteRow(seg.key,budgetDims.map(d=>seg[d]).join(" · "))} title="Delete row"
+                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
+                        onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
+                        onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>
+                    </div>
                   </td>
                 </tr>);})}
               <tr style={{borderTop:`1px solid ${T.border}`,background:T.surface}}>
@@ -1569,6 +1609,12 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                   style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:120}}/>
               ))}
               {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
+              {segs.some(sg=>isNotBudgeted(sg.key))&&(
+                <label style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:T.textSub,cursor:"pointer"}}>
+                  <input type="checkbox" checked={hideNotBudgeted} onChange={e=>setHideNotBudgeted(e.target.checked)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                  Hide not-budgeted
+                </label>
+              )}
               <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
             </div>
             {budgetDims.length>0&&(!showAddRow?(
