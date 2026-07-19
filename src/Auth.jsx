@@ -69,11 +69,20 @@ const FacebookIcon = () => (
     <path fill="#fff" d="M12.2 9.3h-2v6.4H7.7V9.3H6.2V7.2h1.5V5.8c0-1.5.9-2.4 2.4-2.4h1.8V5.4h-1.2c-.4 0-.6.2-.6.6v1.2h1.9l-.3 2.1z" />
   </svg>
 );
+const LinkedInIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 18 18">
+    <rect width="18" height="18" rx="3" fill="#0A66C2" />
+    <path fill="#fff" d="M5.9 7.3H3.6v7.1h2.3V7.3zM4.75 6.3a1.33 1.33 0 1 0 0-2.66 1.33 1.33 0 0 0 0 2.66zM14.4 14.4h-2.3v-3.7c0-.9-.3-1.5-1.1-1.5-.6 0-.95.4-1.1.8-.06.15-.08.35-.08.55v3.85H7.5s.03-6.25 0-7.1h2.3v1c.3-.47.85-1.14 2.05-1.14 1.5 0 2.55 1 2.55 3.05v3.2z" />
+  </svg>
+);
 
-// Supabase's provider keys, not display labels — passed straight to signInWithOAuth().
+// Supabase's provider keys, not display labels — passed straight to signInWithOAuth(). LinkedIn
+// uses "linkedin_oidc" (Supabase's newer OIDC-based provider) — the older "linkedin" key is
+// deprecated since LinkedIn retired the API it depended on.
 const OAUTH_PROVIDERS = [
   { key: "google", label: "Continue with Google", Icon: GoogleIcon },
   { key: "azure", label: "Continue with Microsoft", Icon: MicrosoftIcon },
+  { key: "linkedin_oidc", label: "Continue with LinkedIn", Icon: LinkedInIcon },
   { key: "facebook", label: "Continue with Facebook", Icon: FacebookIcon },
 ];
 

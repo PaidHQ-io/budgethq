@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows } from "./lib/workspaceApi";
+import { exportReportToGoogleSheets } from "./lib/googleSheets";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
 // VaultHQ-matched palette (redesign, July 2026) — Notion-inspired light theme shared across
@@ -4127,6 +4128,22 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     downloadReport(report,format,exportableView.filenameBase);
     showNotif(`Exported ${exportableView.label} as ${EXPORT_FORMATS.find(f=>f.key===format)?.label||format.toUpperCase()}`);
   },[buildCurrentReport,exportableView]);
+  const[sheetsExporting,setSheetsExporting]=useState(false);
+  const handleExportToGoogleSheets=useCallback(async()=>{
+    const report=buildCurrentReport();
+    if(!report||!exportableView)return;
+    setSheetsExporting(true);
+    try{
+      const url=await exportReportToGoogleSheets(report);
+      showNotif(`Exported ${exportableView.label} to Google Sheets`);
+      window.open(url,"_blank","noopener,noreferrer");
+    }catch(e){
+      console.error("[google sheets export]",e);
+      window.alert(e.message||"Couldn't export to Google Sheets. Try again.");
+    }finally{
+      setSheetsExporting(false);
+    }
+  },[buildCurrentReport,exportableView]);
   const openEmailExport=useCallback(()=>{
     setEmailError("");setEmailExportOpen(true);
   },[]);
@@ -4302,6 +4319,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     </button>
                   ))}
                 </div>
+                <button className="bhq-row" disabled={sheetsExporting} onClick={()=>{setFileMenuOpen(false);handleExportToGoogleSheets();}}
+                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                  <Icon name="export" size={14} color={T.textSub}/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
+                </button>
                 <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);openEmailExport();}}
                   style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
                   <Icon name="mail" size={14} color={T.textSub}/> Email a copy…
