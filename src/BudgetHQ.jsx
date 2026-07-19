@@ -572,6 +572,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const[dimMap,setDimMap]=useState({});
   const[periodCol,setPeriodCol]=useState("");
   const[amtCol,setAmtCol]=useState("");
+  const[iFlatMonths,setIFlatMonths]=useState([]); // for "flat" format: which month(s) the recurring amount applies to
   const[preview,setPreview]=useState([]);
   const[customDims,setCustomDims]=useState([]); // [{name,col}] — new dims created during import
   const[aiAnalyzing,setAiAnalyzing]=useState(false);
@@ -926,7 +927,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     const am={};(tagDimensions||[]).forEach(d=>{const m=headers.find(h=>h.toLowerCase()===d.toLowerCase()||h.toLowerCase().includes(d.toLowerCase()));if(m)am[d]=m;});
     setDimMap(am);
     if(fmt==="long"){setPeriodCol(headers.find(h=>/month|period|date/i.test(h))||"");setAmtCol(headers.find(h=>/budget|amount|spend|cost/i.test(h))||"");}
-    else if(fmt==="flat"){setAmtCol(flatMonthlyCol||"");}
+    else if(fmt==="flat"){setAmtCol(flatMonthlyCol||"");setIFlatMonths(MONTHS.map(m=>m.key));}
     setIStep("map");
   };
 
@@ -987,18 +988,19 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
         });
       });
     }else if(iFmt==="flat"){
-      // No named months, no period column — just one recurring monthly amount per segment.
-      // Per-Mo decision: replicate that figure across all 12 months of the target year (the
+      // No named months, no period column — just one recurring monthly amount per segment. The
       // secondary "Quarterly Budget"-style column, if any, is intentionally not imported — it's
-      // redundant with Monthly×3). The user can then hand-adjust any individual month afterward
-      // in the Budget Panel grid, same as any other imported budget.
+      // redundant with Monthly×3. Which month(s) the amount actually gets written into is the
+      // user's call (iFlatMonths, picked in the map step) rather than always assuming the full
+      // year — e.g. a new client starting in July shouldn't get Jan–Jun back-filled. The user can
+      // still hand-adjust any individual month afterward in the Budget Panel grid.
       iRows.forEach(row=>{
         const sp=activeDims.map(d=>({dim:d.dim,val:row[d.col]}));
         if(sp.some(p=>!p.val))return;
         const sk=sp.map(p=>p.val).join("|");
         const amt=parseMoney(row[amtCol]);
         if(amt!==null&&amt>0){
-          MONTHS.forEach(m=>entries.push({segKey:sk,dims:Object.fromEntries(sp.map(p=>[p.dim,p.val])),monthKey:m.key,amount:amt}));
+          iFlatMonths.forEach(mk=>entries.push({segKey:sk,dims:Object.fromEntries(sp.map(p=>[p.dim,p.val])),monthKey:mk,amount:amt}));
         }
       });
     }else{
@@ -1010,7 +1012,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       });
     }
     return entries;
-  },[iFmt,iHeaders,iRows,iSegDim,iGroupHeaderRow,iGroupDim,iRawRows,tagDimensions,dimMap,customDims,periodCol,amtCol,canonicalDims]);
+  },[iFmt,iHeaders,iRows,iSegDim,iGroupHeaderRow,iGroupDim,iRawRows,tagDimensions,dimMap,customDims,periodCol,amtCol,iFlatMonths,canonicalDims]);
 
   const goPreview=()=>{setPreview(buildPreview());setIStep("preview");};
 
@@ -1210,7 +1212,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const skipMergeReview=()=>{doImport([]);};
   const cancelContraction=()=>{setContractionWarningOpen(false);setContractionInfo([]);setContractionNewDims([]);pendingImportRef.current=null;setIStep("map");};
   const continueContraction=()=>{setContractionWarningOpen(false);setContractionInfo([]);setContractionNewDims([]);doImport([]);};
-  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setPreview([]);setCustomDims([]);setAiError("");setISegDim("Campaign");setIGroupHeaderRow(-1);setIGroupDim("Channel");setScreenshotImportError("");};
+  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setIFlatMonths([]);setPreview([]);setCustomDims([]);setAiError("");setISegDim("Campaign");setIGroupHeaderRow(-1);setIGroupDim("Channel");setScreenshotImportError("");};
   const closeImport=()=>{setImportOpen(false);resetImport();};
 
   const analyzeWithAI=async()=>{
@@ -1264,6 +1266,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       if(result.periodColumn&&headers.includes(result.periodColumn))setPeriodCol(result.periodColumn);
       if(result.amountColumn&&headers.includes(result.amountColumn))setAmtCol(result.amountColumn);
       else if(fmt==="flat")setAmtCol(flatMonthlyCol||"");
+      if(fmt==="flat")setIFlatMonths(MONTHS.map(m=>m.key));
 
       setIStep("map");
     }catch(e){
@@ -1274,7 +1277,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
 
   const pvGrouped=useMemo(()=>{const m={};(preview||[]).forEach(e=>{if(!m[e.segKey])m[e.segKey]={dims:e.dims,months:{}};m[e.segKey].months[e.monthKey]=e.amount;});return Object.values(m).sort((a,b)=>Object.values(a.dims).join("|").localeCompare(Object.values(b.dims).join("|")));},[preview]);
   const dimCols=(tagDimensions||[]).filter(d=>dimMap[d]);
-  const canMap=iFmt==="transposed"?!!iSegDim:((tagDimensions||[]).filter(d=>dimMap[d]).length>0||customDims.some(c=>c.name&&c.col))&&(iFmt==="wide"||(iFmt==="flat"?!!amtCol:(periodCol&&amtCol)));
+  const canMap=iFmt==="transposed"?!!iSegDim:((tagDimensions||[]).filter(d=>dimMap[d]).length>0||customDims.some(c=>c.name&&c.col))&&(iFmt==="wide"||(iFmt==="flat"?!!amtCol&&iFlatMonths.length>0:(periodCol&&amtCol)));
   const IMPORT_STEPS=["upload","header","map","preview"];
 
   const cellIn=(val,onChange,over=false,cap=false)=>(
@@ -1723,12 +1726,40 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                   {/* Flat format extra — one recurring monthly amount, no named months/period col */}
                   {iFmt==="flat"&&<div style={{borderTop:`1px solid ${T.border}`,paddingTop:16,marginTop:8}}>
                     <SectionLabel T={T} style={{marginBottom:10}}>Monthly amount column</SectionLabel>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12,alignItems:"center"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16,alignItems:"center"}}>
                       <div><div style={{fontSize:13,color:T.text,fontWeight:500}}>Monthly Budget</div><div style={{fontSize:11,color:T.textMuted}}>e.g. Monthly Budget, Monthly Spend</div></div>
                       <Sel value={amtCol} onChange={setAmtCol} T={T}><option value="">— select —</option>{iHeaders.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
                     </div>
+
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                      <SectionLabel T={T} style={{marginBottom:0}}>Apply to which month(s) of {iYear}?</SectionLabel>
+                      <div style={{display:"flex",gap:6}}>
+                        <Btn onClick={()=>setIFlatMonths(MONTHS.map(m=>m.key))} variant="subtle" size="sm" T={T}>Whole year</Btn>
+                        <Btn onClick={()=>setIFlatMonths([])} variant="subtle" size="sm" T={T}>Clear</Btn>
+                      </div>
+                    </div>
+                    <div style={{fontSize:11,color:T.textMuted,marginBottom:10}}>
+                      This table has no named months — pick which month(s) this recurring amount should be written into. e.g. a client starting in July only needs Jul–Dec, not a back-filled Jan–Jun.
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6,marginBottom:14}}>
+                      {MONTHS.map(m=>{
+                        const active=iFlatMonths.includes(m.key);
+                        return(
+                          <button key={m.key} type="button" onClick={()=>setIFlatMonths(p=>active?p.filter(k=>k!==m.key):[...p,m.key].sort())}
+                            style={{padding:"6px 4px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"center",
+                              background:active?T.accent:T.surfaceEl,color:active?"#fff":T.text,
+                              border:`1px solid ${active?T.accentHover:T.border}`}}>
+                            {m.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
                     <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,fontSize:12,color:T.accent,lineHeight:1.5}}>
-                      This table has no named months, so this amount will be applied to <strong>all 12 months of {iYear}</strong> for each segment. Any secondary total column (e.g. Quarterly Budget) is skipped on import — it's redundant with this figure. You can hand-adjust any individual month afterward right in the Budget Panel grid.
+                      {iFlatMonths.length===0
+                        ? "Select at least one month above to continue."
+                        : <>This amount will be applied to <strong>{iFlatMonths.length===12?`all 12 months of ${iYear}`:iFlatMonths.map(k=>MONTHS.find(m=>m.key===k)?.label).join(", ")}</strong> for each segment.</>}
+                      {" "}Any secondary total column (e.g. Quarterly Budget) is skipped on import — it's redundant with this figure. You can hand-adjust any individual month afterward right in the Budget Panel grid.
                     </div>
                   </div>}
                 </div>
