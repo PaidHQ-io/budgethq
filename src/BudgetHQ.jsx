@@ -4604,11 +4604,28 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setLocalImportPrompt(null);
   },[clearLegacyLocalKeys]);
 
+  // Supabase's onAuthStateChange (see AuthGate.jsx) fires with a BRAND NEW `session` object on
+  // every background token refresh — which supabase-js explicitly triggers on tab-visibility
+  // regain, not just its normal hourly cadence. That new object is a different reference for the
+  // exact same logged-in user, but every effect below used to have `session` itself in its
+  // dependency array — so simply switching browser tabs away and back could silently re-fire the
+  // load effect just below, which immediately does configLoadedRef.current=false and re-fetches,
+  // OVERWRITING any not-yet-saved local edit with whatever's still on the server. THIS, not the
+  // page-unload race the keepalive flush further down addresses, was the actual "data disappears
+  // when I move away from the tab" bug — a token refresh alone was enough to trigger it, no
+  // navigation or reload required. Fix: key every effect below off `session?.user?.id` (stable
+  // across a token refresh, only actually changes on a real login/logout/user switch) instead of
+  // the `session` object itself, while a ref keeps the latest token available for the API calls
+  // those effects make so auth still works correctly long after an effect last re-ran.
+  const sessionRef=useRef(session);
+  useEffect(()=>{sessionRef.current=session;});
+  const sessionUserId=session?.user?.id;
+
   useEffect(()=>{
     if(!workspace?.id||!session){setWorkspaceDataLoading(false);return;}
     setWorkspaceDataLoading(true);setWorkspaceDataError("");
     configLoadedRef.current=false;rowsLoadedRef.current=false;
-    Promise.all([getWorkspaceConfig(session,workspace.id),getSpendRows(session,workspace.id)])
+    Promise.all([getWorkspaceConfig(sessionRef.current,workspace.id),getSpendRows(sessionRef.current,workspace.id)])
       .then(([config,rows])=>{
         setTags(config.tags||{});
         setTagDims((config.tagDims||[]).length?config.tagDims:DEFAULT_DIMS);
@@ -4631,7 +4648,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         setWorkspaceDataError(e.message||"Couldn't load this workspace's data.");
       })
       .finally(()=>setWorkspaceDataLoading(false));
-  },[workspace?.id,session]);
+  },[workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Data-loss fix (2026-07-20): the debounced saves below have an 800ms window where a real
   // edit sits only in React state, not yet on the server. Refreshing, closing the tab, or
@@ -4648,17 +4665,18 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
   // Debounced whole-document save — mirrors the shape api/workspaces/[id]/data.js's PUT expects.
+  // Keyed off sessionUserId, not session itself — see the big comment above the load effect.
   useEffect(()=>{
     if(!workspace?.id||!session||!configLoadedRef.current)return;
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      putWorkspaceConfig(session,workspace.id,{tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta})
+      putWorkspaceConfig(sessionRef.current,workspace.id,{tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta})
         .then(()=>{configDirtyRef.current=false;})
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
-  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,workspace?.id,session]);
+  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
   // replace-all (not incremental) is the sync model here.
@@ -4667,12 +4685,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     rowsDirtyRef.current=true;
     clearTimeout(saveRowsTimer.current);
     saveRowsTimer.current=setTimeout(()=>{
-      putSpendRows(session,workspace.id,mergedNormRows)
+      putSpendRows(sessionRef.current,workspace.id,mergedNormRows)
         .then(()=>{rowsDirtyRef.current=false;})
         .catch(e=>console.error("[spend rows save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveRowsTimer.current);
-  },[mergedNormRows,workspace?.id,session]);
+  },[mergedNormRows,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fires the pending save(s) immediately instead of waiting out the 800ms debounce — called right
   // before the page actually goes away. Uses `keepalive:true` so the request survives past the
@@ -4683,18 +4701,18 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // last edit in this narrow window — everything below 800ms-old at unload time for smaller/
   // typical workspaces is covered, which is the vast majority of real "I refreshed too fast" cases.
   const flushPendingSaves=useCallback(()=>{
-    if(!workspace?.id||!session)return;
+    if(!workspace?.id||!sessionRef.current)return;
     if(configDirtyRef.current&&latestConfigRef.current){
       clearTimeout(saveConfigTimer.current);
-      putWorkspaceConfig(session,workspace.id,latestConfigRef.current,{keepalive:true}).catch(()=>{});
+      putWorkspaceConfig(sessionRef.current,workspace.id,latestConfigRef.current,{keepalive:true}).catch(()=>{});
       configDirtyRef.current=false;
     }
     if(rowsDirtyRef.current&&latestRowsRef.current){
       clearTimeout(saveRowsTimer.current);
-      putSpendRows(session,workspace.id,latestRowsRef.current,{keepalive:true}).catch(()=>{});
+      putSpendRows(sessionRef.current,workspace.id,latestRowsRef.current,{keepalive:true}).catch(()=>{});
       rowsDirtyRef.current=false;
     }
-  },[workspace?.id,session]);
+  },[workspace?.id]);
 
   useEffect(()=>{
     const onHide=()=>{if(document.visibilityState==="hidden")flushPendingSaves();};
