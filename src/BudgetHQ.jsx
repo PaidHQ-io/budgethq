@@ -380,12 +380,54 @@ const Chk=({checked,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChang
 const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:color||T.text}}>{value}</span></div>);
 // Big label/value card used by the populated Dashboard's summary row (Total budget/Spend/Pacing/
 // Needs attention) — bigger type than StatRow since these are the headline numbers of the page.
-const DashStatTile=({label,value,valueColor,T})=>(
+// `sub`/`subColor` are optional — a small second line under the headline value, used for context
+// that isn't worth its own tile (expected-pace vs actual, period-over-period delta). Omitted
+// entirely (not even an empty reserved slot) when not passed, so plain tiles keep their original
+// compact height.
+const DashStatTile=({label,value,valueColor,sub,subColor,T})=>(
   <PixelPanel T={T} contentStyle={{padding:"14px 16px"}}>
     <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6,fontFamily:"Inter,sans-serif"}}>{label}</div>
     <div style={{fontSize:20,fontWeight:800,color:valueColor||T.text,fontFamily:"Inter,sans-serif"}}>{value}</div>
+    {sub&&<div style={{fontSize:11,fontWeight:600,color:subColor||T.textMuted,marginTop:4,fontFamily:"Inter,sans-serif"}}>{sub}</div>}
   </PixelPanel>
 );
+// Trailing-period spend-vs-budget bar chart for the Dashboard — hand-rolled SVG rather than a
+// charting dependency, consistent with how every other visual in this app (icons, pacing bars)
+// is already plain inline SVG/CSS with no external lib. `periods` is oldest→newest,
+// [{label,spend,budget}]; the last entry (current period) is rendered in solid accent to draw the
+// eye, earlier ones in a lighter accent tint. A budget marker (dashed tick) sits at each bar's
+// budget height so over/under is visible at a glance without needing exact numbers.
+const TrendChart=({T,periods,height=120})=>{
+  if(!periods||periods.length===0)return null;
+  const maxVal=Math.max(1,...periods.map(p=>Math.max(p.spend||0,p.budget||0)));
+  const barGap=6;
+  const n=periods.length;
+  const chartH=height-22; // leaves room for the label row
+  return(
+    <svg viewBox={`0 0 ${n*100} ${height}`} preserveAspectRatio="none" style={{width:"100%",height,display:"block"}}>
+      {periods.map((p,i)=>{
+        const x=i*100;
+        const barW=100-barGap;
+        const spendH=maxVal?((p.spend||0)/maxVal)*chartH:0;
+        const budgetY=chartH-(maxVal?((p.budget||0)/maxVal)*chartH:0);
+        const isCurrent=i===n-1;
+        return(
+          <g key={i}>
+            <rect x={x+barGap/2} y={chartH-spendH} width={barW} height={spendH} rx={3}
+              fill={isCurrent?T.accent:T.accentBg}/>
+            {p.budget>0&&(
+              <line x1={x+barGap/2} x2={x+barGap/2+barW} y1={budgetY} y2={budgetY}
+                stroke={T.textMuted} strokeWidth={1.5} strokeDasharray="3,3"/>
+            )}
+            <text x={x+barGap/2+barW/2} y={height-6} textAnchor="middle" fontSize={9}
+              fontWeight={isCurrent?700:500} fill={isCurrent?T.text:T.textMuted}
+              fontFamily="Inter,sans-serif">{p.label}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
 // Clickable row used by the populated Dashboard's Quick actions card — a count + label that
 // navigates to wherever that count can be resolved (Tagger for untagged, Budget Panel for
 // segments spending with no budget set, etc.).
@@ -2419,6 +2461,39 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
     return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:dashPeriodType,month,quarter,today:now});
   },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month,quarter,dashPeriodType]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Period-over-period comparison — same granularity, one step back, always the fully-completed
+  // prior period (computePacing already treats a period entirely in the past as 100% elapsed, so
+  // this naturally gives a real final total rather than a partial one). Only rendered when the
+  // prior period actually has spend to compare against — a 0-to-something jump reads as noise, not
+  // signal, for a brand-new workspace's first month.
+  const prevPeriod=useMemo(()=>stepPeriodBack({periodType:dashPeriodType,year,month,quarter}),[dashPeriodType,year,month,quarter]);
+  const prevPacing=useMemo(()=>{
+    if(!isPopulated)return null;
+    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year:prevPeriod.year,periodType:dashPeriodType,month:prevPeriod.month,quarter:prevPeriod.quarter,today:now});
+  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,prevPeriod,dashPeriodType]); // eslint-disable-line react-hooks/exhaustive-deps
+  const prevPeriodSpend=prevPacing?.totals?.spend||0;
+  const spendDeltaPct=prevPeriodSpend>0&&hasData?Math.round(((pacing?.totals?.spend||0)-prevPeriodSpend)/prevPeriodSpend*100):null;
+  const prevPeriodWord=dashPeriodType==="monthly"?"last month":dashPeriodType==="quarterly"?"last quarter":"last year";
+
+  // Trailing window for the trend chart — 6 months / 4 quarters / 3 years, always ending at the
+  // current period, oldest-to-newest so the chart reads left-to-right like a timeline. Reuses
+  // stepPeriodBack rather than hand-rolling date math a second time.
+  const trendPeriods=useMemo(()=>{
+    const count=dashPeriodType==="monthly"?6:dashPeriodType==="quarterly"?4:3;
+    const list=[];
+    let cur={year,month,quarter};
+    for(let i=0;i<count;i++){list.unshift(cur);cur=stepPeriodBack({periodType:dashPeriodType,...cur});}
+    return list;
+  },[dashPeriodType,year,month,quarter]);
+  const trendData=useMemo(()=>{
+    if(!isPopulated||budgetDims.length===0)return[];
+    return trendPeriods.map(p=>{
+      const pc=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year:p.year,periodType:dashPeriodType,month:p.month,quarter:p.quarter,today:now});
+      const label=dashPeriodType==="monthly"?(MONTHS.find(m=>m.key===p.month)?.label||p.month):dashPeriodType==="quarterly"?`${p.quarter} '${p.year.slice(2)}`:p.year;
+      return{label,spend:pc.totals.spend,budget:pc.totals.budget};
+    });
+  },[isPopulated,budgetDims,trendPeriods,mergedNormRows,campaignTags,budgets,dashPeriodType]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const freshness=useMemo(()=>hasData?computePlatformFreshness(mergedNormRows):{},[hasData,mergedNormRows]);
 
   // Only real problems — segments with actual spend data that are genuinely over or behind plan.
@@ -2489,6 +2564,18 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
   // false-signal bug the "no-data" pacing status fix addressed elsewhere on this page.
   const overallPct=hasData&&totalBudget>0?totalSpend/totalBudget:null;
 
+  // Expected-pace context for the "Overall pacing" tile — a raw "42%" is meaningless without
+  // knowing how far through the period we are. Same ±10pt ahead/behind/on-track thresholds
+  // computePacing already uses per-segment, applied here to the aggregate so the language matches
+  // what "Needs attention" is built from.
+  const paceDelta=overallPct!=null&&pacing?.expectedPct!=null?overallPct-pacing.expectedPct:null;
+  const expectedPctInt=pacing?.expectedPct!=null?Math.round(pacing.expectedPct*100):null;
+  const paceSub=paceDelta==null?null:paceDelta>0.1?`Ahead of pace · expected ${expectedPctInt}%`:paceDelta<-0.1?`Behind pace · expected ${expectedPctInt}%`:`On pace · expected ${expectedPctInt}%`;
+  const paceSubColor=paceDelta==null?undefined:paceDelta>0.1?T.warning:paceDelta<-0.1?T.textMuted:T.success;
+
+  // Period-over-period sub-line for "Spend to date" — see prevPeriod/prevPacing above.
+  const spendSub=spendDeltaPct==null?null:`${spendDeltaPct>0?"↑":spendDeltaPct<0?"↓":"→"} ${Math.abs(spendDeltaPct)}% vs ${prevPeriodWord}`;
+
   return(
     <div style={{flex:1,overflow:"auto",background:T.bg}}>
       <div style={{maxWidth:1040,margin:"0 auto",padding:"32px 32px 48px"}}>
@@ -2530,10 +2617,22 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:22}}>
             <DashStatTile T={T} label={`Total budget (${periodSectionLabel.toLowerCase()})`} value={totalBudget>0?fmtFull(totalBudget):"—"}/>
-            <DashStatTile T={T} label="Spend to date" value={hasData?fmtFull(totalSpend):"—"}/>
-            <DashStatTile T={T} label="Overall pacing" value={overallPct!=null?`${Math.round(overallPct*100)}%`:"—"}/>
+            <DashStatTile T={T} label="Spend to date" value={hasData?fmtFull(totalSpend):"—"} sub={spendSub}/>
+            <DashStatTile T={T} label="Overall pacing" value={overallPct!=null?`${Math.round(overallPct*100)}%`:"—"} sub={paceSub} subColor={paceSubColor}/>
             <DashStatTile T={T} label="Needs attention" value={String(attention.length)} valueColor={attention.length>0?T.danger:T.success}/>
           </div>
+          {trendData.length>0&&(
+            <PixelPanel T={T} contentStyle={{padding:"14px 18px 8px"}} style={{marginBottom:22}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Spend trend</div>
+                <div style={{display:"flex",alignItems:"center",gap:12,fontSize:10,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:2,background:T.accent,display:"inline-block"}}/>Spend</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:0,borderTop:`1.5px dashed ${T.textMuted}`,display:"inline-block"}}/>Budget</span>
+                </div>
+              </div>
+              <TrendChart T={T} periods={trendData}/>
+            </PixelPanel>
+          )}
         </>)}
 
         <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
@@ -3085,6 +3184,25 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
 
   const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
   return{segments,totals,totalDays,elapsedDays,daysRemaining,expectedPct,start,end,platformFreshness};
+}
+
+// Steps a {periodType,year,month,quarter} tuple back exactly one period of that same granularity —
+// e.g. monthly Jan'26 → Dec'25, quarterly Q1'26 → Q4'25, annual 2026 → 2025. Shared by the
+// Dashboard's period-over-period comparison (one step back) and its trend chart (repeated stepping
+// to build a trailing window) — both need the exact same "what's the previous period" logic, and
+// getting the year-rollover cases right in two places would be an easy way to drift out of sync.
+function stepPeriodBack({periodType,year,month,quarter}){
+  if(periodType==="monthly"){
+    let y=parseInt(year,10),m=parseInt(month,10)-1;
+    if(m<1){m=12;y-=1;}
+    return{year:String(y),month:String(m).padStart(2,"0"),quarter:null};
+  }
+  if(periodType==="quarterly"){
+    let y=parseInt(year,10),qn=parseInt(quarter.slice(1),10)-1;
+    if(qn<1){qn=4;y-=1;}
+    return{year:String(y),month:null,quarter:`Q${qn}`};
+  }
+  return{year:String(parseInt(year,10)-1),month:null,quarter:null};
 }
 
 // "View by" alternate to computePacing — groups spend by an arbitrary, user-chosen combination of
