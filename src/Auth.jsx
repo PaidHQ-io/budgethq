@@ -5,7 +5,7 @@ import { supabase, supabaseConfigured } from "./lib/supabaseClient";
 // imported from BudgetHQ.jsx since this screen renders before any workspace/session data exists
 // and shouldn't depend on that file's internals.
 const T = {
-  bg: "#FFFFFF",
+  bg: "#FAFAFA",
   surface: "#FFFFFF",
   surfaceEl: "#FAFAFA",
   border: "#EAEAEA",

@@ -5,7 +5,7 @@ import BudgetHQ from "./BudgetHQ";
 // Standalone subset of BudgetHQ's theme tokens — see Auth.jsx for why this isn't imported from
 // BudgetHQ.jsx directly.
 const T = {
-  bg: "#FFFFFF",
+  bg: "#FAFAFA",
   surface: "#FFFFFF",
   surfaceEl: "#FAFAFA",
   border: "#EAEAEA",

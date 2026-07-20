@@ -15,7 +15,7 @@ import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchShe
 // Vercel's own brand gradient (blue/purple/pink) plus a couple of supporting hues, rather than
 // full rainbow. Light mode only, same as the palette this replaces.
 const THEME = {
-  bg:"#FFFFFF",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
+  bg:"#FAFAFA",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
   border:"#EAEAEA",borderStrong:"#D4D4D4",
   text:"#171717",textSub:"#666666",textMuted:"#8F8F8F",textDim:"#E5E5E5",
   accent:"#000000",accentHover:"#333333",
