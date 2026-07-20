@@ -1554,7 +1554,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
             <thead><tr>
               <th style={{...TH,width:32,padding:"15px 8px 9px 16px",position:"sticky",left:0,zIndex:4,background:T.bg}}>
-                <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title="Select all rows — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
               {budgetDims.map((d,i)=><th key={d} style={{...TH,textAlign:"left",padding:"15px 14px 9px",minWidth:dcw,position:"sticky",left:32+i*dcw,zIndex:3,background:T.bg}}>{d}</th>)}
               {budgetMetaDims.map(d=><th key={d} style={{...TH,textAlign:"left",padding:"15px 14px 9px",minWidth:110}}>{d}</th>)}
@@ -1574,7 +1574,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
               {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
                 <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:T.bg,zIndex:1}}>
-                    <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                    <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   </td>
                   {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:rbb,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:T.bg,zIndex:1,whiteSpace:"nowrap"}}>
                     {editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
@@ -2842,15 +2842,20 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
     const budget=months.reduce((s,mk)=>s+(monthly[mk]||0),0);
     const spend=spendMap[sk]||0;
     const dims=sk.split("|");
-    const actualPct=budget>0?spend/budget:null;
+    // Whether ANY spend row actually matched this segment in this period — distinct from spend===0,
+    // which is also true for a segment nobody's synced data for yet. Without this, a never-synced
+    // segment's actualPct computes as a real 0%, which then reads as a genuine "behind pace" delta.
+    const hasData=!!platformSpendMap[sk];
+    const actualPct=budget>0&&hasData?spend/budget:null;
 
     // Sum each platform's own projection rather than one blended rate — see PROJECTION NOTE.
     const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays});
-    const projected=elapsedDays>0?projectedSum:null;
+    const projected=elapsedDays>0&&hasData?projectedSum:null;
     const projectedVariance=budget>0&&projected!=null?projected-budget:null;
     let status="no-budget";
     if(budget>0){
-      if(spend>budget)status="over";
+      if(!hasData)status="no-data";
+      else if(spend>budget)status="over";
       else{
         const delta=(actualPct??0)-expectedPct;
         if(delta>0.1)status="ahead";
@@ -2858,7 +2863,7 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
         else status="on-track";
       }
     }
-    return{segKey:sk,dims,budget,spend,actualPct,dailyRate,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0,lowConfidencePlatforms};
+    return{segKey:sk,dims,budget,spend,actualPct,dailyRate:hasData?dailyRate:null,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0,lowConfidencePlatforms,hasData};
   }).filter(s=>s.budget>0||s.spend>0).sort((a,b)=>b.spend-a.spend);
 
   const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
@@ -2937,6 +2942,10 @@ function pacingStatusMeta(status,T){
     case"ahead":return{label:"Ahead of pace",color:T.warning,bg:T.warningBg,border:T.warningBorder};
     case"behind":return{label:"Behind pace",color:T.accent,bg:T.accentBg,border:T.accentBorder};
     case"on-track":return{label:"On track",color:T.success,bg:T.successBg,border:T.successBorder};
+    // Distinct from "behind" on purpose — zero spend rows matched for this segment/period isn't the
+    // same signal as "we have real spend data and it's genuinely trailing plan." Blending the two
+    // made every never-synced segment look like an active problem (see 2026-07-19 UX review).
+    case"no-data":return{label:"No data yet",color:T.textMuted,bg:T.surfaceEl,border:T.border};
     default:return{label:"No budget set",color:T.textMuted,bg:T.surfaceEl,border:T.border};
   }
 }
@@ -3467,7 +3476,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
             <thead><tr>
               <th style={{...TH,width:20}}/>
               <th style={{...TH,width:32,textAlign:"left"}}>
-                <input type="checkbox" checked={filteredSegments.length>0&&selRows.size===filteredSegments.length} onChange={selAllRows} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                <input type="checkbox" checked={filteredSegments.length>0&&selRows.size===filteredSegments.length} onChange={selAllRows} title="Select all rows — reveals bulk delete once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
               {budgetDims.map(d=><th key={d} style={{...TH,textAlign:"left"}}>{d}</th>)}
               <th style={TH}>Budget</th>
@@ -3497,7 +3506,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
                     </td>
                     <td style={{padding:"8px 8px",borderBottom:rbb}}>
-                      <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.segKey)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                      <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.segKey)} title="Select row — reveals bulk delete once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                     </td>
                     {seg.dims.map((v,i)=><td key={i} style={{padding:"8px 14px",borderBottom:rbb,whiteSpace:"nowrap"}}>
                       {editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(
@@ -3956,15 +3965,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   },[]);
 
   // Device-local preferences only (not workspace data — these stay in localStorage even after
-  // the data-layer migration below, since there's no reason a sidebar width or "last view you
-  // had open" should follow you to a different browser/device).
+  // the data-layer migration below, since there's no reason a sidebar width should follow you to
+  // a different browser/device). Deliberately NOT restoring the last-open tab here — Dashboard is
+  // always the landing view on a fresh load, so the app always opens to the same orienting screen
+  // instead of dropping people back into whatever dense table they last had open.
   useEffect(()=>{try{
-    const v=localStorage.getItem("paidhq_view");if(v&&["dashboard","tagger","budget","pacing","settings","ask"].includes(v))setView(v);
     const le=localStorage.getItem("paidhq_last_export_email");if(le)setEmailExportTo(le);
     const ac=localStorage.getItem("paidhq_ask_chats");if(ac)setAskChats(JSON.parse(ac));
     const aid=localStorage.getItem("paidhq_ask_active_chat");if(aid)setActiveAskChatId(aid);
   }catch(e){};},[]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_view",view);}catch(e){};},[view]);
   useEffect(()=>{try{localStorage.setItem("paidhq_ask_chats",JSON.stringify(askChats));}catch(e){};},[askChats]);
   useEffect(()=>{try{if(activeAskChatId)localStorage.setItem("paidhq_ask_active_chat",activeAskChatId);else localStorage.removeItem("paidhq_ask_active_chat");}catch(e){};},[activeAskChatId]);
 
