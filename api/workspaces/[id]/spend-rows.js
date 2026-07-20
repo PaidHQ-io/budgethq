@@ -45,6 +45,22 @@ const toCamel = (r) => ({
   source: r.source,
 });
 
+// Transposes an array of row objects into parallel column arrays for a single unnest()-based bulk
+// insert — see the comment above the PUT handler for why this replaced one-INSERT-per-row.
+const toColumns = (rows) => ({
+  campaign_group_name: rows.map((r) => r.campaign_group_name || ""),
+  campaign_name: rows.map((r) => r.campaign_name || ""),
+  campaign_id: rows.map((r) => r.campaign_id || null),
+  platform: rows.map((r) => r.platform || null),
+  campaign_type: rows.map((r) => r.campaign_type || null),
+  date: rows.map((r) => r.date),
+  as_of_date: rows.map((r) => r.as_of_date || null),
+  spend: rows.map((r) => r.spend || 0),
+  impressions: rows.map((r) => r.impressions || 0),
+  clicks: rows.map((r) => r.clicks || 0),
+  source: rows.map((r) => r.source || null),
+});
+
 export default withApi(async (req, res) => {
   const { id: workspaceId } = req.query;
   const { userId } = await requireAuth(req);
@@ -69,19 +85,20 @@ export default withApi(async (req, res) => {
     if (!Array.isArray(inputRows) || !inputRows.length) {
       return res.status(400).json({ error: "rows must be a non-empty array" });
     }
-    // Neon's serverless driver doesn't support a multi-row VALUES bind in one tagged-template
-    // call, so insert in a batch via Promise.all rather than N sequential round trips.
-    const inserted = await Promise.all(inputRows.map((r) => sql`
+    // Bulk insert via unnest() — one round trip for the whole batch instead of one INSERT
+    // statement per row. See the PUT handler below for why this matters.
+    const c = toColumns(inputRows);
+    await sql`
       insert into budgethq.spend_rows
         (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
          date, as_of_date, spend, impressions, clicks, source)
-      values
-        (${workspaceId}, ${r.campaign_group_name || ""}, ${r.campaign_name || ""}, ${r.campaign_id || null},
-         ${r.platform || null}, ${r.campaign_type || null}, ${r.date}, ${r.as_of_date || null},
-         ${r.spend || 0}, ${r.impressions || 0}, ${r.clicks || 0}, ${r.source || null})
-      returning id
-    `));
-    return res.status(201).json({ inserted: inserted.length });
+      select ${workspaceId}, * from unnest(
+        ${c.campaign_group_name}::text[], ${c.campaign_name}::text[], ${c.campaign_id}::text[],
+        ${c.platform}::text[], ${c.campaign_type}::text[], ${c.date}::date[], ${c.as_of_date}::date[],
+        ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[]
+      )
+    `;
+    return res.status(201).json({ inserted: inputRows.length });
   }
 
   if (req.method === "PUT") {
@@ -89,17 +106,32 @@ export default withApi(async (req, res) => {
     if (!Array.isArray(inputRows)) {
       return res.status(400).json({ error: "rows must be an array" });
     }
+    // PUT sends this workspace's ENTIRE spend history on every save (see the doc comment up top),
+    // so this used to run as one INSERT statement PER ROW inside a transaction (via Promise.all in
+    // sql.transaction) — that's thousands of sequential round trips for an active workspace, which
+    // could take many seconds to tens of seconds. A save that slow routinely lost the race against
+    // the user refreshing or navigating away shortly after an edit: the request would still be
+    // in-flight (visible in DevTools as Network status "(pending)") when the tab unloaded, so the
+    // browser killed it before it ever reached the server response — the edit was never persisted,
+    // which looked exactly like "data disappears on refresh" even though the request itself never
+    // errored. Rewritten to use a single unnest()-based bulk insert: the whole batch goes in ONE
+    // statement instead of N, cutting a multi-thousand-row save from many seconds down to
+    // near-instant.
+    const c = toColumns(inputRows);
     await sql.transaction((tx) => [
       tx`delete from budgethq.spend_rows where workspace_id = ${workspaceId}`,
-      ...inputRows.map((r) => tx`
-        insert into budgethq.spend_rows
-          (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
-           date, as_of_date, spend, impressions, clicks, source)
-        values
-          (${workspaceId}, ${r.campaign_group_name || ""}, ${r.campaign_name || ""}, ${r.campaign_id || null},
-           ${r.platform || null}, ${r.campaign_type || null}, ${r.date}, ${r.as_of_date || null},
-           ${r.spend || 0}, ${r.impressions || 0}, ${r.clicks || 0}, ${r.source || null})
-      `),
+      ...(inputRows.length
+        ? [tx`
+            insert into budgethq.spend_rows
+              (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
+               date, as_of_date, spend, impressions, clicks, source)
+            select ${workspaceId}, * from unnest(
+              ${c.campaign_group_name}::text[], ${c.campaign_name}::text[], ${c.campaign_id}::text[],
+              ${c.platform}::text[], ${c.campaign_type}::text[], ${c.date}::date[], ${c.as_of_date}::date[],
+              ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[]
+            )
+          `]
+        : []),
     ]);
     return res.status(200).json({ replaced: inputRows.length });
   }
