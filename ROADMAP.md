@@ -49,6 +49,7 @@ Rolling backlog of features to build next. Update this file as items are started
 36. **White-labeling for client-facing shareable views** — agency's own logo/branding (and ideally a custom domain) on the read-only client links from item 12, instead of visibly being a third-party tool the agency is using.
 37. **Onboarding / guided setup flow** — a first-run wizard (connect first ad account, set up first budget) instead of dropping a new workspace into an empty app. Matters more once self-serve billing/signup (item 9) exists and users aren't all hand-held through setup.
 38. **SOC 2 / security compliance** — formalizing this as its own item rather than the passing mention under item 16 (Audit log); typically a hard requirement to close real enterprise deals alongside SSO (item 8), not just a nice-to-have.
+39. **Cross-workspace portfolio dashboard** — a level above the per-workspace Dashboard, for agencies/consultants managing multiple client workspaces: which clients are over budget, which haven't synced data recently, whose budget period is ending soon — surfaced before picking a workspace to go into, not after. Today the workspace switcher only jumps between workspaces one at a time with no aggregate view across them. Distinct from the in-house-marketer case, which is well served by a rich single-workspace Dashboard alone (see 2026-07-19 UX review notes on redesigning that populated state).
 
 ## Longer-term / known but not scheduled
 
