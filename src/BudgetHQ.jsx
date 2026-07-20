@@ -2468,6 +2468,11 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
     return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:dashPeriodType,month,quarter,today:now});
   },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month,quarter,dashPeriodType]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // pacing.daysRemaining is already computed for the projection math — surfacing it here too means
+  // "62% spent, expected 58%" comes with the other half of the context (how much runway is left)
+  // instead of making someone do that math themselves.
+  const daysLeftLabel=pacing?.daysRemaining!=null?`${pacing.daysRemaining} day${pacing.daysRemaining===1?"":"s"} left`:null;
+
   // Period-over-period comparison — same granularity, one step back, always the fully-completed
   // prior period (computePacing already treats a period entirely in the past as 100% elapsed, so
   // this naturally gives a real final total rather than a partial one). Only rendered when the
@@ -2607,10 +2612,16 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
           <DashStatTile T={T} label="Needs review" value={hasData?stats.untagged.toLocaleString():"—"} valueColor={hasData&&stats.untagged>0?T.warning:undefined}/>
         </div>
 
-        {/* Headline stat tiles — only meaningful once a budget structure exists */}
-        {budgetDims.length>0&&(<>
+        {/* This whole section used to be gated on budgetDims.length>0 alone, which hid the platform
+            breakdown too — but that panel doesn't need a budget structure, only spend data. Every
+            tile and panel in here already degrades gracefully on its own (—/0/"no budget set"/"no
+            spend synced"), so the section just needs a reason to exist at all: either a budget
+            structure or actual spend to look at. */}
+        {(budgetDims.length>0||hasData)&&(<>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-            <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:"Inter,sans-serif"}}>{periodSectionLabel} <span style={{textTransform:"none",letterSpacing:0,fontWeight:500,color:T.textMuted}}>· {periodDateLabel}</span></div>
+            <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:"Inter,sans-serif"}}>
+              {periodSectionLabel} <span style={{textTransform:"none",letterSpacing:0,fontWeight:500,color:T.textMuted}}>· {periodDateLabel}{daysLeftLabel?` · ${daysLeftLabel}`:""}</span>
+            </div>
             <div style={{display:"flex",gap:2}}>
               {[["monthly","Mo"],["quarterly","Qtr"],["annual","Yr"]].map(([k,l])=>(
                 <button key={k} onClick={()=>changeDashPeriodType(k)} title={`View ${l==="Mo"?"month":l==="Qtr"?"quarter":"year"}-to-date pacing`}
@@ -2622,7 +2633,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
             <DashStatTile T={T} label={`Total budget (${periodSectionLabel.toLowerCase()})`} value={totalBudget>0?fmtFull(totalBudget):"—"}/>
             <DashStatTile T={T} label="Spend to date" value={hasData?fmtFull(totalSpend):"—"} sub={spendSub}/>
             <DashStatTile T={T} label="Overall pacing" value={overallPct!=null?`${Math.round(overallPct*100)}%`:"—"} sub={paceSub} subColor={paceSubColor}/>
-            <DashStatTile T={T} label="Needs attention" value={String(attention.length)} valueColor={attention.length>0?T.danger:T.success}/>
+            <DashStatTile T={T} label="Needs attention" value={budgetDims.length===0?"—":String(attention.length)} valueColor={budgetDims.length===0?undefined:attention.length>0?T.danger:T.success}/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
