@@ -72,6 +72,11 @@ const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campa
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
 // combine both levels, not just the leaf name alone.
 const campaignKey=(groupName,name)=>`${groupName||name||""}||${name||groupName||""}`;
+// Used by the debounced-save empty-write guard (see the big comment near hadRealConfigRef in the
+// main BudgetHQ component) — "empty" means nothing worth protecting, i.e. no tags, no budgets, and
+// no budget dimension setup either (tagDims/budgetRowMeta/budgetImportMeta are metadata that only
+// matter alongside actual tags/budgets, so they're deliberately not checked here).
+const isEmptyConfig=c=>!Object.keys(c?.tags||{}).length&&!Object.keys(c?.budgets||{}).length;
 // Comma-separated multi-term filter matching, used by the Tagger's Group/Campaign/Tag filters —
 // both the "contains" and "excludes" side of each. Terms are OR'd together: "google,bing" as an
 // include filter matches anything containing EITHER term; as an exclude filter, it drops anything
@@ -4501,6 +4506,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(!window.confirm(`Restore "${record.label}"?\n\nFrom ${new Date(record.timestamp).toLocaleString()}. Your current data will be saved as a new version first, so you can always come back to it.\n\nThis replaces your current Tagger and Budget data.`))return;
     snapshotNow("Before restoring an earlier version","pre_restore");
     const s=record.snapshot||{};
+    // A restored version can legitimately be empty (e.g. restoring to a point before any data
+    // existed) — that's a deliberate user choice via this confirm dialog, same authorization
+    // pattern as the Settings clear-* actions use for the debounced-save empty-write guard.
+    allowEmptyConfigWriteRef.current=true;allowEmptyRowsWriteRef.current=true;
     setTags(s.tags||{});setTagDims(s.tagDims||DEFAULT_DIMS);setMergedNormRows(s.mergedNormRows||[]);
     setBudgets(s.budgets||{});setBudgetDims(s.budgetDims||[]);setBudgetRowMeta(s.budgetRowMeta||{});setBudgetMetaDims(s.budgetMetaDims||[]);setBudgetImportMeta(s.budgetImportMeta||{});
     setStep((s.mergedNormRows||[]).length?"tag":"upload");
@@ -4637,8 +4646,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         setMergedNormRows(rows||[]);
         if((rows||[]).length)setStep("tag");
         configLoadedRef.current=true;rowsLoadedRef.current=true;
-        const serverIsEmpty=!Object.keys(config.tags||{}).length&&!Object.keys(config.budgets||{}).length&&!(rows||[]).length;
-        if(serverIsEmpty){
+        const configEmpty=isEmptyConfig(config);
+        const rowsEmpty=!(rows||[]).length;
+        // Remember that this workspace is CONFIRMED to have real data on the server — the guard
+        // just below refuses to let a later save silently replace it with nothing. Only flips to
+        // true, never back to false by loading — going empty has to be an explicit, user-confirmed
+        // clear action (which sets the allowEmpty*Ref flags itself) or a workspace that was
+        // genuinely empty from the very first load.
+        if(!configEmpty)hadRealConfigRef.current=true;
+        if(!rowsEmpty)hadRealRowsRef.current=true;
+        if(configEmpty&&rowsEmpty){
           const legacy=readLegacyLocalData();
           if(legacy)setLocalImportPrompt(legacy);
         }
@@ -4664,6 +4681,24 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta};});
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
+  // ── Second, independent safety net (2026-07-20) ─────────────────────────────────────────────
+  // The session-churn bug above was real and is fixed, but data still went missing on a plain
+  // refresh even on a confirmed-live deploy of that fix — meaning there's at least one more path
+  // to an accidental empty save that hasn't been pinned down yet. Rather than keep chasing timing
+  // bugs one at a time while real data is at risk, this is a hard backstop in the save layer
+  // itself: once a workspace is known to have real data (hadRealConfigRef/hadRealRowsRef, set by
+  // the load above), NO save is allowed to replace it with an all-empty payload UNLESS one of the
+  // explicit, user-confirmed "Clear data" actions in Settings set the matching allowEmpty*Ref
+  // right before doing it (each one does, see clearTaggerData/clearBudgetData/clearPlatformData/
+  // etc.). Any other empty payload gets skipped (not sent) and logged loudly instead of silently
+  // destroying server data — worst case it just keeps retrying every 800ms until either real data
+  // reappears or someone notices the console error, which is a vastly better failure mode than
+  // what prompted this.
+  const hadRealConfigRef=useRef(false);
+  const hadRealRowsRef=useRef(false);
+  const allowEmptyConfigWriteRef=useRef(false);
+  const allowEmptyRowsWriteRef=useRef(false);
+
   // Debounced whole-document save — mirrors the shape api/workspaces/[id]/data.js's PUT expects.
   // Keyed off sessionUserId, not session itself — see the big comment above the load effect.
   useEffect(()=>{
@@ -4671,8 +4706,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      putWorkspaceConfig(sessionRef.current,workspace.id,{tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta})
-        .then(()=>{configDirtyRef.current=false;})
+      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta};
+      if(isEmptyConfig(payload)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current){
+        console.error("[workspace config save] BLOCKED — refusing to overwrite known real data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's data, use Settings → Clear data instead of whatever just triggered this.");
+        return; // stays dirty — retries on the next change, or once real data is back
+      }
+      allowEmptyConfigWriteRef.current=false; // one-shot — consumed whether or not this payload was actually empty
+      putWorkspaceConfig(sessionRef.current,workspace.id,payload)
+        .then(()=>{configDirtyRef.current=false;if(!isEmptyConfig(payload))hadRealConfigRef.current=true;})
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
@@ -4685,8 +4726,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     rowsDirtyRef.current=true;
     clearTimeout(saveRowsTimer.current);
     saveRowsTimer.current=setTimeout(()=>{
+      const rowsEmpty=mergedNormRows.length===0;
+      if(rowsEmpty&&hadRealRowsRef.current&&!allowEmptyRowsWriteRef.current){
+        console.error("[spend rows save] BLOCKED — refusing to overwrite known real spend data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's spend data, use Settings → Clear data instead of whatever just triggered this.");
+        return;
+      }
+      allowEmptyRowsWriteRef.current=false;
       putSpendRows(sessionRef.current,workspace.id,mergedNormRows)
-        .then(()=>{rowsDirtyRef.current=false;})
+        .then(()=>{rowsDirtyRef.current=false;if(!rowsEmpty)hadRealRowsRef.current=true;})
         .catch(e=>console.error("[spend rows save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveRowsTimer.current);
@@ -4700,17 +4747,30 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // by the browser, so a workspace with a very large spend-rows dataset could still lose its very
   // last edit in this narrow window — everything below 800ms-old at unload time for smaller/
   // typical workspaces is covered, which is the vast majority of real "I refreshed too fast" cases.
+  // Same empty-payload guard as the two debounced effects above — a flush is still just a save.
   const flushPendingSaves=useCallback(()=>{
     if(!workspace?.id||!sessionRef.current)return;
     if(configDirtyRef.current&&latestConfigRef.current){
       clearTimeout(saveConfigTimer.current);
-      putWorkspaceConfig(sessionRef.current,workspace.id,latestConfigRef.current,{keepalive:true}).catch(()=>{});
-      configDirtyRef.current=false;
+      const blocked=isEmptyConfig(latestConfigRef.current)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current;
+      if(blocked){
+        console.error("[workspace config flush] BLOCKED — refusing to overwrite known real data with an empty payload on unload/tab-hide.");
+      }else{
+        allowEmptyConfigWriteRef.current=false;
+        putWorkspaceConfig(sessionRef.current,workspace.id,latestConfigRef.current,{keepalive:true}).catch(()=>{});
+        configDirtyRef.current=false;
+      }
     }
     if(rowsDirtyRef.current&&latestRowsRef.current){
       clearTimeout(saveRowsTimer.current);
-      putSpendRows(sessionRef.current,workspace.id,latestRowsRef.current,{keepalive:true}).catch(()=>{});
-      rowsDirtyRef.current=false;
+      const rowsBlocked=latestRowsRef.current.length===0&&hadRealRowsRef.current&&!allowEmptyRowsWriteRef.current;
+      if(rowsBlocked){
+        console.error("[spend rows flush] BLOCKED — refusing to overwrite known real spend data with an empty payload on unload/tab-hide.");
+      }else{
+        allowEmptyRowsWriteRef.current=false;
+        putSpendRows(sessionRef.current,workspace.id,latestRowsRef.current,{keepalive:true}).catch(()=>{});
+        rowsDirtyRef.current=false;
+      }
     }
   },[workspace?.id]);
 
@@ -5311,9 +5371,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // Settings — independent data-clear actions. Reporting has no state of its own (it's a
   // computed pacing view over Budget + Tagger data), so there's no separate "clear reporting"
   // action — clearing either of the two source datasets is reflected there automatically.
+  // Every clear-* handler below sets allowEmptyConfigWriteRef/allowEmptyRowsWriteRef right before
+  // its setState calls — that's what authorizes the debounced save's empty-write guard (see
+  // hadRealConfigRef/hadRealRowsRef higher up) to actually let this specific empty payload through
+  // instead of blocking it as a suspected accidental save. Every one of these is already gated
+  // behind its own window.confirm() and a pre-clear version snapshot, so this is a real,
+  // user-initiated clear, not the kind of accidental empty save the guard exists to catch.
   const clearTaggerData=()=>{
     if(!window.confirm("Clear all Tagger data?\n\nThis removes every imported spend row, every campaign tag, and your custom tag dimensions. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
     snapshotNow("Before clearing Tagger data","pre_clear");
+    allowEmptyConfigWriteRef.current=true;allowEmptyRowsWriteRef.current=true;
     setMergedNormRows([]);setTags({});setTagDims(DEFAULT_DIMS);setColMap({});setStep("upload");setLastSyncRange(null);setTagsHistory([]);
     try{["paidhq_rows","paidhq_tags","paidhq_dims","paidhq_sync_range"].forEach(k=>localStorage.removeItem(k));}catch(e){}
     showNotif("Tagger data cleared");
@@ -5321,6 +5388,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const clearBudgetData=()=>{
     if(!window.confirm("Clear all Budget data?\n\nThis removes every budget allocation, budget segment, and annotation dimension across all years. Tagged campaign data is not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
     snapshotNow("Before clearing Budget data","pre_clear");
+    allowEmptyConfigWriteRef.current=true;
     setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);setBudgetImportMeta({});
     try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta"].forEach(k=>localStorage.removeItem(k));}catch(e){}
     showNotif("Budget data cleared");
@@ -5332,10 +5400,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     showNotif("All data deleted");
   };
   function clearTaggerDataSilent(){
+    allowEmptyConfigWriteRef.current=true;allowEmptyRowsWriteRef.current=true;
     setMergedNormRows([]);setTags({});setTagDims(DEFAULT_DIMS);setColMap({});setStep("upload");setLastSyncRange(null);setTagsHistory([]);
     try{["paidhq_rows","paidhq_tags","paidhq_dims","paidhq_sync_range"].forEach(k=>localStorage.removeItem(k));}catch(e){}
   }
   function clearBudgetDataSilent(){
+    allowEmptyConfigWriteRef.current=true;
     setBudgets({});setBudgetDims([]);setBudgetRowMeta({});setBudgetMetaDims([]);setBudgetImportMeta({});
     try{["paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta"].forEach(k=>localStorage.removeItem(k));}catch(e){}
   }
@@ -5348,6 +5418,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(!rowCount)return;
     if(!window.confirm(`Clear all "${platform}" spend data?\n\nThis removes ${rowCount.toLocaleString()} spend row${rowCount===1?"":"s"} for ${platform} from the Tagger. Tags are kept — a campaign only disappears here if none of its rows are left. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here.`))return;
     snapshotNow(`Before clearing ${platform} data`,"pre_clear");
+    allowEmptyRowsWriteRef.current=true;
     setMergedNormRows(prev=>prev.filter(r=>derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type)!==platform));
     showNotif(`${platform} data cleared — ${rowCount.toLocaleString()} row${rowCount===1?"":"s"} removed`);
   };
@@ -5371,6 +5442,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     const rangeLabel=`${clearRangeStart||"the beginning"} through ${clearRangeEnd||"today"}`;
     if(!window.confirm(`Clear spend data for ${platLabel}, ${rangeLabel}?\n\nThis removes ${matches.length.toLocaleString()} spend row${matches.length===1?"":"s"} across ${campaignCount.toLocaleString()} campaign${campaignCount===1?"":"s"}. Tags are kept — a campaign only disappears here if none of its rows are left. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here.`))return;
     snapshotNow(`Before clearing ${platLabel} data (${rangeLabel})`,"pre_clear");
+    allowEmptyRowsWriteRef.current=true;
     setMergedNormRows(prev=>prev.filter(r=>!clearRangeMatch(r)));
     showNotif(`Cleared ${matches.length.toLocaleString()} row${matches.length===1?"":"s"} for ${platLabel}, ${rangeLabel}`);
     setClearRangeStart("");setClearRangeEnd("");
@@ -5539,7 +5611,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             </div>
           )}
           {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>{isMobile?"↑":"↑ Add data"}</Btn>}
-          {step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
+          {step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{allowEmptyRowsWriteRef.current=true;setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
           {workspace&&workspaces&&(
             <div style={{position:"relative"}}>
               <button className="bhq-iconbtn" onClick={()=>setWorkspaceMenuOpen(o=>!o)}
