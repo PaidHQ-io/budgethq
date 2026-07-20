@@ -2430,8 +2430,8 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
           {/* Hero */}
           <div style={{marginBottom:40,position:"relative"}}>
             <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
-              <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                <Icon name="bolt" size={24} color={T.onAccent}/>
+              <div style={{width:48,height:48,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <Icon name="bolt" size={32} color={T.text}/>
               </div>
               <div>
                 <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"Inter,sans-serif"}}>BudgetHQ</h1>
@@ -2480,8 +2480,8 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
       <div style={{maxWidth:1040,margin:"0 auto",padding:"32px 32px 48px"}}>
         {/* Compact header — not onboarding anymore, so it doesn't need to sell the product */}
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:26}}>
-          <div style={{width:36,height:36,borderRadius:9,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Icon name="bolt" size={18} color={T.onAccent}/>
+          <div style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <Icon name="bolt" size={24} color={T.text}/>
           </div>
           <div>
             <div style={{fontSize:20,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:"Inter,sans-serif"}}>Dashboard</div>
@@ -4958,8 +4958,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           outer wrapper so it isn't clipped by any child's overflow:hidden. ── */}
       <div style={{display:"flex",alignItems:"stretch",height:48,flexShrink:0,background:T.topbarBg,borderBottom:`1px solid ${T.border}`,zIndex:30,position:"relative"}}>
         <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:8,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
-          <div style={{width:22,height:22,borderRadius:6,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Icon name="bolt" size={13} color={T.onAccent}/>
+          <div style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <Icon name="bolt" size={17} color={T.text}/>
           </div>
           {(statsOpen||isMobile)&&<div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
         </div>
