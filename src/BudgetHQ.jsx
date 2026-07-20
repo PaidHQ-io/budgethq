@@ -5080,10 +5080,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // Muted until actively sorted — Vercel's list has no header row at all, so the closest match
   // without losing our sort affordance is to make the labels recede until they're doing something.
   const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:sortCol===col?T.text:T.textMuted,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
-  // Rounded-8 pill on a light-gray fill (T.surfaceEl against the toolbar's white T.headerBg) —
-  // matches Vercel's filter-bar pills. paddingLeft is bumped separately on the three primary
-  // "contains" fields to make room for the search icon from IconField.
-  const fIn={background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3,height:30,boxSizing:"border-box"};
+  // White fill, same as the toolbar behind it — Vercel's filter pills are white-on-white with
+  // just a border for separation, not a gray fill. paddingLeft is bumped separately on the three
+  // primary "contains" fields to make room for the search icon from IconField.
+  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3,height:30,boxSizing:"border-box"};
 
   // Persistent stats sidebar (middle column) — shown regardless of which tab is active.
   // Falls back to labeled sample numbers before any real data is loaded, same treatment
@@ -5689,7 +5689,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     <MatchModeToggle mode={fGroupInclMode} onChange={setFGroupInclMode} T={T}/>
                   </div>
                   <div style={{display:"flex",gap:3}}>
-                    <input value={fGroupExclude} onChange={e=>setFGroupExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title={`Comma-separate multiple terms — ${fGroupExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0,borderColor:fGroupExclude?T.danger:undefined,color:fGroupExclude?T.danger:undefined}}/>
+                    <input value={fGroupExclude} onChange={e=>setFGroupExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title={`Comma-separate multiple terms — ${fGroupExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0}}/>
                     <MatchModeToggle mode={fGroupExclMode} onChange={setFGroupExclMode} T={T}/>
                   </div>
                 </div>}
@@ -5701,7 +5701,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     <MatchModeToggle mode={fCampInclMode} onChange={setFCampInclMode} T={T}/>
                   </div>
                   <div style={{display:"flex",gap:3}}>
-                    <input value={fCampExclude} onChange={e=>setFCampExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title={`Comma-separate multiple terms — ${fCampExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0,borderColor:fCampExclude?T.danger:undefined,color:fCampExclude?T.danger:undefined}}/>
+                    <input value={fCampExclude} onChange={e=>setFCampExclude(e.target.value)} placeholder="≠ excludes… (a, b)" title={`Comma-separate multiple terms — ${fCampExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0}}/>
                     <MatchModeToggle mode={fCampExclMode} onChange={setFCampExclMode} T={T}/>
                   </div>
                 </div>
@@ -5717,7 +5717,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.danger}`,color:T.danger,borderRadius:6,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
                   </div>
                   <div style={{display:"flex",gap:4}}>
-                    <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes… (a, b)" title={`Comma-separate multiple terms — ${fTagExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0,borderColor:fTagExclude?T.danger:undefined,color:fTagExclude?T.danger:undefined}}/>
+                    <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes… (a, b)" title={`Comma-separate multiple terms — ${fTagExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0}}/>
                     <MatchModeToggle mode={fTagExclMode} onChange={setFTagExclMode} T={T}/>
                   </div>
                 </div>}
@@ -5729,15 +5729,18 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 const ts=tags[c.key]||{};const tc=Object.keys(ts).length;const isSel=selected.has(c.key);const pc=PLATFORM_COLORS[c.platform]||T.textMuted;
                 return(
                   <div key={c.key} className={isSel?undefined:"bhq-row"} onClick={()=>toggleSel(c.key)}
-                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"11px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
+                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"11px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:T.surface,transition:"background 0.1s",gap:6}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.key)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
-                    {!isMobile&&<div style={{fontSize:11,fontFamily:"Inter,sans-serif",color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
+                    {/* Group and Campaign now share one text treatment (size/weight/color) instead
+                        of a muted-vs-bold pair — Vercel's row title and metadata fields read at the
+                        same visual weight, just differing in which column they sit in. */}
+                    {!isMobile&&<div style={{fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
                     {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
                         here it means tagged (green) vs needs review (amber), so the row list reads
                         at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:7}}>
                       <span title={tc>0?"Tagged":"Needs review"} style={{width:6,height:6,borderRadius:"50%",background:tc>0?T.success:T.warning,flexShrink:0}}/>
-                      <span style={{minWidth:0,fontSize:12,fontWeight:600,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                      <span style={{minWidth:0,fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
                     <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
