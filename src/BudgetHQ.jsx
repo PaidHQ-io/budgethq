@@ -391,41 +391,48 @@ const DashStatTile=({label,value,valueColor,sub,subColor,T})=>(
     {sub&&<div style={{fontSize:11,fontWeight:600,color:subColor||T.textMuted,marginTop:4,fontFamily:"Inter,sans-serif"}}>{sub}</div>}
   </PixelPanel>
 );
-// Trailing-period spend-vs-budget bar chart for the Dashboard — hand-rolled SVG rather than a
-// charting dependency, consistent with how every other visual in this app (icons, pacing bars)
-// is already plain inline SVG/CSS with no external lib. `periods` is oldest→newest,
-// [{label,spend,budget}]; the last entry (current period) is rendered in solid accent to draw the
-// eye, earlier ones in a lighter accent tint. A budget marker (dashed tick) sits at each bar's
-// budget height so over/under is visible at a glance without needing exact numbers.
-const TrendChart=({T,periods,height=120})=>{
-  if(!periods||periods.length===0)return null;
-  const maxVal=Math.max(1,...periods.map(p=>Math.max(p.spend||0,p.budget||0)));
-  const barGap=6;
-  const n=periods.length;
-  const chartH=height-22; // leaves room for the label row
+// Single-period spend-vs-budget bar for the Dashboard. Replaced an earlier trailing-period trend
+// chart that fell apart for any workspace without months of synced spend history (dashed budget
+// markers floating over near-invisible bars, since most workspaces only have the current period
+// actually synced) — this only ever looks at the one period that's guaranteed to have real numbers.
+const SpendVsBudgetBar=({T,spend,budget,fmtFull})=>{
+  if(!budget)return<div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>No budget set for this period.</div>;
+  const pct=spend/budget;
+  const fillPct=Math.min(100,pct*100);
+  const over=pct>1;
   return(
-    <svg viewBox={`0 0 ${n*100} ${height}`} preserveAspectRatio="none" style={{width:"100%",height,display:"block"}}>
-      {periods.map((p,i)=>{
-        const x=i*100;
-        const barW=100-barGap;
-        const spendH=maxVal?((p.spend||0)/maxVal)*chartH:0;
-        const budgetY=chartH-(maxVal?((p.budget||0)/maxVal)*chartH:0);
-        const isCurrent=i===n-1;
-        return(
-          <g key={i}>
-            <rect x={x+barGap/2} y={chartH-spendH} width={barW} height={spendH} rx={3}
-              fill={isCurrent?T.accent:T.accentBg}/>
-            {p.budget>0&&(
-              <line x1={x+barGap/2} x2={x+barGap/2+barW} y1={budgetY} y2={budgetY}
-                stroke={T.textMuted} strokeWidth={1.5} strokeDasharray="3,3"/>
-            )}
-            <text x={x+barGap/2+barW/2} y={height-6} textAnchor="middle" fontSize={9}
-              fontWeight={isCurrent?700:500} fill={isCurrent?T.text:T.textMuted}
-              fontFamily="Inter,sans-serif">{p.label}</text>
-          </g>
-        );
-      })}
-    </svg>
+    <div>
+      <div style={{position:"relative",height:14,borderRadius:7,background:T.pill,overflow:"hidden"}}>
+        <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${fillPct}%`,background:over?T.danger:T.accent,borderRadius:7,transition:"width 0.2s"}}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:9,fontFamily:"Inter,sans-serif"}}>
+        <span style={{fontSize:15,fontWeight:800,color:over?T.danger:T.text}}>{fmtFull(spend)}</span>
+        <span style={{fontSize:12,color:T.textMuted}}>of {fmtFull(budget)} · {Math.round(pct*100)}%</span>
+      </div>
+    </div>
+  );
+};
+// Spend-by-platform breakdown — deliberately not tied to budget structure at all (derivePlatform
+// works off raw campaign/spend rows), so unlike a budget-based visual this is available and
+// meaningful for literally every workspace that has any synced spend, regardless of whether
+// they've set up budget segments yet.
+const PlatformSpendBars=({T,rows,fmtFull})=>{
+  if(rows.length===0)return<div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>No spend synced for this period yet.</div>;
+  const maxSpend=Math.max(...rows.map(r=>r.spend));
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:9}}>
+      {rows.map(r=>(
+        <div key={r.platform}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3,fontFamily:"Inter,sans-serif"}}>
+            <span style={{color:T.text,fontWeight:600}}>{r.platform}</span>
+            <span style={{color:T.textMuted}}>{fmtFull(r.spend)}</span>
+          </div>
+          <div style={{height:6,borderRadius:3,background:T.pill,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${maxSpend?(r.spend/maxSpend)*100:0}%`,background:T.accent,borderRadius:3}}/>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 };
 // Clickable row used by the populated Dashboard's Quick actions card — a count + label that
@@ -2475,24 +2482,20 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
   const spendDeltaPct=prevPeriodSpend>0&&hasData?Math.round(((pacing?.totals?.spend||0)-prevPeriodSpend)/prevPeriodSpend*100):null;
   const prevPeriodWord=dashPeriodType==="monthly"?"last month":dashPeriodType==="quarterly"?"last quarter":"last year";
 
-  // Trailing window for the trend chart — 6 months / 4 quarters / 3 years, always ending at the
-  // current period, oldest-to-newest so the chart reads left-to-right like a timeline. Reuses
-  // stepPeriodBack rather than hand-rolling date math a second time.
-  const trendPeriods=useMemo(()=>{
-    const count=dashPeriodType==="monthly"?6:dashPeriodType==="quarterly"?4:3;
-    const list=[];
-    let cur={year,month,quarter};
-    for(let i=0;i<count;i++){list.unshift(cur);cur=stepPeriodBack({periodType:dashPeriodType,...cur});}
-    return list;
-  },[dashPeriodType,year,month,quarter]);
-  const trendData=useMemo(()=>{
-    if(!isPopulated||budgetDims.length===0)return[];
-    return trendPeriods.map(p=>{
-      const pc=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year:p.year,periodType:dashPeriodType,month:p.month,quarter:p.quarter,today:now});
-      const label=dashPeriodType==="monthly"?(MONTHS.find(m=>m.key===p.month)?.label||p.month):dashPeriodType==="quarterly"?`${p.quarter} '${p.year.slice(2)}`:p.year;
-      return{label,spend:pc.totals.spend,budget:pc.totals.budget};
+  // Spend by platform, scoped to the same period the switch is set to — unlike the pacing tiles
+  // above, this doesn't need budgetDims or a budget structure at all (derivePlatform works off raw
+  // spend rows), so it's meaningful for any workspace that has synced spend, budget setup or not.
+  const platformSpend=useMemo(()=>{
+    if(!hasData||!pacing)return[];
+    const map={};
+    (mergedNormRows||[]).forEach(row=>{
+      const d=parseSpendDate(row.date);
+      if(!d||d<pacing.start||d>pacing.end)return;
+      const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+      map[platform]=(map[platform]||0)+row.spend;
     });
-  },[isPopulated,budgetDims,trendPeriods,mergedNormRows,campaignTags,budgets,dashPeriodType]); // eslint-disable-line react-hooks/exhaustive-deps
+    return Object.entries(map).map(([platform,spend])=>({platform,spend})).sort((a,b)=>b.spend-a.spend);
+  },[hasData,pacing,mergedNormRows]);
 
   const freshness=useMemo(()=>hasData?computePlatformFreshness(mergedNormRows):{},[hasData,mergedNormRows]);
 
@@ -2621,18 +2624,16 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
             <DashStatTile T={T} label="Overall pacing" value={overallPct!=null?`${Math.round(overallPct*100)}%`:"—"} sub={paceSub} subColor={paceSubColor}/>
             <DashStatTile T={T} label="Needs attention" value={String(attention.length)} valueColor={attention.length>0?T.danger:T.success}/>
           </div>
-          {trendData.length>0&&(
-            <PixelPanel T={T} contentStyle={{padding:"14px 18px 8px"}} style={{marginBottom:22}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-                <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Spend trend</div>
-                <div style={{display:"flex",alignItems:"center",gap:12,fontSize:10,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>
-                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:2,background:T.accent,display:"inline-block"}}/>Spend</span>
-                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:0,borderTop:`1.5px dashed ${T.textMuted}`,display:"inline-block"}}/>Budget</span>
-                </div>
-              </div>
-              <TrendChart T={T} periods={trendData}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
+            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12,fontFamily:"Inter,sans-serif"}}>Spend vs. budget · {periodDateLabel}</div>
+              <SpendVsBudgetBar T={T} spend={totalSpend} budget={totalBudget} fmtFull={fmtFull}/>
             </PixelPanel>
-          )}
+            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12,fontFamily:"Inter,sans-serif"}}>Spend by platform · {periodDateLabel}</div>
+              <PlatformSpendBars T={T} rows={platformSpend} fmtFull={fmtFull}/>
+            </PixelPanel>
+          </div>
         </>)}
 
         <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
