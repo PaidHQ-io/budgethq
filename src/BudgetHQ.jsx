@@ -3299,6 +3299,47 @@ function computeCustomBreakdown({mergedNormRows,tags,dims,segKey,breakdownDim,st
   return Object.entries(map).map(([value,spend])=>({value,spend,pct:total>0?spend/total:0})).sort((a,b)=>b.spend-a.spend);
 }
 
+// Powers Reporting & Pacing's "Trend" view — the one gap computePacing/computeCustomGrouping
+// don't cover: both of those answer "how much for ONE period", never "how did this change over
+// several months." Buckets spend into calendar months across [start,end], optionally narrowed to
+// rows whose `filterDim` value contains `filterValue` (a plain substring match, same convention
+// as every other filter input in this table — e.g. filterDim="Tag: Segment", filterValue="ISW
+// Branded Search"), then splits each month's total into a series per `seriesDim` value (typically
+// "Platform", to get one line per channel). seriesDim is optional — pass "" to get one combined
+// "Spend" series with no split.
+function computeMonthlyTrend({mergedNormRows,tags,filterDim,filterValue,seriesDim,start,end}){
+  const months=[];
+  let cur=new Date(start.getFullYear(),start.getMonth(),1);
+  const last=new Date(end.getFullYear(),end.getMonth(),1);
+  while(cur<=last){
+    months.push({key:`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`,label:cur.toLocaleDateString("en-US",{month:"short",year:"2-digit"})});
+    cur=new Date(cur.getFullYear(),cur.getMonth()+1,1);
+  }
+  const monthIndex=Object.fromEntries(months.map((m,i)=>[m.key,i]));
+  const seriesMap={};
+  const fv=(filterValue||"").trim().toLowerCase();
+  (mergedNormRows||[]).forEach(row=>{
+    const d=parseSpendDate(row.date);
+    if(!d)return;
+    const mk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const mi=monthIndex[mk];
+    if(mi==null)return; // outside the selected range
+    const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
+    if(filterDim&&fv){
+      const val=(resolveDimValue(row,rowTags,filterDim)||"").toLowerCase();
+      if(!val.includes(fv))return;
+    }
+    const bval=seriesDim?(resolveDimValue(row,rowTags,seriesDim)||"Untagged"):"Spend";
+    if(!seriesMap[bval])seriesMap[bval]=new Array(months.length).fill(0);
+    seriesMap[bval][mi]+=row.spend||0;
+  });
+  const series=Object.entries(seriesMap)
+    .map(([label,values])=>({label,values,total:values.reduce((s,v)=>s+v,0)}))
+    .sort((a,b)=>b.total-a.total);
+  const monthTotals=months.map((_,i)=>series.reduce((s,ser)=>s+ser.values[i],0));
+  return{months,series,monthTotals,grandTotal:monthTotals.reduce((s,v)=>s+v,0)};
+}
+
 function pacingStatusMeta(status,T){
   switch(status){
     case"over":return{label:"Over budget",color:T.danger,bg:T.dangerBg,border:T.dangerBorder};
@@ -3562,6 +3603,49 @@ function blobToBase64(blob){
   });
 }
 
+// Hand-rolled multi-line SVG chart for computeMonthlyTrend's output — no charting library
+// dependency, matching every other visual in this file (PacingBar, SpendVsBudgetBar,
+// PlatformSpendBars are all plain SVG/div too). One polyline per series (e.g. one per channel),
+// sharing a single y-axis scaled to the highest point across every series so lines stay
+// comparable to each other rather than each auto-scaling to its own range.
+const TREND_COLORS=["#F97316","#3B82F6","#10B981","#8B5CF6","#EC4899","#F59E0B","#06B6D4"];
+const TrendLineChart=({T,months,series})=>{
+  const W=720,H=230,padL=56,padB=26,padT=12,padR=16;
+  const plotW=W-padL-padR,plotH=H-padT-padB;
+  const maxY=Math.max(1,...series.flatMap(s=>s.values));
+  const xStep=months.length>1?plotW/(months.length-1):0;
+  const yFor=v=>padT+plotH-(v/maxY)*plotH;
+  const xFor=i=>padL+(months.length>1?i*xStep:plotW/2);
+  const yTicks=[0,0.25,0.5,0.75,1].map(f=>Math.round(maxY*f));
+  const fmtTick=v=>v>=1000?`$${Math.round(v/1000)}k`:`$${v}`;
+  return(
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
+      {yTicks.map((t,i)=>{
+        const y=yFor(t);
+        return(
+          <g key={i}>
+            <line x1={padL} y1={y} x2={W-padR} y2={y} stroke={T.border} strokeWidth={1}/>
+            <text x={padL-8} y={y+3} textAnchor="end" fontSize={9} fontFamily="Inter,sans-serif" fill={T.textMuted}>{fmtTick(t)}</text>
+          </g>
+        );
+      })}
+      {months.map((m,i)=>(
+        <text key={m.key} x={xFor(i)} y={H-6} textAnchor="middle" fontSize={9} fontFamily="Inter,sans-serif" fill={T.textMuted}>{m.label}</text>
+      ))}
+      {series.map((s,si)=>{
+        const color=TREND_COLORS[si%TREND_COLORS.length];
+        const pts=s.values.map((v,i)=>`${xFor(i)},${yFor(v)}`).join(" ");
+        return(
+          <g key={s.label}>
+            <polyline points={pts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"/>
+            {s.values.map((v,i)=><circle key={i} cx={xFor(i)} cy={yFor(v)} r={2.5} fill={color}/>)}
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
 const PacingBar=({actualPct,expectedPct,status,T})=>{
   const pct=Math.min(1,Math.max(0,actualPct||0));
   const meta=pacingStatusMeta(status,T);
@@ -3598,12 +3682,27 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   // instead — e.g. Platform alone, or Platform + Region — trading the Budget/Pacing/Status columns
   // (there's no budget defined at an arbitrary grouping like that) for Spend/Daily Burn/Projected
   // computed fresh for whatever combination you pick.
-  const[viewMode,setViewMode]=useState("budget"); // "budget" | "custom"
+  const[viewMode,setViewMode]=useState("budget"); // "budget" | "custom" | "trend"
   const[customDims,setCustomDims]=useState([]);
   const allDimOptions=["Platform",...(tagDimensions||[])];
   const activeDims=viewMode==="custom"?customDims:budgetDims;
   const changeViewMode=v=>{setViewMode(v);setSelRows(new Set());setExpandedRows(new Set());setBreakdownDim("");setSegFilters({});};
   const toggleCustomDim=d=>{setCustomDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);setExpandedRows(new Set());setBreakdownDim("");setSegFilters({});};
+
+  // "Trend" — the third View-by mode, distinct from budget/custom above: those two answer "how
+  // much for ONE period you pick," this answers "how did spend change over SEVERAL months" for a
+  // segment you narrow down to (e.g. a specific tag value like "ISW Branded Search") split into a
+  // line per channel/platform. Its own filter/series state, separate from segFilters/breakdownDim
+  // above, since it's a genuinely different shape (a date RANGE spanning many months, not a single
+  // period) rather than another variation on the existing budget/custom table.
+  const monthStr=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  const[trendFilterDim,setTrendFilterDim]=useState("");
+  const[trendFilterValue,setTrendFilterValue]=useState("");
+  const[trendSeriesDim,setTrendSeriesDim]=useState("Platform");
+  const[trendStartMonth,setTrendStartMonth]=useState(()=>monthStr(new Date(now.getFullYear(),now.getMonth()-5,1)));
+  const[trendEndMonth,setTrendEndMonth]=useState(()=>monthStr(now));
+  const trendFilterOptions=allDimOptions.filter(d=>d!==trendSeriesDim);
+  const trendSeriesOptions=allDimOptions.filter(d=>d!==trendFilterDim);
 
   // Selecting rows only makes sense within the period/year currently being viewed — clear on change
   const changeYear=y=>{setYear(y);setSelRows(new Set());};
@@ -3619,6 +3718,15 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
     [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
   const customPacing=useMemo(()=>viewMode==="custom"&&customDims.length?computeCustomGrouping({mergedNormRows,tags:campaignTags,dims:customDims,year,periodType,month,quarter,today:now}):null,
     [viewMode,mergedNormRows,campaignTags,customDims,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const trendRange=useMemo(()=>{
+    const[sy,sm]=trendStartMonth.split("-").map(Number);
+    const[ey,em]=trendEndMonth.split("-").map(Number);
+    let start=new Date(sy,sm-1,1),end=new Date(ey,em,0,23,59,59,999); // end = last day of end month
+    if(start>end)[start,end]=[end,start]; // swapped range picker inputs shouldn't produce zero months
+    return{start,end};
+  },[trendStartMonth,trendEndMonth]);
+  const trendData=useMemo(()=>viewMode==="trend"?computeMonthlyTrend({mergedNormRows,tags:campaignTags,filterDim:trendFilterDim,filterValue:trendFilterValue,seriesDim:trendSeriesDim,start:trendRange.start,end:trendRange.end}):null,
+    [viewMode,mergedNormRows,campaignTags,trendFilterDim,trendFilterValue,trendSeriesDim,trendRange]);
 
   const filteredSegments=useMemo(()=>pacing.segments.filter(seg=>{
     if(statusFilter!=="all"&&seg.status!==statusFilter)return false;
@@ -3778,7 +3886,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
           <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>View by:</span>
           <div style={{display:"flex",gap:4}}>
-            {[["budget","Budget Segments"],["custom","Custom"]].map(([k,l])=>(
+            {[["budget","Budget Segments"],["custom","Custom"],["trend","Trend"]].map(([k,l])=>(
               <button key={k} onClick={()=>changeViewMode(k)}
                 style={{padding:"6px 12px",borderRadius:6,border:`1.5px solid ${viewMode===k?T.accentHover:T.border}`,background:viewMode===k?T.accent:"transparent",color:viewMode===k?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:viewMode===k?700:400,fontFamily:"Inter,sans-serif"}}>{l}</button>
             ))}
@@ -3793,6 +3901,38 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                     style={{fontSize:11,padding:"4px 10px",borderRadius:14,border:`1.5px solid ${active?T.accentHover:T.border}`,background:active?T.accent:"transparent",color:active?T.text:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:active?700:500}}>{d}</button>
                 );
               })}
+            </div>
+          )}
+          {viewMode==="trend"&&(
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <span style={{fontSize:11,color:T.textMuted}}>From</span>
+                <input type="month" value={trendStartMonth} onChange={e=>setTrendStartMonth(e.target.value)}
+                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                <span style={{fontSize:11,color:T.textMuted}}>to</span>
+                <input type="month" value={trendEndMonth} onChange={e=>setTrendEndMonth(e.target.value)}
+                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+              </div>
+              <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <span style={{fontSize:11,color:T.textMuted}}>Filter by</span>
+                <Sel value={trendFilterDim} onChange={v=>{setTrendFilterDim(v);setTrendFilterValue("");}} T={T} style={{width:130}}>
+                  <option value="">No filter</option>
+                  {trendFilterOptions.map(d=><option key={d} value={d}>{d}</option>)}
+                </Sel>
+                {trendFilterDim&&(
+                  <input value={trendFilterValue} onChange={e=>setTrendFilterValue(e.target.value)} placeholder={`${trendFilterDim} contains…`}
+                    style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:150}}/>
+                )}
+              </div>
+              <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <span style={{fontSize:11,color:T.textMuted}}>Split by</span>
+                <Sel value={trendSeriesDim} onChange={setTrendSeriesDim} T={T} style={{width:130}}>
+                  <option value="">Don't split</option>
+                  {trendSeriesOptions.map(d=><option key={d} value={d}>{d}</option>)}
+                </Sel>
+              </div>
             </div>
           )}
         </div>
@@ -4076,6 +4216,52 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                   </tr>
                 );
               })()}
+            </tbody>
+          </table>
+          </>
+        ))}
+        {viewMode==="trend"&&(!trendData||trendData.grandTotal===0?(
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,textAlign:"center"}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>No spend data in this range</div>
+            <div style={{fontSize:13,color:T.textSub}}>{trendFilterDim?`Nothing matched "${trendFilterValue}" in ${trendFilterDim} between ${trendStartMonth} and ${trendEndMonth}.`:"Widen the date range, or check the filter above."}</div>
+          </div>
+        ):(
+          <>
+          <PixelPanel T={T} contentStyle={{padding:"18px 20px"}}>
+            <TrendLineChart T={T} months={trendData.months} series={trendData.series}/>
+            {trendData.series.length>0&&(
+              <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+                {trendData.series.map((s,i)=>(
+                  <div key={s.label} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontFamily:"Inter,sans-serif"}}>
+                    <span style={{width:9,height:9,borderRadius:2,background:TREND_COLORS[i%TREND_COLORS.length],flexShrink:0}}/>
+                    <span style={{color:T.text,fontWeight:600}}>{s.label}</span>
+                    <span style={{color:T.textMuted}}>{fmtFull(s.total)} total</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </PixelPanel>
+          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12,marginTop:16}}>
+            <thead><tr>
+              <th style={{...TH,textAlign:"left"}}>{trendSeriesDim||"Month"}</th>
+              {trendData.months.map(m=><th key={m.key} style={TH}>{m.label}</th>)}
+              <th style={TH}>Total</th>
+            </tr></thead>
+            <tbody>
+              {trendData.series.map(s=>(
+                <tr key={s.label} className="bhq-tr">
+                  <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
+                    <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"Inter,sans-serif",fontWeight:600,borderRadius:6}}>{s.label}</Pill>
+                  </td>
+                  {s.values.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"Inter,sans-serif",color:T.text}}>{v>0?fmtFull(v):"—"}</td>)}
+                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"Inter,sans-serif",fontWeight:700,color:T.text}}>{fmtFull(s.total)}</td>
+                </tr>
+              ))}
+              <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
+                <td style={{padding:"10px 14px"}}><SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Total</SectionLabel></td>
+                {trendData.monthTotals.map((v,i)=><td key={i} style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{fmtFull(v)}</td>)}
+                <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{fmtFull(trendData.grandTotal)}</td>
+              </tr>
             </tbody>
           </table>
           </>
