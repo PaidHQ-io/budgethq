@@ -16,6 +16,8 @@ import { getSpend as googleSpend, meta as googleMeta }     from "./google.js";
 import { getSpend as metaSpend,   meta as metaMeta }       from "./meta.js";
 import { getSpend as bingSpend,   meta as bingMeta }       from "./bing.js";
 import { getSpend as capterraSpend, meta as capterraMeta } from "./capterra.js";
+import { getSpend as funnelSpend, meta as funnelMeta }     from "./funnel.js";
+import { getSpend as supermetricsSpend, meta as supermetricsMeta } from "./supermetrics.js";
 
 export const CONNECTORS = {
   linkedin: { getSpend: linkedinSpend, ...linkedinMeta },
@@ -23,6 +25,11 @@ export const CONNECTORS = {
   meta:     { getSpend: metaSpend,     ...metaMeta     },
   bing:     { getSpend: bingSpend,     ...bingMeta     },
   capterra: { getSpend: capterraSpend, ...capterraMeta },
+  // funnel/supermetrics differ from every connector above: `perWorkspaceAuth: true` (see their
+  // meta exports) means /api/spend.js looks up a credential from budgethq.connector_credentials
+  // for the calling workspace instead of reading a shared process.env var — see spend.js.
+  funnel:       { getSpend: funnelSpend,       ...funnelMeta       },
+  supermetrics: { getSpend: supermetricsSpend, ...supermetricsMeta },
 };
 
 /**

@@ -84,6 +84,29 @@ create table if not exists budgethq.versions (
 );
 create index if not exists idx_budgethq_versions_workspace on budgethq.versions(workspace_id, created_at desc);
 
+-- Per-workspace third-party connector credentials — e.g. a Funnel.io or Supermetrics API key the
+-- workspace owner pastes in once, rather than the single shared process.env credential the
+-- linkedin/bing/capterra/google/meta connectors use today (those pull from one account for the
+-- whole app; this table is what lets each workspace connect its OWN account for connectors that
+-- support that, starting with Funnel.io and Supermetrics). `credential` is jsonb rather than a
+-- single text column because different providers need different shapes — Funnel.io needs
+-- {apiToken, accountId, projectId}, Supermetrics needs {apiKey, dsId, dsAccounts} — and this way
+-- adding a new per-workspace-auth provider later doesn't require another migration.
+--
+-- No encryption-at-rest beyond Postgres/Neon's own at-rest encryption — same trust model as every
+-- other table in this schema (single database, only ever touched server-side via these API
+-- routes). The API layer's job is to make sure `credential` is never echoed back to the client
+-- once saved (see connections.js) — that's the actual boundary that matters, not column-level
+-- encryption of a value nothing outside this database ever reads directly.
+create table if not exists budgethq.connector_credentials (
+  workspace_id uuid not null references core.workspaces(id) on delete cascade,
+  provider text not null check (provider in ('funnel','supermetrics')),
+  credential jsonb not null,
+  connected_by uuid not null,
+  connected_at timestamptz not null default now(),
+  primary key (workspace_id, provider)
+);
+
 -- Phase 3 (alerts) — table laid out now so the schema doesn't need another migration when that
 -- phase starts, but nothing reads/writes this yet.
 create table if not exists budgethq.alert_rules (

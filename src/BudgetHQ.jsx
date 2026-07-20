@@ -4471,12 +4471,32 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
 
   // ── Platform sync ──────────────────────────────────────────────────────────
   const[syncState,setSyncState]=useState({}); // {platform: "idle"|"loading"|"done"|"error"}
+  // perWorkspaceAuth: true marks a platform whose credential is connected per-workspace (stored
+  // in budgethq.connector_credentials, see connections.js) rather than the single shared
+  // process.env credential linkedin/bing/capterra use for the whole app. isSheets is a third,
+  // different shape again — no stored credential at all, just a client-side Google OAuth token
+  // used once per pull (see lib/googleSheets.js), so it's excluded from both the sync-button flow
+  // AND the connect-panel flow below and gets its own small inline connector.
   const PLATFORMS=[
     {key:"linkedin",label:"LinkedIn",status:"live",color:"#0A66C2"},
     {key:"bing",label:"Bing",status:"live",color:"#00809D"},
     {key:"google",label:"Google",status:"csv",color:"#EA4335"},
     {key:"meta",label:"Meta",status:"csv",color:"#1877F2"},
     {key:"capterra",label:"Capterra",status:"live",color:"#FF7043"},
+    {key:"funnel",label:"Funnel.io",status:"live",perWorkspaceAuth:true,color:"#6C5CE7",
+      connectFields:[
+        {key:"apiToken",label:"API token",placeholder:"Account Settings → API in Funnel.io"},
+        {key:"accountId",label:"Account ID",placeholder:"From your Funnel.io app URL"},
+        {key:"projectId",label:"Project ID",placeholder:"From your Funnel.io app URL"},
+      ]},
+    {key:"supermetrics",label:"Supermetrics",status:"live",perWorkspaceAuth:true,color:"#00C2A8",
+      connectFields:[
+        {key:"apiKey",label:"API key",placeholder:"User settings → API Authentication in Supermetrics"},
+        {key:"dsId",label:"Data source ID",placeholder:"e.g. GAWA (Google Ads), FACEBOOK, LINKEDIN"},
+        {key:"dsAccounts",label:"Account ID (optional)",placeholder:"Leave blank for every account this key can access"},
+      ]},
+    {key:"sheets",label:"Google Sheets",status:"live",isSheets:true,color:"#0F9D58"},
+    {key:"excel",label:"Excel Online",status:"csv",color:"#217346"},
   ];
   const[lastSyncRange,setLastSyncRange]=useState(()=>{
     try{const s=localStorage.getItem("paidhq_sync_range");return s?JSON.parse(s):null;}catch(e){return null;}
@@ -4493,14 +4513,57 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     };
   });
 
+  // ── Per-workspace connector credentials (Funnel.io, Supermetrics) ──────────────────────────
+  // Which perWorkspaceAuth platforms this workspace has already connected — drives whether
+  // clicking the platform button opens the "connect your account" panel or runs a normal sync.
+  const[connectedProviders,setConnectedProviders]=useState({});
+  useEffect(()=>{
+    if(!workspace?.id||!session?.access_token)return;
+    fetch(`/api/workspaces/${workspace.id}/connections`,{headers:{Authorization:`Bearer ${session.access_token}`}})
+      .then(r=>r.ok?r.json():{connections:[]})
+      .then(({connections})=>setConnectedProviders(Object.fromEntries((connections||[]).map(c=>[c.provider,true]))))
+      .catch(()=>{}); // non-fatal — worst case the button just offers to (re)connect
+  },[workspace?.id,session?.access_token]);
+
+  const[connectPanelKey,setConnectPanelKey]=useState(null); // which platform's connect form is open, or null
+  const[connectValues,setConnectValues]=useState({});
+  const[connectSaving,setConnectSaving]=useState(false);
+  const[connectError,setConnectError]=useState("");
+
+  const openConnectPanel=platformKey=>{
+    setConnectPanelKey(platformKey);setConnectValues({});setConnectError("");
+  };
+  const saveConnection=useCallback(async(platformKey)=>{
+    if(!workspace?.id||!session?.access_token){setConnectError("No active session — try reloading.");return;}
+    setConnectSaving(true);setConnectError("");
+    try{
+      const res=await fetch(`/api/workspaces/${workspace.id}/connections`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
+        body:JSON.stringify({provider:platformKey,credential:connectValues}),
+      });
+      if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that connection");}
+      setConnectedProviders(p=>({...p,[platformKey]:true}));
+      setConnectPanelKey(null);
+      showNotif(`Connected ${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} — click Sync to pull spend.`);
+    }catch(e){
+      setConnectError(e.message);
+    }finally{
+      setConnectSaving(false);
+    }
+  },[workspace?.id,session?.access_token,connectValues]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const syncPlatform=useCallback(async(platformKey)=>{
     setSyncState(p=>({...p,[platformKey]:"loading"}));
     try{
-      const res=await fetch("/api/spend",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({platform:platformKey,startDate:syncDateRange.start,endDate:syncDateRange.end}),
-      });
+      const pl=PLATFORMS.find(p=>p.key===platformKey);
+      const headers={"Content-Type":"application/json"};
+      const body={platform:platformKey,startDate:syncDateRange.start,endDate:syncDateRange.end};
+      if(pl?.perWorkspaceAuth){
+        body.workspaceId=workspace?.id;
+        if(session?.access_token)headers.Authorization=`Bearer ${session.access_token}`;
+      }
+      const res=await fetch("/api/spend",{method:"POST",headers,body:JSON.stringify(body)});
       if(!res.ok){
         const err=await res.json();
         throw new Error(err.error||"API error");
@@ -4518,24 +4581,76 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }catch(e){
       setSyncState(p=>({...p,[platformKey]:"error:"+e.message}));
     }
-  },[syncDateRange,checkpoint]);
+  },[syncDateRange,checkpoint,workspace?.id,session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Google Sheets spend pull ────────────────────────────────────────────────────────────────
+  // Deliberately NOT the same "stored credential, click Sync" shape as Funnel/Supermetrics above
+  // — reuses the exact client-side-only Google OAuth token flow already built for Budget/Tagger's
+  // "Connect a Google Sheet" (lib/googleSheets.js), so there's no new Google Cloud setup and no
+  // server-side storage. Each pull is a manual one-shot: paste a link, fetch the grid, review/map
+  // columns on the same step==="map" screen a CSV upload lands on — same pipeline, different source.
+  const[gsheetSpendOpen,setGsheetSpendOpen]=useState(false);
+  const[gsheetSpendUrl,setGsheetSpendUrl]=useState("");
+  const[gsheetSpendFetching,setGsheetSpendFetching]=useState(false);
+  const[gsheetSpendError,setGsheetSpendError]=useState("");
+  const[gsheetSpendTabs,setGsheetSpendTabs]=useState(null);
+  const[gsheetSpendSpreadsheetId,setGsheetSpendSpreadsheetId]=useState("");
+
+  // Shared by handleFile's Papa.parse callback and the Sheets tab fetch below — both end up with
+  // the same shape (array of row objects + field names) and need to land on the same review step.
+  const applySpendGrid=useCallback((data,fields,sourceLabel)=>{
+    setFileName(sourceLabel);
+    const detected=autoDetect(fields||[]);
+    setRawRows(data);setHeaders(fields||[]);setColMap(detected);
+    const existingTagCount=data.reduce((count,row)=>{
+      const name=(row[detected.campaign_group_name]||"").trim();
+      return count+(name&&Object.keys(tags[name]||{}).length>0?1:0);
+    },0);
+    if(existingTagCount>0) showNotif(`${existingTagCount} campaigns already tagged from previous session`);
+    setUploadAsOf("");
+    setStep("map");
+  },[tags]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fetchGoogleSheetSpendTab=useCallback(async(spreadsheetId,tabTitle)=>{
+    setGsheetSpendError("");setGsheetSpendFetching(true);
+    try{
+      const grid=await fetchSheetGrid(spreadsheetId,tabTitle);
+      if(!grid.length)throw new Error(`"${tabTitle}" is empty.`);
+      const[headerRow,...dataRows]=grid;
+      const fields=headerRow.map((h,i)=>h||`Column ${i+1}`);
+      const data=dataRows.map(row=>Object.fromEntries(fields.map((f,i)=>[f,row[i]||""])));
+      applySpendGrid(data,fields,tabTitle);
+      setGsheetSpendTabs(null);setGsheetSpendUrl("");setGsheetSpendOpen(false);
+    }catch(err){
+      setGsheetSpendError(err.message||"Couldn't read that sheet.");
+    }finally{
+      setGsheetSpendFetching(false);
+    }
+  },[applySpendGrid]);
+  const handleConnectGoogleSheetSpend=useCallback(async()=>{
+    const id=parseSpreadsheetId(gsheetSpendUrl);
+    if(!id){setGsheetSpendError("Couldn't find a spreadsheet ID in that link — paste the full Google Sheets URL.");return;}
+    setGsheetSpendError("");setGsheetSpendFetching(true);setGsheetSpendTabs(null);
+    try{
+      const{tabs}=await listSheetTabs(id);
+      if(!tabs.length)throw new Error("That spreadsheet has no sheets/tabs.");
+      setGsheetSpendSpreadsheetId(id);
+      if(tabs.length===1){await fetchGoogleSheetSpendTab(id,tabs[0].title);}
+      else{setGsheetSpendTabs(tabs);}
+    }catch(err){
+      setGsheetSpendError(err.message||"Couldn't connect to that Google Sheet.");
+    }finally{
+      setGsheetSpendFetching(false);
+    }
+  },[gsheetSpendUrl,fetchGoogleSheetSpendTab]);
 
   const handleFile=useCallback(file=>{
-    if(!file)return;setFileName(file.name);
+    if(!file)return;
     archiveFile(file,"Spend import");
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
-      const detected=autoDetect(r.meta.fields||[]);
-      setRawRows(r.data);setHeaders(r.meta.fields||[]);setColMap(detected);
-      // Carry-forward: count how many campaigns already have tags
-      const existingTagCount=r.data.reduce((count,row)=>{
-        const name=(row[detected.campaign_group_name]||"").trim();
-        return count+(name&&Object.keys(tags[name]||{}).length>0?1:0);
-      },0);
-      if(existingTagCount>0) showNotif(`${existingTagCount} campaigns already tagged from previous session`);
-      setUploadAsOf(""); // reset per-file; the effect below fills it once colMap.date is known
-      setStep("map");
+      applySpendGrid(r.data,r.meta.fields||[],file.name);
     }});
-  },[tags]);
+  },[applySpendGrid]);
   const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);},[handleFile]);
 
   // Auto-default "Data accurate through" for month-grain exports (Google/Bing report one row per
@@ -5454,19 +5569,28 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 const done=s==="done";
                 const err=s.startsWith("error:");
                 const live=pl.status==="live";
+                const needsConnect=pl.perWorkspaceAuth&&!connectedProviders[pl.key];
+                const active=live||pl.isSheets; // "active" here just means "not a plain CSV placeholder"
+                const handleClick=()=>{
+                  if(pl.isSheets){setGsheetSpendOpen(o=>!o);return;}
+                  if(needsConnect){openConnectPanel(pl.key);return;}
+                  if(live&&!loading)syncPlatform(pl.key);
+                };
+                const clickable=pl.isSheets||needsConnect||(live&&!loading);
+                const statusText=pl.isSheets?"pull":needsConnect?"connect":live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV";
                 return(
-                  <button key={pl.key} onClick={()=>live&&!loading&&syncPlatform(pl.key)}
-                    title={live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
+                  <button key={pl.key} onClick={handleClick}
+                    title={pl.isSheets?"Pull spend from a Google Sheet":needsConnect?`Connect your ${pl.label} account`:live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
                     style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,
-                      border:`1px solid ${live?(done?T.successBorder:err?T.dangerBorder:T.accentBorder):T.border}`,
-                      background:live?(done?T.successBg:err?T.dangerBg:T.accentBg):T.surfaceEl,
-                      cursor:live&&!loading?"pointer":"default",opacity:live?1:0.55,transition:"all 0.15s"}}>
+                      border:`1px solid ${active?(done?T.successBorder:err?T.dangerBorder:T.accentBorder):T.border}`,
+                      background:active?(done?T.successBg:err?T.dangerBg:T.accentBg):T.surfaceEl,
+                      cursor:clickable?"pointer":"default",opacity:active?1:0.55,transition:"all 0.15s"}}>
                     <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,
-                      background:live?(done?T.success:err?T.danger:pl.color):T.textMuted,
+                      background:active?(done?T.success:err?T.danger:pl.color):T.textMuted,
                       ...(loading?{border:`2px solid rgba(0,0,0,0.1)`,borderTopColor:pl.color,background:"transparent",animation:"spin 0.7s linear infinite"}:{})}}/>
-                    <span style={{fontSize:12,fontWeight:600,color:live?T.text:T.textMuted,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
-                    <span style={{fontSize:10,color:live?(done?T.success:err?T.danger:T.accent):T.textMuted,fontFamily:"Inter,sans-serif"}}>
-                      {live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV"}
+                    <span style={{fontSize:12,fontWeight:600,color:active?T.text:T.textMuted,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
+                    <span style={{fontSize:10,color:active?(done?T.success:err?T.danger:T.accent):T.textMuted,fontFamily:"Inter,sans-serif"}}>
+                      {statusText}
                     </span>
                   </button>
                 );
@@ -5475,6 +5599,72 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             {Object.entries(syncState).filter(([,s])=>s.startsWith("error:")).map(([k,s])=>(
               <div key={k} style={{marginTop:6,fontSize:11,color:T.danger}}>{k}: {s.replace("error:","")}</div>
             ))}
+
+            {/* Connect-your-account panel — Funnel.io/Supermetrics, generic over whatever
+                connectFields that platform's meta declares. Nothing is sent anywhere until Connect
+                is clicked; the credential goes straight to /api/workspaces/[id]/connections and is
+                never echoed back (see that route). */}
+            {connectPanelKey&&(()=>{
+              const pl=PLATFORMS.find(p=>p.key===connectPanelKey);
+              if(!pl)return null;
+              return(
+                <div style={{marginTop:10,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Connect {pl.label}</div>
+                    <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                    {(pl.connectFields||[]).map(f=>(
+                      <input key={f.key} value={connectValues[f.key]||""} placeholder={f.placeholder}
+                        onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
+                        style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                    ))}
+                  </div>
+                  {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
+                  <Btn onClick={()=>saveConnection(pl.key)}
+                    disabled={connectSaving||(pl.connectFields||[]).some(f=>!f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim())}
+                    variant="primary" size="sm" T={T}>{connectSaving?"Connecting…":"Connect"}</Btn>
+                </div>
+              );
+            })()}
+
+            {/* Google Sheets — separate shape from the connect panel above: no stored credential,
+                just a one-shot client-side pull (see lib/googleSheets.js) that lands on the same
+                header/column-mapping review step a CSV upload does. */}
+            {gsheetSpendOpen&&(
+              <div style={{marginTop:10,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Pull spend from Google Sheets</div>
+                  <span onClick={()=>{setGsheetSpendOpen(false);setGsheetSpendError("");setGsheetSpendTabs(null);}} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                </div>
+                {gsheetSpendTabs?.length>1?(
+                  <div>
+                    <div style={{fontSize:11,color:T.textSub,marginBottom:6}}>Which tab has the spend data?</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
+                      {gsheetSpendTabs.map(t=>(
+                        <button key={t.sheetId} disabled={gsheetSpendFetching} onClick={()=>fetchGoogleSheetSpendTab(gsheetSpendSpreadsheetId,t.title)}
+                          style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsheetSpendFetching?"default":"pointer",fontSize:11,fontFamily:"Inter,sans-serif",opacity:gsheetSpendFetching?0.6:1}}>{t.title}</button>
+                      ))}
+                    </div>
+                  </div>
+                ):(
+                  <>
+                    <input value={gsheetSpendUrl} onChange={e=>setGsheetSpendUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
+                      onKeyDown={e=>e.key==="Enter"&&!gsheetSpendFetching&&gsheetSpendUrl.trim()&&handleConnectGoogleSheetSpend()}
+                      style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:8}}/>
+                    <Btn onClick={handleConnectGoogleSheetSpend} disabled={gsheetSpendFetching||!gsheetSpendUrl.trim()} variant="primary" size="sm" T={T}>{gsheetSpendFetching?"Connecting…":"Connect"}</Btn>
+                  </>
+                )}
+                {gsheetSpendError&&(
+                  <div style={{marginTop:8,fontSize:11,color:T.danger}}>
+                    {gsheetSpendError}
+                    {gsheetSpendError.includes("access")&&(
+                      <>{" "}<span onClick={()=>{switchGoogleAccount();handleConnectGoogleSheetSpend();}} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different Google account</span></>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Upload zone */}
@@ -5531,7 +5721,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <PixelPanel T={T} contentStyle={{background:T.surface,padding:"10px 14px"}}>
               <SectionLabel T={T} style={{marginBottom:8}}>Supported sources</SectionLabel>
               <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                {["Google Ads","LinkedIn","Meta Ads","Microsoft Ads","Capterra","Funnel.io"].map(p=><span key={p} style={{fontSize:11,background:T.surfaceEl,color:T.textSub,padding:"3px 8px",borderRadius:5,fontWeight:500,border:`1px solid ${T.border}`}}>{p}</span>)}
+                {["Google Ads","LinkedIn","Meta Ads","Microsoft Ads","Capterra","Funnel.io","Supermetrics","Google Sheets","Excel Online"].map(p=><span key={p} style={{fontSize:11,background:T.surfaceEl,color:T.textSub,padding:"3px 8px",borderRadius:5,fontWeight:500,border:`1px solid ${T.border}`}}>{p}</span>)}
               </div>
             </PixelPanel>
           </div>
