@@ -18,12 +18,18 @@ const THEME = {
   bg:"#FAFAFA",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
   border:"#EAEAEA",borderStrong:"#D4D4D4",
   text:"#171717",textSub:"#666666",textMuted:"#8F8F8F",textDim:"#E5E5E5",
-  accent:"#000000",accentHover:"#333333",
-  accentBg:"rgba(0,0,0,0.05)",accentBorder:"rgba(0,0,0,0.15)",accentText:"#000000",
+  // Papaya (chosen 2026-07-19 over black/blue/violet/teal/several other rounds) — warm and
+  // distinct from every blue/purple ad-budget competitor, without reading as a hazard-orange
+  // warning color the way a fully-saturated safety orange would next to the app's own amber
+  // warning state. #FF7A59 itself is too light for white text/icons on top of it (~2.6:1
+  // contrast, fails WCAG AA) — onAccent below is the readable dark text/icon color for that case,
+  // and accentText is a deeper shade of the same hue for accent-colored text sitting on white.
+  accent:"#FF7A59",accentHover:"#E85C3A",onAccent:"#171717",
+  accentBg:"rgba(255,122,89,0.1)",accentBorder:"rgba(255,122,89,0.3)",accentText:"#C7431F",
   success:"#0C7A43",successBg:"rgba(12,122,67,0.08)",successBorder:"rgba(12,122,67,0.24)",
   warning:"#B25E09",warningBg:"rgba(178,94,9,0.08)",warningBorder:"rgba(178,94,9,0.24)",
   danger:"#E5484D",dangerBg:"rgba(229,72,77,0.08)",dangerBorder:"rgba(229,72,77,0.24)",
-  rowHover:"#FAFAFA",rowSelected:"rgba(0,0,0,0.04)",
+  rowHover:"#FAFAFA",rowSelected:"rgba(255,122,89,0.08)",
   inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#FAFAFA",topbarBg:"#FFFFFF",
   pill:"#F2F2F2",pillBorder:"#EAEAEA",
   badgeColors:["#0070F3","#7928CA","#FF0080","#0C7A43","#B25E09","#666666","#008672"],
@@ -356,7 +362,7 @@ const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"i
 const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={}})=>{
   const s={sm:{padding:"6px 14px",fontSize:12},md:{padding:"8px 18px",fontSize:13},lg:{padding:"10px 24px",fontSize:14}};
   const v={
-    primary:{background:T.accent,color:"#FFFFFF",border:"1px solid transparent"},
+    primary:{background:T.accent,color:T.onAccent,border:"1px solid transparent"},
     ghost:{background:"transparent",color:T.text,border:`1px solid ${T.border}`},
     subtle:{background:T.surfaceEl,color:T.text,border:"1px solid transparent"},
     success:{background:"transparent",color:T.success,border:`1px solid ${T.successBorder}`},
@@ -1486,7 +1492,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       <div style={{flex:1,overflow:"auto",minWidth:0}}>
         {!budgetDims.length?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
-            <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="wallet" size={24} color="#FFFFFF"/></div>
+            <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="wallet" size={24} color={T.onAccent}/></div>
             <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up your budget structure</div>
             <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Select dimensions to budget by, or import an existing budget file.</div>
             <Btn onClick={()=>setImportOpen(true)} variant="success" T={T} size="md">↑ Import CSV / Excel</Btn>
@@ -2245,7 +2251,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
       <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:T.bg}}>
         <div style={{textAlign:"center",maxWidth:380}}>
           <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
-            <Icon name="sparkle" size={24} color="#FFFFFF"/>
+            <Icon name="sparkle" size={24} color={T.onAccent}/>
           </div>
           <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI needs spend data first</div>
           <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Import or sync spend data in the Campaign Tagger, then come back here to ask questions about it.</div>
@@ -2425,7 +2431,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
           <div style={{marginBottom:40,position:"relative"}}>
             <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
               <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                <Icon name="bolt" size={24} color="#FFFFFF"/>
+                <Icon name="bolt" size={24} color={T.onAccent}/>
               </div>
               <div>
                 <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"Inter,sans-serif"}}>BudgetHQ</h1>
@@ -2475,7 +2481,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
         {/* Compact header — not onboarding anymore, so it doesn't need to sell the product */}
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:26}}>
           <div style={{width:36,height:36,borderRadius:9,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Icon name="bolt" size={18} color="#FFFFFF"/>
+            <Icon name="bolt" size={18} color={T.onAccent}/>
           </div>
           <div>
             <div style={{fontSize:20,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:"Inter,sans-serif"}}>Dashboard</div>
@@ -3520,7 +3526,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   if(!budgetDims.length){
     return(
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40,background:T.bg}}>
-        <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="chart" size={24} color="#FFFFFF"/></div>
+        <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="chart" size={24} color={T.onAccent}/></div>
         <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up budgets first</div>
         <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Pacing compares spend to your budget segments. Head to Budgets, choose dimensions to budget by, and set monthly amounts.</div>
         <Btn onClick={()=>onNavigate?.("budget")} variant="success" T={T} size="md">Go to Budgets →</Btn>
@@ -4953,7 +4959,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       <div style={{display:"flex",alignItems:"stretch",height:48,flexShrink:0,background:T.topbarBg,borderBottom:`1px solid ${T.border}`,zIndex:30,position:"relative"}}>
         <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:8,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
           <div style={{width:22,height:22,borderRadius:6,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Icon name="bolt" size={13} color="#FFFFFF"/>
+            <Icon name="bolt" size={13} color={T.onAccent}/>
           </div>
           {(statsOpen||isMobile)&&<div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
         </div>
