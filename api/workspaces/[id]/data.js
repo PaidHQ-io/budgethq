@@ -15,7 +15,12 @@
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement } from "../../lib/auth.js";
-import { withApi } from "../../lib/http.js";
+import { withApi, readJsonBody } from "../../lib/http.js";
+
+// Manual body parsing (readJsonBody) instead of Vercel's automatic JSON parser — see readJsonBody
+// in lib/http.js. This config's payload is normally small, but the client compresses it the same
+// way as spend-rows for consistency, so this route needs raw bytes too.
+export const config = { api: { bodyParser: false } };
 
 const EMPTY_CONFIG = {
   tags: {}, tagDims: [], budgets: {}, budgetDims: [],
@@ -46,7 +51,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "PUT") {
-    const b = req.body || {};
+    const b = await readJsonBody(req);
     const [row] = await sql`
       insert into budgethq.workspace_config
         (workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims, budget_import_meta, updated_at)

@@ -21,7 +21,14 @@
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement } from "../../lib/auth.js";
-import { withApi } from "../../lib/http.js";
+import { withApi, readJsonBody } from "../../lib/http.js";
+
+// Body parsing is manual (readJsonBody) instead of Vercel's automatic JSON parser — see
+// readJsonBody's doc comment in lib/http.js. PUT here sends a workspace's ENTIRE spend-rows
+// history on every save (see the PUT doc comment below), which for an active multi-platform
+// workspace routinely exceeds the automatic parser's assumptions once gzip-compressed on the
+// client — this route needs the raw compressed bytes, not Vercel's already-decoded req.body.
+export const config = { api: { bodyParser: false } };
 
 const toCamel = (r) => ({
   id: r.id,
@@ -58,7 +65,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "POST") {
-    const inputRows = (req.body || {}).rows;
+    const inputRows = (await readJsonBody(req)).rows;
     if (!Array.isArray(inputRows) || !inputRows.length) {
       return res.status(400).json({ error: "rows must be a non-empty array" });
     }
@@ -78,7 +85,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "PUT") {
-    const inputRows = (req.body || {}).rows;
+    const inputRows = (await readJsonBody(req)).rows;
     if (!Array.isArray(inputRows)) {
       return res.status(400).json({ error: "rows must be an array" });
     }
