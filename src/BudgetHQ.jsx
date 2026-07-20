@@ -2395,15 +2395,29 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
   const year=String(now.getFullYear());
   const month=String(now.getMonth()+1).padStart(2,"0");
   const monthLabel=MONTHS.find(m=>m.key===month)?.label||month;
+  const quarter=`Q${Math.floor(now.getMonth()/3)+1}`;
 
-  // Reuses the exact same pacing engine Reporting & Pacing runs — this is deliberately just "this
-  // month," not a period picker, since the Dashboard's job is a fast glance, not analysis (that's
-  // what the Pacing tab is for). Safe to call even with no budget structure yet — computePacing
-  // degrades to an empty segments array rather than throwing.
+  // Granularity for the "This month" snapshot — always the CURRENT month/quarter/year, never a
+  // manually-picked past period (that's what the Pacing tab's full period picker is for). This is
+  // just "zoom the lens," not a date navigator, so the Dashboard stays a fast glance. Persisted so
+  // it sticks across visits, same pattern as showRollups/hideNotBudgeted.
+  const[dashPeriodType,setDashPeriodType]=useState(()=>{
+    try{return localStorage.getItem("paidhq_dashboard_period_type")||"monthly";}catch{return"monthly";}
+  });
+  const changeDashPeriodType=k=>{
+    setDashPeriodType(k);
+    try{localStorage.setItem("paidhq_dashboard_period_type",k);}catch{/* ignore */}
+  };
+  const periodSectionLabel=dashPeriodType==="monthly"?"This month":dashPeriodType==="quarterly"?"This quarter":"This year";
+  const periodDateLabel=dashPeriodType==="monthly"?`${monthLabel} ${year}`:dashPeriodType==="quarterly"?`${quarter} ${year}`:`FY ${year}`;
+
+  // Reuses the exact same pacing engine Reporting & Pacing runs, just re-scoped to whichever
+  // granularity the switch above is set to. Safe to call even with no budget structure yet —
+  // computePacing degrades to an empty segments array rather than throwing.
   const pacing=useMemo(()=>{
     if(!isPopulated)return null;
-    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:"monthly",month,quarter:null,today:now});
-  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month]); // eslint-disable-line react-hooks/exhaustive-deps
+    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:dashPeriodType,month,quarter,today:now});
+  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month,quarter,dashPeriodType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const freshness=useMemo(()=>hasData?computePlatformFreshness(mergedNormRows):{},[hasData,mergedNormRows]);
 
@@ -2505,9 +2519,17 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
 
         {/* Headline stat tiles — only meaningful once a budget structure exists */}
         {budgetDims.length>0&&(<>
-          <div style={{marginBottom:8,fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:"Inter,sans-serif"}}>This month</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+            <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:"Inter,sans-serif"}}>{periodSectionLabel} <span style={{textTransform:"none",letterSpacing:0,fontWeight:500,color:T.textMuted}}>· {periodDateLabel}</span></div>
+            <div style={{display:"flex",gap:3}}>
+              {[["monthly","Mo"],["quarterly","Qtr"],["annual","Yr"]].map(([k,l])=>(
+                <button key={k} onClick={()=>changeDashPeriodType(k)} title={`View ${l==="Mo"?"month":l==="Qtr"?"quarter":"year"}-to-date pacing`}
+                  style={{padding:"3px 10px",borderRadius:6,border:`1.5px solid ${dashPeriodType===k?T.accentHover:T.border}`,background:dashPeriodType===k?T.accent:"transparent",color:dashPeriodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:dashPeriodType===k?700:500,fontFamily:"Inter,sans-serif"}}>{l}</button>
+              ))}
+            </div>
+          </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:22}}>
-            <DashStatTile T={T} label="Total budget (this month)" value={totalBudget>0?fmtFull(totalBudget):"—"}/>
+            <DashStatTile T={T} label={`Total budget (${periodSectionLabel.toLowerCase()})`} value={totalBudget>0?fmtFull(totalBudget):"—"}/>
             <DashStatTile T={T} label="Spend to date" value={hasData?fmtFull(totalSpend):"—"}/>
             <DashStatTile T={T} label="Overall pacing" value={overallPct!=null?`${Math.round(overallPct*100)}%`:"—"}/>
             <DashStatTile T={T} label="Needs attention" value={String(attention.length)} valueColor={attention.length>0?T.danger:T.success}/>
