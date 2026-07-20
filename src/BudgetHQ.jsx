@@ -4291,7 +4291,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   useEffect(()=>{preloadGoogleSheetsApi();},[]);
 
   const[step,setStep]=useState("upload");
-  const[view,setView]=useState("dashboard");
+  // Which tab was open persists across a refresh/reopen (2026-07-20 — previously always forced
+  // back to Dashboard on load; changed on request so refreshing doesn't feel like it dropped you
+  // out of whatever you were doing). Device-local, same as sidebar width below — not workspace
+  // data, so it doesn't follow you to a different browser/device, which is fine since "what tab
+  // was I on" is a per-device habit, not something a team needs to share.
+  const VALID_VIEWS=["dashboard","tagger","budget","pacing","ask","settings"];
+  const[view,setView]=useState(()=>{
+    try{const v=localStorage.getItem("paidhq_last_view");return VALID_VIEWS.includes(v)?v:"dashboard";}catch(e){return "dashboard";}
+  });
   const[statsOpen,setStatsOpen]=useState(true);
   // Resizable stats sidebar — width is user-adjustable (drag handle on its right edge) and
   // persisted across sessions, since it now hosts contextual panel content (e.g. the full
@@ -4524,15 +4532,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
 
   // Device-local preferences only (not workspace data — these stay in localStorage even after
   // the data-layer migration below, since there's no reason a sidebar width should follow you to
-  // a different browser/device). Deliberately NOT restoring the last-open tab here — Dashboard is
-  // always the landing view on a fresh load, so the app always opens to the same orienting screen
-  // instead of dropping people back into whatever dense table they last had open.
+  // a different browser/device).
   useEffect(()=>{try{
     const le=localStorage.getItem("paidhq_last_export_email");if(le)setEmailExportTo(le);
     const ac=localStorage.getItem("paidhq_ask_chats");if(ac)setAskChats(JSON.parse(ac));
     const aid=localStorage.getItem("paidhq_ask_active_chat");if(aid)setActiveAskChatId(aid);
   }catch(e){};},[]);
   useEffect(()=>{try{localStorage.setItem("paidhq_ask_chats",JSON.stringify(askChats));}catch(e){};},[askChats]);
+  // Persists whichever tab is open (see the VALID_VIEWS-checked useState above) so a refresh
+  // reopens the same tab instead of always resetting to Dashboard.
+  useEffect(()=>{try{localStorage.setItem("paidhq_last_view",view);}catch(e){};},[view]);
   useEffect(()=>{try{if(activeAskChatId)localStorage.setItem("paidhq_ask_active_chat",activeAskChatId);else localStorage.removeItem("paidhq_ask_active_chat");}catch(e){};},[activeAskChatId]);
 
   // ── Workspace data (tags/dims/budgets/spend rows) — synced with the server, not localStorage ──
