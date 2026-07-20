@@ -2521,10 +2521,10 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
         {budgetDims.length>0&&(<>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
             <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:"Inter,sans-serif"}}>{periodSectionLabel} <span style={{textTransform:"none",letterSpacing:0,fontWeight:500,color:T.textMuted}}>· {periodDateLabel}</span></div>
-            <div style={{display:"flex",gap:3}}>
+            <div style={{display:"flex",gap:2}}>
               {[["monthly","Mo"],["quarterly","Qtr"],["annual","Yr"]].map(([k,l])=>(
                 <button key={k} onClick={()=>changeDashPeriodType(k)} title={`View ${l==="Mo"?"month":l==="Qtr"?"quarter":"year"}-to-date pacing`}
-                  style={{padding:"3px 10px",borderRadius:6,border:`1.5px solid ${dashPeriodType===k?T.accentHover:T.border}`,background:dashPeriodType===k?T.accent:"transparent",color:dashPeriodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:dashPeriodType===k?700:500,fontFamily:"Inter,sans-serif"}}>{l}</button>
+                  style={{padding:"3px 9px 5px",borderRadius:0,border:"none",borderBottom:`2px solid ${dashPeriodType===k?T.accent:"transparent"}`,background:"transparent",color:dashPeriodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:dashPeriodType===k?700:500,fontFamily:"Inter,sans-serif",transition:"color 0.12s,border-color 0.12s"}}>{l}</button>
               ))}
             </div>
           </div>
