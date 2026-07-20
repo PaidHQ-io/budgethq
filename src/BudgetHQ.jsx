@@ -8,29 +8,30 @@ import { getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows } fr
 import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchSheetGrid, preloadGoogleSheetsApi, switchGoogleAccount } from "./lib/googleSheets";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
-// VaultHQ-matched palette (redesign, July 2026) — Notion-inspired light theme shared across
-// the PaidHQ suite: near-white neutral surfaces, quiet 1px borders instead of card shadows,
-// a single restrained blue accent instead of a loud fill everywhere. Light mode only — the
-// dark/light toggle that used to live in Settings has been removed along with the old
-// dark-gray "Obsidian" theme it switched to.
+// Vercel-matched palette (redesign, July 2026) — monochrome black/white/gray surfaces like the
+// Vercel dashboard, with a black primary accent instead of a colored one (Vercel's signature
+// "black button" — every primary CTA, active tab, checkbox fill, and focus ring is black/near-
+// black now, not blue). badgeColors keeps some variety for tag-dimension pills, pulled from
+// Vercel's own brand gradient (blue/purple/pink) plus a couple of supporting hues, rather than
+// full rainbow. Light mode only, same as the palette this replaces.
 const THEME = {
-  bg:"#FFFFFF",surface:"#FFFFFF",surfaceEl:"#F7F7F5",surfaceHover:"#EFEFED",
-  border:"#E9E9E7",borderStrong:"#D8D8D5",
-  text:"#37352F",textSub:"#787774",textMuted:"#9B9A97",textDim:"#E3E2E0",
-  accent:"#2383E2",accentHover:"#1A73CE",
-  accentBg:"rgba(35,131,226,0.1)",accentBorder:"rgba(35,131,226,0.3)",accentText:"#0B6BC2",
-  success:"#2F9E44",successBg:"rgba(47,158,68,0.1)",successBorder:"rgba(47,158,68,0.25)",
-  warning:"#D9730D",warningBg:"rgba(217,115,13,0.1)",warningBorder:"rgba(217,115,13,0.25)",
-  danger:"#E03E3E",dangerBg:"rgba(224,62,62,0.1)",dangerBorder:"rgba(224,62,62,0.25)",
-  rowHover:"#F1F1EF",rowSelected:"rgba(35,131,226,0.08)",
-  inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#FBFBFA",topbarBg:"#FFFFFF",
-  pill:"#F1F1EF",pillBorder:"#EDEDEB",
-  badgeColors:["#E03E3E","#9065B0","#2383E2","#2F9E44","#D9730D","#787774","#0F7B6C"],
+  bg:"#FFFFFF",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
+  border:"#EAEAEA",borderStrong:"#D4D4D4",
+  text:"#171717",textSub:"#666666",textMuted:"#8F8F8F",textDim:"#E5E5E5",
+  accent:"#000000",accentHover:"#333333",
+  accentBg:"rgba(0,0,0,0.05)",accentBorder:"rgba(0,0,0,0.15)",accentText:"#000000",
+  success:"#0C7A43",successBg:"rgba(12,122,67,0.08)",successBorder:"rgba(12,122,67,0.24)",
+  warning:"#B25E09",warningBg:"rgba(178,94,9,0.08)",warningBorder:"rgba(178,94,9,0.24)",
+  danger:"#E5484D",dangerBg:"rgba(229,72,77,0.08)",dangerBorder:"rgba(229,72,77,0.24)",
+  rowHover:"#FAFAFA",rowSelected:"rgba(0,0,0,0.04)",
+  inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#FAFAFA",topbarBg:"#FFFFFF",
+  pill:"#F2F2F2",pillBorder:"#EAEAEA",
+  badgeColors:["#0070F3","#7928CA","#FF0080","#0C7A43","#B25E09","#666666","#008672"],
   shadow:"none",
-  shadowMd:"0 9px 24px rgba(15,15,15,0.12),0 2px 6px rgba(15,15,15,0.06)",
+  shadowMd:"0 8px 24px rgba(0,0,0,0.08),0 2px 6px rgba(0,0,0,0.04)",
   // Not part of Mo's spec (only shadow/shadowMd were given) — derived slightly larger for
   // full-screen modal overlays, which still read best with a touch more lift than dropdowns.
-  shadowLg:"0 20px 48px rgba(15,15,15,0.16),0 6px 16px rgba(15,15,15,0.08)",
+  shadowLg:"0 20px 48px rgba(0,0,0,0.12),0 6px 16px rgba(0,0,0,0.06)",
 };
 
 const MONTHS=[{key:"01",label:"Jan"},{key:"02",label:"Feb"},{key:"03",label:"Mar"},{key:"04",label:"Apr"},{key:"05",label:"May"},{key:"06",label:"Jun"},{key:"07",label:"Jul"},{key:"08",label:"Aug"},{key:"09",label:"Sep"},{key:"10",label:"Oct"},{key:"11",label:"Nov"},{key:"12",label:"Dec"}];
@@ -3301,20 +3302,20 @@ function reportToCSVString(report){
 
 function reportToHTMLString(report){
   const sectionsHtml=report.sections.map(sec=>`
-    <h2 style="font-size:16px;font-weight:700;color:#37352F;margin:28px 0 10px;">${escHtml(sec.heading)}</h2>
+    <h2 style="font-size:16px;font-weight:700;color:#171717;margin:28px 0 10px;">${escHtml(sec.heading)}</h2>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr>${sec.headers.map(h=>`<th style="text-align:left;padding:8px 10px;background:#F7F7F5;border-bottom:2px solid #D8D8D5;color:#787774;font-weight:600;">${escHtml(h)}</th>`).join("")}</tr></thead>
-      <tbody>${(sec.rows.length?sec.rows:null)?sec.rows.map((r,i)=>`<tr style="background:${i%2?"#F7F7F5":"#FFFFFF"};">${r.map(c=>`<td style="padding:7px 10px;border-bottom:1px solid #E9E9E7;color:#37352F;">${escHtml(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${sec.headers.length}" style="padding:14px 10px;color:#9B9A97;">No data</td></tr>`}</tbody>
+      <thead><tr>${sec.headers.map(h=>`<th style="text-align:left;padding:8px 10px;background:#FAFAFA;border-bottom:2px solid #D4D4D4;color:#666666;font-weight:600;">${escHtml(h)}</th>`).join("")}</tr></thead>
+      <tbody>${(sec.rows.length?sec.rows:null)?sec.rows.map((r,i)=>`<tr style="background:${i%2?"#FAFAFA":"#FFFFFF"};">${r.map(c=>`<td style="padding:7px 10px;border-bottom:1px solid #EAEAEA;color:#171717;">${escHtml(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${sec.headers.length}" style="padding:14px 10px;color:#8F8F8F;">No data</td></tr>`}</tbody>
     </table>`).join("");
   return`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(report.title)}</title></head>
   <body style="font-family:-apple-system,Inter,sans-serif;background:#FFFFFF;padding:32px;margin:0;">
-    <div style="max-width:900px;margin:0 auto;background:#FFFFFF;border-radius:8px;padding:32px 36px;border:1px solid #E9E9E7;">
+    <div style="max-width:900px;margin:0 auto;background:#FFFFFF;border-radius:8px;padding:32px 36px;border:1px solid #EAEAEA;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
-        <span style="width:26px;height:26px;border-radius:7px;background:#2383E2;display:inline-block;"></span>
-        <span style="font-size:15px;font-weight:700;color:#37352F;">BudgetHQ</span>
+        <span style="width:26px;height:26px;border-radius:7px;background:#000000;display:inline-block;"></span>
+        <span style="font-size:15px;font-weight:700;color:#171717;">BudgetHQ</span>
       </div>
-      <h1 style="font-size:22px;font-weight:800;color:#37352F;margin:18px 0 2px;">${escHtml(report.title)}</h1>
-      <p style="font-size:12px;color:#9B9A97;margin:0 0 8px;">${escHtml(report.subtitle)}</p>
+      <h1 style="font-size:22px;font-weight:800;color:#171717;margin:18px 0 2px;">${escHtml(report.title)}</h1>
+      <p style="font-size:12px;color:#8F8F8F;margin:0 0 8px;">${escHtml(report.subtitle)}</p>
       ${sectionsHtml}
     </div>
   </body></html>`;
@@ -3323,27 +3324,27 @@ function reportToHTMLString(report){
 function buildReportPDFDoc(report){
   const doc=new jsPDF({unit:"pt",format:"letter"});
   const marginX=40;let y=50;
-  doc.setFillColor(35,131,226);
+  doc.setFillColor(0,0,0);
   doc.roundedRect(marginX,y-14,18,18,4,4,"F");
-  doc.setFontSize(13);doc.setTextColor(55,53,47);doc.setFont(undefined,"bold");
+  doc.setFontSize(13);doc.setTextColor(23,23,23);doc.setFont(undefined,"bold");
   doc.text("BudgetHQ",marginX+26,y+1);
   y+=28;
   doc.setFontSize(18);doc.text(report.title,marginX,y);
   y+=15;
-  doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(155,154,151);
+  doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(143,143,143);
   doc.text(report.subtitle,marginX,y);
   y+=12;
   report.sections.forEach(sec=>{
     if(y>700){doc.addPage();y=50;}
-    doc.setFontSize(12);doc.setTextColor(55,53,47);doc.setFont(undefined,"bold");
+    doc.setFontSize(12);doc.setTextColor(23,23,23);doc.setFont(undefined,"bold");
     doc.text(sec.heading,marginX,y+16);
     autoTable(doc,{
       startY:y+22,margin:{left:marginX,right:marginX},
       head:[sec.headers],
       body:sec.rows.length?sec.rows:[sec.headers.map((h,i)=>i===0?"No data":"")],
-      styles:{fontSize:8.5,cellPadding:5,textColor:[55,53,47]},
-      headStyles:{fillColor:[247,247,245],textColor:[120,119,116],fontStyle:"bold",lineWidth:0.5,lineColor:[216,216,213]},
-      alternateRowStyles:{fillColor:[247,247,245]},
+      styles:{fontSize:8.5,cellPadding:5,textColor:[23,23,23]},
+      headStyles:{fillColor:[250,250,250],textColor:[102,102,102],fontStyle:"bold",lineWidth:0.5,lineColor:[212,212,212]},
+      alternateRowStyles:{fillColor:[250,250,250]},
       theme:"grid",
     });
     y=doc.lastAutoTable.finalY+26;

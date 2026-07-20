@@ -1,25 +1,25 @@
 import { useState } from "react";
 import { supabase, supabaseConfigured } from "./lib/supabaseClient";
 
-// Small standalone subset of BudgetHQ's VaultHQ-matched theme tokens — kept local rather than
+// Small standalone subset of BudgetHQ's Vercel-matched theme tokens — kept local rather than
 // imported from BudgetHQ.jsx since this screen renders before any workspace/session data exists
 // and shouldn't depend on that file's internals.
 const T = {
   bg: "#FFFFFF",
   surface: "#FFFFFF",
-  surfaceEl: "#F7F7F5",
-  border: "#E9E9E7",
-  text: "#37352F",
-  textSub: "#787774",
-  textMuted: "#9B9A97",
-  accent: "#2383E2",
-  accentHover: "#1A73CE",
-  danger: "#E03E3E",
-  dangerBg: "rgba(224,62,62,0.1)",
-  dangerBorder: "rgba(224,62,62,0.25)",
-  success: "#2F9E44",
-  successBg: "rgba(47,158,68,0.1)",
-  successBorder: "rgba(47,158,68,0.25)",
+  surfaceEl: "#FAFAFA",
+  border: "#EAEAEA",
+  text: "#171717",
+  textSub: "#666666",
+  textMuted: "#8F8F8F",
+  accent: "#000000",
+  accentHover: "#333333",
+  danger: "#E5484D",
+  dangerBg: "rgba(229,72,77,0.08)",
+  dangerBorder: "rgba(229,72,77,0.24)",
+  success: "#0C7A43",
+  successBg: "rgba(12,122,67,0.08)",
+  successBorder: "rgba(12,122,67,0.24)",
 };
 
 const inputStyle = {

@@ -7,17 +7,17 @@ import BudgetHQ from "./BudgetHQ";
 const T = {
   bg: "#FFFFFF",
   surface: "#FFFFFF",
-  surfaceEl: "#F7F7F5",
-  border: "#E9E9E7",
-  text: "#37352F",
-  textSub: "#787774",
-  textMuted: "#9B9A97",
-  accent: "#2383E2",
-  accentBg: "rgba(35,131,226,0.1)",
-  accentBorder: "rgba(35,131,226,0.3)",
-  danger: "#E03E3E",
-  dangerBg: "rgba(224,62,62,0.1)",
-  dangerBorder: "rgba(224,62,62,0.25)",
+  surfaceEl: "#FAFAFA",
+  border: "#EAEAEA",
+  text: "#171717",
+  textSub: "#666666",
+  textMuted: "#8F8F8F",
+  accent: "#000000",
+  accentBg: "rgba(0,0,0,0.05)",
+  accentBorder: "rgba(0,0,0,0.15)",
+  danger: "#E5484D",
+  dangerBg: "rgba(229,72,77,0.08)",
+  dangerBorder: "rgba(229,72,77,0.24)",
 };
 
 const ACTIVE_WORKSPACE_KEY = "paidhq_active_workspace_id";

@@ -30,7 +30,7 @@ export default function AuthGate() {
           alignItems: "center",
           justifyContent: "center",
           fontFamily: "Inter,sans-serif",
-          color: "#9B9A97",
+          color: "#8F8F8F",
           fontSize: 13,
         }}
       >
