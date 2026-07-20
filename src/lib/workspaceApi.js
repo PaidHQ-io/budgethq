@@ -27,10 +27,16 @@ export function getWorkspaceConfig(session, workspaceId) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/data`);
 }
 
-export function putWorkspaceConfig(session, workspaceId, config) {
+// fetchOpts is normally omitted — it exists so the beforeunload/visibilitychange flush in
+// BudgetHQ.jsx can pass `{keepalive:true}`. A plain fetch gets silently aborted the instant the
+// page starts navigating away/closing; `keepalive` is the one browser mechanism that lets a fetch
+// started right before unload actually finish (same purpose as navigator.sendBeacon, but usable
+// here since sendBeacon can't send a custom Authorization header the way fetch can).
+export function putWorkspaceConfig(session, workspaceId, config, fetchOpts = {}) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/data`, {
     method: "PUT",
     body: JSON.stringify(config),
+    ...fetchOpts,
   });
 }
 
@@ -42,9 +48,11 @@ export function getSpendRows(session, workspaceId) {
 
 // Whole-dataset replace — see spend-rows.js's PUT handler doc comment for why this is the
 // migration's chosen sync model instead of trying to move mergeRows()'s dedupe logic server-side.
-export function putSpendRows(session, workspaceId, rows) {
+// See putWorkspaceConfig above for what fetchOpts/keepalive is for.
+export function putSpendRows(session, workspaceId, rows, fetchOpts = {}) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/spend-rows`, {
     method: "PUT",
     body: JSON.stringify({ rows }),
+    ...fetchOpts,
   });
 }

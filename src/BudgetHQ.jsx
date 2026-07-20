@@ -4633,13 +4633,29 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       .finally(()=>setWorkspaceDataLoading(false));
   },[workspace?.id,session]);
 
+  // ── Data-loss fix (2026-07-20): the debounced saves below have an 800ms window where a real
+  // edit sits only in React state, not yet on the server. Refreshing, closing the tab, or
+  // navigating away inside that window used to just abandon the pending setTimeout — the save
+  // never fired, and the edit was gone for good on reload. These refs track "is there an unsaved
+  // change right now" plus the latest snapshot to send, so a beforeunload/visibilitychange
+  // listener (registered once, below) can flush immediately instead of waiting out the debounce —
+  // see flushPendingSaves.
+  const configDirtyRef=useRef(false);
+  const rowsDirtyRef=useRef(false);
+  const latestConfigRef=useRef(null);
+  const latestRowsRef=useRef(null);
+  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta};});
+  useEffect(()=>{latestRowsRef.current=mergedNormRows;});
+
   // Debounced whole-document save — mirrors the shape api/workspaces/[id]/data.js's PUT expects.
   useEffect(()=>{
     if(!workspace?.id||!session||!configLoadedRef.current)return;
+    configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
       putWorkspaceConfig(session,workspace.id,{tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta})
-        .catch(e=>console.error("[workspace config save]",e));
+        .then(()=>{configDirtyRef.current=false;})
+        .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
   },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,workspace?.id,session]);
@@ -4648,12 +4664,47 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // replace-all (not incremental) is the sync model here.
   useEffect(()=>{
     if(!workspace?.id||!session||!rowsLoadedRef.current)return;
+    rowsDirtyRef.current=true;
     clearTimeout(saveRowsTimer.current);
     saveRowsTimer.current=setTimeout(()=>{
-      putSpendRows(session,workspace.id,mergedNormRows).catch(e=>console.error("[spend rows save]",e));
+      putSpendRows(session,workspace.id,mergedNormRows)
+        .then(()=>{rowsDirtyRef.current=false;})
+        .catch(e=>console.error("[spend rows save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveRowsTimer.current);
   },[mergedNormRows,workspace?.id,session]);
+
+  // Fires the pending save(s) immediately instead of waiting out the 800ms debounce — called right
+  // before the page actually goes away. Uses `keepalive:true` so the request survives past the
+  // point the browser would normally cancel in-flight fetches for an unloading page (same
+  // mechanism sendBeacon uses, chosen over sendBeacon itself because it needs a custom
+  // Authorization header). One real limit worth knowing: keepalive requests are capped around 64KB
+  // by the browser, so a workspace with a very large spend-rows dataset could still lose its very
+  // last edit in this narrow window — everything below 800ms-old at unload time for smaller/
+  // typical workspaces is covered, which is the vast majority of real "I refreshed too fast" cases.
+  const flushPendingSaves=useCallback(()=>{
+    if(!workspace?.id||!session)return;
+    if(configDirtyRef.current&&latestConfigRef.current){
+      clearTimeout(saveConfigTimer.current);
+      putWorkspaceConfig(session,workspace.id,latestConfigRef.current,{keepalive:true}).catch(()=>{});
+      configDirtyRef.current=false;
+    }
+    if(rowsDirtyRef.current&&latestRowsRef.current){
+      clearTimeout(saveRowsTimer.current);
+      putSpendRows(session,workspace.id,latestRowsRef.current,{keepalive:true}).catch(()=>{});
+      rowsDirtyRef.current=false;
+    }
+  },[workspace?.id,session]);
+
+  useEffect(()=>{
+    const onHide=()=>{if(document.visibilityState==="hidden")flushPendingSaves();};
+    window.addEventListener("beforeunload",flushPendingSaves);
+    document.addEventListener("visibilitychange",onHide);
+    return()=>{
+      window.removeEventListener("beforeunload",flushPendingSaves);
+      document.removeEventListener("visibilitychange",onHide);
+    };
+  },[flushPendingSaves]);
 
   // ── Platform sync ──────────────────────────────────────────────────────────
   const[syncState,setSyncState]=useState({}); // {platform: "idle"|"loading"|"done"|"error"}
