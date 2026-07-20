@@ -65,35 +65,35 @@ export function switchGoogleAccount() {
   forceAccountPickerNext = true;
 }
 
-async function getAccessToken() {
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-  if (!clientId) {
-    throw new Error("Google Sheets export isn't configured yet — VITE_GOOGLE_CLIENT_ID is missing.");
-  }
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 30000 && !forceAccountPickerNext) {
-    return cachedToken.accessToken;
-  }
-  await loadGis();
+// Requests a token for a given GIS `prompt` value. Split out from getAccessToken so a stalled
+// silent attempt can transparently retry once with a visible popup (see the isSilent branch
+// below) rather than making the caller wait out the full timeout for something that was never
+// going to complete.
+function requestToken(prompt, { allowSilentRetry = true } = {}) {
   return new Promise((resolve, reject) => {
-    if (!tokenClient) {
-      tokenClient = window.google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: SHEETS_SCOPE,
-        callback: () => {}, // replaced per-request just below
-      });
-    }
-    // If the browser silently blocks the consent popup (most likely when it opens outside a
-    // synchronous click — see preloadGoogleSheetsApi's comment above), Google's callback never
-    // fires at all: no error, no resolve, nothing. Without this timeout that leaves the caller's
-    // UI stuck on "Connecting…"/"Exporting…" forever with no feedback. 25s comfortably covers a
-    // real consent flow (pick account, review scopes, click Allow) while still surfacing a
-    // specific, actionable error if the popup never actually appeared.
+    // Silent attempts (`prompt: ""`) don't open any visible window — GIS tries a hidden
+    // background refresh instead. Increasingly, Chrome's third-party-cookie/storage restrictions
+    // make that hidden refresh just hang forever with no callback ever firing and nothing visible
+    // on screen at all — that's the "I clicked Connect and literally nothing happened" report.
+    // Google's docs say silent mode "falls back to a popup on its own" when it can't complete
+    // silently, but that fallback isn't reliable in practice. So: give a silent attempt a short
+    // 4s leash, and if it hasn't resolved by then, explicitly retry once with `prompt: "consent"`
+    // to force a real, visible popup instead of continuing to wait on a dead silent request.
+    // Explicit prompts (consent / select_account consent) get the full 25s, which comfortably
+    // covers an actual pick-account-review-scopes-click-Allow flow.
+    const isSilent = prompt === "";
+    const budgetMs = isSilent ? 4000 : 25000;
     let settled = false;
     const timeout = setTimeout(() => {
       if (settled) return;
+      if (isSilent && allowSilentRetry) {
+        settled = true;
+        requestToken("consent", { allowSilentRetry: false }).then(resolve, reject);
+        return;
+      }
       settled = true;
       reject(new Error("Google's sign-in window didn't open or wasn't completed — check if your browser blocked a popup for this site, allow it, and try again."));
-    }, 25000);
+    }, budgetMs);
     tokenClient.callback = (resp) => {
       if (settled) return;
       settled = true;
@@ -109,13 +109,32 @@ async function getAccessToken() {
       hasPromptedOnce = true;
       resolve(resp.access_token);
     };
-    // First grant in this page session shows the consent popup; later refreshes try silently
-    // first (falls back to a popup on its own if Google decides silent reauth isn't possible).
-    // switchGoogleAccount() forces Google's account chooser explicitly, overriding both of those.
-    const prompt = forceAccountPickerNext ? "select_account consent" : (hasPromptedOnce ? "" : "consent");
-    forceAccountPickerNext = false;
     tokenClient.requestAccessToken({ prompt });
   });
+}
+
+async function getAccessToken() {
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    throw new Error("Google Sheets export isn't configured yet — VITE_GOOGLE_CLIENT_ID is missing.");
+  }
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 30000 && !forceAccountPickerNext) {
+    return cachedToken.accessToken;
+  }
+  await loadGis();
+  if (!tokenClient) {
+    tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: SHEETS_SCOPE,
+      callback: () => {}, // replaced per-request inside requestToken()
+    });
+  }
+  // First grant in this page session shows the consent popup; later refreshes try silently
+  // first (requestToken auto-retries with a visible popup if the silent attempt stalls).
+  // switchGoogleAccount() forces Google's account chooser explicitly, overriding both of those.
+  const prompt = forceAccountPickerNext ? "select_account consent" : (hasPromptedOnce ? "" : "consent");
+  forceAccountPickerNext = false;
+  return requestToken(prompt);
 }
 
 async function sheetsFetch(accessToken, path, options = {}) {
