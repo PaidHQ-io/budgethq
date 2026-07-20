@@ -371,6 +371,23 @@ const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChang
 const Tog=({value,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange(!value);}} style={{width:30,height:17,borderRadius:9,background:value?T.accent:T.borderStrong,position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0}}><div style={{position:"absolute",top:2,left:value?15:2,width:13,height:13,borderRadius:7,background:"#fff",transition:"left 0.18s",boxShadow:"0 1px 3px rgba(0,0,0,0.25)"}}/></div>);
 const Chk=({checked,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange();}} style={{width:15,height:15,borderRadius:4,border:`1.5px solid ${checked?T.accent:T.borderStrong}`,background:checked?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all 0.12s"}}>{checked&&<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>);
 const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:color||T.text}}>{value}</span></div>);
+// Big label/value card used by the populated Dashboard's summary row (Total budget/Spend/Pacing/
+// Needs attention) — bigger type than StatRow since these are the headline numbers of the page.
+const DashStatTile=({label,value,valueColor,T})=>(
+  <PixelPanel T={T} contentStyle={{padding:"14px 16px"}}>
+    <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6,fontFamily:"Inter,sans-serif"}}>{label}</div>
+    <div style={{fontSize:20,fontWeight:800,color:valueColor||T.text,fontFamily:"Inter,sans-serif"}}>{value}</div>
+  </PixelPanel>
+);
+// Clickable row used by the populated Dashboard's Quick actions card — a count + label that
+// navigates to wherever that count can be resolved (Tagger for untagged, Budget Panel for
+// segments spending with no budget set, etc.).
+const DashQuickAction=({label,onClick,T})=>(
+  <div onClick={onClick} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 8px",borderRadius:6,cursor:"pointer"}}>
+    <span style={{fontSize:12,color:T.text,fontFamily:"Inter,sans-serif"}}>{label}</span>
+    <span style={{fontSize:13,color:T.textMuted,fontWeight:700}}>→</span>
+  </div>
+);
 // Flips how a filter field's comma-separated terms combine — "or" (matches/excludes on ANY term)
 // vs "and" (only when ALL terms are present in the same row). Labeled ANY/ALL rather than OR/AND —
 // tested "OR"/"AND" as button text and it was genuinely confusing on the exclude side specifically:
@@ -2333,7 +2350,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({T,onNavigate,stats,hasData}){
+function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,mergedNormRows}){
   const cardBg=T.surface;
   const bc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent,T.accent];
   const cards=[
@@ -2358,49 +2375,205 @@ function Dashboard({T,onNavigate,stats,hasData}){
       action:"Coming soon",color:T.textMuted,disabled:true,
     },
   ];
-  return(
-    <div style={{flex:1,overflow:"auto",background:T.bg}}>
-      <div style={{maxWidth:960,margin:"0 auto",padding:"48px 32px"}}>
-        {/* Hero */}
-        <div style={{marginBottom:40,position:"relative"}}>
-          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
-            <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-              <Icon name="bolt" size={24} color="#FFFFFF"/>
+
+  // A brand-new workspace (no spend data AND no budget entered anywhere) still gets the original
+  // onboarding hero below. The instant either exists, the page's job changes from "how do I start"
+  // to "what's the state of things" — see 2026-07-19 UX review for why those can't be the same
+  // screen. hasBudgetData checks every year's budget object, not just the current year, so a
+  // workspace someone only set up for next year still counts as populated.
+  const hasBudgetData=useMemo(()=>Object.keys(budgets||{}).some(y=>Object.keys(budgets[y]||{}).length>0),[budgets]);
+  const isPopulated=hasData||hasBudgetData;
+
+  const now=new Date();
+  const year=String(now.getFullYear());
+  const month=String(now.getMonth()+1).padStart(2,"0");
+  const monthLabel=MONTHS.find(m=>m.key===month)?.label||month;
+
+  // Reuses the exact same pacing engine Reporting & Pacing runs — this is deliberately just "this
+  // month," not a period picker, since the Dashboard's job is a fast glance, not analysis (that's
+  // what the Pacing tab is for). Safe to call even with no budget structure yet — computePacing
+  // degrades to an empty segments array rather than throwing.
+  const pacing=useMemo(()=>{
+    if(!isPopulated)return null;
+    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:"monthly",month,quarter:null,today:now});
+  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const freshness=useMemo(()=>hasData?computePlatformFreshness(mergedNormRows):{},[hasData,mergedNormRows]);
+
+  // Only real problems — segments with actual spend data that are genuinely over or behind plan.
+  // "no-data"/"no-budget" segments deliberately excluded here (see the pacingStatusMeta "no-data"
+  // fix from the earlier UX pass) — an unsynced segment isn't "attention," it's just unmeasured.
+  const attention=useMemo(()=>{
+    if(!pacing)return[];
+    return pacing.segments.filter(s=>s.status==="over"||s.status==="behind")
+      .sort((a,b)=>Math.abs(b.projectedVariance||0)-Math.abs(a.projectedVariance||0))
+      .slice(0,6);
+  },[pacing]);
+
+  // Segments with real spend but nobody's entered a budget for them yet — a genuinely actionable
+  // gap, distinct from "behind pace," and only detectable once there's spend data to compare against.
+  const noBudgetCount=useMemo(()=>pacing?pacing.segments.filter(s=>s.status==="no-budget"&&s.spend>0).length:0,[pacing]);
+
+  const safeTextColor=c=>c===T.accent?T.text:c;
+
+  if(!isPopulated){
+    return(
+      <div style={{flex:1,overflow:"auto",background:T.bg}}>
+        <div style={{maxWidth:960,margin:"0 auto",padding:"48px 32px"}}>
+          {/* Hero */}
+          <div style={{marginBottom:40,position:"relative"}}>
+            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
+              <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <Icon name="bolt" size={24} color="#FFFFFF"/>
+              </div>
+              <div>
+                <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"Inter,sans-serif"}}>BudgetHQ</h1>
+                <div style={{fontSize:12,fontWeight:600,color:T.textSub,letterSpacing:"0.02em",fontFamily:"Inter,sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
+              </div>
             </div>
-            <div>
-              <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"Inter,sans-serif"}}>BudgetHQ</h1>
-              <div style={{fontSize:12,fontWeight:600,color:T.textSub,letterSpacing:"0.02em",fontFamily:"Inter,sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
+            <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"Inter,sans-serif",position:"relative"}}>
+              Set budgets by custom segment, track pacing against actuals, and manage spend across every ad platform — without breaking a spreadsheet.
+            </p>
+            <div style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:8,background:T.accentBg,border:`1px solid ${T.accentBorder}`,position:"relative"}}>
+              <span style={{fontSize:13,color:T.text,fontFamily:"Inter,sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
             </div>
           </div>
-          <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"Inter,sans-serif",position:"relative"}}>
-            Set budgets by custom segment, track pacing against actuals, and manage spend across every ad platform — without breaking a spreadsheet.
-          </p>
-          <div style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:8,background:T.accentBg,border:`1px solid ${T.accentBorder}`,position:"relative"}}>
-            <span style={{fontSize:13,color:T.text,fontFamily:"Inter,sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
+
+          {/* Cards */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:22}}>
+            {cards.map(card=>(
+              <PixelPanel key={card.key} T={T}
+                onClick={card.disabled?undefined:()=>onNavigate(card.key)}
+                style={{opacity:card.disabled?0.5:1}}
+                contentStyle={{padding:"24px 26px",background:cardBg,cursor:card.disabled?"default":"pointer",transition:"all 0.1s"}}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
+                  <div style={{width:42,height:42,borderRadius:10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={19} color={card.disabled?T.textMuted:T.textSub}/></div>
+                  {!card.disabled&&<span style={{fontSize:16,fontWeight:700,color:T.textMuted,lineHeight:1}}>→</span>}
+                </div>
+                <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>{card.title}</div>
+                <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14,fontFamily:"Inter,sans-serif"}}>{card.desc}</div>
+                <div style={{fontSize:12,fontWeight:600,color:card.disabled?T.textMuted:T.text,fontFamily:"Inter,sans-serif"}}>{card.action}</div>
+              </PixelPanel>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const totalBudget=pacing?.totals?.budget||0;
+  const totalSpend=pacing?.totals?.spend||0;
+  // hasData gate matters here too — without it, a budget-only workspace (real budget, zero synced
+  // spend) computes 0/budget = 0% and displays a measured-looking "0%" instead of "—", the exact
+  // false-signal bug the "no-data" pacing status fix addressed elsewhere on this page.
+  const overallPct=hasData&&totalBudget>0?totalSpend/totalBudget:null;
+
+  return(
+    <div style={{flex:1,overflow:"auto",background:T.bg}}>
+      <div style={{maxWidth:1040,margin:"0 auto",padding:"32px 32px 48px"}}>
+        {/* Compact header — not onboarding anymore, so it doesn't need to sell the product */}
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:26}}>
+          <div style={{width:36,height:36,borderRadius:9,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <Icon name="bolt" size={18} color="#FFFFFF"/>
+          </div>
+          <div>
+            <div style={{fontSize:20,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:"Inter,sans-serif"}}>Dashboard</div>
+            <div style={{fontSize:11,fontWeight:600,color:T.textSub,fontFamily:"Inter,sans-serif"}}>{monthLabel} {year} · this workspace</div>
           </div>
         </div>
 
-        {/* Cards */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:22}}>
+        {/* Headline stat tiles — only meaningful once a budget structure exists */}
+        {budgetDims.length>0&&(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:22}}>
+            <DashStatTile T={T} label="Total budget (this month)" value={totalBudget>0?fmtFull(totalBudget):"—"}/>
+            <DashStatTile T={T} label="Spend to date" value={hasData?fmtFull(totalSpend):"—"}/>
+            <DashStatTile T={T} label="Overall pacing" value={overallPct!=null?`${Math.round(overallPct*100)}%`:"—"}/>
+            <DashStatTile T={T} label="Needs attention" value={String(attention.length)} valueColor={attention.length>0?T.danger:T.success}/>
+          </div>
+        )}
+
+        <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
+          {/* Needs attention */}
+          <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Needs attention</div>
+              <span onClick={()=>onNavigate("pacing")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:"Inter,sans-serif"}}>Open Reporting & Pacing →</span>
+            </div>
+            {budgetDims.length===0?(
+              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>
+                Set up a budget structure to see pacing here. <span onClick={()=>onNavigate("budget")} style={{color:T.accent,cursor:"pointer",fontWeight:600}}>Go to Budget Panel →</span>
+              </div>
+            ):!hasData?(
+              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>No spend data synced yet — pacing will show up here once spend is imported.</div>
+            ):attention.length===0?(
+              <div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Nothing needs attention right now — every budgeted segment is on track or ahead.</div>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                {attention.map(s=>{
+                  const meta=pacingStatusMeta(s.status,T);
+                  const label=budgetDims.map((d,i)=>s.dims[i]).join(" · ");
+                  return(
+                    <div key={s.segKey} onClick={()=>onNavigate("pacing")} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 6px",borderRadius:6,cursor:"pointer",gap:10}}>
+                      <span style={{fontSize:12,color:T.text,fontFamily:"Inter,sans-serif",fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                        <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{fmtSigned(s.projectedVariance)}</span>
+                        <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border}>{meta.label}</Pill>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </PixelPanel>
+
+          {/* Data freshness + Quick actions */}
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10,fontFamily:"Inter,sans-serif"}}>Data freshness</div>
+              {Object.keys(freshness).length===0?(
+                <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>No spend data synced yet.</div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column"}}>
+                  {Object.entries(freshness).map(([platform,date])=>(
+                    <StatRow key={platform} T={T} label={platform} value={date instanceof Date?date.toISOString().slice(0,10):"—"}/>
+                  ))}
+                </div>
+              )}
+            </PixelPanel>
+
+            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:"Inter,sans-serif"}}>Quick actions</div>
+              <div style={{display:"flex",flexDirection:"column"}}>
+                {stats.untagged>0&&(
+                  <DashQuickAction T={T} label={`${stats.untagged} campaign${stats.untagged===1?"":"s"} need tagging`} onClick={()=>onNavigate("tagger")}/>
+                )}
+                {noBudgetCount>0&&(
+                  <DashQuickAction T={T} label={`${noBudgetCount} segment${noBudgetCount===1?"":"s"} spending with no budget set`} onClick={()=>onNavigate("budget")}/>
+                )}
+                {stats.untagged===0&&noBudgetCount===0&&(
+                  <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>Nothing pending — you're all caught up.</div>
+                )}
+              </div>
+            </PixelPanel>
+          </div>
+        </div>
+
+        {/* Condensed quick links — same destinations as the empty-state cards, secondary now that
+            there's real content above */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
           {cards.map(card=>(
             <PixelPanel key={card.key} T={T}
               onClick={card.disabled?undefined:()=>onNavigate(card.key)}
               style={{opacity:card.disabled?0.5:1}}
-              contentStyle={{padding:"24px 26px",background:cardBg,cursor:card.disabled?"default":"pointer",transition:"all 0.1s"}}>
-              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
-                <div style={{width:42,height:42,borderRadius:10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={19} color={card.disabled?T.textMuted:T.textSub}/></div>
-                {!card.disabled&&<span style={{fontSize:16,fontWeight:700,color:T.textMuted,lineHeight:1}}>→</span>}
-              </div>
-              <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>{card.title}</div>
-              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14,fontFamily:"Inter,sans-serif"}}>{card.desc}</div>
-              <div style={{fontSize:12,fontWeight:600,color:card.disabled?T.textMuted:T.text,fontFamily:"Inter,sans-serif"}}>{card.action}</div>
+              contentStyle={{padding:"12px 14px",background:cardBg,cursor:card.disabled?"default":"pointer",display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:28,height:28,borderRadius:7,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={14} color={card.disabled?T.textMuted:T.textSub}/></div>
+              <div style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{card.title}</div>
             </PixelPanel>
           ))}
         </div>
 
-        {/* Date range if data loaded */}
         {hasData&&stats.dateRange&&(
-          <div style={{marginTop:24,padding:"10px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,display:"inline-flex",alignItems:"center",gap:8}}>
+          <div style={{marginTop:20,padding:"10px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,display:"inline-flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>Data loaded:</span>
             <span style={{fontSize:11,color:T.text,fontFamily:"Inter,sans-serif",fontWeight:500}}>{stats.dateRange}</span>
             <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>· {stats.totalRows.toLocaleString()} rows</span>
@@ -5397,7 +5570,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         </div>
       )}
 
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0}/>}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={mergedNormRows}/>}
       {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
           other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
           dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
