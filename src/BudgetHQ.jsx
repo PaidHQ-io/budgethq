@@ -2482,15 +2482,30 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
           </div>
         </div>
 
+        {/* Workspace/campaign totals — folded in from what used to be a separate persistent
+            sidebar column (Total spend/Campaigns/Tagged/Needs review). That column no longer
+            renders at all for this view (see the <aside> gating in the main render) — a second
+            mostly-empty vertical strip next to an already-full page just wasted width. These are
+            all-time tallies across every campaign ever tagged, not scoped to "this month" like
+            the pacing row below — labeled separately so the two scopes aren't confused. */}
+        <div style={{marginBottom:8,fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:"Inter,sans-serif"}}>All campaigns</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:22}}>
+          <DashStatTile T={T} label="Total spend (all-time)" value={hasData?fmtFull(stats.totalSpend):"No data yet"}/>
+          <DashStatTile T={T} label="Campaigns" value={hasData?stats.total.toLocaleString():"—"}/>
+          <DashStatTile T={T} label="Tagged" value={hasData?`${stats.tagged.toLocaleString()} (${stats.total?Math.round((stats.tagged/stats.total)*100):0}%)`:"—"}/>
+          <DashStatTile T={T} label="Needs review" value={hasData?stats.untagged.toLocaleString():"—"} valueColor={hasData&&stats.untagged>0?T.warning:undefined}/>
+        </div>
+
         {/* Headline stat tiles — only meaningful once a budget structure exists */}
-        {budgetDims.length>0&&(
+        {budgetDims.length>0&&(<>
+          <div style={{marginBottom:8,fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:"Inter,sans-serif"}}>This month</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:22}}>
             <DashStatTile T={T} label="Total budget (this month)" value={totalBudget>0?fmtFull(totalBudget):"—"}/>
             <DashStatTile T={T} label="Spend to date" value={hasData?fmtFull(totalSpend):"—"}/>
             <DashStatTile T={T} label="Overall pacing" value={overallPct!=null?`${Math.round(overallPct*100)}%`:"—"}/>
             <DashStatTile T={T} label="Needs attention" value={String(attention.length)} valueColor={attention.length>0?T.danger:T.success}/>
           </div>
-        )}
+        </>)}
 
         <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
           {/* Needs attention */}
@@ -5060,9 +5075,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
 
       {/* ── STATS SIDEBAR ── */}
       {!isMobile&&(<>
-        <aside style={{width:statsOpen?statsWidth:0,flexShrink:0,background:T.sidebarBg,borderRight:statsOpen?`1px solid ${T.border}`:"none",display:"flex",flexDirection:"column",padding:statsOpen?"18px 14px":0,overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
+        {/* Dashboard deliberately gets no stats column at all — its own content now houses what
+            this generic sidebar used to show (Total spend/Campaigns/Tagged/Needs review), and a
+            second, mostly-empty vertical column next to a page that's already a full layout was
+            just wasted width (see 2026-07-19 UX note). Every other view keeps the normal
+            open/collapsible behavior. */}
+        <aside style={{width:view==="dashboard"?0:(statsOpen?statsWidth:0),flexShrink:0,background:T.sidebarBg,borderRight:view==="dashboard"?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:view==="dashboard"?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
 
-          {view==="budget"?(
+          {view==="dashboard"?null:view==="budget"?(
             <div ref={setBudgetSidebarEl} style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="pacing"?(
             <div ref={setPacingSidebarEl} style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
@@ -5199,18 +5219,21 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           </>)}
         </aside>
 
-        {/* Drag-to-resize handle for the stats column — thin strip on the divider line */}
-        {statsOpen&&(
+        {/* Drag-to-resize handle for the stats column — thin strip on the divider line. Not shown
+            on Dashboard, which has no stats column to resize. */}
+        {view!=="dashboard"&&statsOpen&&(
           <div onMouseDown={()=>{statsResizing.current=true;document.body.style.cursor="col-resize";}}
             title="Drag to resize"
             style={{position:"absolute",top:0,bottom:0,left:statsWidth-3,width:7,cursor:"col-resize",zIndex:32}}/>
         )}
 
-        {/* Collapse handle for the stats column */}
-        <button className="bhq-iconbtn" onClick={()=>setStatsOpen(o=>!o)} title={statsOpen?"Hide stats":"Show stats"}
-          style={{position:"absolute",top:"50%",left:(statsOpen?statsWidth:0)-9,transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:T.surface,border:`1px solid ${T.border}`,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontWeight:700,fontSize:9,lineHeight:1,zIndex:40,boxShadow:T.shadow,transition:statsResizing.current?"none":"left 0.15s, background 0.12s"}}>
-          {statsOpen?"‹":"›"}
-        </button>
+        {/* Collapse handle for the stats column — same reasoning, hidden on Dashboard */}
+        {view!=="dashboard"&&(
+          <button className="bhq-iconbtn" onClick={()=>setStatsOpen(o=>!o)} title={statsOpen?"Hide stats":"Show stats"}
+            style={{position:"absolute",top:"50%",left:(statsOpen?statsWidth:0)-9,transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:T.surface,border:`1px solid ${T.border}`,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontWeight:700,fontSize:9,lineHeight:1,zIndex:40,boxShadow:T.shadow,transition:statsResizing.current?"none":"left 0.15s, background 0.12s"}}>
+            {statsOpen?"‹":"›"}
+          </button>
+        )}
       </>)}
 
       {/* ── MAIN ── */}
