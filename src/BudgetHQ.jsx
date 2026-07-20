@@ -454,9 +454,23 @@ const DashQuickAction=({label,onClick,T})=>(
 const MatchModeToggle=({mode,onChange,T})=>(
   <div style={{display:"flex",flexShrink:0}} title="How comma-separated terms combine">
     {[["or","ANY"],["and","ALL"]].map(([m,label])=>(
+      // Soft accent-tint pill instead of a solid papaya fill — same reasoning as the Dashboard's
+      // period switch: papaya is light enough that white text fails contrast and black text on it
+      // just looks muddy. accentBg/accentText give a clearly-active state without either problem.
       <button key={m} onClick={()=>onChange(m)}
-        style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em",padding:"2px 5px",border:`1px solid ${mode===m?T.accentHover:T.border}`,borderLeft:m==="and"?"none":undefined,borderRadius:m==="or"?"6px 0 0 6px":"0 6px 6px 0",background:mode===m?T.accent:"transparent",color:mode===m?T.text:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>{label}</button>
+        style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em",padding:"2px 5px",border:`1px solid ${mode===m?T.accentBorder:T.border}`,borderLeft:m==="and"?"none":undefined,borderRadius:m==="or"?"6px 0 0 6px":"0 6px 6px 0",background:mode===m?T.accentBg:"transparent",color:mode===m?T.accentText:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>{label}</button>
     ))}
+  </div>
+);
+// Leading-icon wrapper for the Tagger's filter fields — a search icon inside a rounded pill input
+// is the single most recognizable piece of the Vercel-style filter-bar look, so it's worth a small
+// wrapper even though the rest of the toolbar keeps its existing include/exclude structure.
+const IconField=({icon,color,children,style})=>(
+  <div style={{position:"relative",display:"flex",alignItems:"center",flex:1,...style}}>
+    <span style={{position:"absolute",left:9,display:"flex",pointerEvents:"none",zIndex:1}}>
+      <Icon name={icon} size={12} color={color}/>
+    </span>
+    {children}
   </div>
 );
 // Free-text input with a suggestions dropdown — used for tag values in the Tagger, sourced from
@@ -556,6 +570,8 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"trash":return<svg {...p}><path d="M4 7h16"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6M14 11v6"/></svg>;
     case"file":return<svg {...p}><path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/></svg>;
     case"chevronDown":return<svg {...p}><path d="M6 9l6 6 6-6"/></svg>;
+    case"panelLeft":return<svg {...p}><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>;
+    case"search":return<svg {...p}><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>;
     case"check":return<svg {...p}><path d="M5 12.5l4.5 4.5L19 7"/></svg>;
     case"ban":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5l13 13"/></svg>;
     default:return null;
@@ -5061,8 +5077,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }
   },[buildCurrentReport,exportableView,emailExportTo,emailExportFormat,emailExportNote]);
 
-  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
-  const fIn={background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3};
+  // Muted until actively sorted — Vercel's list has no header row at all, so the closest match
+  // without losing our sort affordance is to make the labels recede until they're doing something.
+  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:sortCol===col?T.text:T.textMuted,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
+  // Rounded-8 pill on a light-gray fill (T.surfaceEl against the toolbar's white T.headerBg) —
+  // matches Vercel's filter-bar pills. paddingLeft is bumped separately on the three primary
+  // "contains" fields to make room for the search icon from IconField.
+  const fIn={background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3,height:30,boxSizing:"border-box"};
 
   // Persistent stats sidebar (middle column) — shown regardless of which tab is active.
   // Falls back to labeled sample numbers before any real data is loaded, same treatment
@@ -5109,11 +5130,21 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           instead of a dedicated "File" trigger — its dropdown is positioned relative to this
           outer wrapper so it isn't clipped by any child's overflow:hidden. ── */}
       <div style={{display:"flex",alignItems:"stretch",height:48,flexShrink:0,background:T.topbarBg,borderBottom:`1px solid ${T.border}`,zIndex:30,position:"relative"}}>
-        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:8,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
+        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:6,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
           <div style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
             <Icon name="bolt" size={17} color={T.text}/>
           </div>
           {(statsOpen||isMobile)&&<div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
+          {/* Bigger, easier-to-hit sidebar toggle living right next to the wordmark — the tiny 18px
+              circle riding the sidebar's edge (below) is still there, but it's a fiddly target.
+              This is the primary way to hide/show the column now. Doesn't apply to Dashboard, which
+              has no sidebar column of its own. */}
+          {!isMobile&&view!=="dashboard"&&(
+            <button className="bhq-iconbtn" onClick={()=>setStatsOpen(o=>!o)} title={statsOpen?"Hide sidebar":"Show sidebar"}
+              style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",borderRadius:5,color:T.textMuted,cursor:"pointer",padding:0,flexShrink:0}}>
+              <Icon name="panelLeft" size={15} color={T.textMuted}/>
+            </button>
+          )}
         </div>
         {/* Tabs underline the active one with a 2px accent bottom-border rather than the old
             "browser tab" bordered-box treatment — flat until active/hover, per the VaultHQ
@@ -5242,13 +5273,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <aside style={{width:view==="dashboard"?0:(statsOpen?statsWidth:0),flexShrink:0,background:T.sidebarBg,borderRight:view==="dashboard"?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:view==="dashboard"?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
 
           {view==="dashboard"?null:view==="budget"?(
-            <div ref={setBudgetSidebarEl} style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+            <div ref={setBudgetSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="pacing"?(
-            <div ref={setPacingSidebarEl} style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+            <div ref={setPacingSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="tagger"?(
             // Lives directly in this component (unlike Budget/Pacing, the Tagger flow isn't a
             // separate child component) so no portal is needed — just render it here in place.
-            <div style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}>
+            <div className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}>
               <SectionLabel T={T} style={{marginBottom:8}}>Tag Dimensions</SectionLabel>
               <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
                 {tagDims.map(dim=>(
@@ -5634,7 +5665,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             )}
 
             <div style={{borderBottom:`1px solid ${T.border}`,background:T.headerBg,flexShrink:0}}>
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"9px 16px 4px",alignItems:"end",gap:6}}>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"11px 16px 5px",alignItems:"end",gap:8}}>
                 <input type="checkbox" checked={filtered.length>0&&selected.size===filtered.length} onChange={selAll} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                 {!isMobile&&<SH col="group" label="Campaign Group"/>}
                 <SH col="campaign" label="Campaign"/>
@@ -5648,11 +5679,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   </button>}
                 </div>}
               </div>
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 8px",gap:6,alignItems:"start"}}>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 10px",gap:8,alignItems:"start"}}>
                 <div/>
                 {!isMobile&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
                   <div style={{display:"flex",gap:3,marginTop:3}}>
-                    <input value={fGroup} onChange={e=>setFGroup(e.target.value)} placeholder="Group contains… (a, b)" title={`Comma-separate multiple terms — ${fGroupInclMode==="and"?"row must contain ALL of them":"matches ANY of them"}`} style={{...fIn,flex:1,marginTop:0}}/>
+                    <IconField icon="search" color={T.textMuted}>
+                      <input value={fGroup} onChange={e=>setFGroup(e.target.value)} placeholder="Group contains… (a, b)" title={`Comma-separate multiple terms — ${fGroupInclMode==="and"?"row must contain ALL of them":"matches ANY of them"}`} style={{...fIn,marginTop:0,paddingLeft:26}}/>
+                    </IconField>
                     <MatchModeToggle mode={fGroupInclMode} onChange={setFGroupInclMode} T={T}/>
                   </div>
                   <div style={{display:"flex",gap:3}}>
@@ -5662,7 +5695,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 </div>}
                 <div style={{display:"flex",flexDirection:"column",gap:3}}>
                   <div style={{display:"flex",gap:3,marginTop:3}}>
-                    <input value={fCamp} onChange={e=>setFCamp(e.target.value)} placeholder="Campaign contains… (a, b)" title={`Comma-separate multiple terms — ${fCampInclMode==="and"?"row must contain ALL of them":"matches ANY of them"}`} style={{...fIn,flex:1,marginTop:0}}/>
+                    <IconField icon="search" color={T.textMuted}>
+                      <input value={fCamp} onChange={e=>setFCamp(e.target.value)} placeholder="Campaign contains… (a, b)" title={`Comma-separate multiple terms — ${fCampInclMode==="and"?"row must contain ALL of them":"matches ANY of them"}`} style={{...fIn,marginTop:0,paddingLeft:26}}/>
+                    </IconField>
                     <MatchModeToggle mode={fCampInclMode} onChange={setFCampInclMode} T={T}/>
                   </div>
                   <div style={{display:"flex",gap:3}}>
@@ -5674,7 +5709,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 {!isMobile&&<select value={fPlat} onChange={e=>setFPlat(e.target.value)} style={{...fIn,cursor:"pointer"}}><option value="">All platforms</option>{allPlats.map(p=><option key={p} value={p}>{p}</option>)}</select>}
                 {!isMobile&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
                   <div style={{display:"flex",gap:4,marginTop:3}}>
-                    <input value={fTag} onChange={e=>setFTag(e.target.value)} placeholder="Tag contains… (a, b)" title={`Comma-separate multiple terms — ${fTagInclMode==="and"?"row must contain ALL of them":"matches ANY of them"}`} style={{...fIn,flex:1,marginTop:0}}/>
+                    <IconField icon="search" color={T.textMuted}>
+                      <input value={fTag} onChange={e=>setFTag(e.target.value)} placeholder="Tag contains… (a, b)" title={`Comma-separate multiple terms — ${fTagInclMode==="and"?"row must contain ALL of them":"matches ANY of them"}`} style={{...fIn,marginTop:0,paddingLeft:26}}/>
+                    </IconField>
                     <MatchModeToggle mode={fTagInclMode} onChange={setFTagInclMode} T={T}/>
                     <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{...fIn,width:120,cursor:"pointer",marginTop:0}}><option value="all">All</option><option value="tagged">Tagged</option><option value="untagged">Needs review</option></select>
                     {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.danger}`,color:T.danger,borderRadius:6,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
@@ -5692,10 +5729,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 const ts=tags[c.key]||{};const tc=Object.keys(ts).length;const isSel=selected.has(c.key);const pc=PLATFORM_COLORS[c.platform]||T.textMuted;
                 return(
                   <div key={c.key} className={isSel?undefined:"bhq-row"} onClick={()=>toggleSel(c.key)}
-                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"9px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
+                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"11px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:"transparent",transition:"background 0.1s",gap:6}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.key)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
-                    {!isMobile&&<div style={{fontSize:11,fontFamily:"Inter,sans-serif",color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
-                    <div style={{minWidth:0,fontSize:11,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+                    {!isMobile&&<div style={{fontSize:11,fontFamily:"Inter,sans-serif",color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
+                    {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
+                        here it means tagged (green) vs needs review (amber), so the row list reads
+                        at a glance without scanning all the way over to the Tags column. */}
+                    <div style={{minWidth:0,display:"flex",alignItems:"center",gap:7}}>
+                      <span title={tc>0?"Tagged":"Needs review"} style={{width:6,height:6,borderRadius:"50%",background:tc>0?T.success:T.warning,flexShrink:0}}/>
+                      <span style={{minWidth:0,fontSize:12,fontWeight:600,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                    </div>
                     <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
                       {editingPlatform===c.key?(
@@ -5707,13 +5750,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         </select>
                       ):(
                         <span onClick={()=>setEditingPlatform(c.key)} title="Click to change platform"
-                          style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:14,background:pc+"18",color:pc,border:`1px solid ${pc}`,whiteSpace:"nowrap",cursor:"pointer"}}>
+                          style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:500,padding:"3px 8px",borderRadius:6,background:pc+"14",color:pc,border:`1px solid ${pc}55`,whiteSpace:"nowrap",cursor:"pointer"}}>
+                          <span style={{width:5,height:5,borderRadius:"50%",background:pc,flexShrink:0}}/>
                           {c.platform}
                         </span>
                       )}
                     </div>}
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                      {tc===0?<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>needs review</Pill>:
+                      {tc===0?<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder} style={{borderRadius:6}}>needs review</Pill>:
                         // Ordered by tagDims (the canonical dimension order), not Object.entries(ts) —
                         // a plain object's key order follows INSERTION order, which is whatever
                         // sequence that specific campaign happened to get tagged in (BU-then-Product
@@ -5723,7 +5767,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         [...tagDims.filter(d=>Object.prototype.hasOwnProperty.call(ts,d)),...Object.keys(ts).filter(d=>!tagDims.includes(d))].map(dim=>{
                           const val=ts[dim];
                           return(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:14,background:T.accentBg,color:T.text,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Inter,sans-serif"}}>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:6,background:T.accentBg,color:T.text,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Inter,sans-serif"}}>
                             <span style={{opacity:0.7,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
                               <TagAutocompleteInput T={T} autoFocus value={editVal} onChange={setEditVal} suggestions={dimSuggestions(dim)}
@@ -6054,6 +6098,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         ::-webkit-scrollbar{width:5px;height:5px;}
         ::-webkit-scrollbar-track{background:transparent;}
         ::-webkit-scrollbar-thumb{background:${T.borderStrong};border-radius:3px;}
+        /* Overlay-style scrollbar for the left sidebar column — invisible until you're actually
+           scrolling/hovering it, like macOS's overlay scrollbars. A thin gray bar sitting there at
+           rest reads as a permanent UI element even when there's nothing to indicate; hiding it by
+           default and revealing it on hover keeps the column looking clean without losing the
+           affordance once someone's interacting with it. */
+        .bhq-scroll::-webkit-scrollbar-thumb{background:transparent;}
+        .bhq-scroll:hover::-webkit-scrollbar-thumb{background:${T.borderStrong};}
         @keyframes spin{to{transform:rotate(360deg);}}
         @media(max-width:768px){input,select{font-size:16px!important;}}
         /* Hover feedback — the app is styled almost entirely with inline styles (each element's
