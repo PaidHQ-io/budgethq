@@ -277,9 +277,15 @@ export default function WorkspaceGate({ session, onSignOut }) {
   }, [refresh]);
 
   // Consumes a pending invite token stashed in localStorage (see AuthGate.jsx's capture effect)
-  // now that we know for sure someone's logged in. Runs once per mount — the token is removed from
-  // localStorage as soon as we attempt it (success or failure) so a stale/already-used/expired
-  // token doesn't keep retrying on every future load.
+  // now that we know for sure someone's logged in. Re-runs whenever `session` changes, so if the
+  // person who clicked the invite link was already signed into a DIFFERENT account when it fired,
+  // signing out and back in as the right one retries it automatically.
+  //
+  // The token is only cleared on success, or on a failure that means it's genuinely dead (invalid/
+  // already-used/expired — accept.js returns 404/409/410 for those). A 403 specifically means "this
+  // invite is for a different email than whoever's signed in right now" — that's recoverable, so
+  // the token has to survive it, or the invite is unrecoverably lost the instant someone opens the
+  // link while signed into the wrong account (a very easy thing to do by accident).
   useEffect(() => {
     let token;
     try {
@@ -288,20 +294,29 @@ export default function WorkspaceGate({ session, onSignOut }) {
       return;
     }
     if (!token) return;
-    try {
-      localStorage.removeItem(PENDING_INVITE_KEY);
-    } catch {
-      /* ignore */
-    }
     setInviteStatus("accepting");
     acceptInvite(session, token)
       .then((result) => {
+        try {
+          localStorage.removeItem(PENDING_INVITE_KEY);
+        } catch {
+          /* ignore */
+        }
         setInviteStatus({ success: result.workspaceName });
         setTimeout(() => setInviteStatus(null), 5000);
         refresh();
         selectWorkspace(result.workspaceId);
       })
-      .catch((err) => setInviteStatus({ error: err.message || "Couldn't accept that invite." }));
+      .catch((err) => {
+        if (err.status !== 403) {
+          try {
+            localStorage.removeItem(PENDING_INVITE_KEY);
+          } catch {
+            /* ignore */
+          }
+        }
+        setInviteStatus({ error: err.message || "Couldn't accept that invite." });
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
