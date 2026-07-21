@@ -463,7 +463,7 @@ const MatchModeToggle=({mode,onChange,T})=>(
       // period switch: papaya is light enough that white text fails contrast and black text on it
       // just looks muddy. accentBg/accentText give a clearly-active state without either problem.
       <button key={m} onClick={()=>onChange(m)}
-        style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em",padding:"2px 5px",border:`1px solid ${mode===m?T.accentBorder:T.border}`,borderLeft:m==="and"?"none":undefined,borderRadius:m==="or"?"6px 0 0 6px":"0 6px 6px 0",background:mode===m?T.accentBg:"transparent",color:mode===m?T.accentText:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>{label}</button>
+        style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em",padding:"2px 5px",border:`1px solid ${mode===m?T.text:T.border}`,borderLeft:m==="and"?"none":undefined,borderRadius:m==="or"?"6px 0 0 6px":"0 6px 6px 0",background:mode===m?T.text:"transparent",color:mode===m?T.surface:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif",outline:"none"}}>{label}</button>
     ))}
   </div>
 );
