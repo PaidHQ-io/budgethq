@@ -1536,7 +1536,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget Year</SectionLabel>
-            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accent:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>)}</div>
+            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>)}</div>
           </div>
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
@@ -3927,12 +3927,12 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
             <SectionLabel T={T} style={{marginBottom:8}}>Period</SectionLabel>
             <div style={{display:"flex",gap:4,marginBottom:8}}>
               {[["monthly","Mo"],["quarterly","Qtr"],["annual","Yr"]].map(([k,l])=>(
-                <button key={k} className={periodType===k?undefined:"bhq-row"} onClick={()=>changePeriodType(k)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${periodType===k?T.accentHover:T.border}`,background:periodType===k?T.accent:"transparent",color:periodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:periodType===k?700:400,fontFamily:"Inter,sans-serif"}}>{l}</button>
+                <button key={k} className={periodType===k?undefined:"bhq-row"} onClick={()=>changePeriodType(k)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${periodType===k?T.accentHover:T.border}`,background:periodType===k?T.accentBg:"transparent",color:periodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:periodType===k?700:400,fontFamily:"Inter,sans-serif"}}>{l}</button>
               ))}
             </div>
             <div style={{display:"flex",gap:4,marginBottom:8}}>
               {years.map(y=>(
-                <button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>changeYear(y)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accent:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:year===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>
+                <button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>changeYear(y)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:year===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>
               ))}
             </div>
             {periodType==="monthly"&&(
@@ -3997,7 +3997,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
           <div style={{display:"flex",gap:4}}>
             {[["budget","Budget Segments"],["custom","Custom"],["trend","Trend"]].map(([k,l])=>(
               <button key={k} onClick={()=>changeViewMode(k)}
-                style={{padding:"6px 12px",borderRadius:6,border:`1.5px solid ${viewMode===k?T.accentHover:T.border}`,background:viewMode===k?T.accent:"transparent",color:viewMode===k?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:viewMode===k?700:400,fontFamily:"Inter,sans-serif"}}>{l}</button>
+                style={{padding:"6px 12px",borderRadius:6,border:`1.5px solid ${viewMode===k?T.accentHover:T.border}`,background:viewMode===k?T.accentBg:"transparent",color:viewMode===k?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:viewMode===k?700:400,fontFamily:"Inter,sans-serif"}}>{l}</button>
             ))}
           </div>
           {viewMode==="custom"&&(
@@ -4007,7 +4007,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                 const active=customDims.includes(d);
                 return(
                   <button key={d} onClick={()=>toggleCustomDim(d)}
-                    style={{fontSize:11,padding:"4px 10px",borderRadius:14,border:`1.5px solid ${active?T.accentHover:T.border}`,background:active?T.accent:"transparent",color:active?T.text:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:active?700:500}}>{d}</button>
+                    style={{fontSize:11,padding:"4px 10px",borderRadius:14,border:`1.5px solid ${active?T.accentHover:T.border}`,background:active?T.accentBg:"transparent",color:active?T.text:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:active?700:500}}>{d}</button>
                 );
               })}
             </div>
