@@ -740,6 +740,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   },[budgetDims,campaignTags]);
 
   const addManualRow=()=>{
+    if(!canEdit)return;
     const vals=budgetDims.map(d=>newRowVals[d]||"");
     if(vals.some(v=>!v.trim()))return;
     const key=vals.join("|");
@@ -829,18 +830,21 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const toggleRowSel=key=>setSelRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
   const selAllRows=()=>setSelRows(selRows.size===filteredSegs.length?new Set():new Set(filteredSegs.map(s=>s.key)));
   const applyMetaToSelected=()=>{
+    if(!canEdit)return;
     if(!applyMetaDim||!applyMetaVal||!selRows.size)return;
     setBudgetRowMeta(p=>{const nx={...p};selRows.forEach(k=>{nx[k]={...(nx[k]||{}),[applyMetaDim]:applyMetaVal};});return nx;});
     showNotif(`Tagged ${selRows.size} rows — ${applyMetaDim}: ${applyMetaVal}`);
     setSelRows(new Set());setApplyMetaVal("");
   };
   const saveMetaEdit=()=>{
+    if(!canEdit)return;
     if(!editingMeta)return;
     const trimmed=editMetaVal.trim();
     setBudgetRowMeta(p=>{const nx={...p};const ts={...(nx[editingMeta.segKey]||{})};if(trimmed)ts[editingMeta.dim]=trimmed;else delete ts[editingMeta.dim];nx[editingMeta.segKey]=ts;return nx;});
     setEditingMeta(null);setEditMetaVal("");
   };
   const addMetaDim=()=>{
+    if(!canEdit)return;
     const d=newMetaDim.trim();
     if(!d||budgetMetaDims.includes(d))return;
     setBudgetMetaDims(p=>[...p,d]);setNewMetaDim("");
@@ -848,6 +852,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   };
 
   const saveSegEdit=()=>{
+    if(!canEdit)return;
     if(!editingSegVal)return;
     const trimmed=editSegVal.trim();
     if(!trimmed){setEditingSegVal(null);setEditSegVal("");return;}
@@ -868,6 +873,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   };
 
   const deleteRow=(segKey,label)=>{
+    if(!canEdit)return;
     const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey);
     const tagNote=matchCount>0?` This also un-tags ${matchCount} matching campaign${matchCount>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
     if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this row.${tagNote}`))return;
@@ -888,6 +894,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   // budgetMetaDims, so it never renders as a column.
   const isNotBudgeted=segKey=>!!(budgetRowMeta[segKey]||{})._notBudgeted;
   const toggleNotBudgeted=segKey=>{
+    if(!canEdit)return;
     setBudgetRowMeta(p=>{
       const nx={...p};
       const cur={...(nx[segKey]||{})};
@@ -897,6 +904,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     });
   };
   const bulkDeleteSelected=()=>{
+    if(!canEdit)return;
     if(!selRows.size)return;
     const n=selRows.size;
     const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k),0);
@@ -953,16 +961,16 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const getMV=useCallback((sk,mk)=>budgets[year]?.[sk]?.monthly?.[mk]??"",[budgets,year]);
   const getQC=useCallback((sk,qk)=>budgets[year]?.[sk]?.quarterly?.[qk]??"",[budgets,year]);
   const getAC=useCallback(sk=>budgets[year]?.[sk]?.annual??"",[budgets,year]);
-  const setMV=useCallback((sk,mk,v)=>{const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(!nx[year][sk].monthly)nx[year][sk].monthly={};if(n===null)delete nx[year][sk].monthly[mk];else nx[year][sk].monthly[mk]=n;return nx;});},[year]);
-  const setQC=useCallback((sk,qk,v)=>{const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(!nx[year][sk].quarterly)nx[year][sk].quarterly={};if(n===null)delete nx[year][sk].quarterly[qk];else nx[year][sk].quarterly[qk]=n;return nx;});},[year]);
-  const setAC=useCallback((sk,v)=>{const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(n===null)delete nx[year][sk].annual;else nx[year][sk].annual=n;return nx;});},[year]);
+  const setMV=useCallback((sk,mk,v)=>{if(!canEdit)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(!nx[year][sk].monthly)nx[year][sk].monthly={};if(n===null)delete nx[year][sk].monthly[mk];else nx[year][sk].monthly[mk]=n;return nx;});},[year,canEdit]);
+  const setQC=useCallback((sk,qk,v)=>{if(!canEdit)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(!nx[year][sk].quarterly)nx[year][sk].quarterly={};if(n===null)delete nx[year][sk].quarterly[qk];else nx[year][sk].quarterly[qk]=n;return nx;});},[year,canEdit]);
+  const setAC=useCallback((sk,v)=>{if(!canEdit)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(n===null)delete nx[year][sk].annual;else nx[year][sk].annual=n;return nx;});},[year,canEdit]);
   const rowTotal=useCallback(sk=>Object.values(budgets[year]?.[sk]?.monthly||{}).reduce((s,v)=>s+(v||0),0),[budgets,year]);
   const qTotal=useCallback((sk,q)=>q.months.reduce((s,m)=>s+(budgets[year]?.[sk]?.monthly?.[m]||0),0),[budgets,year]);
   const qOver=useCallback((sk,q)=>{const c=parseMoney(getQC(sk,q.key));return c!==null&&qTotal(sk,q)>c;},[getQC,qTotal]);
   const aOver=useCallback(sk=>{const c=parseMoney(getAC(sk));return c!==null&&rowTotal(sk)>c;},[getAC,rowTotal]);
   const totalY=useMemo(()=>segs.reduce((s,sg)=>s+rowTotal(sg.key),0),[segs,rowTotal]);
   const dimCount=d=>[...new Set(Object.values(campaignTags||{}).map(t=>t[d]).filter(Boolean))].length;
-  const toggleDim=d=>setBudgetDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);
+  const toggleDim=d=>{if(!canEdit)return;setBudgetDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);};
   const dcw=130;
 
   // Rollup: budgets summed by ONE dimension at a time (e.g. Channel alone, ignoring Region and
@@ -1238,6 +1246,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   // or [] when there's nothing to merge) tells it which pre-existing segments are being
   // superseded by a new, more-detailed segKey from this same import.
   const doImport=(mergeDecisions=[])=>{
+    if(!canEdit)return;
     setBudgets(p=>{
       const nx=JSON.parse(JSON.stringify(p));
       if(!nx[iYear])nx[iYear]={};
@@ -3773,7 +3782,7 @@ const PacingBar=({actualPct,expectedPct,status,T})=>{
   );
 };
 
-function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,mergedNormRows,T,onNavigate,sidebarEl}){
+function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -3871,6 +3880,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   const selAllRows=()=>setSelRows(selRows.size===filteredSegments.length?new Set():new Set(filteredSegments.map(s=>s.segKey)));
 
   const saveSegEdit=()=>{
+    if(!canEdit)return;
     if(!editingSegVal)return;
     const trimmed=editSegVal.trim();
     if(!trimmed){setEditingSegVal(null);setEditSegVal("");return;}
@@ -3893,6 +3903,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   };
 
   const deleteSegment=(segKey,label)=>{
+    if(!canEdit)return;
     const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey);
     const tagNote=matchCount>0?` This also un-tags ${matchCount} matching campaign${matchCount>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
     if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this segment in ${year}.${tagNote}`))return;
@@ -3903,6 +3914,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
     showNotif(matchCount>0?`Segment deleted — un-tagged ${matchCount} campaign${matchCount>1?"s":""}`:"Segment deleted");
   };
   const bulkDeleteSegments=()=>{
+    if(!canEdit)return;
     if(!selRows.size)return;
     const n=selRows.size;
     const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k),0);
@@ -4706,6 +4718,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     showNotif(`Saved version "${label}"`);
   },[nameVersionInput,snapshotNow]);
   const restoreVersion=useCallback(record=>{
+    if(!canEdit)return;
     if(!window.confirm(`Restore "${record.label}"?\n\nFrom ${new Date(record.timestamp).toLocaleString()}. Your current data will be saved as a new version first, so you can always come back to it.\n\nThis replaces your current Tagger and Budget data.`))return;
     snapshotNow("Before restoring an earlier version","pre_restore");
     const s=record.snapshot||{};
@@ -4718,7 +4731,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setStep((s.mergedNormRows||[]).length?"tag":"upload");
     setVersionHistoryOpen(false);
     showNotif("Version restored");
-  },[snapshotNow]);
+  },[snapshotNow,canEdit]);
   const deleteVersion=useCallback((id,e)=>{
     e.stopPropagation();
     if(!window.confirm("Delete this saved version? This can't be undone."))return;
@@ -4797,6 +4810,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     try{LEGACY_LOCAL_KEYS.forEach(k=>localStorage.removeItem(k));}catch(e){console.error("[legacy local data clear]",e);}
   },[]);
   const importLegacyLocalData=useCallback(()=>{
+    if(!canEdit)return;
     if(!localImportPrompt)return;
     setTags(localImportPrompt.tags);
     setTagDims(localImportPrompt.tagDims.length?localImportPrompt.tagDims:DEFAULT_DIMS);
@@ -4811,7 +4825,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setLocalImportPrompt(null);
     checkpoint("Imported data from before sign-in","import_legacy");
     showNotif("Imported your existing data into this workspace");
-  },[localImportPrompt,checkpoint,clearLegacyLocalKeys]);
+  },[localImportPrompt,checkpoint,clearLegacyLocalKeys,canEdit]);
   const dismissLegacyLocalData=useCallback(()=>{
     clearLegacyLocalKeys();
     setLocalImportPrompt(null);
@@ -5053,6 +5067,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setConnectPanelKey(platformKey);setConnectValues({});setConnectError("");
   };
   const saveConnection=useCallback(async(platformKey)=>{
+    if(!canEdit)return;
     if(!workspace?.id||!session?.access_token){setConnectError("No active session — try reloading.");return;}
     setConnectSaving(true);setConnectError("");
     try{
@@ -5073,6 +5088,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   },[workspace?.id,session?.access_token,connectValues]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncPlatform=useCallback(async(platformKey)=>{
+    if(!canEdit)return;
     setSyncState(p=>({...p,[platformKey]:"loading"}));
     try{
       const pl=PLATFORMS.find(p=>p.key===platformKey);
@@ -5247,12 +5263,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   },[]);
   const handleScreenshotDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleScreenshotFile(f);},[handleScreenshotFile]);
   const confirmScreenshotImport=useCallback(()=>{
+    if(!canEdit)return;
     setMergedNormRows(prev=>mergeRows(prev,screenshotPreview));
     checkpoint(`Imported spend data from screenshot — ${screenshotFileName||"image"} (${screenshotPreview.length} rows)`,"tagger_import");
     showNotif(`Added ${screenshotPreview.length} rows from screenshot — merged with existing data`);
     setScreenshotPreview([]);setScreenshotFileName("");
     setStep("tag");
-  },[screenshotPreview,screenshotFileName,checkpoint]);
+  },[screenshotPreview,screenshotFileName,checkpoint,canEdit]);
 
   // "key" is the composite identity (campaign group + campaign) used everywhere tags/selection
   // are looked up — ad set/ad group names often repeat across different campaigns, so the leaf
@@ -5328,6 +5345,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // with typeof since this is also wired directly as a raw onClick handler (Btn passes the click
   // event through as the first arg), which must NOT be mistaken for an override value.
   const applyTags=useCallback((valOverride)=>{
+    if(!canEdit)return;
     const v=typeof valOverride==="string"?valOverride:applyVal;
     if(!applyDim||!v||!selected.size)return;
     pushHistory(tags);
@@ -5338,10 +5356,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     // (BU, then Pillar, then Product…) against the same set of rows, so clearing forced re-selecting
     // the same campaigns after every single dimension. Use the toolbar's "Clear" button when done.
     setApplyVal("");
-  },[applyDim,applyVal,selected,tags,pushHistory]);
-  const applySug=useCallback((dim,val)=>{pushHistory(tags);const u={};filtered.forEach(c=>{if(!(tags[c.key]?.[dim]))u[c.key]={...(tags[c.key]||{}),[dim]:val};});setTags(p=>({...p,...u}));showNotif(`Applied ${dim}: ${val} to ${Object.keys(u).length} campaigns`);},[filtered,tags,pushHistory]);
-  const removeTag=useCallback((cn,dim)=>{pushHistory(tags);setTags(p=>{const ts={...(p[cn]||{})};delete ts[dim];return{...p,[cn]:ts};});},[tags,pushHistory]);
-  const bulkRemoveTag=useCallback(dim=>{if(!dim||!selected.size)return;pushHistory(tags);setTags(p=>{const nx={...p};selected.forEach(n=>{if(nx[n]){const ts={...nx[n]};delete ts[dim];nx[n]=ts;}});return nx;});showNotif(`Removed ${dim} tag from ${selected.size} campaigns`);setSelected(new Set());},[selected,tags,pushHistory]);
+  },[applyDim,applyVal,selected,tags,pushHistory,canEdit]);
+  const applySug=useCallback((dim,val)=>{if(!canEdit)return;pushHistory(tags);const u={};filtered.forEach(c=>{if(!(tags[c.key]?.[dim]))u[c.key]={...(tags[c.key]||{}),[dim]:val};});setTags(p=>({...p,...u}));showNotif(`Applied ${dim}: ${val} to ${Object.keys(u).length} campaigns`);},[filtered,tags,pushHistory,canEdit]);
+  const removeTag=useCallback((cn,dim)=>{if(!canEdit)return;pushHistory(tags);setTags(p=>{const ts={...(p[cn]||{})};delete ts[dim];return{...p,[cn]:ts};});},[tags,pushHistory,canEdit]);
+  const bulkRemoveTag=useCallback(dim=>{if(!canEdit)return;if(!dim||!selected.size)return;pushHistory(tags);setTags(p=>{const nx={...p};selected.forEach(n=>{if(nx[n]){const ts={...nx[n]};delete ts[dim];nx[n]=ts;}});return nx;});showNotif(`Removed ${dim} tag from ${selected.size} campaigns`);setSelected(new Set());},[selected,tags,pushHistory,canEdit]);
   // Deletes a tag dimension entirely — removes it from the Tag Dimensions list AND strips it out of
   // every campaign's tags (not just the ones currently selected/filtered), so no orphaned dimension
   // data is left sitting invisibly in the data model. Blocked if the dimension is currently used as
@@ -5351,6 +5369,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // do silently as a side effect of a tag-dimension delete. Annotation-only usage (budgetMetaDims) is
   // safe to clean up automatically since those are just extra display columns, not part of any key.
   const deleteDimension=useCallback(dim=>{
+    if(!canEdit)return;
     if(!dim)return;
     if(budgetDims.includes(dim)){
       window.alert(`"${dim}" is currently used as a Budget By dimension in the Budget Panel, so it can't be deleted from here — doing so would break your existing budget segments. Go to Budget Panel → Budget By and un-check "${dim}" first, then delete it here.`);
@@ -5372,10 +5391,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(budgetMetaDims.includes(dim))setBudgetMetaDims(p=>p.filter(d=>d!==dim));
     if(applyDim===dim)setApplyDim("");
     showNotif(matchCount>0?`Deleted "${dim}" — removed from ${matchCount} campaign${matchCount>1?"s":""}`:`Deleted "${dim}"`);
-  },[tags,budgetDims,budgetMetaDims,applyDim,pushHistory]);
+  },[tags,budgetDims,budgetMetaDims,applyDim,pushHistory,canEdit]);
   // Same override pattern as applyTags above, and for the same reason — also wired directly as a
   // raw onBlur handler elsewhere, hence the typeof guard.
   const saveEdit=useCallback((valOverride)=>{
+    if(!canEdit)return;
     if(!editingTag)return;
     const trimmed=(typeof valOverride==="string"?valOverride:editVal).trim();
     const current=(tags[editingTag.campaign]||{})[editingTag.dim];
@@ -5387,7 +5407,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       return{...p,[editingTag.campaign]:ts};
     });
     setEditingTag(null);setEditVal("");
-  },[editingTag,editVal,tags,pushHistory]);
+  },[editingTag,editVal,tags,pushHistory,canEdit]);
   const exportTags=()=>{
     const header=["Campaign Group","Campaign","Platform","Spend",...tagDims];
     const rows=[header,...campaigns.map(c=>[c.groupName,c.name,c.platform,c.spend.toFixed(2),...tagDims.map(d=>(tags[c.key]||{})[d]||"")])];
@@ -5404,6 +5424,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // takes row objects keyed by column name (exactly what Papa.parse({header:true}) produces, and
   // what the screenshot path asks Claude's vision to produce directly) and merges them into tags.
   const applyTagRowsFromRecords=useCallback((rows,fields)=>{
+    if(!canEdit)return;
     // Detect campaign group + campaign columns (exported files have both; older exports from
     // before the two-level model only have "Campaign", which is treated as both levels).
     const groupCol=fields.find(f=>/campaign.?group/i.test(f));
@@ -5431,7 +5452,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     const newDims=dimCols.filter(d=>!tagDims.includes(d));
     if(newDims.length)setTagDims(p=>[...new Set([...p,...newDims])]);
     showNotif(`Restored tags for ${restored} campaigns`);
-  },[tagDims]);
+  },[tagDims,canEdit]);
   const importTagsRef=useRef(null);
   const importTagsFromCSV=useCallback((file)=>{
     if(!file)return;
@@ -5582,6 +5603,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // rows from mergedNormRows. Tags are left untouched (matches the single-row "Remove" behavior)
   // so re-syncing or re-uploading the same campaigns later restores them pre-tagged.
   const bulkRemoveCampaigns=useCallback(()=>{
+    if(!canEdit)return;
     if(!selected.size)return;
     const n=selected.size;
     const removedSpend=campaigns.filter(c=>selected.has(c.key)).reduce((s,c)=>s+c.spend,0);
@@ -5590,8 +5612,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setMergedNormRows(prev=>prev.filter(r=>!selected.has(campaignKey(r.campaign_group_name,r.campaign_name))));
     showNotif(`Removed ${n} campaign${n>1?"s":""} — ${fmt$(removedSpend)}`);
     setSelected(new Set());
-  },[selected,campaigns,snapshotNow]);
-  const addDim=()=>{const n=newDim.trim();if(!n||tagDims.includes(n))return;setTagDims(p=>[...p,n]);setNewDim("");};
+  },[selected,campaigns,snapshotNow,canEdit]);
+  const addDim=()=>{if(!canEdit)return;const n=newDim.trim();if(!n||tagDims.includes(n))return;setTagDims(p=>[...p,n]);setNewDim("");};
   const doSort=col=>{setSortDir(sortCol===col&&sortDir==="desc"?"asc":"desc");setSortCol(col);};
   const clearF=()=>{setFCamp("");setFCampExclude("");setFGroup("");setFGroupExclude("");setFPlat("");setFSMin("");setFSMax("");setFTag("");setFTagExclude("");setSelectedTagFilters(new Set());setFStatus("all");};
 
@@ -5613,6 +5635,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // behind its own window.confirm() and a pre-clear version snapshot, so this is a real,
   // user-initiated clear, not the kind of accidental empty save the guard exists to catch.
   const clearTaggerData=()=>{
+    if(!canEdit)return;
     if(!window.confirm("Clear all Tagger data?\n\nThis removes every imported spend row, every campaign tag, and your custom tag dimensions. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
     snapshotNow("Before clearing Tagger data","pre_clear");
     allowEmptyConfigWriteRef.current=true;allowEmptyRowsWriteRef.current=true;
@@ -5621,6 +5644,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     showNotif("Tagger data cleared");
   };
   const clearBudgetData=()=>{
+    if(!canEdit)return;
     if(!window.confirm("Clear all Budget data?\n\nThis removes every budget allocation, budget segment, and annotation dimension across all years. Tagged campaign data is not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
     snapshotNow("Before clearing Budget data","pre_clear");
     allowEmptyConfigWriteRef.current=true;
@@ -5629,6 +5653,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     showNotif("Budget data cleared");
   };
   const clearAllData=()=>{
+    if(!canEdit)return;
     if(!window.confirm("Delete ALL data for this instance?\n\nThis clears Tagger data (spend rows, tags, dimensions) AND Budget data (allocations, segments) across every year. Your theme and layout preferences are kept.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
     snapshotNow("Before deleting all data","pre_clear");
     clearTaggerDataSilent();clearBudgetDataSilent();
@@ -5650,6 +5675,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // convention as bulkRemoveCampaigns/the Tagger's single-row delete) — if that campaign's other
   // rows are gone too, it just won't appear until re-imported, at which point it'll need retagging.
   const clearPlatformData=(platform,rowCount)=>{
+    if(!canEdit)return;
     if(!rowCount)return;
     if(!window.confirm(`Clear all "${platform}" spend data?\n\nThis removes ${rowCount.toLocaleString()} spend row${rowCount===1?"":"s"} for ${platform} from the Tagger. Tags are kept — a campaign only disappears here if none of its rows are left. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here.`))return;
     snapshotNow(`Before clearing ${platform} data`,"pre_clear");
@@ -5670,6 +5696,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     return true;
   },[clearRangePlatform,clearRangeStart,clearRangeEnd]);
   const clearDateRangeData=()=>{
+    if(!canEdit)return;
     const matches=mergedNormRows.filter(clearRangeMatch);
     if(!matches.length)return;
     const campaignCount=new Set(matches.map(r=>campaignKey(r.campaign_group_name,r.campaign_name))).size;
@@ -5846,7 +5873,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             </div>
           )}
           {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>{isMobile?"↑":"↑ Add data"}</Btn>}
-          {step==="tag"&&mergedNormRows.length>0&&<Btn onClick={()=>{allowEmptyRowsWriteRef.current=true;setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
+          {step==="tag"&&mergedNormRows.length>0&&canEdit&&<Btn onClick={()=>{allowEmptyRowsWriteRef.current=true;setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
           {workspace&&workspaces&&(
             <div style={{position:"relative"}}>
               <button className="bhq-iconbtn" onClick={()=>setWorkspaceMenuOpen(o=>!o)}
@@ -5924,14 +5951,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 </button>
                 <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
               </>)}
-              <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
+              {canEdit&&<button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
                 style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
                 <Icon name="save" size={14} color={T.textSub}/> Name current version…
-              </button>
-              <button className="bhq-row" onClick={openVersionHistory}
+              </button>}
+              {canEdit&&<button className="bhq-row" onClick={openVersionHistory}
                 style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
                 <Icon name="clock" size={14} color={T.textSub}/> Version history
-              </button>
+              </button>}
             </div>
           </>)}
         </div>
@@ -6390,6 +6417,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <div style={{display:"flex",justifyContent:"space-between"}}>
               <Btn onClick={()=>setStep("upload")} variant="ghost" T={T}>← Back</Btn>
               <Btn onClick={()=>{
+                if(!canEdit)return;
                 const norm=normalizeRows(rawRows,colMap);
                 const withPlatform=uploadPlatform==="auto"?norm:norm.map(r=>({...r,platform:uploadPlatform}));
                 const withAsOf=uploadAsOf?withPlatform.map(r=>({...r,as_of_date:uploadAsOf})):withPlatform;
@@ -6399,7 +6427,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 setUploadPlatform("auto");
                 setUploadAsOf("");
                 setStep("tag");
-              }} disabled={!canProceed} variant="primary" T={T} size="md">Continue to tagging →</Btn>
+              }} disabled={!canProceed||!canEdit} variant="primary" T={T} size="md">Continue to tagging →</Btn>
             </div>
           </div>
         </div>
@@ -6524,14 +6552,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
                       {editingPlatform===c.key?(
                         <select autoFocus value={c.platform}
-                          onChange={e=>{const plat=e.target.value;setMergedNormRows(prev=>prev.map(r=>campaignKey(r.campaign_group_name,r.campaign_name)===c.key?{...r,platform:plat}:r));setEditingPlatform(null);}}
+                          onChange={e=>{if(!canEdit)return;const plat=e.target.value;setMergedNormRows(prev=>prev.map(r=>campaignKey(r.campaign_group_name,r.campaign_name)===c.key?{...r,platform:plat}:r));setEditingPlatform(null);}}
                           onBlur={()=>setEditingPlatform(null)}
                           style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:11,padding:"2px 6px",outline:"none",fontFamily:"Inter,sans-serif",cursor:"pointer"}}>
                           {PLATFORM_OPTIONS.filter(p=>p!=="auto").map(p=><option key={p} value={p}>{p}</option>)}
                         </select>
                       ):(
-                        <span onClick={()=>setEditingPlatform(c.key)} title="Click to change platform"
-                          style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:500,padding:"3px 8px",borderRadius:6,background:pc+"14",color:pc,border:`1px solid ${pc}55`,whiteSpace:"nowrap",cursor:"pointer"}}>
+                        <span onClick={()=>canEdit&&setEditingPlatform(c.key)} title={canEdit?"Click to change platform":"View-only access"}
+                          style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:500,padding:"3px 8px",borderRadius:6,background:pc+"14",color:pc,border:`1px solid ${pc}55`,whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>
                           <span style={{width:5,height:5,borderRadius:"50%",background:pc,flexShrink:0}}/>
                           {c.platform}
                         </span>
@@ -6558,15 +6586,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                                 style={{width:Math.max(60,editVal.length*7+20)+"px"}}
                                 inputStyle={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontWeight:600,width:"100%",fontFamily:"Inter,sans-serif",padding:0}}/>
                             ):(
-                              <span onClick={e=>{e.stopPropagation();setEditingTag({campaign:c.key,dim});setEditVal(val);}} style={{cursor:"text",fontWeight:600}}>{val}</span>
+                              <span onClick={e=>{e.stopPropagation();if(!canEdit)return;setEditingTag({campaign:c.key,dim});setEditVal(val);}} style={{cursor:canEdit?"text":"default",fontWeight:600}}>{val}</span>
                             )}
-                            <span onClick={e=>{e.stopPropagation();removeTag(c.key,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13,lineHeight:1,marginLeft:1,padding:"0 2px"}}>×</span>
+                            {canEdit&&<span onClick={e=>{e.stopPropagation();removeTag(c.key,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13,lineHeight:1,marginLeft:1,padding:"0 2px"}}>×</span>}
                           </span>
                           );
                         })
                       }
                     </div>}
-                    {!isMobile&&<button onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${c.name}" from this dataset?\n\nThis only affects the current session — your tags are kept. You can re-sync or re-upload to restore it.`)){setMergedNormRows(prev=>prev.filter(r=>campaignKey(r.campaign_group_name,r.campaign_name)!==c.key));}}} title="Remove this campaign"
+                    {!isMobile&&canEdit&&<button onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${c.name}" from this dataset?\n\nThis only affects the current session — your tags are kept. You can re-sync or re-upload to restore it.`)){setMergedNormRows(prev=>prev.filter(r=>campaignKey(r.campaign_group_name,r.campaign_name)!==c.key));}}} title="Remove this campaign"
                       style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                       onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
                       onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>}
@@ -6703,10 +6731,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     </div>
                   )}
                 </div>
-                <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
+                {canEdit&&<div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
                     <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>File Store</div>
-                    <Btn onClick={()=>manualFileRef.current?.click()} disabled={!canEdit} title={canEdit?undefined:"View-only access"} variant="subtle" size="sm" T={T}>
+                    <Btn onClick={()=>manualFileRef.current?.click()} variant="subtle" size="sm" T={T}>
                       <Icon name="plus" size={12} color={T.text}/> Add file
                     </Btn>
                     <input ref={manualFileRef} type="file" style={{display:"none"}} onChange={e=>{addManualFile(e.target.files[0]);e.target.value="";}}/>
@@ -6742,14 +6770,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       ))}
                     </div>
                   )}
-                </div>
-                {rowSection({
+                </div>}
+                {canEdit&&rowSection({
                   title:"Clear Tagger data",
                   desc:"Removes every imported spend row, campaign tag, and custom tag dimension. Budget allocations are kept.",
                   stat:`${mergedNormRows.length.toLocaleString()} spend rows · ${Object.keys(tags).length.toLocaleString()} tagged campaigns`,
                   action:clearTaggerData,label:"Clear Tagger data",disabled:!mergedNormRows.length&&!Object.keys(tags).length,
                 })}
-                {platformBreakdown.length>0&&(
+                {canEdit&&platformBreakdown.length>0&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                     <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Clear Tagger data by channel</div>
                     <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480,marginBottom:14}}>Remove just one platform's spend rows — handy if you imported the wrong file and need to isolate and undo it. Tags are kept; a campaign only disappears once none of its rows are left.</div>
@@ -6769,7 +6797,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     </div>
                   </div>
                 )}
-                {mergedNormRows.length>0&&(
+                {canEdit&&mergedNormRows.length>0&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                     <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Clear Tagger data by date range</div>
                     <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>Remove spend rows within a specific date range, optionally scoped to one platform — e.g. redo or purge just one month without touching the rest. Tags are kept; a campaign only disappears once none of its rows are left.</div>
