@@ -106,10 +106,12 @@ const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 // BudgetHQ() for what reads/clears these.
 const LEGACY_LOCAL_KEYS=["paidhq_tags","paidhq_dims","paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta","paidhq_rows"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#0082FB",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
-// Applied-tag pill color in the Tagger — a plain white/grey pill read as too flat to spot at a
-// glance, so this goes back to a tinted "selected chip" treatment (light tint + colored border/text
-// + a checkmark, same visual language as a filled multi-select chip) instead of a flat outline.
-const TAG_PILL_COLOR="#2563EB";
+// Applied-tag pill colors in the Tagger — a plain white/grey pill read as too flat to spot at a
+// glance, so pills use a tinted "selected chip" treatment (light background + colored border/text)
+// instead of a flat outline, with a distinct color PER TAG DIMENSION (Product/Module/Brand/etc. each
+// get their own hue) so the Tags column reads at a glance without having to read every label. No
+// copper/orange tones in here — that family is reserved for genuine warning states elsewhere.
+const TAG_DIM_COLORS=["#2563EB","#7928CA","#DB2777","#0C7A43","#0891B2","#4F46E5","#E11D48","#0D9488"];
 const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -6392,7 +6394,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       )}
                     </div>}
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                      {tc===0?<Pill color={T.text} bg={T.borderStrong} border={T.borderStrong} style={{borderRadius:20}}>needs review</Pill>:
+                      {tc===0?<Pill color={T.text} bg={T.surfaceEl} border={T.border} style={{borderRadius:6}}>needs review</Pill>:
                         // Ordered by tagDims (the canonical dimension order), not Object.entries(ts) —
                         // a plain object's key order follows INSERTION order, which is whatever
                         // sequence that specific campaign happened to get tagged in (BU-then-Product
@@ -6401,9 +6403,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         // is fixed regardless of tagging order, so every row's pills line up the same.
                         [...tagDims.filter(d=>Object.prototype.hasOwnProperty.call(ts,d)),...Object.keys(ts).filter(d=>!tagDims.includes(d))].map(dim=>{
                           const val=ts[dim];
+                          const dimIdx=tagDims.indexOf(dim);
+                          const dc=TAG_DIM_COLORS[(dimIdx>=0?dimIdx:0)%TAG_DIM_COLORS.length];
                           return(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:20,background:TAG_PILL_COLOR+"14",color:TAG_PILL_COLOR,border:`1px solid ${TAG_PILL_COLOR}40`,gap:2,fontFamily:"Inter,sans-serif"}}>
-                            <span style={{fontWeight:700,marginRight:2}}>✓</span>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:6,background:dc+"14",color:dc,border:`1px solid ${dc}40`,gap:2,fontFamily:"Inter,sans-serif"}}>
                             <span style={{opacity:0.75,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
                               <TagAutocompleteInput T={T} autoFocus value={editVal} onChange={setEditVal} suggestions={dimSuggestions(dim)}
