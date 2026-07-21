@@ -553,6 +553,17 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   // the detail grid and rollupTables (which is derived from filteredSegs) in one place.
   const[hideNotBudgeted,setHideNotBudgeted]=useState(()=>{try{return localStorage.getItem("paidhq_budget_hide_not_budgeted")==="1";}catch(e){return false;}});
   useEffect(()=>{try{localStorage.setItem("paidhq_budget_hide_not_budgeted",hideNotBudgeted?"1":"0");}catch(e){}},[hideNotBudgeted]);
+  // Per-table hide, on top of the master showRollups toggle above — that one is all-or-nothing;
+  // this lets someone with several Budget By dimensions hide just the one or two rollup tables
+  // they don't care about day-to-day (e.g. keep "By Channel" visible, hide "By Region") without
+  // losing them entirely — "Show all" below brings every hidden one back in one click. Stores
+  // dimension NAMES, not indexes, so it stays correct if Budget By dimensions are reordered.
+  const[hiddenRollupDims,setHiddenRollupDims]=useState(()=>{
+    try{const v=JSON.parse(localStorage.getItem("paidhq_budget_hidden_rollups")||"[]");return Array.isArray(v)?v:[];}catch{return [];}
+  });
+  useEffect(()=>{try{localStorage.setItem("paidhq_budget_hidden_rollups",JSON.stringify(hiddenRollupDims));}catch{/* ignore */}},[hiddenRollupDims]);
+  const hideRollupTable=useCallback(dim=>setHiddenRollupDims(p=>p.includes(dim)?p:[...p,dim]),[]);
+  const showAllRollupTables=useCallback(()=>setHiddenRollupDims([]),[]);
   const[importOpen,setImportOpen]=useState(false);
   const[notif,setNotif]=useState(null);
   // Export preview — AI suggests which actual-spend granularity (monthly/quarterly) to append
@@ -1518,10 +1529,19 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
               detail grid's row grain */}
           {showRollups&&rollupTables.length>0&&(
             <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,background:T.surface,display:"flex",flexDirection:"column",gap:16,overflowX:"auto"}}>
-              {rollupTables.map(({dim,rows,total})=>(
+              {hiddenRollupDims.length>0&&(
+                <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:T.textMuted}}>
+                  <span>{hiddenRollupDims.length} rollup table{hiddenRollupDims.length===1?"":"s"} hidden</span>
+                  <span onClick={showAllRollupTables} style={{color:T.accent,cursor:"pointer",fontWeight:600}}>Show all</span>
+                </div>
+              )}
+              {rollupTables.filter(({dim})=>!hiddenRollupDims.includes(dim)).map(({dim,rows,total})=>(
                 <div key={dim} style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
-                  <div style={{padding:"8px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
+                  <div style={{padding:"8px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.text}}>By {dim}</span>
+                    <span onClick={()=>hideRollupTable(dim)} title="Hide this rollup table" style={{cursor:"pointer",color:T.textMuted,fontSize:13,lineHeight:1,padding:"1px 3px"}}
+                      onMouseEnter={e=>{e.currentTarget.style.color=T.danger;}}
+                      onMouseLeave={e=>{e.currentTarget.style.color=T.textMuted;}}>✕</span>
                   </div>
                   <table style={{borderCollapse:"collapse",width:"100%"}}>
                     <thead>
