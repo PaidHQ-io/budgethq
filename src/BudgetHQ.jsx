@@ -18,25 +18,24 @@ const THEME = {
   bg:"#FAFAFA",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
   border:"#EAEAEA",borderStrong:"#D4D4D4",
   text:"#171717",textSub:"#666666",textMuted:"#8F8F8F",textDim:"#E5E5E5",
-  // Replaced 2026-07-20 — papaya swapped for Mountain Meadow, one of the six primary colors in
-  // Mo's brand palette (Rich Black/Dark Green/Bangladesh Green/Mountain Meadow/Caribbean Green/
-  // Anti-Flash White), so the app's accent now matches the actual brand rather than an
-  // ad-hoc pick. accentHover uses Bangladesh Green (a darker step down the same palette) and
-  // accentText uses the same for accent-colored text on white, for the identical "too-light for
-  // white text, need a deeper shade for text/hover" reasons the papaya version had.
-  accent:"#2CC295",accentHover:"#03624C",onAccent:"#171717",
-  accentBg:"rgba(44,194,149,0.1)",accentBorder:"rgba(44,194,149,0.3)",accentText:"#03624C",
+  // Replaced 2026-07-21 — green (Mountain Meadow) swapped out ("doesn't look good on the light
+  // background") for Mo's new slate palette: Deep Slate #36565F, Ocean Steel #5F8190, Cloud Mist
+  // #E2F0F0, Pure White #FFFFFF, Jet Black #141414. Deep Slate takes the primary-accent role (the
+  // most saturated color in the set, same job Mountain Meadow/papaya had); accentHover/accentText
+  // use Jet Black as the darker step; accentBg uses Cloud Mist directly since it's already the
+  // exact light tint this palette provides, rather than a derived rgba.
+  accent:"#36565F",accentHover:"#141414",onAccent:"#FFFFFF",
+  accentBg:"#E2F0F0",accentBorder:"rgba(54,86,95,0.3)",accentText:"#141414",
   success:"#0C7A43",successBg:"rgba(12,122,67,0.08)",successBorder:"rgba(12,122,67,0.24)",
   warning:"#B25E09",warningBg:"rgba(178,94,9,0.08)",warningBorder:"rgba(178,94,9,0.24)",
   danger:"#E5484D",dangerBg:"rgba(229,72,77,0.08)",dangerBorder:"rgba(229,72,77,0.24)",
-  rowHover:"#FAFAFA",rowSelected:"rgba(44,194,149,0.08)",
+  rowHover:"#FAFAFA",rowSelected:"rgba(54,86,95,0.08)",
   inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#FAFAFA",topbarBg:"#FFFFFF",
   pill:"#F2F2F2",pillBorder:"#EAEAEA",
-  // Same brand-palette greens used for TAG_DIM_COLORS below (Mountain Meadow, Caribbean Green,
-  // Bangladesh Green, Forest, Frog, Mint, Basil) — kept as one shared family instead of the old
-  // blue/purple/pink/copper rainbow so every "pick one of N colors for variety" spot in the app
-  // (Dashboard action cards, tag-dimension pills) draws from the same real brand greens.
-  badgeColors:["#2CC295","#00DF81","#03624C","#095544","#17876D","#2FA98C","#0B453A"],
+  // Same brand-palette slate/steel tones used for TAG_DIM_COLORS below — kept as one shared
+  // family so every "pick one of N colors for variety" spot in the app (Dashboard action cards,
+  // tag-dimension pills) draws from the same real brand colors instead of an ad-hoc rainbow.
+  badgeColors:["#36565F","#5F8190","#141414","#4A7080","#23414A","#7A9CAA","#0A2226"],
   shadow:"none",
   shadowMd:"0 8px 24px rgba(0,0,0,0.08),0 2px 6px rgba(0,0,0,0.04)",
   // Not part of Mo's spec (only shadow/shadowMd were given) — derived slightly larger for
@@ -114,11 +113,12 @@ const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Disp
 // glance, so pills use a tinted "selected chip" treatment (light background + colored border/text)
 // instead of a flat outline, with a distinct color PER TAG DIMENSION (Product/Module/Brand/etc. each
 // get their own hue) so the Tags column reads at a glance without having to read every label.
-// Pulled straight from Mo's brand palette (2026-07-20) — every dimension gets a different shade of
-// green (Mountain Meadow, Caribbean Green, Bangladesh Green, Forest, Frog, Mint, Basil, Pine)
-// instead of the old multi-hue rainbow, so tag pills read as clearly "on brand" rather than
-// arbitrary UI colors.
-const TAG_DIM_COLORS=["#2CC295","#00DF81","#03624C","#095544","#17876D","#2FA98C","#0B453A","#06302B"];
+// Pulled straight from Mo's brand palette (2026-07-21) — Deep Slate/Ocean Steel/Jet Black are the
+// only three colors in the new slate palette dark enough to read as distinct pill colors (Cloud
+// Mist and Pure White are too light for text-on-tint contrast), so the remaining entries are
+// lighter/darker tints of those same three hues rather than off-palette colors, keeping every
+// dimension's pill "on brand" instead of reaching for an arbitrary rainbow.
+const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","#7A9CAA","#0A2226","#8FB0BC"];
 const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -5752,7 +5752,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box"}}>
           {step==="tag"&&!isMobile&&(
             <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:20}}>
-              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":"#00DF81",flexShrink:0}}/>
+              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":T.accent,flexShrink:0}}/>
               <span style={{fontSize:11,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
@@ -6414,10 +6414,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         same visual weight, just differing in which column they sit in. */}
                     {!isMobile&&<div style={{fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
                     {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
-                        here it means tagged (green) vs needs review (amber), so the row list reads
-                        at a glance without scanning all the way over to the Tags column. */}
+                        here it means tagged (accent) vs needs review (neutral grey), so the row list
+                        reads at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
-                      <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?"#00DF81":"#A1A1AA",flexShrink:0}}/>
+                      <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?T.accent:"#A1A1AA",flexShrink:0}}/>
                       <span style={{minWidth:0,fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
                     <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
