@@ -456,17 +456,22 @@ const DashQuickAction=({label,onClick,T})=>(
 // language, = ANY term triggers exclusion) rather than the boolean-logic meaning this toggle
 // actually implements ("and" = co-occurrence, both terms required in the same row). ANY/ALL avoids
 // that ambiguity since it describes the terms directly instead of the boolean operator.
-const MatchModeToggle=({mode,onChange,T})=>(
-  <div style={{display:"flex",flexShrink:0}} title="How comma-separated terms combine">
-    {[["or","ANY"],["and","ALL"]].map(([m,label])=>(
-      // Soft accent-tint pill instead of a solid papaya fill — same reasoning as the Dashboard's
-      // period switch: papaya is light enough that white text fails contrast and black text on it
-      // just looks muddy. accentBg/accentText give a clearly-active state without either problem.
-      <button key={m} onClick={()=>onChange(m)}
-        style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em",padding:"2px 5px",border:`1px solid ${mode===m?T.text:T.border}`,borderLeft:m==="and"?"none":undefined,borderRadius:m==="or"?"6px 0 0 6px":"0 6px 6px 0",background:mode===m?T.text:"transparent",color:mode===m?T.surface:T.textMuted,cursor:"pointer",fontFamily:"Inter,sans-serif",outline:"none"}}>{label}</button>
-    ))}
-  </div>
-);
+// iOS-style sliding switch instead of a two-button pill — same track/thumb treatment as the Tog
+// component elsewhere in the app (grey off, papaya on), just with a small state label alongside
+// since "ANY"/"ALL" isn't self-explanatory the way a plain on/off toggle is.
+const MatchModeToggle=({mode,onChange,T})=>{
+  const isAll=mode==="and";
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}} title="How comma-separated terms combine">
+      <div onClick={()=>onChange(isAll?"or":"and")} role="button" tabIndex={0}
+        onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();onChange(isAll?"or":"and");}}}
+        style={{width:26,height:14,borderRadius:7,background:isAll?T.accent:T.borderStrong,position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0,outline:"none"}}>
+        <div style={{position:"absolute",top:1.5,left:isAll?13:1.5,width:11,height:11,borderRadius:"50%",background:"#fff",transition:"left 0.18s",boxShadow:"0 1px 2px rgba(0,0,0,0.25)"}}/>
+      </div>
+      <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em",color:T.textMuted,fontFamily:"Inter,sans-serif",minWidth:16}}>{isAll?"ALL":"ANY"}</span>
+    </div>
+  );
+};
 // Leading-icon wrapper for the Tagger's filter fields — a search icon inside a rounded pill input
 // is the single most recognizable piece of the Vercel-style filter-bar look, so it's worth a small
 // wrapper even though the rest of the toolbar keeps its existing include/exclude structure.
