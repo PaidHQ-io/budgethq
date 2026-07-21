@@ -148,6 +148,17 @@ export function deleteFile(session, workspaceId, id) {
   });
 }
 
+// Cross-workspace file sharing (opt-in, explicit) — copies one file into another workspace the
+// caller also belongs to. See api/workspaces/[id]/files/[fileId]/copy.js for the access rules
+// (view access on the source, edit access on the target).
+export function copyFileToWorkspace(session, sourceWorkspaceId, fileId, targetWorkspaceId) {
+  return apiFetch(
+    session,
+    `/api/workspaces/${encodeURIComponent(sourceWorkspaceId)}/files/${encodeURIComponent(fileId)}/copy`,
+    { method: "POST", body: JSON.stringify({ targetWorkspaceId }) }
+  );
+}
+
 // Downloads still go through a plain (non-JSON) fetch since the response is the raw file bytes,
 // not a JSON envelope — apiFetch always tries to parse JSON, which would break on binary content.
 export async function downloadFile(session, workspaceId, id, filename) {

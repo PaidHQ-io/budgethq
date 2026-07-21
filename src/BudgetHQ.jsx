@@ -9,6 +9,7 @@ import {
   getAiChats, putAiChats,
   listVersions, saveVersion, deleteVersion as apiDeleteVersion,
   listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64,
+  copyFileToWorkspace,
 } from "./lib/workspaceApi";
 import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount } from "./lib/coreApi";
 import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchSheetGrid, preloadGoogleSheetsApi, switchGoogleAccount } from "./lib/googleSheets";
@@ -4649,6 +4650,25 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(!workspace?.id||!session)return;
     apiDownloadFile(session,workspace.id,rec.id,rec.name).catch(e=>console.error("[file store download]",e));
   },[workspace?.id,session]);
+  // Cross-workspace file sharing — opt-in and explicit (see copy.js's doc comment): files are
+  // hard-siloed by default, this is the one deliberate escape hatch. Only workspaces where this
+  // person has edit access are offered as targets client-side (the server enforces the same rule
+  // authoritatively either way) — `workspaces` already carries each entry's `role` from
+  // paidhq-core's GET /api/workspaces, no extra fetch needed to build this list.
+  const copyTargetWorkspaces=useMemo(()=>
+    (workspaces||[]).filter(w=>w.id!==workspace?.id&&(w.role==="owner"||w.role==="admin")),
+  [workspaces,workspace?.id]);
+  const[copyMenuOpenId,setCopyMenuOpenId]=useState(null);
+  const[copyingFileId,setCopyingFileId]=useState(null);
+  const copyFileToOtherWorkspace=useCallback((fileId,targetWorkspaceId,targetWorkspaceName)=>{
+    if(!workspace?.id||!session)return;
+    setCopyMenuOpenId(null);
+    setCopyingFileId(fileId);
+    copyFileToWorkspace(session,workspace.id,fileId,targetWorkspaceId)
+      .then(()=>showNotif(`Copied to ${targetWorkspaceName}`))
+      .catch(e=>window.alert(e.message||"Couldn't copy this file."))
+      .finally(()=>setCopyingFileId(null));
+  },[session,workspace]);
   const addManualFile=useCallback((file)=>{
     if(!file)return;
     archiveFile(file,"Manual upload").then(refreshFileStore);
@@ -6815,6 +6835,26 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                             <button onClick={()=>downloadFileFromStore(f)} title="Download" style={{width:26,height:26,borderRadius:6,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                               <Icon name="download" size={12} color={T.textSub}/>
                             </button>
+                            {copyTargetWorkspaces.length>0&&(
+                              <div style={{position:"relative"}}>
+                                <button onClick={()=>setCopyMenuOpenId(o=>o===f.id?null:f.id)} title="Copy to another workspace" disabled={copyingFileId===f.id}
+                                  style={{width:26,height:26,borderRadius:6,background:copyMenuOpenId===f.id?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:copyingFileId===f.id?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:copyingFileId===f.id?0.5:1}}>
+                                  <Icon name="send" size={12} color={T.textSub}/>
+                                </button>
+                                {copyMenuOpenId===f.id&&(<>
+                                  <div onClick={()=>setCopyMenuOpenId(null)} style={{position:"fixed",inset:0,zIndex:249}}/>
+                                  <div style={{position:"absolute",top:30,right:0,zIndex:250,minWidth:200,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                                    <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Copy to workspace</div>
+                                    {copyTargetWorkspaces.map(w=>(
+                                      <button key={w.id} className="bhq-row" onClick={()=>copyFileToOtherWorkspace(f.id,w.id,w.name)}
+                                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left",overflow:"hidden"}}>
+                                        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </>)}
+                              </div>
+                            )}
                             <button onClick={()=>deleteFileFromStore(f.id)} title="Delete" style={{width:26,height:26,borderRadius:6,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                               <Icon name="trash" size={12} color={T.danger}/>
                             </button>
