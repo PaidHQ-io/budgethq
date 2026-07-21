@@ -3019,38 +3019,101 @@ async function askAIRun({question,history,ctx}){
 }
 
 // Powers the "✨ AI Summary" card on the Budget Panel and Reporting & Pacing tabs. Deliberately NOT
-// a tool-use loop like askAIRun — computePacing() already computes the exact same
-// budget/spend/status numbers those tabs render on screen, so re-deriving them via tool calls would
-// just risk the model getting its own arithmetic wrong. Instead this computes the real numbers
-// locally (guaranteeing they match what's on screen), condenses them to a small JSON payload, and
-// asks Claude for a single-turn prose write-up of what's already been calculated — one request,
-// no risk of the tool loop going sideways. Uses full-year-to-date ("annual") as the period rather
-// than whatever range either tab currently has selected, since threading the live UI period through
-// would be a bigger lift for what's meant to be a quick, general snapshot.
-async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,mode}){
-  const year=String(new Date().getFullYear());
-  const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
-  const withVariance=pacing.segments.map(s=>({...s,overBy:s.spend-s.budget}));
-  const topOver=[...withVariance].filter(s=>s.status==="over").sort((a,b)=>b.overBy-a.overBy).slice(0,5)
-    .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),overBy:Math.round(s.overBy)}));
-  const topBehind=[...pacing.segments].filter(s=>s.status==="behind").sort((a,b)=>(a.actualPct??0)-(b.actualPct??0)).slice(0,5)
-    .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),actualPct:s.actualPct==null?null:Math.round(s.actualPct*100)}));
-  const noDataCount=pacing.segments.filter(s=>s.budget>0&&!s.hasData).length;
-  const payload={
-    year,
-    totalBudgetYTD:Math.round(pacing.totals.budget),
-    totalSpendYTD:Math.round(pacing.totals.spend),
-    expectedPacePct:Math.round(pacing.expectedPct*100),
-    daysRemainingInYear:pacing.daysRemaining,
-    segmentCount:pacing.segments.length,
-    segmentsOverBudget:topOver,
-    segmentsBehindPace:topBehind,
-    segmentsWithBudgetButNoSpendDataYet:noDataCount,
-  };
-  const focus=mode==="budget"
-    ?"This is for the Budget Panel (where budgets are set up), so focus on budget SETUP and coverage: how many segments are budgeted, the total budgeted amount, and flag segmentsWithBudgetButNoSpendDataYet as a likely tagging gap worth checking (a segment has a budget but no matching spend rows yet)."
-    :"This is for the Reporting & Pacing tab, so focus on PACING PERFORMANCE: overall pace vs the expected pace for this point in the year, which segments are most over budget, which are furthest behind pace, and what's worth a closer look.";
-  const system=`You are writing a short summary for a paid-media budget dashboard called BudgetHQ. Below is pre-computed JSON data for the current year — it is already correct, do not recompute or second-guess any numbers, just narrate them. Write 3-5 sentences of plain prose (no markdown headers, no bullet lists), citing the real figures. If a list is empty, don't dwell on it. ${focus}`;
+// a tool-use loop like askAIRun — computePacing()/computeCustomGrouping()/computeMonthlyTrend()
+// already compute the exact same numbers those tabs render on screen, so re-deriving them via tool
+// calls would just risk the model getting its own arithmetic wrong. Instead this condenses whatever
+// is ALREADY computed and on screen into a small JSON payload and asks Claude for a single-turn
+// prose write-up of it — one request, no risk of the tool loop going sideways.
+//
+// For the Reporting & Pacing tab (mode==="pacing"), `view` carries the tab's live state — which
+// View-by mode is selected (budget/custom/trend), the current period, and any status/segment
+// filters — so the summary matches whatever's actually on screen instead of a fixed, always-the-
+// same full-year snapshot. Previously this ignored the tab entirely and always recomputed one
+// generic annual budget-dims summary regardless of what the user had selected, which is exactly
+// the "same every time" complaint that prompted this change. The Budget Panel (mode==="budget")
+// doesn't have this per-view concept — it's a fixed monthly/quarterly/annual grid, not a tab you
+// reconfigure — so it keeps its original always-annual behavior via the `else` branch below.
+async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,mode,view}){
+  let payload,focus;
+  if(mode==="pacing"&&view){
+    const{viewMode,periodLabel,dims,segments,totals,expectedPct,daysRemaining,statusFilter,segFilters,trend,trendFilterDim,trendFilterValue,trendSeriesDim}=view;
+    const activeFilters=[
+      ...(statusFilter&&statusFilter!=="all"?[`status = ${statusFilter}`]:[]),
+      ...Object.entries(segFilters||{}).filter(([,v])=>(v||"").trim()).map(([d,v])=>`${d} contains "${v.trim()}"`),
+    ];
+    if(viewMode==="trend"){
+      const{months,series,monthTotals,grandTotal}=trend||{months:[],series:[],monthTotals:[],grandTotal:0};
+      payload={
+        viewType:"trend",
+        dateRange:months.length?`${months[0].label} – ${months[months.length-1].label}`:"(no months in range)",
+        filterDim:trendFilterDim||null,
+        filterValue:trendFilterValue||null,
+        seriesDim:trendSeriesDim||null,
+        grandTotal:Math.round(grandTotal),
+        topSeries:series.slice(0,5).map(s=>({label:s.label,total:Math.round(s.total)})),
+        monthlyTotals:months.map((m,i)=>({month:m.label,total:Math.round(monthTotals[i]||0)})),
+      };
+      focus="This is the Reporting & Pacing tab's Trend view — monthly spend over a date range broken out by series (e.g. Platform or a tag dimension), NOT a single-period budget-vs-actual comparison, so there is no budget figure to compare against. Describe the overall trend across the months (growing, declining, or flat), call out which series dominates spend, and mention any notable month-over-month swings.";
+    }else if(viewMode==="custom"){
+      const topSpenders=[...segments].sort((a,b)=>b.spend-a.spend).slice(0,5)
+        .map(s=>({segment:s.dims.join(" / "),spend:Math.round(s.spend),projected:s.projected==null?null:Math.round(s.projected)}));
+      payload={
+        viewType:"custom-grouping",
+        periodLabel,
+        groupedBy:dims,
+        segmentCount:segments.length,
+        totalSpend:Math.round(totals?.spend||0),
+        expectedPacePct:Math.round((expectedPct||0)*100),
+        daysRemaining,
+        topSpenders,
+        activeFilters,
+      };
+      focus=`This is the Reporting & Pacing tab's Custom view, grouped by ${dims.join(" + ")||"(no dimension selected)"} instead of the budget structure — there is no budget figure here, only spend. Focus on which ${dims.join("/")||"segment"} combinations are driving the most spend for ${periodLabel}, and how projected spend for the full period compares to spend-to-date.${activeFilters.length?` The user has filtered this view (${activeFilters.join("; ")}) — every figure above already reflects only that filtered subset, so base the summary on it and mention that it's filtered.`:""}`;
+    }else{
+      const withVariance=segments.map(s=>({...s,overBy:(s.spend||0)-(s.budget||0)}));
+      const topOver=withVariance.filter(s=>s.status==="over").sort((a,b)=>b.overBy-a.overBy).slice(0,5)
+        .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),overBy:Math.round(s.overBy)}));
+      const topBehind=segments.filter(s=>s.status==="behind").sort((a,b)=>(a.actualPct??0)-(b.actualPct??0)).slice(0,5)
+        .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),actualPct:s.actualPct==null?null:Math.round(s.actualPct*100)}));
+      const noDataCount=segments.filter(s=>s.budget>0&&!s.hasData).length;
+      payload={
+        viewType:"budget-pacing",
+        periodLabel,
+        totalBudget:Math.round(totals?.budget||0),
+        totalSpend:Math.round(totals?.spend||0),
+        expectedPacePct:Math.round((expectedPct||0)*100),
+        daysRemaining,
+        segmentCount:segments.length,
+        segmentsOverBudget:topOver,
+        segmentsBehindPace:topBehind,
+        segmentsWithBudgetButNoSpendDataYet:noDataCount,
+        activeFilters,
+      };
+      focus=`This is the Reporting & Pacing tab, scoped to ${periodLabel} — use exactly this period, not the full year. Focus on pacing performance: overall pace vs the expected pace for this point in ${periodLabel}, which segments are most over budget, which are furthest behind pace, and what's worth a closer look.${activeFilters.length?` The user has filtered this view (${activeFilters.join("; ")}) — every figure above already reflects only that filtered subset, so base the summary on it and mention that it's filtered.`:""}`;
+    }
+  }else{
+    const year=String(new Date().getFullYear());
+    const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
+    const withVariance=pacing.segments.map(s=>({...s,overBy:s.spend-s.budget}));
+    const topOver=[...withVariance].filter(s=>s.status==="over").sort((a,b)=>b.overBy-a.overBy).slice(0,5)
+      .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),overBy:Math.round(s.overBy)}));
+    const topBehind=[...pacing.segments].filter(s=>s.status==="behind").sort((a,b)=>(a.actualPct??0)-(b.actualPct??0)).slice(0,5)
+      .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),actualPct:s.actualPct==null?null:Math.round(s.actualPct*100)}));
+    const noDataCount=pacing.segments.filter(s=>s.budget>0&&!s.hasData).length;
+    payload={
+      year,
+      totalBudgetYTD:Math.round(pacing.totals.budget),
+      totalSpendYTD:Math.round(pacing.totals.spend),
+      expectedPacePct:Math.round(pacing.expectedPct*100),
+      daysRemainingInYear:pacing.daysRemaining,
+      segmentCount:pacing.segments.length,
+      segmentsOverBudget:topOver,
+      segmentsBehindPace:topBehind,
+      segmentsWithBudgetButNoSpendDataYet:noDataCount,
+    };
+    focus="This is for the Budget Panel (where budgets are set up), so focus on budget SETUP and coverage: how many segments are budgeted, the total budgeted amount, and flag segmentsWithBudgetButNoSpendDataYet as a likely tagging gap worth checking (a segment has a budget but no matching spend rows yet).";
+  }
+  const system=`You are writing a short summary for a paid-media budget dashboard called BudgetHQ. Below is pre-computed JSON data — it is already correct, do not recompute or second-guess any numbers, just narrate them. Write 3-5 sentences of plain prose (no markdown headers, no bullet lists), citing the real figures. If a list is empty, don't dwell on it. ${focus}`;
   const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:[{role:"user",content:JSON.stringify(payload)}],system,maxTokens:400})});
   const data=await res.json();
   if(!res.ok)throw new Error(data?.error||"Summary request failed");
@@ -3060,19 +3123,25 @@ async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,m
 // Self-contained "✨ AI Summary" trigger + result card, shared by the Budget Panel and Reporting &
 // Pacing tabs (see aiSummarizeBudgetPacing above). Owns its own idle/loading/done/error state so
 // each tab gets an independent summary rather than sharing one across navigation.
-function AISummaryCard({T,mergedNormRows,tags,budgetDims,budgets,mode}){
+function AISummaryCard({T,mergedNormRows,tags,budgetDims,budgets,mode,view}){
   const[state,setState]=useState({status:"idle",text:"",error:""});
   const run=useCallback(async()=>{
     setState({status:"loading",text:"",error:""});
     try{
-      const text=await aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,mode});
+      const text=await aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,mode,view});
       setState({status:"done",text,error:""});
     }catch(err){
       setState({status:"error",text:"",error:err.message||"Summary failed"});
     }
-  },[mergedNormRows,tags,budgetDims,budgets,mode]);
+  },[mergedNormRows,tags,budgetDims,budgets,mode,view]);
 
-  if(!budgetDims.length)return null; // nothing to summarize until a budget structure exists
+  // The Budget Panel has nothing to summarize until a budget structure exists. The Reporting &
+  // Pacing tab's Custom/Trend views don't need budgetDims at all (they group by whatever dimensions
+  // the user picked, or by date) — see PacingDashboard's own default of viewMode="custom" when
+  // budgetDims is empty — so only gate on budgetDims for the Budget Panel and for Pacing's own
+  // "budget" view-by mode.
+  if(mode==="budget"&&!budgetDims.length)return null;
+  if(mode==="pacing"&&view?.viewMode==="budget"&&!budgetDims.length)return null;
 
   return(
     <div style={{marginBottom:14}}>
@@ -3940,7 +4009,20 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 
       {/* Segment table */}
       <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
-        <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} mode="pacing"/>
+        <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} mode="pacing"
+          view={{
+            viewMode,
+            periodLabel,
+            dims:activeDims,
+            segments:viewMode==="custom"?filteredCustomSegments:filteredSegments,
+            totals:viewMode==="custom"?(customPacing?.totals||{spend:0}):pacing.totals,
+            expectedPct:viewMode==="custom"?(customPacing?.expectedPct||0):pacing.expectedPct,
+            daysRemaining:viewMode==="custom"?(customPacing?.daysRemaining||0):pacing.daysRemaining,
+            statusFilter,
+            segFilters,
+            trend:viewMode==="trend"?trendData:null,
+            trendFilterDim,trendFilterValue,trendSeriesDim,
+          }}/>
         {!budgetDims.length&&(
           <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:14,fontSize:12,color:T.text,fontFamily:"Inter,sans-serif"}}>
             No budget structure set up yet — showing spend by dimension only.{" "}
