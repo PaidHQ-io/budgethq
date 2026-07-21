@@ -44,15 +44,40 @@ function saveKnownAccounts(list) {
 
 // Adds a newly-signed-in account, or refreshes its email/userId if it's already known (handles a
 // changed email on an existing account, and re-running harmlessly on every auth-state event).
-// Returns the updated list.
+//
+// Dedupes by userId, not storageKey: the same real person can end up signed in under TWO storage
+// keys (most commonly, "+ Add account" was used a second time for an email already held — either
+// already-known secondary account, or the pre-existing legacy primary slot). Rather than showing
+// the same person twice in the switcher forever, this keeps exactly one entry per userId and
+// reports which storageKey lost out so the caller can sign that duplicate client out entirely —
+// no reason to leave two live sessions (and two silent token-refresh timers) running for one
+// identity. PRIMARY_ACCOUNT_KEY never loses this tie-break: it's the one slot every
+// already-logged-in-before-this-feature user depends on, so a duplicate always resolves in its
+// favor regardless of which of the two upsert calls happens to land first.
+//
+// Returns { accounts, redundantStorageKey } — redundantStorageKey is null when there was no dupe.
 export function upsertKnownAccount({ storageKey, userId, email }) {
   const list = loadKnownAccounts();
+  const dupe = list.find((a) => a.userId === userId && a.storageKey !== storageKey);
+
+  if (dupe) {
+    const redundantStorageKey = storageKey === PRIMARY_ACCOUNT_KEY ? dupe.storageKey : storageKey;
+    const keptStorageKey = redundantStorageKey === storageKey ? dupe.storageKey : storageKey;
+    const filtered = list.filter((a) => a.storageKey !== redundantStorageKey);
+    const idx = filtered.findIndex((a) => a.storageKey === keptStorageKey);
+    const entry = { storageKey: keptStorageKey, userId, email };
+    if (idx === -1) filtered.push(entry);
+    else filtered[idx] = { ...filtered[idx], ...entry };
+    saveKnownAccounts(filtered);
+    return { accounts: filtered, redundantStorageKey };
+  }
+
   const idx = list.findIndex((a) => a.storageKey === storageKey);
   const entry = { storageKey, userId, email };
   if (idx === -1) list.push(entry);
   else list[idx] = { ...list[idx], ...entry };
   saveKnownAccounts(list);
-  return list;
+  return { accounts: list, redundantStorageKey: null };
 }
 
 export function removeKnownAccount(storageKey) {

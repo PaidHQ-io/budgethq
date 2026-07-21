@@ -111,6 +111,29 @@ function AuthGateMain() {
   // actually signed it out.
   const subscriptionsRef = useRef(new Map()); // storageKey -> unsubscribe fn
 
+  // Fully tears down one account's client: signs it out (so its refresh token is actually
+  // revoked, not just forgotten locally), stops listening to it, and drops its session from
+  // state. Used both for an explicit "sign out of this account" and for silently retiring a
+  // duplicate slot detected by upsertKnownAccount (see that function's comment).
+  const retireClient = useCallback((key) => {
+    getAccountClient(key)
+      .auth.signOut()
+      .catch(() => {
+        /* ignore — it's being discarded either way */
+      });
+    const unsub = subscriptionsRef.current.get(key);
+    if (unsub) {
+      unsub();
+      subscriptionsRef.current.delete(key);
+    }
+    setSessionsByKey((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const keys = new Set([PRIMARY_ACCOUNT_KEY, ...accounts.map((a) => a.storageKey)]);
 
@@ -121,17 +144,24 @@ function AuthGateMain() {
       const applySession = (nextSession) => {
         setSessionsByKey((prev) => ({ ...prev, [key]: nextSession ?? null }));
         if (nextSession?.user) {
-          setAccounts(() =>
-            upsertKnownAccount({
-              storageKey: key,
-              userId: nextSession.user.id,
-              email: nextSession.user.email,
-            })
-          );
-          // First account this browser has ever seen (or the first to resolve after a stale
-          // active-account key pointed nowhere) becomes active by default — nobody should land on
-          // a blank "you have zero accounts" state after successfully signing in.
-          if (!activeAccountKeyRef.current) {
+          const { accounts: updated, redundantStorageKey } = upsertKnownAccount({
+            storageKey: key,
+            userId: nextSession.user.id,
+            email: nextSession.user.email,
+          });
+          setAccounts(updated);
+          if (redundantStorageKey) {
+            // Same real identity is already registered under a different slot (typically "+ Add
+            // account" used twice for one email) — retire whichever side lost the tie-break
+            // rather than leaving two live sessions for one person sitting in the switcher.
+            retireClient(redundantStorageKey);
+            if (activeAccountKeyRef.current === redundantStorageKey) {
+              switchAccount(updated[0]?.storageKey || null);
+            }
+          } else if (!activeAccountKeyRef.current) {
+            // First account this browser has ever seen (or the first to resolve after a stale
+            // active-account key pointed nowhere) becomes active by default — nobody should land
+            // on a blank "you have zero accounts" state after successfully signing in.
             switchAccount(key);
           }
         }
@@ -158,7 +188,7 @@ function AuthGateMain() {
         });
       }
     });
-  }, [accounts, switchAccount]);
+  }, [accounts, switchAccount, retireClient]);
 
   useEffect(
     () => () => {
@@ -186,25 +216,15 @@ function AuthGateMain() {
   }, []);
 
   const handleSignOutAccount = useCallback(
-    async (key) => {
-      try {
-        await getAccountClient(key).auth.signOut();
-      } catch {
-        /* ignore — the account gets removed from the switcher regardless */
-      }
+    (key) => {
+      retireClient(key);
       const remaining = removeKnownAccount(key);
       setAccounts(remaining);
-      setSessionsByKey((prev) => {
-        if (!(key in prev)) return prev;
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
       if (activeAccountKeyRef.current === key) {
         switchAccount(remaining[0]?.storageKey || null);
       }
     },
-    [switchAccount]
+    [switchAccount, retireClient]
   );
 
   // Invoked by WorkspaceGate when a pending invite gets accepted against a DIFFERENT held account

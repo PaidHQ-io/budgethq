@@ -58,25 +58,69 @@ export default function AddAccountScreen() {
   const redirectTo = `${window.location.origin}${window.location.pathname}?${ADD_ACCOUNT_PARAM}=1&${ADD_ACCOUNT_SLOT_PARAM}=${slot}`;
 
   const [session, setSession] = useState(undefined); // undefined = loading, null = not signed in yet
+  // Set to the email string if this tab's sign-in turned out to already be held under a
+  // different storage-key slot (e.g. "+ Add account" was opened twice for the same email, or the
+  // email typed here is already the pre-existing primary/legacy account) — see
+  // upsertKnownAccount's dedupe logic. Checked before the normal "signed in" screen below so this
+  // tab doesn't sit around as a second live session for someone already in the switcher.
+  const [alreadyAdded, setAlreadyAdded] = useState(null);
 
+  // Handles both the initial getSession() check and any later auth-state event (sign-in
+  // completing, OAuth redirect landing) in one place, so the dedupe check below only ever runs
+  // from inside an async callback rather than synchronously in the effect body.
   useEffect(() => {
-    client.auth.getSession().then(({ data }) => setSession(data.session ?? null));
-    const { data: sub } = client.auth.onAuthStateChange((_event, nextSession) => {
+    function handleSession(nextSession) {
       setSession(nextSession ?? null);
-    });
-    return () => sub.subscription.unsubscribe();
-  }, [client]);
-
-  useEffect(() => {
-    if (session?.user) {
-      upsertKnownAccount({ storageKey: slot, userId: session.user.id, email: session.user.email });
+      if (!nextSession?.user) return;
+      const { redundantStorageKey } = upsertKnownAccount({
+        storageKey: slot,
+        userId: nextSession.user.id,
+        email: nextSession.user.email,
+      });
+      if (redundantStorageKey === slot) {
+        setAlreadyAdded(nextSession.user.email);
+        client.auth.signOut().catch(() => {
+          /* ignore — being discarded either way */
+        });
+      }
     }
-  }, [session, slot]);
+    client.auth.getSession().then(({ data }) => handleSession(data.session ?? null));
+    const { data: sub } = client.auth.onAuthStateChange((_event, nextSession) => handleSession(nextSession));
+    return () => sub.subscription.unsubscribe();
+  }, [client, slot]);
 
   if (session === undefined) {
     return (
       <CenteredScreen>
         <div style={{ color: T.textSub, fontSize: 13 }}>Loading…</div>
+      </CenteredScreen>
+    );
+  }
+
+  if (alreadyAdded) {
+    return (
+      <CenteredScreen>
+        <div
+          style={{
+            width: 380,
+            maxWidth: "100%",
+            padding: 32,
+            border: `1px solid ${T.border}`,
+            borderRadius: 8,
+            background: T.surface,
+            boxSizing: "border-box",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 10 }}>
+            Already added
+          </div>
+          <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.6 }}>
+            <strong style={{ color: T.text }}>{alreadyAdded}</strong> is already signed in on this
+            browser — no need to add it twice. You can close this tab and switch to it from the
+            account menu in your other BudgetHQ tab.
+          </div>
+        </div>
       </CenteredScreen>
     );
   }
