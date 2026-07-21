@@ -4618,6 +4618,20 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setFileStoreLoading(true);
     listFiles(session,workspace.id).then(setFileStoreList).catch(e=>console.error("[file store list]",e)).finally(()=>setFileStoreLoading(false));
   },[workspace?.id,session]);
+  // Team and File Store are populated only when refreshTeam()/refreshFileStore() actually run --
+  // until recently that only happened from the Settings gear icon's onClick, which misses two real
+  // cases: (1) `view` is restored from localStorage on load (see its useState initializer above),
+  // so landing directly on Settings on a fresh page load -- simply reloading while already there,
+  // as happened while debugging a "members don't show up" report -- never ran through that onClick
+  // at all, leaving both panels stuck on their empty initial state with no visible error; (2)
+  // switching workspaces while already sitting on the Settings tab left both panels showing the
+  // PREVIOUS workspace's data. Watching `view` and `workspace?.id` here covers every path into
+  // "the Settings tab, showing the right workspace's data" -- however you got there.
+  useEffect(()=>{
+    if(view!=="settings")return;
+    refreshFileStore();
+    refreshTeam();
+  },[view,workspace?.id,refreshFileStore,refreshTeam]);
   // Fire-and-forget wrapper for the auto-capture call sites (handleFile, exportTags,
   // importTagsFromCSV below) — a File Store write should never block or fail the actual
   // import/export it's shadowing.
@@ -5937,7 +5951,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               </>)}
             </div>
           )}
-          <button className="bhq-iconbtn" title="Settings" onClick={()=>{setView("settings");refreshFileStore();refreshTeam();}}
+          <button className="bhq-iconbtn" title="Settings" onClick={()=>setView("settings")}
             style={{width:30,height:30,borderRadius:8,background:view==="settings"?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
             <Icon name="gear" size={15} color={T.textSub}/>
           </button>
