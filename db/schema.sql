@@ -62,6 +62,22 @@ create table if not exists budgethq.spend_rows (
 create index if not exists idx_budgethq_spend_rows_workspace_date on budgethq.spend_rows(workspace_id, date);
 create index if not exists idx_budgethq_spend_rows_workspace_platform on budgethq.spend_rows(workspace_id, platform);
 
+-- Ask AI chat history — keyed by (workspace_id, user_id), NOT a single row per workspace like
+-- workspace_config above. Chats are a personal scratchpad, not shared workspace data everyone on
+-- the team should see merged together — each person's history stays their own, same as it was
+-- when this lived in localStorage (per-browser, implicitly per-person), just now durable across
+-- devices/logins and correctly scoped per workspace instead of leaking across every workspace in
+-- one browser. Deliberately NOT gated by requireEditAccess in the API route — a "member" (view-
+-- only) role restricts changes to real workspace data (budgets/tags/spend), not someone's own AI
+-- conversation history, which can't damage anything shared.
+create table if not exists budgethq.ai_chats (
+  workspace_id uuid not null references core.workspaces(id) on delete cascade,
+  user_id uuid not null,
+  chats jsonb not null default '[]',
+  updated_at timestamptz not null default now(),
+  primary key (workspace_id, user_id)
+);
+
 create table if not exists budgethq.files (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references core.workspaces(id) on delete cascade,

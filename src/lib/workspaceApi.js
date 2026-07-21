@@ -87,3 +87,93 @@ export async function putSpendRows(session, workspaceId, rows, fetchOpts = {}) {
     ...fetchOpts,
   });
 }
+
+// Ask AI chat history — scoped to the CALLER's own account within this workspace (see
+// api/workspaces/[id]/ai-chats.js's doc comment for why this isn't shared workspace-wide like
+// tags/budgets are). Replaces the old single global `localStorage["paidhq_ask_chats"]` key, which
+// had no workspace scoping at all.
+export function getAiChats(session, workspaceId) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/ai-chats`).then(
+    (d) => d.chats || []
+  );
+}
+
+export function putAiChats(session, workspaceId, chats) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/ai-chats`, {
+    method: "PUT",
+    body: JSON.stringify({ chats }),
+  });
+}
+
+// Version History — scoped per workspace (see api/workspaces/[id]/versions.js). Replaces the old
+// IndexedDB-based store, which used one fixed database name shared across every workspace opened
+// in this browser.
+export function listVersions(session, workspaceId) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/versions`).then(
+    (d) => d.versions || []
+  );
+}
+
+export function saveVersion(session, workspaceId, { label, trigger, snapshot }) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/versions`, {
+    method: "POST",
+    body: JSON.stringify({ label, trigger, snapshot }),
+  });
+}
+
+export function deleteVersion(session, workspaceId, id) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/versions?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// File Store — scoped per workspace (see api/workspaces/[id]/files.js). Replaces the old
+// IndexedDB-based store, same fixed-database-name problem as Version History above.
+export function listFiles(session, workspaceId) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/files`).then(
+    (d) => d.files || []
+  );
+}
+
+export function uploadFile(session, workspaceId, { name, category, mimeType, dataBase64 }) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/files`, {
+    method: "POST",
+    body: JSON.stringify({ name, category, mimeType, dataBase64 }),
+  });
+}
+
+export function deleteFile(session, workspaceId, id) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/files?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// Downloads still go through a plain (non-JSON) fetch since the response is the raw file bytes,
+// not a JSON envelope — apiFetch always tries to parse JSON, which would break on binary content.
+export async function downloadFile(session, workspaceId, id, filename) {
+  const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/files?download=${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+  if (!res.ok) throw new Error(`Download failed (${res.status})`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Converts a File/Blob to a base64 string for the files.js POST body — the server expects
+// dataBase64 (JSON-safe), not raw binary, since this route uses Vercel's default JSON body parser
+// rather than the gzip-raw-bytes path putSpendRows/putWorkspaceConfig use.
+export function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}

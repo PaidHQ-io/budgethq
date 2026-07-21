@@ -4,7 +4,12 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows } from "./lib/workspaceApi";
+import {
+  getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows,
+  getAiChats, putAiChats,
+  listVersions, saveVersion, deleteVersion as apiDeleteVersion,
+  listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64,
+} from "./lib/workspaceApi";
 import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite } from "./lib/coreApi";
 import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchSheetGrid, preloadGoogleSheetsApi, switchGoogleAccount } from "./lib/googleSheets";
 
@@ -235,62 +240,11 @@ function downloadCSV(rows, filename){
 // automatically after major actions (imports, clears, merge resolutions) \u2014 not on every
 // keystroke \u2014 plus on demand via "Name current version\u2026", mirroring Google Sheets' model of
 // checkpointing meaningful moments rather than every edit.
-const VERSIONS_DB_NAME="paidhq_versions";
-const VERSIONS_STORE_NAME="versions";
-const MAX_VERSIONS=40;
-
-function openVersionsDB(){
-  return new Promise((resolve,reject)=>{
-    if(typeof indexedDB==="undefined"){reject(new Error("IndexedDB not available"));return;}
-    const req=indexedDB.open(VERSIONS_DB_NAME,1);
-    req.onupgradeneeded=()=>{
-      const db=req.result;
-      if(!db.objectStoreNames.contains(VERSIONS_STORE_NAME)){
-        const store=db.createObjectStore(VERSIONS_STORE_NAME,{keyPath:"id"});
-        store.createIndex("timestamp","timestamp");
-      }
-    };
-    req.onsuccess=()=>resolve(req.result);
-    req.onerror=()=>reject(req.error);
-  });
-}
-
-async function saveVersionRecord(record){
-  const db=await openVersionsDB();
-  await new Promise((resolve,reject)=>{
-    const tx=db.transaction(VERSIONS_STORE_NAME,"readwrite");
-    tx.objectStore(VERSIONS_STORE_NAME).put(record);
-    tx.oncomplete=()=>resolve();
-    tx.onerror=()=>reject(tx.error);
-  });
-  // Prune anything beyond the cap, oldest first, so storage doesn't grow unbounded across a
-  // long-lived instance.
-  const all=await listVersionRecords();
-  if(all.length>MAX_VERSIONS){
-    const toDelete=all.slice(MAX_VERSIONS);
-    const db2=await openVersionsDB();
-    const tx2=db2.transaction(VERSIONS_STORE_NAME,"readwrite");
-    toDelete.forEach(v=>tx2.objectStore(VERSIONS_STORE_NAME).delete(v.id));
-  }
-}
-
-function listVersionRecords(){
-  return openVersionsDB().then(db=>new Promise((resolve,reject)=>{
-    const tx=db.transaction(VERSIONS_STORE_NAME,"readonly");
-    const req=tx.objectStore(VERSIONS_STORE_NAME).getAll();
-    req.onsuccess=()=>resolve((req.result||[]).sort((a,b)=>b.timestamp-a.timestamp));
-    req.onerror=()=>reject(req.error);
-  }));
-}
-
-function deleteVersionRecord(id){
-  return openVersionsDB().then(db=>new Promise((resolve,reject)=>{
-    const tx=db.transaction(VERSIONS_STORE_NAME,"readwrite");
-    tx.objectStore(VERSIONS_STORE_NAME).delete(id);
-    tx.oncomplete=()=>resolve();
-    tx.onerror=()=>reject(tx.error);
-  }));
-}
+// Version history and File Store are now server-backed (see listVersions/saveVersion/
+// deleteVersion and listFiles/uploadFile/deleteFile/downloadFile imported above from
+// workspaceApi.js), workspace-scoped instead of living in one fixed-name IndexedDB database
+// shared across every workspace ever opened in this browser. The load/save call sites live
+// further down inside the BudgetHQ component, where session/workspace are in scope.
 
 // Groups version records into "Today" / "Yesterday" / weekday-or-date buckets, same convention
 // Google Sheets' version history panel uses, so the list reads as a scannable timeline instead
@@ -311,66 +265,12 @@ function groupVersionsByDay(versions){
   return groups;
 }
 
-// ─── FILE STORE (IndexedDB) ────────────────────────────────────────────────────
-// Lightweight archive of raw uploaded/exported files (tagging CSVs, channel spend import CSVs,
-// PDFs, etc.) — separate DB from version snapshots since these are original file blobs a user may
-// want to keep indefinitely for reference/audit, not pruned checkpoints of app state. Auto-captured
-// at the CSV import/export call sites (see handleFile, exportTags, importTagsFromCSV) plus a manual
-// "Add file" upload for anything else (PDFs, insertion orders, etc.) the app never parses itself.
-const FILES_DB_NAME="paidhq_files";
-const FILES_STORE_NAME="files";
-
-function openFilesDB(){
-  return new Promise((resolve,reject)=>{
-    if(typeof indexedDB==="undefined"){reject(new Error("IndexedDB not available"));return;}
-    const req=indexedDB.open(FILES_DB_NAME,1);
-    req.onupgradeneeded=()=>{
-      const db=req.result;
-      if(!db.objectStoreNames.contains(FILES_STORE_NAME)){
-        const store=db.createObjectStore(FILES_STORE_NAME,{keyPath:"id"});
-        store.createIndex("timestamp","timestamp");
-      }
-    };
-    req.onsuccess=()=>resolve(req.result);
-    req.onerror=()=>reject(req.error);
-  });
-}
-
-// record: {id,timestamp,name,category,size,type,blob}
-function saveFileRecord(record){
-  return openFilesDB().then(db=>new Promise((resolve,reject)=>{
-    const tx=db.transaction(FILES_STORE_NAME,"readwrite");
-    tx.objectStore(FILES_STORE_NAME).put(record);
-    tx.oncomplete=()=>resolve();
-    tx.onerror=()=>reject(tx.error);
-  }));
-}
-
-function listFileRecords(){
-  return openFilesDB().then(db=>new Promise((resolve,reject)=>{
-    const tx=db.transaction(FILES_STORE_NAME,"readonly");
-    const req=tx.objectStore(FILES_STORE_NAME).getAll();
-    req.onsuccess=()=>resolve((req.result||[]).sort((a,b)=>b.timestamp-a.timestamp));
-    req.onerror=()=>reject(req.error);
-  }));
-}
-
-function deleteFileRecord(id){
-  return openFilesDB().then(db=>new Promise((resolve,reject)=>{
-    const tx=db.transaction(FILES_STORE_NAME,"readwrite");
-    tx.objectStore(FILES_STORE_NAME).delete(id);
-    tx.oncomplete=()=>resolve();
-    tx.onerror=()=>reject(tx.error);
-  }));
-}
-
-// Fire-and-forget wrapper for the auto-capture call sites — a File Store write should never block
-// or fail the actual import/export it's shadowing.
-function archiveFile(file,category){
-  if(!file)return;
-  const record={id:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,timestamp:Date.now(),name:file.name||"untitled",category,size:file.size||0,type:file.type||"",blob:file};
-  saveFileRecord(record).catch(e=>console.error("[file store save]",e));
-}
+// ─── FILE STORE (server-backed, workspace-scoped) ──────────────────────────────
+// Archive of raw uploaded/exported files (tagging CSVs, channel spend import CSVs, PDFs, etc.).
+// Auto-captured at the CSV import/export call sites (see handleFile, exportTags,
+// importTagsFromCSV) plus a manual "Add file" upload for anything else (PDFs, insertion orders,
+// etc.) the app never parses itself. archiveFile itself is defined inside the BudgetHQ component
+// (needs session/workspace in scope to call the API) — see the "archiveFile" useCallback below.
 
 const fmtFileSize=n=>{
   if(!n)return"0 KB";
@@ -4656,27 +4556,37 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     revokeInvite(session,workspace.id,email).then(refreshTeam).catch(e=>window.alert(e.message||"Couldn't revoke that invite."));
   },[session,workspace,refreshTeam]);
 
-  // ── Settings → File Store ──
+  // ── Settings → File Store (server-backed, workspace-scoped — see files.js/workspaceApi.js) ──
   const[fileStoreList,setFileStoreList]=useState([]);
   const[fileStoreLoading,setFileStoreLoading]=useState(false);
   const manualFileRef=useRef(null);
   const refreshFileStore=useCallback(()=>{
+    if(!workspace?.id||!session)return;
     setFileStoreLoading(true);
-    listFileRecords().then(setFileStoreList).catch(e=>console.error("[file store list]",e)).finally(()=>setFileStoreLoading(false));
-  },[]);
+    listFiles(session,workspace.id).then(setFileStoreList).catch(e=>console.error("[file store list]",e)).finally(()=>setFileStoreLoading(false));
+  },[workspace?.id,session]);
+  // Fire-and-forget wrapper for the auto-capture call sites (handleFile, exportTags,
+  // importTagsFromCSV below) — a File Store write should never block or fail the actual
+  // import/export it's shadowing.
+  const archiveFile=useCallback((file,category)=>{
+    if(!file||!workspace?.id||!session)return Promise.resolve();
+    return fileToBase64(file)
+      .then(dataBase64=>apiUploadFile(session,workspace.id,{name:file.name||"untitled",category,mimeType:file.type||"",dataBase64}))
+      .catch(e=>console.error("[file store save]",e));
+  },[workspace?.id,session]);
   const deleteFileFromStore=useCallback((id)=>{
-    deleteFileRecord(id).then(refreshFileStore).catch(e=>console.error("[file store delete]",e));
-  },[refreshFileStore]);
+    if(!workspace?.id||!session)return;
+    apiDeleteFile(session,workspace.id,id).then(refreshFileStore).catch(e=>console.error("[file store delete]",e));
+  },[workspace?.id,session,refreshFileStore]);
   const downloadFileFromStore=useCallback((rec)=>{
-    const url=URL.createObjectURL(rec.blob);
-    const a=document.createElement("a");a.href=url;a.download=rec.name;a.click();URL.revokeObjectURL(url);
-  },[]);
+    if(!workspace?.id||!session)return;
+    apiDownloadFile(session,workspace.id,rec.id,rec.name).catch(e=>console.error("[file store download]",e));
+  },[workspace?.id,session]);
   const addManualFile=useCallback((file)=>{
     if(!file)return;
-    archiveFile(file,"Manual upload");
-    refreshFileStore();
+    archiveFile(file,"Manual upload").then(refreshFileStore);
     showNotif(`Saved ${file.name} to File Store`);
-  },[refreshFileStore]);
+  },[archiveFile,refreshFileStore]);
 
   // ── Export (CSV/XLSX/PDF/HTML downloads + email) ──
   const[emailExportOpen,setEmailExportOpen]=useState(false);
@@ -4689,9 +4599,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const buildSnapshot=useCallback(()=>({tags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta}),
     [tags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta]);
   const persistVersion=useCallback((label,trigger,snapshot)=>{
-    const record={id:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,timestamp:Date.now(),label,trigger,snapshot};
-    saveVersionRecord(record).catch(e=>console.error("[version save]",e));
-  },[]);
+    if(!workspace?.id||!session)return;
+    saveVersion(session,workspace.id,{label,trigger,snapshot}).catch(e=>console.error("[version save]",e));
+  },[workspace?.id,session]);
   // Call right AFTER triggering a mutation (setState calls already issued). Multiple setState
   // calls from the same event handler are batched by React into one render, so by the time this
   // effect's dependencies actually change and it runs, every sibling update from that same
@@ -4707,9 +4617,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const snapshotNow=useCallback((label,trigger="auto")=>persistVersion(label,trigger,buildSnapshot()),[persistVersion,buildSnapshot]);
 
   const openVersionHistory=useCallback(()=>{
-    setFileMenuOpen(false);setVersionHistoryOpen(true);setVersionsLoading(true);
-    listVersionRecords().then(setVersions).catch(e=>{console.error("[version list]",e);setVersions([]);}).finally(()=>setVersionsLoading(false));
-  },[]);
+    setFileMenuOpen(false);setVersionHistoryOpen(true);
+    if(!workspace?.id||!session){setVersions([]);return;}
+    setVersionsLoading(true);
+    listVersions(session,workspace.id).then(setVersions).catch(e=>{console.error("[version list]",e);setVersions([]);}).finally(()=>setVersionsLoading(false));
+  },[workspace?.id,session]);
   const saveNamedVersion=useCallback(()=>{
     const label=nameVersionInput.trim();
     if(!label)return;
@@ -4734,23 +4646,51 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   },[snapshotNow,canEdit]);
   const deleteVersion=useCallback((id,e)=>{
     e.stopPropagation();
+    if(!workspace?.id||!session)return;
     if(!window.confirm("Delete this saved version? This can't be undone."))return;
-    deleteVersionRecord(id).then(()=>setVersions(p=>p.filter(v=>v.id!==id))).catch(err=>console.error("[version delete]",err));
-  },[]);
+    apiDeleteVersion(session,workspace.id,id).then(()=>setVersions(p=>p.filter(v=>v.id!==id))).catch(err=>console.error("[version delete]",err));
+  },[workspace?.id,session]);
 
   // Device-local preferences only (not workspace data — these stay in localStorage even after
   // the data-layer migration below, since there's no reason a sidebar width should follow you to
-  // a different browser/device).
+  // a different browser/device). askChats itself moved to per-(workspace,user) server storage —
+  // see the load/save effects below — since it's real conversation history that shouldn't vanish
+  // on a new device, and definitely shouldn't leak between different workspaces the way a single
+  // fixed localStorage key did.
   useEffect(()=>{try{
     const le=localStorage.getItem("paidhq_last_export_email");if(le)setEmailExportTo(le);
-    const ac=localStorage.getItem("paidhq_ask_chats");if(ac)setAskChats(JSON.parse(ac));
     const aid=localStorage.getItem("paidhq_ask_active_chat");if(aid)setActiveAskChatId(aid);
   }catch(e){};},[]);
-  useEffect(()=>{try{localStorage.setItem("paidhq_ask_chats",JSON.stringify(askChats));}catch(e){};},[askChats]);
   // Persists whichever tab is open (see the VALID_VIEWS-checked useState above) so a refresh
   // reopens the same tab instead of always resetting to Dashboard.
   useEffect(()=>{try{localStorage.setItem("paidhq_last_view",view);}catch(e){};},[view]);
   useEffect(()=>{try{if(activeAskChatId)localStorage.setItem("paidhq_ask_active_chat",activeAskChatId);else localStorage.removeItem("paidhq_ask_active_chat");}catch(e){};},[activeAskChatId]);
+
+  // ── Ask AI chat history — server-backed, scoped per (workspace, user) ──────────────────────
+  // Loads fresh every time the active workspace (or signed-in user) changes, and saves back with
+  // a short debounce, same pattern as the workspace-config/spend-rows saves below just without
+  // their elaborate empty-write guard — losing a few seconds of in-progress chat on a hard crash
+  // is a much smaller deal than losing budget/tag edits, so that complexity isn't worth mirroring
+  // here. aiChatsLoadedRef blocks the save effect from firing (and overwriting real server data
+  // with []) before the initial load for a newly-selected workspace has actually resolved.
+  const aiChatsLoadedRef=useRef(false);
+  const saveAiChatsTimer=useRef(null);
+  useEffect(()=>{
+    if(!workspace?.id||!session)return;
+    aiChatsLoadedRef.current=false;
+    getAiChats(session,workspace.id)
+      .then(chats=>{setAskChats(chats||[]);aiChatsLoadedRef.current=true;})
+      .catch(e=>console.error("[ai chats load]",e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[workspace?.id,sessionUserId]);
+  useEffect(()=>{
+    if(!workspace?.id||!session||!aiChatsLoadedRef.current)return;
+    clearTimeout(saveAiChatsTimer.current);
+    saveAiChatsTimer.current=setTimeout(()=>{
+      putAiChats(session,workspace.id,askChats).catch(e=>console.error("[ai chats save]",e));
+    },800);
+    return()=>clearTimeout(saveAiChatsTimer.current);
+  },[askChats,workspace?.id,session]);
 
   // ── Workspace data (tags/dims/budgets/spend rows) — synced with the server, not localStorage ──
   // Tags, tag dimensions, budgets, budget dimensions/annotations, and spend rows are the actual
@@ -5185,7 +5125,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
       applySpendGrid(r.data,r.meta.fields||[],file.name);
     }});
-  },[applySpendGrid]);
+  },[applySpendGrid,archiveFile]);
   const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);},[handleFile]);
 
   // Auto-default "Data accurate through" for month-grain exports (Google/Bing report one row per
@@ -5415,8 +5355,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     // Archive a copy alongside the download — same CSV serialization downloadCSV uses internally,
     // wrapped as a File so archiveFile has a .name/.size/.type to work with.
     const csv=rows.map(r=>r.map(v=>`"${String(v==null?"":v).replace(/"/g,'""')}"`).join(",")).join("\n");
-    archiveFile(new File(["﻿"+csv],"budgethq-tags.csv",{type:"text/csv;charset=utf-8"}),"Tag export");
-    refreshFileStore();
+    archiveFile(new File(["﻿"+csv],"budgethq-tags.csv",{type:"text/csv;charset=utf-8"}),"Tag export").then(refreshFileStore);
     showNotif("Tags exported");
   };
 
@@ -5460,7 +5399,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
       applyTagRowsFromRecords(r.data,r.meta.fields||[]);
     }});
-  },[applyTagRowsFromRecords]);
+  },[applyTagRowsFromRecords,archiveFile]);
   // Screenshot tag import — same idea as the spend-data screenshot flow, but asks Claude to read
   // the header row itself and return row objects keyed by those header names (rather than a raw
   // grid), since applyTagRowsFromRecords already knows how to find the Campaign/Campaign Group
@@ -6754,7 +6693,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                               <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:340}}>{f.name}</div>
                               <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>
                                 <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{marginRight:6,fontSize:10}}>{f.category}</Pill>
-                                {fmtFileSize(f.size)} · {new Date(f.timestamp).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
+                                {fmtFileSize(f.size)} · {new Date(f.createdAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
                               </div>
                             </div>
                           </div>
