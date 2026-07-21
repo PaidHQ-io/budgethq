@@ -5708,7 +5708,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box"}}>
           {step==="tag"&&!isMobile&&(
             <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:20}}>
-              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":"#22C55E",flexShrink:0}}/>
+              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":"#52E3C2",flexShrink:0}}/>
               <span style={{fontSize:11,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
@@ -6366,8 +6366,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
                         here it means tagged (green) vs needs review (amber), so the row list reads
                         at a glance without scanning all the way over to the Tags column. */}
-                    <div style={{minWidth:0,display:"flex",alignItems:"center",gap:7}}>
-                      <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?"#22C55E":"#A1A1AA",flexShrink:0}}/>
+                    <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
+                      <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?"#52E3C2":"#A1A1AA",flexShrink:0}}/>
                       <span style={{minWidth:0,fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
                     <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
@@ -6388,7 +6388,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       )}
                     </div>}
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                      {tc===0?<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder} style={{borderRadius:6}}>needs review</Pill>:
+                      {tc===0?<Pill color={T.text} bg={T.borderStrong} border={T.borderStrong} style={{borderRadius:20}}>needs review</Pill>:
                         // Ordered by tagDims (the canonical dimension order), not Object.entries(ts) —
                         // a plain object's key order follows INSERTION order, which is whatever
                         // sequence that specific campaign happened to get tagged in (BU-then-Product
@@ -6398,7 +6398,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         [...tagDims.filter(d=>Object.prototype.hasOwnProperty.call(ts,d)),...Object.keys(ts).filter(d=>!tagDims.includes(d))].map(dim=>{
                           const val=ts[dim];
                           return(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:6,background:T.accentBg,color:T.text,border:`1px solid ${T.accentBorder}`,gap:2,fontFamily:"Inter,sans-serif"}}>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:20,background:T.surface,color:T.text,border:`1px solid ${T.border}`,gap:2,fontFamily:"Inter,sans-serif"}}>
                             <span style={{opacity:0.7,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
                               <TagAutocompleteInput T={T} autoFocus value={editVal} onChange={setEditVal} suggestions={dimSuggestions(dim)}
