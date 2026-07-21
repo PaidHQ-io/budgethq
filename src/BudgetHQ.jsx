@@ -4167,6 +4167,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
                       <div style={{fontFamily:"Inter,sans-serif",color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
                         {seg.projected!=null?fmtFull(seg.projected):"—"}
+                        {seg.projected!=null&&seg.budget>0&&<span style={{color:T.textMuted,marginLeft:6,fontSize:11}}>({Math.round((seg.projected/seg.budget)*100)}%)</span>}
                         {seg.lowConfidencePlatforms?.length>0&&(
                           <WarnTip T={T} text={`Projection may be unreliable — ${seg.lowConfidencePlatforms.join(", ")} only has a single as-of data point for this period, so its spend is being extrapolated across every day instead of an actual daily rate. Check that platform's Date/"Data accurate through" mapping.`}/>
                         )}
@@ -4229,7 +4230,10 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                     <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:11,color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
                     <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{fmtFull(ft.dailyRate)}/day</td>
                     <td style={{padding:"10px 8px",textAlign:"right"}}>
-                      <div style={{fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text}}>{ft.hasProjected?fmtFull(ft.projected):"—"}</div>
+                      <div style={{fontFamily:"Inter,sans-serif",fontSize:12,fontWeight:700,color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
+                        {ft.hasProjected?fmtFull(ft.projected):"—"}
+                        {ft.hasProjected&&ft.budget>0&&<span style={{color:T.textMuted,marginLeft:6,fontWeight:400,fontSize:11}}>({Math.round((ft.projected/ft.budget)*100)}%)</span>}
+                      </div>
                       {ftVariance!=null&&<div style={{fontSize:10,color:ftVariance>0?T.danger:T.success,fontFamily:"Inter,sans-serif"}}>{fmtSigned(ftVariance)}</div>}
                     </td>
                     <td/>
