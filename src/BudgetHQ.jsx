@@ -3796,8 +3796,13 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   // instead — e.g. Platform alone, or Platform + Region — trading the Budget/Pacing/Status columns
   // (there's no budget defined at an arbitrary grouping like that) for Spend/Daily Burn/Projected
   // computed fresh for whatever combination you pick.
-  const[viewMode,setViewMode]=useState("budget"); // "budget" | "custom" | "trend"
-  const[customDims,setCustomDims]=useState([]);
+  // Defaults to "custom" (not "budget") when no budget structure exists yet — spend-by-dimension
+  // is still valuable before anyone's set up budgets, so this shouldn't force people through Budget
+  // Panel first just to see how spend breaks out by Platform/tags. customDims seeds to ["Platform"]
+  // in that case so the table renders something useful immediately, not an empty "pick a dimension"
+  // state.
+  const[viewMode,setViewMode]=useState(()=>budgetDims.length?"budget":"custom"); // "budget" | "custom" | "trend"
+  const[customDims,setCustomDims]=useState(()=>budgetDims.length?[]:["Platform"]);
   const allDimOptions=["Platform",...(tagDimensions||[])];
   const activeDims=viewMode==="custom"?customDims:budgetDims;
   const changeViewMode=v=>{setViewMode(v);setSelRows(new Set());setExpandedRows(new Set());setBreakdownDim("");setSegFilters({});};
@@ -3913,13 +3918,17 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"right"};
   const safeTextColor=c=>c===T.accent?T.text:c; // gold is a fine fill/border color but never body text, per the established house rule
 
-  if(!budgetDims.length){
+  // Only block entirely when there's truly nothing to show — no budget structure AND no spend
+  // synced yet. If spend exists but budgets don't, fall through to the full view below (defaulted
+  // to "custom" mode above) so spend-by-Platform/tag is still visible — that's useful on its own,
+  // independent of whether budgets have been set up.
+  if(!budgetDims.length&&!mergedNormRows.length){
     return(
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40,background:T.bg}}>
         <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="chart" size={24} color={T.onAccent}/></div>
-        <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up budgets first</div>
-        <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Pacing compares spend to your budget segments. Head to Budgets, choose dimensions to budget by, and set monthly amounts.</div>
-        <Btn onClick={()=>onNavigate?.("budget")} variant="success" T={T} size="md">Go to Budgets →</Btn>
+        <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>No data yet</div>
+        <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Import spend data and set up budget segments to see pacing and spend breakdowns here.</div>
+        <Btn onClick={()=>onNavigate?.("tagger")} variant="success" T={T} size="md">Go to Campaign Tagger →</Btn>
       </div>
     );
   }
@@ -3995,6 +4004,12 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
       {/* Segment table */}
       <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
         <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} mode="pacing"/>
+        {!budgetDims.length&&(
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:14,fontSize:12,color:T.text,fontFamily:"Inter,sans-serif"}}>
+            No budget structure set up yet — showing spend by dimension only.{" "}
+            <span onClick={()=>onNavigate?.("budget")} style={{color:T.accentText,fontWeight:600,cursor:"pointer"}}>Set up budgets →</span>
+          </div>
+        )}
         {/* View by — Budget Segments (the only grouping with $ budgets) vs Custom (any dimension
             combo, spend-only). Shown regardless of whether budget segments exist, since switching
             away to Custom is exactly what you'd want to do if they don't. */}
