@@ -26,6 +26,12 @@ const THEME = {
   // exact light tint this palette provides, rather than a derived rgba.
   accent:"#36565F",accentHover:"#141414",onAccent:"#FFFFFF",
   accentBg:"#E2F0F0",accentBorder:"rgba(54,86,95,0.3)",accentText:"#141414",
+  // Added 2026-07-21 — Ocean Steel, for progress-bar fills and status dots specifically. Those
+  // sit on light-grey tracks/backgrounds (T.pill, T.border, white rows) where full-strength
+  // Deep Slate reads fine but Cloud Mist (the requested lighter swap) would be nearly invisible —
+  // too close in lightness to the track color to show any fill at all. Ocean Steel is the
+  // palette's other mid-tone: still clearly visible, just softer than the primary accent.
+  accentSoft:"#5F8190",
   success:"#0C7A43",successBg:"rgba(12,122,67,0.08)",successBorder:"rgba(12,122,67,0.24)",
   warning:"#B25E09",warningBg:"rgba(178,94,9,0.08)",warningBorder:"rgba(178,94,9,0.24)",
   danger:"#E5484D",dangerBg:"rgba(229,72,77,0.08)",dangerBorder:"rgba(229,72,77,0.24)",
@@ -421,7 +427,7 @@ const SpendVsBudgetBar=({T,spend,budget,fmtFull})=>{
   return(
     <div>
       <div style={{position:"relative",height:14,borderRadius:7,background:T.pill,overflow:"hidden"}}>
-        <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${fillPct}%`,background:over?T.danger:T.accent,borderRadius:7,transition:"width 0.2s"}}/>
+        <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${fillPct}%`,background:over?T.danger:T.accentSoft,borderRadius:7,transition:"width 0.2s"}}/>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:9,fontFamily:"Inter,sans-serif"}}>
         <span style={{fontSize:15,fontWeight:800,color:over?T.danger:T.text}}>{fmtFull(spend)}</span>
@@ -446,7 +452,7 @@ const PlatformSpendBars=({T,rows,fmtFull})=>{
             <span style={{color:T.textMuted}}>{fmtFull(r.spend)}</span>
           </div>
           <div style={{height:6,borderRadius:3,background:T.pill,overflow:"hidden"}}>
-            <div style={{height:"100%",width:`${maxSpend?(r.spend/maxSpend)*100:0}%`,background:T.accent,borderRadius:3}}/>
+            <div style={{height:"100%",width:`${maxSpend?(r.spend/maxSpend)*100:0}%`,background:T.accentSoft,borderRadius:3}}/>
           </div>
         </div>
       ))}
@@ -5752,7 +5758,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box"}}>
           {step==="tag"&&!isMobile&&(
             <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:20}}>
-              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":T.accent,flexShrink:0}}/>
+              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":T.accentSoft,flexShrink:0}}/>
               <span style={{fontSize:11,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
@@ -5892,7 +5898,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <SectionLabel T={T}>Overview</SectionLabel>
                 {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T}/>)}
                 {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif",lineHeight:1.6}}>{stats.dateRange}</div>}
-                <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accent,transition:"width 0.4s",borderRadius:2}}/></div>
+                <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accentSoft,transition:"width 0.4s",borderRadius:2}}/></div>
                 <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
                 <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
                   <Btn onClick={exportTags} disabled={!campaigns.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export tags CSV</Btn>
@@ -6417,7 +6423,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         here it means tagged (accent) vs needs review (neutral grey), so the row list
                         reads at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
-                      <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?T.accent:"#A1A1AA",flexShrink:0}}/>
+                      <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?T.accentSoft:"#A1A1AA",flexShrink:0}}/>
                       <span style={{minWidth:0,fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
                     <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
