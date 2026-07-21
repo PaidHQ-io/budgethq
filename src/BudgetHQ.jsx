@@ -5246,6 +5246,37 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const applySug=useCallback((dim,val)=>{pushHistory(tags);const u={};filtered.forEach(c=>{if(!(tags[c.key]?.[dim]))u[c.key]={...(tags[c.key]||{}),[dim]:val};});setTags(p=>({...p,...u}));showNotif(`Applied ${dim}: ${val} to ${Object.keys(u).length} campaigns`);},[filtered,tags,pushHistory]);
   const removeTag=useCallback((cn,dim)=>{pushHistory(tags);setTags(p=>{const ts={...(p[cn]||{})};delete ts[dim];return{...p,[cn]:ts};});},[tags,pushHistory]);
   const bulkRemoveTag=useCallback(dim=>{if(!dim||!selected.size)return;pushHistory(tags);setTags(p=>{const nx={...p};selected.forEach(n=>{if(nx[n]){const ts={...nx[n]};delete ts[dim];nx[n]=ts;}});return nx;});showNotif(`Removed ${dim} tag from ${selected.size} campaigns`);setSelected(new Set());},[selected,tags,pushHistory]);
+  // Deletes a tag dimension entirely — removes it from the Tag Dimensions list AND strips it out of
+  // every campaign's tags (not just the ones currently selected/filtered), so no orphaned dimension
+  // data is left sitting invisibly in the data model. Blocked if the dimension is currently used as
+  // a Budget By dimension: budgetDims values are baked into every budget segment's key (segKey =
+  // dims.join("|")), so removing one out from under an active budget structure would mean collapsing
+  // and re-merging every segment's dollar amounts — real data-migration territory, not something to
+  // do silently as a side effect of a tag-dimension delete. Annotation-only usage (budgetMetaDims) is
+  // safe to clean up automatically since those are just extra display columns, not part of any key.
+  const deleteDimension=useCallback(dim=>{
+    if(!dim)return;
+    if(budgetDims.includes(dim)){
+      window.alert(`"${dim}" is currently used as a Budget By dimension in the Budget Panel, so it can't be deleted from here — doing so would break your existing budget segments. Go to Budget Panel → Budget By and un-check "${dim}" first, then delete it here.`);
+      return;
+    }
+    const matchCount=Object.values(tags).filter(t=>t&&t[dim]).length;
+    const tagNote=matchCount>0?` This removes the "${dim}" tag from ${matchCount} campaign${matchCount>1?"s":""} — any that only had this tag will show as needs review in the Tagger. Spend data itself is not affected.`:" No campaigns currently have this tag applied.";
+    if(!window.confirm(`Delete the "${dim}" dimension?\n\nThis removes it from Tag Dimensions entirely, not just from the list.${tagNote}`))return;
+    pushHistory(tags);
+    setTags(p=>{
+      const nx={};
+      Object.entries(p).forEach(([key,t])=>{
+        if(t&&Object.prototype.hasOwnProperty.call(t,dim)){const nt={...t};delete nt[dim];nx[key]=nt;}
+        else nx[key]=t;
+      });
+      return nx;
+    });
+    setTagDims(p=>p.filter(d=>d!==dim));
+    if(budgetMetaDims.includes(dim))setBudgetMetaDims(p=>p.filter(d=>d!==dim));
+    if(applyDim===dim)setApplyDim("");
+    showNotif(matchCount>0?`Deleted "${dim}" — removed from ${matchCount} campaign${matchCount>1?"s":""}`:`Deleted "${dim}"`);
+  },[tags,budgetDims,budgetMetaDims,applyDim,pushHistory]);
   // Same override pattern as applyTags above, and for the same reason — also wired directly as a
   // raw onBlur handler elsewhere, hence the typeof guard.
   const saveEdit=useCallback((valOverride)=>{
@@ -5835,7 +5866,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 {tagDims.map(dim=>(
                   <div key={dim} className={applyDim===dim?undefined:"bhq-row"} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent",border:applyDim===dim?`1px solid ${T.accentBorder}`:"1px solid transparent"}}>
                     <span style={{fontSize:13,color:T.text,fontWeight:applyDim===dim?700:400}}>{dim}</span>
-                    <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
+                    <span style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
+                      <button onClick={e=>{e.stopPropagation();deleteDimension(dim);}} title={`Delete "${dim}" dimension`}
+                        style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:0,opacity:0.5,transition:"opacity 0.1s, color 0.1s"}}
+                        onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.color=T.danger;}}
+                        onMouseLeave={e=>{e.currentTarget.style.opacity=0.5;e.currentTarget.style.color=T.textMuted;}}>×</button>
+                    </span>
                   </div>
                 ))}
               </div>
