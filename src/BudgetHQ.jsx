@@ -3986,7 +3986,11 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
             <div style={{fontSize:10,color:T.textMuted,lineHeight:1.5,marginBottom:4}}>Last date each platform actually has spend data for — projections use this per platform instead of assuming everyone's current through today.</div>
             {Object.entries(pacing.platformFreshness||{}).sort(([,a],[,b])=>b-a).map(([platform,date])=>{
               const daysStale=Math.floor((now-date)/86400000);
-              const color=daysStale<=1?T.success:daysStale<=6?T.warning:T.danger;
+              // Same 4-color scale as the Pacing column's status colors (pacingStatusMeta) instead
+              // of a plain 3-tier success/warning/danger — gives freshness more graduated signal
+              // (e.g. "2 days ago" across every platform used to render as one flat color) using
+              // colors already established elsewhere in this view.
+              const color=daysStale<=1?T.success:daysStale<=3?T.accent:daysStale<=6?T.warning:T.danger;
               const label=daysStale<=0?"Today":daysStale===1?"Yesterday":`${daysStale} days ago`;
               return(
                 <div key={platform} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:11,fontFamily:"Inter,sans-serif"}}>
