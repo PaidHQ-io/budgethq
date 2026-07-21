@@ -4666,6 +4666,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   useEffect(()=>{try{localStorage.setItem("paidhq_last_view",view);}catch(e){};},[view]);
   useEffect(()=>{try{if(activeAskChatId)localStorage.setItem("paidhq_ask_active_chat",activeAskChatId);else localStorage.removeItem("paidhq_ask_active_chat");}catch(e){};},[activeAskChatId]);
 
+  // Stable across a token refresh (only actually changes on a real login/logout/user switch) —
+  // used as an effect dependency below instead of the `session` object itself, and declared here
+  // (rather than down by sessionRef, where it originally lived) since the AI-chats effects right
+  // below need it and run before that point in this function.
+  const sessionUserId=session?.user?.id;
+
   // ── Ask AI chat history — server-backed, scoped per (workspace, user) ──────────────────────
   // Loads fresh every time the active workspace (or signed-in user) changes, and saves back with
   // a short debounce, same pattern as the workspace-config/spend-rows saves below just without
@@ -4786,7 +4792,6 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // those effects make so auth still works correctly long after an effect last re-ran.
   const sessionRef=useRef(session);
   useEffect(()=>{sessionRef.current=session;});
-  const sessionUserId=session?.user?.id;
 
   useEffect(()=>{
     if(!workspace?.id||!session){setWorkspaceDataLoading(false);return;}
