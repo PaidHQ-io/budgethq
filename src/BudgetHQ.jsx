@@ -4325,7 +4325,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
-export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitchWorkspace,onCreateWorkspace}={}){
+export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitchWorkspace,onCreateWorkspace,accounts,activeAccountKey,onSwitchAccount,onAddAccount}={}){
   const T=THEME;
   const[accountMenuOpen,setAccountMenuOpen]=useState(false);
   const[workspaceMenuOpen,setWorkspaceMenuOpen]=useState(false);
@@ -5853,12 +5853,32 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               </button>
               {accountMenuOpen&&(<>
                 <div onClick={()=>setAccountMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-                <div style={{position:"absolute",top:38,right:0,zIndex:250,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                <div style={{position:"absolute",top:38,right:0,zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
                   <div style={{padding:"7px 10px 8px",fontSize:12,color:T.text,fontWeight:600,wordBreak:"break-all"}}>{session.user?.email}</div>
                   <div style={{height:1,background:T.border,margin:"2px 4px 6px"}}/>
                   <button className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onSignOut&&onSignOut();}}
                     style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
                     Sign out
+                  </button>
+                  {/* Other accounts held in this browser (e.g. a client's login alongside your
+                      own) — clicking one flips the whole app over to it, landing on that account's
+                      last-active workspace. See AuthGate.jsx for how these sessions stay alive in
+                      the background. */}
+                  {accounts&&accounts.filter(a=>a.storageKey!==activeAccountKey).length>0&&(<>
+                    <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
+                    <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Switch account</div>
+                    {accounts.filter(a=>a.storageKey!==activeAccountKey).map(a=>(
+                      <button key={a.storageKey} className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onSwitchAccount&&onSwitchAccount(a.storageKey);}}
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left",overflow:"hidden"}}>
+                        <span style={{width:18,height:18,borderRadius:"50%",background:T.accentBg,color:T.accent,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{(a.email||"?")[0].toUpperCase()}</span>
+                        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.email}</span>
+                      </button>
+                    ))}
+                  </>)}
+                  <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
+                  <button className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onAddAccount&&onAddAccount();}}
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                    + Add account
                   </button>
                 </div>
               </>)}

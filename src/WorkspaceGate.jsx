@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listWorkspaces, createWorkspace, grantEntitlement, acceptInvite } from "./lib/coreApi";
 import { PENDING_INVITE_KEY } from "./AuthGate";
+import { workspaceKeyFor } from "./lib/accounts";
 import BudgetHQ from "./BudgetHQ";
 
 // Standalone subset of BudgetHQ's theme tokens — see Auth.jsx for why this isn't imported from
@@ -24,8 +25,6 @@ const T = {
   successBg: "rgba(12,122,67,0.08)",
   successBorder: "rgba(12,122,67,0.24)",
 };
-
-const ACTIVE_WORKSPACE_KEY = "paidhq_active_workspace_id";
 
 const KIND_OPTIONS = [
   { key: "inhouse", label: "In-house brand", hint: "I manage paid media for a company I work at." },
@@ -233,16 +232,36 @@ function CreateWorkspaceScreen({ name, setName, kind, setKind, onSubmit, loading
   );
 }
 
-// Sits between AuthGate (owns the Supabase session) and BudgetHQ (the actual product). Owns the
-// list of workspaces the signed-in user belongs to, which one is "active," and the create-a-
-// workspace flow — all via paidhq-core's API, never talking to Postgres directly (that's core's
-// job; every product goes through its API for workspace/entitlement data).
-export default function WorkspaceGate({ session, onSignOut }) {
+// Sits between AuthGate (owns the Supabase session — now sessionS, plural, one per held account)
+// and BudgetHQ (the actual product). Owns the list of workspaces the signed-in user belongs to,
+// which one is "active," and the create-a-workspace flow — all via paidhq-core's API, never
+// talking to Postgres directly (that's core's job; every product goes through its API for
+// workspace/entitlement data).
+//
+// `accountKey` identifies which held account this instance belongs to — it's what namespaces the
+// "active workspace" localStorage key (see lib/accounts.js#workspaceKeyFor) so switching accounts
+// doesn't clobber which workspace was last active in a DIFFERENT account. `otherAccountSessions`
+// (a { storageKey: session } map for every other known/hydrated account) and
+// `onInviteAcceptedForOtherAccount` exist purely so the invite-acceptance effect below can retry
+// against every held account, not just the active one, before giving up — see that effect's
+// comment for why.
+export default function WorkspaceGate({
+  session,
+  onSignOut,
+  accountKey,
+  accounts,
+  onSwitchAccount,
+  onAddAccount,
+  onSignOutAccount,
+  otherAccountSessions,
+  onInviteAcceptedForOtherAccount,
+}) {
   const [workspaces, setWorkspaces] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState("");
+  const activeWorkspaceStorageKey = workspaceKeyFor(accountKey);
   const [activeId, setActiveId] = useState(() => {
     try {
-      return localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+      return localStorage.getItem(activeWorkspaceStorageKey);
     } catch {
       return null;
     }
@@ -283,9 +302,13 @@ export default function WorkspaceGate({ session, onSignOut }) {
   //
   // The token is only cleared on success, or on a failure that means it's genuinely dead (invalid/
   // already-used/expired — accept.js returns 404/409/410 for those). A 403 specifically means "this
-  // invite is for a different email than whoever's signed in right now" — that's recoverable, so
-  // the token has to survive it, or the invite is unrecoverably lost the instant someone opens the
-  // link while signed into the wrong account (a very easy thing to do by accident).
+  // invite is for a different email than whoever's signed in right now" — that used to be a dead
+  // end unless the person signed out and back in as the right account. Now, before giving up, it
+  // also tries every OTHER account currently held in the switcher (otherAccountSessions, threaded
+  // down from AuthGate) — if the right account for this invite happens to already be signed in
+  // there, this finds it automatically, flips the active account over via
+  // onInviteAcceptedForOtherAccount, and lands directly in the new workspace. Only a genuinely
+  // dead invite (404/409/410) short-circuits the whole attempt loop early.
   useEffect(() => {
     let token;
     try {
@@ -295,28 +318,48 @@ export default function WorkspaceGate({ session, onSignOut }) {
     }
     if (!token) return;
     setInviteStatus("accepting");
-    acceptInvite(session, token)
-      .then((result) => {
+
+    async function attempt() {
+      const others = Object.entries(otherAccountSessions || {})
+        .filter(([key, sess]) => key !== accountKey && sess)
+        .map(([key, sess]) => ({ key, session: sess }));
+      const candidates = [{ key: accountKey, session }, ...others];
+
+      let lastErr = null;
+      for (const candidate of candidates) {
         try {
-          localStorage.removeItem(PENDING_INVITE_KEY);
-        } catch {
-          /* ignore */
-        }
-        setInviteStatus({ success: result.workspaceName });
-        setTimeout(() => setInviteStatus(null), 5000);
-        refresh();
-        selectWorkspace(result.workspaceId);
-      })
-      .catch((err) => {
-        if (err.status !== 403) {
+          const result = await acceptInvite(candidate.session, token);
           try {
             localStorage.removeItem(PENDING_INVITE_KEY);
           } catch {
             /* ignore */
           }
+          setInviteStatus({ success: result.workspaceName });
+          setTimeout(() => setInviteStatus(null), 5000);
+          if (candidate.key !== accountKey && onInviteAcceptedForOtherAccount) {
+            onInviteAcceptedForOtherAccount(candidate.key, result.workspaceId);
+          } else {
+            refresh();
+            selectWorkspace(result.workspaceId);
+          }
+          return;
+        } catch (err) {
+          lastErr = err;
+          if (err.status !== 403) break; // dead invite (404/409/410) — no point trying other accounts
         }
-        setInviteStatus({ error: err.message || "Couldn't accept that invite." });
-      });
+      }
+
+      if (lastErr && lastErr.status !== 403) {
+        try {
+          localStorage.removeItem(PENDING_INVITE_KEY);
+        } catch {
+          /* ignore */
+        }
+      }
+      setInviteStatus({ error: (lastErr && lastErr.message) || "Couldn't accept that invite." });
+    }
+
+    attempt();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
@@ -332,7 +375,7 @@ export default function WorkspaceGate({ session, onSignOut }) {
   function selectWorkspace(id) {
     setActiveId(id);
     try {
-      localStorage.setItem(ACTIVE_WORKSPACE_KEY, id);
+      localStorage.setItem(activeWorkspaceStorageKey, id);
     } catch {
       /* ignore */
     }
@@ -449,6 +492,11 @@ export default function WorkspaceGate({ session, onSignOut }) {
         workspaces={workspaces}
         onSwitchWorkspace={selectWorkspace}
         onCreateWorkspace={() => setShowCreateForm(true)}
+        accounts={accounts}
+        activeAccountKey={accountKey}
+        onSwitchAccount={onSwitchAccount}
+        onAddAccount={onAddAccount}
+        onSignOutAccount={onSignOutAccount}
       />
     </>
   );

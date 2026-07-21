@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase, supabaseConfigured } from "./lib/supabaseClient";
+import { supabase as defaultClient, supabaseConfigured } from "./lib/supabaseClient";
 
 // Small standalone subset of BudgetHQ's Vercel-matched theme tokens — kept local rather than
 // imported from BudgetHQ.jsx since this screen renders before any workspace/session data exists
@@ -87,7 +87,15 @@ const OAUTH_PROVIDERS = [
   { key: "facebook", label: "Continue with Facebook", Icon: FacebookIcon },
 ];
 
-export default function AuthScreen() {
+// `client` defaults to the primary (legacy) Supabase client so every existing call site — the
+// normal sign-in screen rendered by AuthGate — keeps working unchanged. The "+ Add account" flow
+// (AddAccountScreen, rendered from a separate browser tab) passes in a fresh client pinned to a
+// brand-new storageKey instead, so signing in there populates a new account slot rather than
+// overwriting whichever account is active in the tab that opened it.
+// `redirectTo` defaults to the plain origin (today's behavior); the add-account flow overrides it
+// to carry the `paidhq_add_account`/`paidhq_slot` query params through the OAuth round trip so the
+// returning tab knows which storageKey slot the new session belongs to.
+export default function AuthScreen({ client = defaultClient, redirectTo = window.location.origin, heading } = {}) {
   const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -107,9 +115,9 @@ export default function AuthScreen() {
     setNotice("");
     setOauthLoading(provider);
     try {
-      const { error: err } = await supabase.auth.signInWithOAuth({
+      const { error: err } = await client.auth.signInWithOAuth({
         provider,
-        options: { redirectTo: window.location.origin },
+        options: { redirectTo },
       });
       if (err) throw err;
       // On success the browser navigates away to the provider immediately — nothing left to do
@@ -127,16 +135,16 @@ export default function AuthScreen() {
     setLoading(true);
     try {
       if (mode === "signin") {
-        const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+        const { error: err } = await client.auth.signInWithPassword({ email, password });
         if (err) throw err;
       } else if (mode === "signup") {
-        const { error: err } = await supabase.auth.signUp({ email, password });
+        const { error: err } = await client.auth.signUp({ email, password });
         if (err) throw err;
         setNotice("Check your email to confirm your account, then sign in.");
         setMode("signin");
       } else if (mode === "forgot") {
-        const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin,
+        const { error: err } = await client.auth.resetPasswordForEmail(email, {
+          redirectTo,
         });
         if (err) throw err;
         setNotice("Password reset email sent — check your inbox.");
@@ -217,7 +225,7 @@ export default function AuthScreen() {
           <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>PaidHQ</div>
         </div>
         <div style={{ fontSize: 13, color: T.textSub, marginBottom: 22 }}>
-          {mode === "signin" && "Sign in to BudgetHQ"}
+          {mode === "signin" && (heading || "Sign in to BudgetHQ")}
           {mode === "signup" && "Create your PaidHQ account"}
           {mode === "forgot" && "Reset your password"}
         </div>
