@@ -18,21 +18,25 @@ const THEME = {
   bg:"#FAFAFA",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
   border:"#EAEAEA",borderStrong:"#D4D4D4",
   text:"#171717",textSub:"#666666",textMuted:"#8F8F8F",textDim:"#E5E5E5",
-  // Papaya (chosen 2026-07-19 over black/blue/violet/teal/several other rounds) — warm and
-  // distinct from every blue/purple ad-budget competitor, without reading as a hazard-orange
-  // warning color the way a fully-saturated safety orange would next to the app's own amber
-  // warning state. #FF7A59 itself is too light for white text/icons on top of it (~2.6:1
-  // contrast, fails WCAG AA) — onAccent below is the readable dark text/icon color for that case,
-  // and accentText is a deeper shade of the same hue for accent-colored text sitting on white.
-  accent:"#FF7A59",accentHover:"#E85C3A",onAccent:"#171717",
-  accentBg:"rgba(255,122,89,0.1)",accentBorder:"rgba(255,122,89,0.3)",accentText:"#C7431F",
+  // Replaced 2026-07-20 — papaya swapped for Mountain Meadow, one of the six primary colors in
+  // Mo's brand palette (Rich Black/Dark Green/Bangladesh Green/Mountain Meadow/Caribbean Green/
+  // Anti-Flash White), so the app's accent now matches the actual brand rather than an
+  // ad-hoc pick. accentHover uses Bangladesh Green (a darker step down the same palette) and
+  // accentText uses the same for accent-colored text on white, for the identical "too-light for
+  // white text, need a deeper shade for text/hover" reasons the papaya version had.
+  accent:"#2CC295",accentHover:"#03624C",onAccent:"#171717",
+  accentBg:"rgba(44,194,149,0.1)",accentBorder:"rgba(44,194,149,0.3)",accentText:"#03624C",
   success:"#0C7A43",successBg:"rgba(12,122,67,0.08)",successBorder:"rgba(12,122,67,0.24)",
   warning:"#B25E09",warningBg:"rgba(178,94,9,0.08)",warningBorder:"rgba(178,94,9,0.24)",
   danger:"#E5484D",dangerBg:"rgba(229,72,77,0.08)",dangerBorder:"rgba(229,72,77,0.24)",
-  rowHover:"#FAFAFA",rowSelected:"rgba(255,122,89,0.08)",
+  rowHover:"#FAFAFA",rowSelected:"rgba(44,194,149,0.08)",
   inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#FAFAFA",topbarBg:"#FFFFFF",
   pill:"#F2F2F2",pillBorder:"#EAEAEA",
-  badgeColors:["#0070F3","#7928CA","#FF0080","#0C7A43","#B25E09","#666666","#008672"],
+  // Same brand-palette greens used for TAG_DIM_COLORS below (Mountain Meadow, Caribbean Green,
+  // Bangladesh Green, Forest, Frog, Mint, Basil) — kept as one shared family instead of the old
+  // blue/purple/pink/copper rainbow so every "pick one of N colors for variety" spot in the app
+  // (Dashboard action cards, tag-dimension pills) draws from the same real brand greens.
+  badgeColors:["#2CC295","#00DF81","#03624C","#095544","#17876D","#2FA98C","#0B453A"],
   shadow:"none",
   shadowMd:"0 8px 24px rgba(0,0,0,0.08),0 2px 6px rgba(0,0,0,0.04)",
   // Not part of Mo's spec (only shadow/shadowMd were given) — derived slightly larger for
@@ -109,9 +113,12 @@ const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Disp
 // Applied-tag pill colors in the Tagger — a plain white/grey pill read as too flat to spot at a
 // glance, so pills use a tinted "selected chip" treatment (light background + colored border/text)
 // instead of a flat outline, with a distinct color PER TAG DIMENSION (Product/Module/Brand/etc. each
-// get their own hue) so the Tags column reads at a glance without having to read every label. No
-// copper/orange tones in here — that family is reserved for genuine warning states elsewhere.
-const TAG_DIM_COLORS=["#2563EB","#7928CA","#DB2777","#0C7A43","#0891B2","#4F46E5","#E11D48","#0D9488"];
+// get their own hue) so the Tags column reads at a glance without having to read every label.
+// Pulled straight from Mo's brand palette (2026-07-20) — every dimension gets a different shade of
+// green (Mountain Meadow, Caribbean Green, Bangladesh Green, Forest, Frog, Mint, Basil, Pine)
+// instead of the old multi-hue rainbow, so tag pills read as clearly "on brand" rather than
+// arbitrary UI colors.
+const TAG_DIM_COLORS=["#2CC295","#00DF81","#03624C","#095544","#17876D","#2FA98C","#0B453A","#06302B"];
 const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -5745,7 +5752,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box"}}>
           {step==="tag"&&!isMobile&&(
             <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:20}}>
-              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":"#52E3C2",flexShrink:0}}/>
+              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":"#00DF81",flexShrink:0}}/>
               <span style={{fontSize:11,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
@@ -6410,7 +6417,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         here it means tagged (green) vs needs review (amber), so the row list reads
                         at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
-                      <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?"#52E3C2":"#A1A1AA",flexShrink:0}}/>
+                      <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?"#00DF81":"#A1A1AA",flexShrink:0}}/>
                       <span style={{minWidth:0,fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
                     <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
