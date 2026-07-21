@@ -1580,6 +1580,9 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           </div>
         ):(
           <>
+          <div style={{padding:"14px 16px 0"}}>
+            <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} mode="budget"/>
+          </div>
           {/* Rollups — budget totals by one Budget By dimension at a time, independent of the
               detail grid's row grain */}
           {showRollups&&rollupTables.length>0&&(
@@ -3066,6 +3069,87 @@ async function askAIRun({question,history,ctx}){
   throw new Error("Ask AI took too many steps without a final answer");
 }
 
+// Powers the "✨ AI Summary" card on the Budget Panel and Reporting & Pacing tabs. Deliberately NOT
+// a tool-use loop like askAIRun — computePacing() already computes the exact same
+// budget/spend/status numbers those tabs render on screen, so re-deriving them via tool calls would
+// just risk the model getting its own arithmetic wrong. Instead this computes the real numbers
+// locally (guaranteeing they match what's on screen), condenses them to a small JSON payload, and
+// asks Claude for a single-turn prose write-up of what's already been calculated — one request,
+// no risk of the tool loop going sideways. Uses full-year-to-date ("annual") as the period rather
+// than whatever range either tab currently has selected, since threading the live UI period through
+// would be a bigger lift for what's meant to be a quick, general snapshot.
+async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,mode}){
+  const year=String(new Date().getFullYear());
+  const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
+  const withVariance=pacing.segments.map(s=>({...s,overBy:s.spend-s.budget}));
+  const topOver=[...withVariance].filter(s=>s.status==="over").sort((a,b)=>b.overBy-a.overBy).slice(0,5)
+    .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),overBy:Math.round(s.overBy)}));
+  const topBehind=[...pacing.segments].filter(s=>s.status==="behind").sort((a,b)=>(a.actualPct??0)-(b.actualPct??0)).slice(0,5)
+    .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),actualPct:s.actualPct==null?null:Math.round(s.actualPct*100)}));
+  const noDataCount=pacing.segments.filter(s=>s.budget>0&&!s.hasData).length;
+  const payload={
+    year,
+    totalBudgetYTD:Math.round(pacing.totals.budget),
+    totalSpendYTD:Math.round(pacing.totals.spend),
+    expectedPacePct:Math.round(pacing.expectedPct*100),
+    daysRemainingInYear:pacing.daysRemaining,
+    segmentCount:pacing.segments.length,
+    segmentsOverBudget:topOver,
+    segmentsBehindPace:topBehind,
+    segmentsWithBudgetButNoSpendDataYet:noDataCount,
+  };
+  const focus=mode==="budget"
+    ?"This is for the Budget Panel (where budgets are set up), so focus on budget SETUP and coverage: how many segments are budgeted, the total budgeted amount, and flag segmentsWithBudgetButNoSpendDataYet as a likely tagging gap worth checking (a segment has a budget but no matching spend rows yet)."
+    :"This is for the Reporting & Pacing tab, so focus on PACING PERFORMANCE: overall pace vs the expected pace for this point in the year, which segments are most over budget, which are furthest behind pace, and what's worth a closer look.";
+  const system=`You are writing a short summary for a paid-media budget dashboard called BudgetHQ. Below is pre-computed JSON data for the current year — it is already correct, do not recompute or second-guess any numbers, just narrate them. Write 3-5 sentences of plain prose (no markdown headers, no bullet lists), citing the real figures. If a list is empty, don't dwell on it. ${focus}`;
+  const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:[{role:"user",content:JSON.stringify(payload)}],system,maxTokens:400})});
+  const data=await res.json();
+  if(!res.ok)throw new Error(data?.error||"Summary request failed");
+  return data.text||"(no response)";
+}
+
+// Self-contained "✨ AI Summary" trigger + result card, shared by the Budget Panel and Reporting &
+// Pacing tabs (see aiSummarizeBudgetPacing above). Owns its own idle/loading/done/error state so
+// each tab gets an independent summary rather than sharing one across navigation.
+function AISummaryCard({T,mergedNormRows,tags,budgetDims,budgets,mode}){
+  const[state,setState]=useState({status:"idle",text:"",error:""});
+  const run=useCallback(async()=>{
+    setState({status:"loading",text:"",error:""});
+    try{
+      const text=await aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,mode});
+      setState({status:"done",text,error:""});
+    }catch(err){
+      setState({status:"error",text:"",error:err.message||"Summary failed"});
+    }
+  },[mergedNormRows,tags,budgetDims,budgets,mode]);
+
+  if(!budgetDims.length)return null; // nothing to summarize until a budget structure exists
+
+  return(
+    <div style={{marginBottom:14}}>
+      {state.status!=="done"&&
+        <Btn onClick={run} disabled={state.status==="loading"} variant="ghost" size="sm" T={T} style={{gap:6}}>
+          {state.status==="loading"
+            ?<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,border:`2px solid ${T.accentBorder}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Summarizing…</span>
+            :<span>✨ AI Summary</span>}
+        </Btn>}
+      {state.status==="error"&&<div style={{marginTop:8,padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:8,fontSize:12,color:T.warning}}>{state.error}</div>}
+      {state.status==="done"&&(
+        <div style={{padding:"11px 14px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,fontSize:12.5,color:T.text,lineHeight:1.6}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8}}>
+            <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.accent}}>✨ AI Summary</span>
+            <div style={{display:"flex",gap:10,flexShrink:0}}>
+              <button onClick={run} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",padding:0}}>Regenerate</button>
+              <button onClick={()=>setState({status:"idle",text:"",error:""})} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",padding:0}}>Dismiss</button>
+            </div>
+          </div>
+          {state.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // One pass over mergedNormRows producing {segKey: {monthKey: actualSpend}} for a given calendar
 // year — used to build the optional monthly/quarterly "Actual" column blocks in the budget
 // export, so each block only costs one scan regardless of how many segments/months it covers.
@@ -3891,6 +3975,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 
       {/* Segment table */}
       <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
+        <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} mode="pacing"/>
         {/* View by — Budget Segments (the only grouping with $ budgets) vs Custom (any dimension
             combo, spend-only). Shown regardless of whether budget segments exist, since switching
             away to Custom is exactly what you'd want to do if they don't. */}
