@@ -47,6 +47,30 @@ export function grantEntitlement(session, workspaceId, { product, plan = "trial"
   });
 }
 
+// Owner or admin. Server-side role check lives in paidhq-core's workspaces/[id]/index.js.
+export function renameWorkspace(session, workspaceId, name) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  }).then((d) => d.workspace);
+}
+
+// Owner only — permanently destroys the workspace and (via FK cascade, entirely server-side)
+// every bit of its data across every product's schema. No undo.
+export function deleteWorkspace(session, workspaceId) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: "DELETE",
+  });
+}
+
+// Permanently deletes a PaidHQ login (not just this browser's copy of it — see AuthGate.jsx's
+// "Sign out" for that). No `targetUserId` deletes the CALLER's own account; passing one only
+// works for the two designated PaidHQ admin emails (enforced server-side in api/account/index.js).
+export function deleteAccount(session, targetUserId) {
+  const qs = targetUserId ? `?userId=${encodeURIComponent(targetUserId)}` : "";
+  return coreFetch(session, `/api/account${qs}`, { method: "DELETE" });
+}
+
 // ─── Team / access levels ───────────────────────────────────────────────────
 // "member" is view-only in BudgetHQ (enforced server-side by every product API route — see
 // requireEditAccess in api/lib/auth.js); "admin"/"owner" have full edit access, and only they can

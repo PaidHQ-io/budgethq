@@ -497,6 +497,7 @@ export default function WorkspaceGate({
         onSwitchAccount={onSwitchAccount}
         onAddAccount={onAddAccount}
         onSignOutAccount={onSignOutAccount}
+        onWorkspacesChanged={refresh}
       />
     </>
   );

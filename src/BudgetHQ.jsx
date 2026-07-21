@@ -10,7 +10,7 @@ import {
   listVersions, saveVersion, deleteVersion as apiDeleteVersion,
   listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64,
 } from "./lib/workspaceApi";
-import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite } from "./lib/coreApi";
+import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount } from "./lib/coreApi";
 import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchSheetGrid, preloadGoogleSheetsApi, switchGoogleAccount } from "./lib/googleSheets";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
@@ -4325,7 +4325,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
-export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitchWorkspace,onCreateWorkspace,accounts,activeAccountKey,onSwitchAccount,onAddAccount}={}){
+export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitchWorkspace,onCreateWorkspace,accounts,activeAccountKey,onSwitchAccount,onAddAccount,onSignOutAccount,onWorkspacesChanged}={}){
   const T=THEME;
   const[accountMenuOpen,setAccountMenuOpen]=useState(false);
   const[workspaceMenuOpen,setWorkspaceMenuOpen]=useState(false);
@@ -4555,6 +4555,59 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const revokeTeamInvite=useCallback((email)=>{
     revokeInvite(session,workspace.id,email).then(refreshTeam).catch(e=>window.alert(e.message||"Couldn't revoke that invite."));
   },[session,workspace,refreshTeam]);
+
+  // ── Settings → Workspace (rename + danger-zone delete) ──────────────────────────────────────
+  const isOwner=myRole==="owner";
+  const[workspaceNameInput,setWorkspaceNameInput]=useState(workspace?.name||"");
+  const[workspaceNameSaving,setWorkspaceNameSaving]=useState(false);
+  const[workspaceNameError,setWorkspaceNameError]=useState("");
+  // Mirrors workspace.name locally rather than editing the prop directly — resets whenever the
+  // active workspace itself changes (switching workspaces, or a rename lands from elsewhere).
+  useEffect(()=>{setWorkspaceNameInput(workspace?.name||"");setWorkspaceNameError("");},[workspace?.id,workspace?.name]);
+  const saveWorkspaceName=useCallback(()=>{
+    const name=workspaceNameInput.trim();
+    if(!name||name===workspace?.name)return;
+    setWorkspaceNameSaving(true);setWorkspaceNameError("");
+    renameWorkspace(session,workspace.id,name)
+      .then(()=>{onWorkspacesChanged&&onWorkspacesChanged();})
+      .catch(e=>setWorkspaceNameError(e.message||"Couldn't rename this workspace."))
+      .finally(()=>setWorkspaceNameSaving(false));
+  },[session,workspace,workspaceNameInput,onWorkspacesChanged]);
+
+  const[deleteWorkspaceOpen,setDeleteWorkspaceOpen]=useState(false);
+  const[deleteWorkspaceConfirmText,setDeleteWorkspaceConfirmText]=useState("");
+  const[deleteWorkspaceSaving,setDeleteWorkspaceSaving]=useState(false);
+  const[deleteWorkspaceError,setDeleteWorkspaceError]=useState("");
+  const confirmDeleteWorkspace=useCallback(()=>{
+    if(deleteWorkspaceConfirmText.trim()!==workspace?.name)return;
+    setDeleteWorkspaceSaving(true);setDeleteWorkspaceError("");
+    deleteWorkspace(session,workspace.id)
+      .then(()=>{
+        setDeleteWorkspaceOpen(false);setDeleteWorkspaceConfirmText("");
+        onWorkspacesChanged&&onWorkspacesChanged();
+      })
+      .catch(e=>setDeleteWorkspaceError(e.message||"Couldn't delete this workspace."))
+      .finally(()=>setDeleteWorkspaceSaving(false));
+  },[session,workspace,deleteWorkspaceConfirmText,onWorkspacesChanged]);
+
+  // ── Settings → Account (danger-zone: permanently delete this login) ─────────────────────────
+  const[deleteAccountOpen,setDeleteAccountOpen]=useState(false);
+  const[deleteAccountConfirmText,setDeleteAccountConfirmText]=useState("");
+  const[deleteAccountSaving,setDeleteAccountSaving]=useState(false);
+  const[deleteAccountError,setDeleteAccountError]=useState("");
+  const confirmDeleteAccount=useCallback(()=>{
+    if(deleteAccountConfirmText.trim().toLowerCase()!==(session?.user?.email||"").toLowerCase())return;
+    setDeleteAccountSaving(true);setDeleteAccountError("");
+    deleteAccount(session)
+      .then(()=>{
+        // Permanently gone server-side — now retire it from this browser's switcher too (same
+        // teardown "Sign out" already does: revokes the local client, drops it from the known-
+        // accounts list, and switches over to whatever's left). Reusing onSignOutAccount rather
+        // than a separate path keeps there being exactly one place that does this cleanup.
+        onSignOutAccount&&onSignOutAccount(activeAccountKey);
+      })
+      .catch(e=>{setDeleteAccountError(e.message||"Couldn't delete this account.");setDeleteAccountSaving(false);});
+  },[session,deleteAccountConfirmText,onSignOutAccount,activeAccountKey]);
 
   // ── Settings → File Store (server-backed, workspace-scoped — see files.js/workspaceApi.js) ──
   const[fileStoreList,setFileStoreList]=useState([]);
@@ -6619,6 +6672,28 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <p style={{fontSize:13,color:T.textSub,fontFamily:"Inter,sans-serif"}}>Manage the data stored in this BudgetHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                {canManageTeam&&(
+                  <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Workspace</div>
+                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>Rename this workspace, or permanently delete it below.</div>
+                    <div style={{display:"flex",gap:6,marginBottom:workspaceNameError?6:0}}>
+                      <input value={workspaceNameInput} onChange={e=>{setWorkspaceNameInput(e.target.value);setWorkspaceNameError("");}}
+                        onKeyDown={e=>e.key==="Enter"&&saveWorkspaceName()}
+                        style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                      <Btn onClick={saveWorkspaceName} variant="primary" size="sm" T={T} disabled={workspaceNameSaving||!workspaceNameInput.trim()||workspaceNameInput.trim()===workspace?.name}>{workspaceNameSaving?"Saving…":"Save"}</Btn>
+                    </div>
+                    {workspaceNameError&&<div style={{fontSize:11,color:T.danger}}>{workspaceNameError}</div>}
+                    {isOwner&&(
+                      <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>Delete this workspace</div>
+                          <div style={{fontSize:12,color:T.textMuted,marginTop:2,fontFamily:"Inter,sans-serif"}}>Permanently removes all spend data, tags, budgets, files, version history, and AI chats. There's no undo.</div>
+                        </div>
+                        <Btn onClick={()=>{setDeleteWorkspaceOpen(true);setDeleteWorkspaceConfirmText("");setDeleteWorkspaceError("");}} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Delete workspace</Btn>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
                     <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Team</div>
@@ -6814,6 +6889,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     action:clearAllData,label:"Delete all data",disabled:!mergedNormRows.length&&!Object.keys(tags).length&&!budgetSegs,
                   })}
                 </div>
+                <div style={{marginTop:8,paddingTop:20,borderTop:`1px solid ${T.border}`}}>
+                  <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Delete your PaidHQ account</div>
+                      <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480}}>Permanently deletes the login itself ({session?.user?.email}) — not just this workspace, every workspace you're in across all of PaidHQ. This is different from "Sign out," which only forgets this account in this browser.</div>
+                      <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif"}}>Blocked if this account is the sole owner of any workspace — transfer ownership or delete those workspaces first.</div>
+                    </div>
+                    <Btn onClick={()=>{setDeleteAccountOpen(true);setDeleteAccountConfirmText("");setDeleteAccountError("");}} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Delete account</Btn>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -6837,6 +6922,48 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               <Btn onClick={dismissLegacyLocalData} variant="ghost" T={T}>Start fresh instead</Btn>
               <Btn onClick={importLegacyLocalData} variant="primary" T={T}>Import into {workspace?.name}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE WORKSPACE (type-to-confirm) ── */}
+      {deleteWorkspaceOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{width:"100%",maxWidth:440,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.danger}}>Delete "{workspace?.name}"?</div>
+            <div style={{padding:20}}>
+              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14}}>This permanently deletes every spend row, tag, budget, file, version, and AI chat in this workspace, for everyone on the team. There's no undo.</div>
+              <div style={{fontSize:12,fontWeight:600,color:T.textMuted,marginBottom:6}}>Type <strong style={{color:T.text}}>{workspace?.name}</strong> to confirm</div>
+              <input autoFocus value={deleteWorkspaceConfirmText} onChange={e=>{setDeleteWorkspaceConfirmText(e.target.value);setDeleteWorkspaceError("");}}
+                onKeyDown={e=>{if(e.key==="Enter"&&deleteWorkspaceConfirmText.trim()===workspace?.name)confirmDeleteWorkspace();if(e.key==="Escape")setDeleteWorkspaceOpen(false);}}
+                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+              {deleteWorkspaceError&&<div style={{marginTop:8,fontSize:12,color:T.danger}}>{deleteWorkspaceError}</div>}
+            </div>
+            <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn onClick={()=>setDeleteWorkspaceOpen(false)} variant="ghost" T={T}>Cancel</Btn>
+              <Btn onClick={confirmDeleteWorkspace} variant="danger" T={T} disabled={deleteWorkspaceSaving||deleteWorkspaceConfirmText.trim()!==workspace?.name}>{deleteWorkspaceSaving?"Deleting…":"Delete workspace"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE ACCOUNT (type-to-confirm) ── */}
+      {deleteAccountOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{width:"100%",maxWidth:440,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.danger}}>Delete this account?</div>
+            <div style={{padding:20}}>
+              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14}}>This permanently deletes the <strong style={{color:T.text}}>{session?.user?.email}</strong> login — you'll lose access to every workspace it belongs to, everywhere in PaidHQ. There's no undo.</div>
+              <div style={{fontSize:12,fontWeight:600,color:T.textMuted,marginBottom:6}}>Type <strong style={{color:T.text}}>{session?.user?.email}</strong> to confirm</div>
+              <input autoFocus value={deleteAccountConfirmText} onChange={e=>{setDeleteAccountConfirmText(e.target.value);setDeleteAccountError("");}}
+                onKeyDown={e=>{if(e.key==="Enter"&&deleteAccountConfirmText.trim().toLowerCase()===(session?.user?.email||"").toLowerCase())confirmDeleteAccount();if(e.key==="Escape")setDeleteAccountOpen(false);}}
+                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+              {deleteAccountError&&<div style={{marginTop:8,fontSize:12,color:T.danger}}>{deleteAccountError}</div>}
+            </div>
+            <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn onClick={()=>setDeleteAccountOpen(false)} variant="ghost" T={T}>Cancel</Btn>
+              <Btn onClick={confirmDeleteAccount} variant="danger" T={T} disabled={deleteAccountSaving||deleteAccountConfirmText.trim().toLowerCase()!==(session?.user?.email||"").toLowerCase()}>{deleteAccountSaving?"Deleting…":"Delete account"}</Btn>
             </div>
           </div>
         </div>
