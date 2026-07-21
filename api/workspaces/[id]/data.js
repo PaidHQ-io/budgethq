@@ -14,7 +14,7 @@
  *        landing out of order relative to another tab/device.
  */
 import { sql } from "../../lib/db.js";
-import { requireAuth, requireWorkspaceMember, requireEntitlement } from "../../lib/auth.js";
+import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi, readJsonBody } from "../../lib/http.js";
 
 // Manual body parsing (readJsonBody) instead of Vercel's automatic JSON parser — see readJsonBody
@@ -41,7 +41,7 @@ const toCamel = (row) => ({
 export default withApi(async (req, res) => {
   const { id: workspaceId } = req.query;
   const { userId } = await requireAuth(req);
-  await requireWorkspaceMember(sql, workspaceId, userId);
+  const myRole = await requireWorkspaceMember(sql, workspaceId, userId);
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
@@ -51,6 +51,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "PUT") {
+    requireEditAccess(myRole);
     const b = await readJsonBody(req);
     const [row] = await sql`
       insert into budgethq.workspace_config

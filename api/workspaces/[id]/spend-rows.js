@@ -20,7 +20,7 @@
  *        no filters at all is rejected to avoid an accidental full wipe via a malformed request.
  */
 import { sql } from "../../lib/db.js";
-import { requireAuth, requireWorkspaceMember, requireEntitlement } from "../../lib/auth.js";
+import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi, readJsonBody } from "../../lib/http.js";
 
 // Body parsing is manual (readJsonBody) instead of Vercel's automatic JSON parser — see
@@ -115,7 +115,7 @@ function toColumns(rows) {
 export default withApi(async (req, res) => {
   const { id: workspaceId } = req.query;
   const { userId } = await requireAuth(req);
-  await requireWorkspaceMember(sql, workspaceId, userId);
+  const myRole = await requireWorkspaceMember(sql, workspaceId, userId);
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
@@ -132,6 +132,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "POST") {
+    requireEditAccess(myRole);
     const inputRows = (await readJsonBody(req)).rows;
     if (!Array.isArray(inputRows) || !inputRows.length) {
       return res.status(400).json({ error: "rows must be a non-empty array" });
@@ -156,6 +157,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "PUT") {
+    requireEditAccess(myRole);
     const inputRows = (await readJsonBody(req)).rows;
     if (!Array.isArray(inputRows)) {
       return res.status(400).json({ error: "rows must be an array" });
@@ -192,6 +194,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "DELETE") {
+    requireEditAccess(myRole);
     const { platform, start, end } = req.query;
     if (!platform && !start && !end) {
       return res.status(400).json({ error: "At least one of platform/start/end is required" });

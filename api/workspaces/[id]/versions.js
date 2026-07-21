@@ -14,7 +14,7 @@
  * usage shows how fast these accumulate per workspace.
  */
 import { sql } from "../../lib/db.js";
-import { requireAuth, requireWorkspaceMember, requireEntitlement } from "../../lib/auth.js";
+import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi } from "../../lib/http.js";
 
 const toCamel = (r) => ({
@@ -25,7 +25,7 @@ const toCamel = (r) => ({
 export default withApi(async (req, res) => {
   const { id: workspaceId } = req.query;
   const { userId } = await requireAuth(req);
-  await requireWorkspaceMember(sql, workspaceId, userId);
+  const myRole = await requireWorkspaceMember(sql, workspaceId, userId);
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
@@ -36,6 +36,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "POST") {
+    requireEditAccess(myRole);
     const { label, trigger, snapshot } = req.body || {};
     if (!snapshot) return res.status(400).json({ error: "snapshot is required" });
     const [row] = await sql`
@@ -47,6 +48,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "DELETE") {
+    requireEditAccess(myRole);
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: "id is required" });
     const result = await sql`

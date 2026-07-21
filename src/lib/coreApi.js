@@ -46,3 +46,54 @@ export function grantEntitlement(session, workspaceId, { product, plan = "trial"
     body: JSON.stringify({ product, plan, status }),
   });
 }
+
+// ─── Team / access levels ───────────────────────────────────────────────────
+// "member" is view-only in BudgetHQ (enforced server-side by every product API route — see
+// requireEditAccess in api/lib/auth.js); "admin"/"owner" have full edit access, and only they can
+// invite/remove people or change roles (enforced by paidhq-core's own requireRole checks).
+
+export function listMembers(session, workspaceId) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/members`).then((d) => d.members || []);
+}
+
+export function updateMemberRole(session, workspaceId, userId, role) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+    method: "POST",
+    body: JSON.stringify({ userId, role }),
+  });
+}
+
+export function removeMember(session, workspaceId, userId) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/members?userId=${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function listInvites(session, workspaceId) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/invites`).then((d) => d.invites || []);
+}
+
+// appUrl/appName tell core where the emailed "Accept invite" link should point and what to call
+// the product in the email body — core has no frontend of its own (it's a shared backend for the
+// whole PaidHQ suite), so the calling product supplies both.
+export function inviteMember(session, workspaceId, { email, role }) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/invites`, {
+    method: "POST",
+    body: JSON.stringify({ email, role, appUrl: window.location.origin, appName: "BudgetHQ" }),
+  });
+}
+
+export function revokeInvite(session, workspaceId, email) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/invites?email=${encodeURIComponent(email)}`, {
+    method: "DELETE",
+  });
+}
+
+// Called once, right after login, if a pending invite token was captured from the URL — see
+// AuthGate.jsx/WorkspaceGate.jsx for where that token is stashed and consumed.
+export function acceptInvite(session, token) {
+  return coreFetch(session, "/api/invites/accept", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}

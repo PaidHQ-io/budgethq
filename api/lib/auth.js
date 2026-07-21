@@ -61,6 +61,18 @@ export async function requireWorkspaceMember(sql, workspaceId, userId) {
   return rows[0].role;
 }
 
+// "member" is a view-only role — every state-changing request (any POST/PUT/DELETE that touches
+// workspace data) requires "owner" or "admin". Call this in addition to requireWorkspaceMember,
+// after you have the role, inside each write-method branch (GET stays open to any member — view
+// access is the whole point of the "member" role existing at all, not a bug to route around).
+export function requireEditAccess(role) {
+  if (role === "member") {
+    const err = new Error("Your role only has view access to this workspace — ask an owner or admin to make this change.");
+    err.status = 403;
+    throw err;
+  }
+}
+
 // Confirms the workspace has an active (or trialing) BudgetHQ entitlement — i.e. someone's
 // actually paying for/trialing BudgetHQ specifically for this workspace, not just any PaidHQ
 // product. Being a workspace member (requireWorkspaceMember) is necessary but not sufficient: an

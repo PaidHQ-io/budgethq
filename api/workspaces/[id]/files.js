@@ -17,13 +17,13 @@
  * revisiting if workspaces start archiving much larger files.
  */
 import { sql } from "../../lib/db.js";
-import { requireAuth, requireWorkspaceMember, requireEntitlement } from "../../lib/auth.js";
+import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi } from "../../lib/http.js";
 
 export default withApi(async (req, res) => {
   const { id: workspaceId, download } = req.query;
   const { userId } = await requireAuth(req);
-  await requireWorkspaceMember(sql, workspaceId, userId);
+  const myRole = await requireWorkspaceMember(sql, workspaceId, userId);
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET" && download) {
@@ -53,6 +53,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "POST") {
+    requireEditAccess(myRole);
     const { name, category, mimeType, dataBase64 } = req.body || {};
     if (!name || !dataBase64) {
       return res.status(400).json({ error: "name and dataBase64 are required" });
@@ -70,6 +71,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "DELETE") {
+    requireEditAccess(myRole);
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: "id is required" });
     const result = await sql`

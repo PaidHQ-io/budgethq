@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows } from "./lib/workspaceApi";
+import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite } from "./lib/coreApi";
 import { exportReportToGoogleSheets, parseSpreadsheetId, listSheetTabs, fetchSheetGrid, preloadGoogleSheetsApi, switchGoogleAccount } from "./lib/googleSheets";
 
 // ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
@@ -588,6 +589,7 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"alert":return<svg {...p}><path d="M12 3.5 21.5 20H2.5Z"/><path d="M12 9.5v4.5"/><circle cx="12" cy="17" r="0.6" fill={color} stroke="none"/></svg>;
     case"gear":return<svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.4 7.4 0 0 0 0-2l2-1.5-2-3.4-2.4.7a7.4 7.4 0 0 0-1.7-1L14.9 3h-3.8l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-.7-2 3.4L6.6 11a7.4 7.4 0 0 0 0 2l-2 1.5 2 3.4 2.4-.7a7.4 7.4 0 0 0 1.7 1l.4 2.4h3.8l.4-2.4a7.4 7.4 0 0 0 1.7-1l2.4.7 2-3.4-2-1.5Z"/></svg>;
     case"clock":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>;
+    case"lock":return<svg {...p}><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>;
     case"save":return<svg {...p}><path d="M5 3h11l3 3v15H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M8 3v6h7V3"/><path d="M8 21v-7h8v7"/></svg>;
     case"dots":return<svg {...p}><circle cx="5" cy="12" r="1.6" fill={color} stroke="none"/><circle cx="12" cy="12" r="1.6" fill={color} stroke="none"/><circle cx="19" cy="12" r="1.6" fill={color} stroke="none"/></svg>;
     case"mail":return<svg {...p}><path d="M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"/><path d="M3.5 7 12 13l8.5-6"/></svg>;
@@ -634,7 +636,7 @@ const WarnTip=({T,text,size=12,color})=>(
 );
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,mergedNormRows,onCheckpoint,sidebarEl}){
+function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
@@ -1508,7 +1510,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       {sidebarEl&&createPortal(
         <div style={{display:"flex",flexDirection:"column",gap:0}}>
           <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:12}}>
-          <Btn onClick={()=>setImportOpen(true)} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import CSV / Excel</Btn>
+          <Btn onClick={()=>setImportOpen(true)} disabled={!canEdit} title={canEdit?undefined:"View-only access"} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import CSV / Excel</Btn>
           <Btn onClick={openExportPreview} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export budgets + pacing</Btn>
 
           {/* Metadata dimensions */}
@@ -1589,8 +1591,8 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
             <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="wallet" size={24} color={T.onAccent}/></div>
             <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up your budget structure</div>
-            <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Select dimensions to budget by, or import an existing budget file.</div>
-            <Btn onClick={()=>setImportOpen(true)} variant="success" T={T} size="md">↑ Import CSV / Excel</Btn>
+            <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>{canEdit?"Select dimensions to budget by, or import an existing budget file.":"This workspace doesn't have a budget structure yet — ask an owner or admin to set one up."}</div>
+            {canEdit&&<Btn onClick={()=>setImportOpen(true)} variant="success" T={T} size="md">↑ Import CSV / Excel</Btn>}
           </div>
         ):segs.length===0?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
@@ -4584,6 +4586,64 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[clearRangeStart,setClearRangeStart]=useState("");
   const[clearRangeEnd,setClearRangeEnd]=useState("");
 
+  // ── Settings → Team ──
+  // myRole comes straight off the workspace prop (already returned by paidhq-core's GET
+  // /api/workspaces alongside the workspace itself — no separate fetch needed to know your own
+  // access level). "member" is view-only everywhere in the product; the actual enforcement lives
+  // server-side (requireEditAccess in every product API route) — this just drives what the Team
+  // panel and a few other write affordances show/allow, so a view-only person isn't shown controls
+  // that would just 403 if clicked.
+  const myRole=workspace?.role||"member";
+  const canEdit=myRole!=="member";
+  const canManageTeam=myRole==="owner"||myRole==="admin";
+  const[teamMembers,setTeamMembers]=useState([]);
+  const[teamMembersLoading,setTeamMembersLoading]=useState(false);
+  const[teamInvites,setTeamInvites]=useState([]);
+  const[inviteEmail,setInviteEmail]=useState("");
+  const[inviteRole,setInviteRole]=useState("member");
+  const[inviteSending,setInviteSending]=useState(false);
+  const[inviteError,setInviteError]=useState("");
+  const refreshTeam=useCallback(()=>{
+    if(!workspace?.id||!session)return;
+    setTeamMembersLoading(true);
+    Promise.all([
+      listMembers(session,workspace.id),
+      canManageTeam?listInvites(session,workspace.id):Promise.resolve([]),
+    ]).then(([m,i])=>{setTeamMembers(m);setTeamInvites(i);})
+      .catch(e=>console.error("[team]",e))
+      .finally(()=>setTeamMembersLoading(false));
+  },[workspace?.id,session,canManageTeam]);
+  const sendInvite=useCallback(()=>{
+    const email=inviteEmail.trim();
+    if(!email)return;
+    setInviteSending(true);setInviteError("");
+    inviteMember(session,workspace.id,{email,role:inviteRole})
+      .then(result=>{
+        setInviteEmail("");
+        refreshTeam();
+        if(result.emailSent)showNotif(`Invite sent to ${email}`);
+        else{
+          // RESEND_API_KEY isn't configured on paidhq-core yet — the invite itself was still
+          // created (accepting it works fine), just nothing was emailed. Put the link on the
+          // clipboard so it can still be shared by hand instead of silently going nowhere.
+          navigator.clipboard?.writeText(result.inviteLink).catch(()=>{});
+          showNotif(`Invite created for ${email} — email isn't set up yet, link copied to clipboard instead`);
+        }
+      })
+      .catch(e=>setInviteError(e.message||"Couldn't send that invite."))
+      .finally(()=>setInviteSending(false));
+  },[session,workspace,inviteEmail,inviteRole,refreshTeam]);
+  const changeTeamRole=useCallback((userId,role)=>{
+    updateMemberRole(session,workspace.id,userId,role).then(refreshTeam).catch(e=>window.alert(e.message||"Couldn't change that role."));
+  },[session,workspace,refreshTeam]);
+  const removeTeamMember=useCallback((userId,label)=>{
+    if(!window.confirm(`Remove ${label} from this workspace?`))return;
+    removeMember(session,workspace.id,userId).then(refreshTeam).catch(e=>window.alert(e.message||"Couldn't remove that member."));
+  },[session,workspace,refreshTeam]);
+  const revokeTeamInvite=useCallback((email)=>{
+    revokeInvite(session,workspace.id,email).then(refreshTeam).catch(e=>window.alert(e.message||"Couldn't revoke that invite."));
+  },[session,workspace,refreshTeam]);
+
   // ── Settings → File Store ──
   const[fileStoreList,setFileStoreList]=useState([]);
   const[fileStoreLoading,setFileStoreLoading]=useState(false);
@@ -5833,7 +5893,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               </>)}
             </div>
           )}
-          <button className="bhq-iconbtn" title="Settings" onClick={()=>{setView("settings");refreshFileStore();}}
+          <button className="bhq-iconbtn" title="Settings" onClick={()=>{setView("settings");refreshFileStore();refreshTeam();}}
             style={{width:30,height:30,borderRadius:8,background:view==="settings"?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
             <Icon name="gear" size={15} color={T.textSub}/>
           </button>
@@ -5876,6 +5936,17 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           </>)}
         </div>
       </div>
+
+      {/* View-only banner — "member" role can see every tab but every product API route rejects
+          their writes server-side (requireEditAccess). This is the one place that surfaces that
+          plainly regardless of which tab you're on, rather than only finding out via a failed
+          save. Owners/admins never see this. */}
+      {!canEdit&&(
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.accentBorder}`,fontSize:12,color:T.text,fontFamily:"Inter,sans-serif",flexShrink:0}}>
+          <Icon name="lock" size={12} color={T.textSub}/>
+          You have view-only access to this workspace — ask an owner or admin for edit access.
+        </div>
+      )}
 
       {/* ── BODY ROW ── */}
       <div style={{flex:1,display:"flex",flexDirection:"row",overflow:"hidden",minHeight:0,position:"relative"}}>
@@ -6516,7 +6587,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           becomes null while hidden (its portal target only exists when view==="budget"), so the
           sidebar contents disappear correctly without any extra guard. */}
       <div style={{display:view==="budget"?"contents":"none"}}>
-        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl}/>
+        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
       </div>
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
       {view==="ask"&&<AskAI T={T} mergedNormRows={mergedNormRows} tags={tags} tagDims={tagDims} hasData={mergedNormRows.length>0} askChats={askChats} setAskChats={setAskChats} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId}/>}
@@ -6532,6 +6603,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           });
           return Object.values(map).map(m=>({platform:m.platform,rows:m.rows,spend:m.spend,campaigns:m.campaigns.size})).sort((a,b)=>b.spend-a.spend);
         })();
+        // disabled always also folds in !canEdit — every one of these is a destructive write
+        // (clear data), so a view-only member sees the same disabled state a real 403 would force
+        // anyway, rather than a button that looks clickable and then just fails.
         const rowSection=({title,desc,stat,action,label,disabled})=>(
           <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
             <div>
@@ -6539,7 +6613,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480}}>{desc}</div>
               <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif"}}>{stat}</div>
             </div>
-            <Btn onClick={action} variant="danger" size="sm" T={T} disabled={disabled} style={{flexShrink:0}}>{label}</Btn>
+            <Btn onClick={action} variant="danger" size="sm" T={T} disabled={disabled||!canEdit} title={canEdit?undefined:"View-only access"} style={{flexShrink:0}}>{label}</Btn>
           </div>
         );
         return(
@@ -6555,8 +6629,84 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Team</div>
+                    <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:11}}>Your access: {myRole==="owner"?"Owner":myRole==="admin"?"Admin":"Member (view only)"}</Pill>
+                  </div>
+                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>
+                    {canManageTeam?"Invite people to this workspace and control what they can do. Members can view every tab but can't edit tags, budgets, or spend data — Admins and Owners have full edit access.":"Owners and admins manage who has access here and what they can do."}
+                  </div>
+                  {canManageTeam&&(
+                    <div style={{marginBottom:16}}>
+                      <div style={{display:"flex",gap:6}}>
+                        <input value={inviteEmail} onChange={e=>{setInviteEmail(e.target.value);setInviteError("");}}
+                          onKeyDown={e=>e.key==="Enter"&&!inviteSending&&inviteEmail.trim()&&sendInvite()}
+                          placeholder="Email address" type="email"
+                          style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                        <div style={{width:130}}>
+                          <Sel value={inviteRole} onChange={setInviteRole} T={T}>
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                            <option value="owner">Owner</option>
+                          </Sel>
+                        </div>
+                        <Btn onClick={sendInvite} variant="primary" size="sm" T={T} disabled={inviteSending||!inviteEmail.trim()}>{inviteSending?"Sending…":"Invite"}</Btn>
+                      </div>
+                      {inviteError&&<div style={{marginTop:6,fontSize:11,color:T.danger}}>{inviteError}</div>}
+                    </div>
+                  )}
+                  {teamMembersLoading?(
+                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif",padding:"8px 0"}}>Loading…</div>
+                  ):(
+                    <div>
+                      {teamMembers.map((m,i)=>{
+                        const isMe=m.userId===sessionUserId;
+                        return(
+                          <div key={m.userId} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"9px 4px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+                            <div style={{minWidth:0,display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280}}>{m.email||m.userId}</div>
+                              {isMe&&<span style={{fontSize:11,color:T.textMuted}}>(you)</span>}
+                              {!m.acceptedAt&&<Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:10}}>pending</Pill>}
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                              {canManageTeam&&!isMe?(
+                                <div style={{width:110}}>
+                                  <Sel value={m.role} onChange={r=>changeTeamRole(m.userId,r)} T={T} style={{fontSize:11,padding:"4px 8px"}}>
+                                    <option value="member">Member</option>
+                                    <option value="admin">Admin</option>
+                                    <option value="owner">Owner</option>
+                                  </Sel>
+                                </div>
+                              ):(
+                                <Pill color={T.text} bg={T.surfaceEl} border={T.border} style={{fontSize:11}}>{m.role==="owner"?"Owner":m.role==="admin"?"Admin":"Member"}</Pill>
+                              )}
+                              {canManageTeam&&!isMe&&(
+                                <button onClick={()=>removeTeamMember(m.userId,m.email||"this person")} title="Remove"
+                                  style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,padding:0}}
+                                  onMouseEnter={e=>{e.currentTarget.style.color=T.danger;}}
+                                  onMouseLeave={e=>{e.currentTarget.style.color=T.textMuted;}}>✕</button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {canManageTeam&&teamInvites.length>0&&(
+                    <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+                      <div style={{fontSize:11,fontWeight:700,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Pending invites</div>
+                      {teamInvites.map((inv,i)=>(
+                        <div key={inv.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"7px 4px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+                          <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif"}}>{inv.email} <span style={{color:T.textMuted}}>· {inv.role==="owner"?"Owner":inv.role==="admin"?"Admin":"Member"}</span></div>
+                          <span onClick={()=>revokeTeamInvite(inv.email)} style={{fontSize:11,color:T.textMuted,cursor:"pointer"}}>Revoke</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
                     <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>File Store</div>
-                    <Btn onClick={()=>manualFileRef.current?.click()} variant="subtle" size="sm" T={T}>
+                    <Btn onClick={()=>manualFileRef.current?.click()} disabled={!canEdit} title={canEdit?undefined:"View-only access"} variant="subtle" size="sm" T={T}>
                       <Icon name="plus" size={12} color={T.text}/> Add file
                     </Btn>
                     <input ref={manualFileRef} type="file" style={{display:"none"}} onChange={e=>{addManualFile(e.target.files[0]);e.target.value="";}}/>

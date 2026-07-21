@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { listWorkspaces, createWorkspace, grantEntitlement } from "./lib/coreApi";
+import { listWorkspaces, createWorkspace, grantEntitlement, acceptInvite } from "./lib/coreApi";
+import { PENDING_INVITE_KEY } from "./AuthGate";
 import BudgetHQ from "./BudgetHQ";
 
 // Standalone subset of BudgetHQ's theme tokens — see Auth.jsx for why this isn't imported from
@@ -19,6 +20,9 @@ const T = {
   danger: "#E5484D",
   dangerBg: "rgba(229,72,77,0.08)",
   dangerBorder: "rgba(229,72,77,0.24)",
+  success: "#0C7A43",
+  successBg: "rgba(12,122,67,0.08)",
+  successBorder: "rgba(12,122,67,0.24)",
 };
 
 const ACTIVE_WORKSPACE_KEY = "paidhq_active_workspace_id";
@@ -28,6 +32,55 @@ const KIND_OPTIONS = [
   { key: "agency_client", label: "Agency client", hint: "This is one of my agency's client accounts." },
   { key: "consultant_client", label: "Consulting client", hint: "This is a client I consult for." },
 ];
+
+// Fixed top banner reporting the outcome of an invite-acceptance attempt (see the effect in
+// WorkspaceGate below) — rendered above whichever screen WorkspaceGate is currently showing
+// (loading/error/create-workspace/the actual product), since accepting an invite can happen
+// during any of those depending on whether the person already had an account and workspaces.
+function InviteStatusBanner({ status, onDismiss }) {
+  if (!status) return null;
+  const accepting = status === "accepting";
+  const isError = !accepting && status.error;
+  const bg = accepting ? T.accentBg : isError ? T.dangerBg : T.successBg;
+  const border = accepting ? T.accentBorder : isError ? T.dangerBorder : T.successBorder;
+  const color = accepting ? T.text : isError ? T.danger : T.success;
+  const message = accepting
+    ? "Joining workspace…"
+    : isError
+    ? status.error
+    : `You've joined "${status.success}"`;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 12,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "9px 14px",
+        background: bg,
+        border: `1px solid ${border}`,
+        borderRadius: 8,
+        color,
+        fontSize: 13,
+        fontWeight: 500,
+        fontFamily: "Inter,sans-serif",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+        maxWidth: "min(90vw, 480px)",
+      }}
+    >
+      <span>{message}</span>
+      {!accepting && (
+        <span onClick={onDismiss} style={{ cursor: "pointer", opacity: 0.6, fontSize: 12 }}>
+          ✕
+        </span>
+      )}
+    </div>
+  );
+}
 
 function CenteredScreen({ children }) {
   return (
@@ -199,6 +252,10 @@ export default function WorkspaceGate({ session, onSignOut }) {
   const [newKind, setNewKind] = useState("inhouse");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
+  // null = nothing pending / already resolved this session; "accepting" while in flight;
+  // {error} or {success: workspaceName} once resolved, so the banner below can tell the person
+  // what happened before it's dismissed.
+  const [inviteStatus, setInviteStatus] = useState(null);
 
   // Note: doesn't clear loadError synchronously before the fetch starts (that would be a
   // synchronous setState call from directly within the mount effect below, which
@@ -218,6 +275,35 @@ export default function WorkspaceGate({ session, onSignOut }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Consumes a pending invite token stashed in localStorage (see AuthGate.jsx's capture effect)
+  // now that we know for sure someone's logged in. Runs once per mount — the token is removed from
+  // localStorage as soon as we attempt it (success or failure) so a stale/already-used/expired
+  // token doesn't keep retrying on every future load.
+  useEffect(() => {
+    let token;
+    try {
+      token = localStorage.getItem(PENDING_INVITE_KEY);
+    } catch {
+      return;
+    }
+    if (!token) return;
+    try {
+      localStorage.removeItem(PENDING_INVITE_KEY);
+    } catch {
+      /* ignore */
+    }
+    setInviteStatus("accepting");
+    acceptInvite(session, token)
+      .then((result) => {
+        setInviteStatus({ success: result.workspaceName });
+        setTimeout(() => setInviteStatus(null), 5000);
+        refresh();
+        selectWorkspace(result.workspaceId);
+      })
+      .catch((err) => setInviteStatus({ error: err.message || "Couldn't accept that invite." }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
 
   // Keep the active selection valid — falls back to the first workspace if the stored id is
   // stale (deleted, or from a different account) or nothing was stored yet.
@@ -261,80 +347,94 @@ export default function WorkspaceGate({ session, onSignOut }) {
     }
   }
 
+  const banner = <InviteStatusBanner status={inviteStatus} onDismiss={() => setInviteStatus(null)} />;
+
   if (loadError) {
     return (
-      <CenteredScreen>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-          <div
-            style={{
-              padding: "12px 16px",
-              background: T.dangerBg,
-              border: `1px solid ${T.dangerBorder}`,
-              borderRadius: 8,
-              color: T.danger,
-              fontSize: 13,
-              maxWidth: 420,
-              textAlign: "center",
-            }}
-          >
-            {loadError}
+      <>
+        {banner}
+        <CenteredScreen>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+            <div
+              style={{
+                padding: "12px 16px",
+                background: T.dangerBg,
+                border: `1px solid ${T.dangerBorder}`,
+                borderRadius: 8,
+                color: T.danger,
+                fontSize: 13,
+                maxWidth: 420,
+                textAlign: "center",
+              }}
+            >
+              {loadError}
+            </div>
+            <button
+              onClick={refresh}
+              style={{
+                background: "transparent",
+                border: `1px solid ${T.border}`,
+                borderRadius: 6,
+                padding: "7px 16px",
+                fontSize: 12,
+                color: T.text,
+                cursor: "pointer",
+                fontFamily: "Inter,sans-serif",
+              }}
+            >
+              Try again
+            </button>
           </div>
-          <button
-            onClick={refresh}
-            style={{
-              background: "transparent",
-              border: `1px solid ${T.border}`,
-              borderRadius: 6,
-              padding: "7px 16px",
-              fontSize: 12,
-              color: T.text,
-              cursor: "pointer",
-              fontFamily: "Inter,sans-serif",
-            }}
-          >
-            Try again
-          </button>
-        </div>
-      </CenteredScreen>
+        </CenteredScreen>
+      </>
     );
   }
 
   if (workspaces === null) {
     return (
-      <CenteredScreen>
-        <div style={{ color: T.textMuted, fontSize: 13, fontFamily: "Inter,sans-serif" }}>
-          Loading your workspaces…
-        </div>
-      </CenteredScreen>
+      <>
+        {banner}
+        <CenteredScreen>
+          <div style={{ color: T.textMuted, fontSize: 13, fontFamily: "Inter,sans-serif" }}>
+            Loading your workspaces…
+          </div>
+        </CenteredScreen>
+      </>
     );
   }
 
   if (!workspaces.length || showCreateForm) {
     return (
-      <CreateWorkspaceScreen
-        name={newName}
-        setName={setNewName}
-        kind={newKind}
-        setKind={setNewKind}
-        onSubmit={handleCreate}
-        loading={creating}
-        error={createError}
-        onCancel={workspaces.length ? () => setShowCreateForm(false) : null}
-        onSignOut={onSignOut}
-      />
+      <>
+        {banner}
+        <CreateWorkspaceScreen
+          name={newName}
+          setName={setNewName}
+          kind={newKind}
+          setKind={setNewKind}
+          onSubmit={handleCreate}
+          loading={creating}
+          error={createError}
+          onCancel={workspaces.length ? () => setShowCreateForm(false) : null}
+          onSignOut={onSignOut}
+        />
+      </>
     );
   }
 
   const active = workspaces.find((w) => w.id === activeId) || workspaces[0];
 
   return (
-    <BudgetHQ
-      session={session}
-      onSignOut={onSignOut}
-      workspace={active}
-      workspaces={workspaces}
-      onSwitchWorkspace={selectWorkspace}
-      onCreateWorkspace={() => setShowCreateForm(true)}
-    />
+    <>
+      {banner}
+      <BudgetHQ
+        session={session}
+        onSignOut={onSignOut}
+        workspace={active}
+        workspaces={workspaces}
+        onSwitchWorkspace={selectWorkspace}
+        onCreateWorkspace={() => setShowCreateForm(true)}
+      />
+    </>
   );
 }

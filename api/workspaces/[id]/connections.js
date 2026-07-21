@@ -15,7 +15,7 @@
  * DELETE ?provider=funnel — disconnect, removing the stored credential entirely.
  */
 import { sql } from "../../lib/db.js";
-import { requireAuth, requireWorkspaceMember, requireEntitlement } from "../../lib/auth.js";
+import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi } from "../../lib/http.js";
 
 const VALID_PROVIDERS = ["funnel", "supermetrics"];
@@ -23,7 +23,7 @@ const VALID_PROVIDERS = ["funnel", "supermetrics"];
 export default withApi(async (req, res) => {
   const { id: workspaceId } = req.query;
   const { userId } = await requireAuth(req);
-  await requireWorkspaceMember(sql, workspaceId, userId);
+  const myRole = await requireWorkspaceMember(sql, workspaceId, userId);
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
@@ -37,6 +37,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "POST") {
+    requireEditAccess(myRole);
     const { provider, credential } = req.body || {};
     if (!VALID_PROVIDERS.includes(provider)) {
       return res.status(400).json({ error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}` });
@@ -54,6 +55,7 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "DELETE") {
+    requireEditAccess(myRole);
     const { provider } = req.query;
     if (!VALID_PROVIDERS.includes(provider)) {
       return res.status(400).json({ error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}` });
