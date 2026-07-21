@@ -4662,9 +4662,21 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       .then(dataBase64=>apiUploadFile(session,workspace.id,{name:file.name||"untitled",category,mimeType:file.type||"",dataBase64}))
       .catch(e=>console.error("[file store save]",e));
   },[workspace?.id,session]);
-  const deleteFileFromStore=useCallback((id)=>{
+  // Previously this failed completely silently on error (console.error only) and gave zero visual
+  // feedback even on success -- the list just quietly re-rendered after refreshFileStore resolved.
+  // With no loading state and no confirmation, a slow network response or a swallowed error both
+  // look identical to the user as "nothing happened", which is what got reported as the button
+  // "not working." Now mirrors copyFileToOtherWorkspace's pattern: confirm, show a disabled/loading
+  // state on the clicked row's own button, surface failures via alert, and confirm success visibly.
+  const[deletingFileId,setDeletingFileId]=useState(null);
+  const deleteFileFromStore=useCallback((id,name)=>{
     if(!workspace?.id||!session)return;
-    apiDeleteFile(session,workspace.id,id).then(refreshFileStore).catch(e=>console.error("[file store delete]",e));
+    if(!window.confirm(`Delete "${name||"this file"}"? This can't be undone.`))return;
+    setDeletingFileId(id);
+    apiDeleteFile(session,workspace.id,id)
+      .then(()=>{refreshFileStore();showNotif(`Deleted ${name||"file"}`);})
+      .catch(e=>window.alert(e.message||"Couldn't delete this file."))
+      .finally(()=>setDeletingFileId(null));
   },[workspace?.id,session,refreshFileStore]);
   const downloadFileFromStore=useCallback((rec)=>{
     if(!workspace?.id||!session)return;
@@ -6888,7 +6900,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                                 )}
                               </div>
                             )}
-                            <button onClick={()=>deleteFileFromStore(f.id)} title="Delete" style={{width:26,height:26,borderRadius:6,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <button onClick={()=>deleteFileFromStore(f.id,f.name)} title="Delete" disabled={deletingFileId===f.id}
+                              style={{width:26,height:26,borderRadius:6,background:"transparent",border:`1px solid ${T.border}`,cursor:deletingFileId===f.id?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:deletingFileId===f.id?0.5:1}}>
                               <Icon name="trash" size={12} color={T.danger}/>
                             </button>
                           </div>
