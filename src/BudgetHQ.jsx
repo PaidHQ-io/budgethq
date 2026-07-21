@@ -4659,6 +4659,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     (workspaces||[]).filter(w=>w.id!==workspace?.id&&(w.role==="owner"||w.role==="admin")),
   [workspaces,workspace?.id]);
   const[copyMenuOpenId,setCopyMenuOpenId]=useState(null);
+  // The file list this button lives in scrolls (maxHeight+overflow:auto) — an absolutely
+  // positioned dropdown nested inside it would get clipped by that scroll container's bounds
+  // instead of floating above the page. Rendered as a portal into document.body instead,
+  // positioned from the trigger button's own on-click bounding rect, so it's never clipped
+  // regardless of which row it opens from.
+  const[copyMenuAnchorRect,setCopyMenuAnchorRect]=useState(null);
   const[copyingFileId,setCopyingFileId]=useState(null);
   const copyFileToOtherWorkspace=useCallback((fileId,targetWorkspaceId,targetWorkspaceName)=>{
     if(!workspace?.id||!session)return;
@@ -6837,22 +6843,29 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                             </button>
                             {copyTargetWorkspaces.length>0&&(
                               <div style={{position:"relative"}}>
-                                <button onClick={()=>setCopyMenuOpenId(o=>o===f.id?null:f.id)} title="Copy to another workspace" disabled={copyingFileId===f.id}
+                                <button onClick={(e)=>{
+                                    if(copyMenuOpenId===f.id){setCopyMenuOpenId(null);return;}
+                                    setCopyMenuAnchorRect(e.currentTarget.getBoundingClientRect());
+                                    setCopyMenuOpenId(f.id);
+                                  }} title="Copy to another workspace" disabled={copyingFileId===f.id}
                                   style={{width:26,height:26,borderRadius:6,background:copyMenuOpenId===f.id?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:copyingFileId===f.id?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:copyingFileId===f.id?0.5:1}}>
                                   <Icon name="send" size={12} color={T.textSub}/>
                                 </button>
-                                {copyMenuOpenId===f.id&&(<>
-                                  <div onClick={()=>setCopyMenuOpenId(null)} style={{position:"fixed",inset:0,zIndex:249}}/>
-                                  <div style={{position:"absolute",top:30,right:0,zIndex:250,minWidth:200,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                                    <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Copy to workspace</div>
-                                    {copyTargetWorkspaces.map(w=>(
-                                      <button key={w.id} className="bhq-row" onClick={()=>copyFileToOtherWorkspace(f.id,w.id,w.name)}
-                                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left",overflow:"hidden"}}>
-                                        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                </>)}
+                                {copyMenuOpenId===f.id&&copyMenuAnchorRect&&createPortal(
+                                  <>
+                                    <div onClick={()=>setCopyMenuOpenId(null)} style={{position:"fixed",inset:0,zIndex:999}}/>
+                                    <div style={{position:"fixed",top:copyMenuAnchorRect.bottom+6,left:Math.max(8,copyMenuAnchorRect.right-200),zIndex:1000,minWidth:200,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                                      <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Copy to workspace</div>
+                                      {copyTargetWorkspaces.map(w=>(
+                                        <button key={w.id} className="bhq-row" onClick={()=>copyFileToOtherWorkspace(f.id,w.id,w.name)}
+                                          style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left",overflow:"hidden"}}>
+                                          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </>,
+                                  document.body
+                                )}
                               </div>
                             )}
                             <button onClick={()=>deleteFileFromStore(f.id)} title="Delete" style={{width:26,height:26,borderRadius:6,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
