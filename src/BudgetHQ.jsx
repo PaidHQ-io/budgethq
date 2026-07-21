@@ -1539,9 +1539,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                 <div key={dim} style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
                   <div style={{padding:"8px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.text}}>By {dim}</span>
-                    <span onClick={()=>hideRollupTable(dim)} title="Hide this rollup table" style={{cursor:"pointer",color:T.textMuted,fontSize:13,lineHeight:1,padding:"1px 3px"}}
-                      onMouseEnter={e=>{e.currentTarget.style.color=T.danger;}}
-                      onMouseLeave={e=>{e.currentTarget.style.color=T.textMuted;}}>✕</span>
+                    <span title="Hide this rollup table"><Tog value={true} onChange={()=>hideRollupTable(dim)} T={T}/></span>
                   </div>
                   <table style={{borderCollapse:"collapse",width:"100%"}}>
                     <thead>
