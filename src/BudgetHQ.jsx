@@ -106,6 +106,10 @@ const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 // BudgetHQ() for what reads/clears these.
 const LEGACY_LOCAL_KEYS=["paidhq_tags","paidhq_dims","paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta","paidhq_rows"];
 const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#0082FB",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
+// Applied-tag pill color in the Tagger — a plain white/grey pill read as too flat to spot at a
+// glance, so this goes back to a tinted "selected chip" treatment (light tint + colored border/text
+// + a checkmark, same visual language as a filled multi-select chip) instead of a flat outline.
+const TAG_PILL_COLOR="#2563EB";
 const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -6398,8 +6402,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         [...tagDims.filter(d=>Object.prototype.hasOwnProperty.call(ts,d)),...Object.keys(ts).filter(d=>!tagDims.includes(d))].map(dim=>{
                           const val=ts[dim];
                           return(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:20,background:T.surface,color:T.text,border:`1px solid ${T.border}`,gap:2,fontFamily:"Inter,sans-serif"}}>
-                            <span style={{opacity:0.7,marginRight:1}}>{dim}:</span>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:20,background:TAG_PILL_COLOR+"14",color:TAG_PILL_COLOR,border:`1px solid ${TAG_PILL_COLOR}40`,gap:2,fontFamily:"Inter,sans-serif"}}>
+                            <span style={{fontWeight:700,marginRight:2}}>✓</span>
+                            <span style={{opacity:0.75,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
                               <TagAutocompleteInput T={T} autoFocus value={editVal} onChange={setEditVal} suggestions={dimSuggestions(dim)}
                                 onEnter={saveEdit} onEscape={()=>{setEditingTag(null);setEditVal("");}} onBlur={saveEdit}
