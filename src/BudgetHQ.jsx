@@ -584,6 +584,7 @@ const Icon=({name,size=18,color="currentColor"})=>{
     case"search":return<svg {...p}><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>;
     case"check":return<svg {...p}><path d="M5 12.5l4.5 4.5L19 7"/></svg>;
     case"ban":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5l13 13"/></svg>;
+    case"filter":return<svg {...p}><path d="M3 4.5h18L14 12.5v6l-4 2v-8Z"/></svg>;
     default:return null;
   }
 };
@@ -4398,6 +4399,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setSelectedTagFilters(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
   },[]);
   const[fStatus,setFStatus]=useState("all");
+  const[filtersOpen,setFiltersOpen]=useState(()=>{try{const v=localStorage.getItem("paidhq_tagger_filters_open");return v===null?true:v==="1";}catch(e){return true;}});
+  useEffect(()=>{try{localStorage.setItem("paidhq_tagger_filters_open",filtersOpen?"1":"0");}catch(e){}},[filtersOpen]);
   const fileRef=useRef();
   const screenshotRef=useRef();
   const[screenshotProcessing,setScreenshotProcessing]=useState(false);
@@ -6196,6 +6199,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             )}
 
             <div style={{borderBottom:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px 0"}}>
+                <button onClick={()=>setFiltersOpen(o=>!o)} title={filtersOpen?"Hide filters":"Show filters"}
+                  style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontFamily:"Inter,sans-serif",fontSize:11,fontWeight:600,color:T.text,outline:"none"}}>
+                  <Icon name="filter" size={12} color={T.text}/>
+                  Filters
+                  {hasF&&<span style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>}
+                </button>
+                {!filtersOpen&&hasF&&<button onClick={clearF} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
+              </div>
               <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"11px 16px 5px",alignItems:"end",gap:8}}>
                 <input type="checkbox" checked={filtered.length>0&&selected.size===filtered.length} onChange={selAll} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                 {!isMobile&&<SH col="group" label="Campaign Group"/>}
@@ -6210,7 +6222,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   </button>}
                 </div>}
               </div>
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 10px",gap:8,alignItems:"start"}}>
+              {filtersOpen&&<div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 10px",gap:8,alignItems:"start"}}>
                 <div/>
                 {!isMobile&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
                   <div style={{display:"flex",gap:3,marginTop:3}}>
@@ -6252,7 +6264,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     <MatchModeToggle mode={fTagExclMode} onChange={setFTagExclMode} T={T}/>
                   </div>
                 </div>}
-              </div>
+              </div>}
             </div>
 
             <div style={{overflow:"auto",flex:1}}>
