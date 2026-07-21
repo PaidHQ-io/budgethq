@@ -72,10 +72,15 @@ export default withApi(async (req, res) => {
 
   if (req.method === "DELETE") {
     requireEditAccess(myRole);
-    const { id } = req.query;
-    if (!id) return res.status(400).json({ error: "id is required" });
+    // Deliberately NOT named `id` -- this route lives at /api/workspaces/[id]/files, so a query
+    // string param also named `id` collides with the dynamic route segment: Vercel merges both
+    // into the same req.query.id, silently clobbering the file id with the workspace id (or vice
+    // versa) and making every delete miss. `download` above avoids this the same way. This was the
+    // actual reason the delete button never worked, in every deployment before this fix.
+    const { fileId } = req.query;
+    if (!fileId) return res.status(400).json({ error: "fileId is required" });
     const result = await sql`
-      delete from budgethq.files where id = ${id} and workspace_id = ${workspaceId} returning id
+      delete from budgethq.files where id = ${fileId} and workspace_id = ${workspaceId} returning id
     `;
     if (!result.length) return res.status(404).json({ error: "File not found" });
     return res.status(200).json({ deleted: true });

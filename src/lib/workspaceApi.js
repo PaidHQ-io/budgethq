@@ -143,7 +143,9 @@ export function uploadFile(session, workspaceId, { name, category, mimeType, dat
 }
 
 export function deleteFile(session, workspaceId, id) {
-  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/files?id=${encodeURIComponent(id)}`, {
+  // Query param is named fileId, not id -- see files.js's DELETE handler doc comment: `id` collides
+  // with this route's own [id] (workspace) dynamic segment and silently breaks the delete.
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/files?fileId=${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }
