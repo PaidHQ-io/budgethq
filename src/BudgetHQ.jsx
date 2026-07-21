@@ -105,7 +105,7 @@ const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 // Pre-auth localStorage keys — see the "one-time import of pre-auth localStorage data" block in
 // BudgetHQ() for what reads/clears these.
 const LEGACY_LOCAL_KEYS=["paidhq_tags","paidhq_dims","paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta","paidhq_rows"];
-const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#1877f2",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
+const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#0082FB",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
 const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -5615,7 +5615,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box"}}>
           {step==="tag"&&!isMobile&&(
             <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:20}}>
-              <span style={{width:6,height:6,borderRadius:"50%",background:stats.untagged>0?T.warning:T.success,flexShrink:0}}/>
+              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":"#22C55E",flexShrink:0}}/>
               <span style={{fontSize:11,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
@@ -6190,7 +6190,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               </div>
             )}
 
-            <div style={{borderBottom:`1px solid ${T.border}`,background:T.headerBg,flexShrink:0}}>
+            <div style={{borderBottom:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0}}>
               <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"11px 16px 5px",alignItems:"end",gap:8}}>
                 <input type="checkbox" checked={filtered.length>0&&selected.size===filtered.length} onChange={selAll} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                 {!isMobile&&<SH col="group" label="Campaign Group"/>}
@@ -6265,7 +6265,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         here it means tagged (green) vs needs review (amber), so the row list reads
                         at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:7}}>
-                      <span title={tc>0?"Tagged":"Needs review"} style={{width:6,height:6,borderRadius:"50%",background:tc>0?T.success:T.warning,flexShrink:0}}/>
+                      <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?"#22C55E":"#A1A1AA",flexShrink:0}}/>
                       <span style={{minWidth:0,fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
                     <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
@@ -6622,7 +6622,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         #root{height:100%;width:100%;display:flex;flex-direction:column;}
         body{font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;}
         input,select,button,textarea{font-family:'Inter',sans-serif;}
-        input::placeholder{color:${T.textDim};}
+        input::placeholder{color:${T.textMuted};}
         select option{background:${T.surface};color:${T.text};}
         ::-webkit-scrollbar{width:5px;height:5px;}
         ::-webkit-scrollbar-track{background:transparent;}
