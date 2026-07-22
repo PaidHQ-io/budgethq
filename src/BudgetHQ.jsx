@@ -6537,11 +6537,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <h1 style={{fontSize:isMobile?22:26,fontWeight:700,color:T.text,letterSpacing:"-0.5px",marginBottom:6}}>Add data</h1>
                 <p style={{fontSize:14,color:T.textSub,lineHeight:1.65}}>Import spend data to tag campaigns, or load a budget file to set monthly allocations.</p>
               </div>
+              {/* Was a plain, low-contrast <button> (grey-on-grey, no real button weight) — easy to
+                  miss, per feedback that it was "hard to see" and didn't read as a way back to
+                  existing Tagger data. Now the same shared Btn used everywhere else (real border/
+                  size), and says exactly where it goes instead of just "Cancel" when there's data
+                  to go back to. */}
               {(mergedNormRows.length>0||view)&&(
-                <button onClick={()=>{if(mergedNormRows.length>0)setStep("tag");else{setView("dashboard");setStep("upload");}}}
-                  style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:7,color:T.textMuted,cursor:"pointer",fontSize:12,padding:"6px 12px",fontFamily:"Inter,sans-serif",flexShrink:0,marginLeft:16,marginTop:4}}>
-                  ← Cancel
-                </button>
+                <Btn onClick={()=>{if(mergedNormRows.length>0)setStep("tag");else{setView("dashboard");setStep("upload");}}}
+                  variant="ghost" size="md" T={T} style={{flexShrink:0,marginLeft:16,marginTop:2}}>
+                  ← {mergedNormRows.length>0?"Back to Tagger data":"Cancel"}
+                </Btn>
               )}
             </div>
 
