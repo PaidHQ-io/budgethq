@@ -1,24 +1,28 @@
 /**
  * /api/workspaces/[id]/connections
  *
- * Per-workspace third-party connector credentials — Funnel.io/Supermetrics API keys, as opposed
- * to the single shared process.env credential the linkedin/bing/capterra/google/meta connectors
- * use (one account for the whole app). This is what lets each workspace connect ITS OWN account.
+ * Per-workspace third-party connector credentials — Funnel.io/Supermetrics/Capterra API keys and
+ * LinkedIn's OAuth tokens, as opposed to the single shared process.env credential the bing/google/
+ * meta connectors use (one account for the whole app). This is what lets each workspace connect
+ * ITS OWN account.
  *
  * GET    — list which providers this workspace has connected. Never returns the stored
  *          credential itself, just { provider, connectedAt } per row — the credential only ever
  *          flows one direction (client -> this route -> database), never back out.
  * POST   Body: { provider, credential } — save/replace a workspace's credential for a provider.
- *        `credential` shape is provider-specific (see connectors/funnel.js and
- *        connectors/supermetrics.js for what each expects) — validated loosely here (must be a
- *        non-empty object), the connector itself is the source of truth for what fields it needs.
+ *        `credential` shape is provider-specific (see connectors/funnel.js, supermetrics.js and
+ *        capterra.js for what each expects) — validated loosely here (must be a non-empty
+ *        object), the connector itself is the source of truth for what fields it needs. LinkedIn
+ *        is the one exception — its credential is written server-side by
+ *        api/oauth/linkedin/callback.js after the OAuth exchange, never POSTed here directly from
+ *        the client (there's no raw token/secret for the user to paste).
  * DELETE ?provider=funnel — disconnect, removing the stored credential entirely.
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi } from "../../lib/http.js";
 
-const VALID_PROVIDERS = ["funnel", "supermetrics"];
+const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin"];
 
 export default withApi(async (req, res) => {
   const { id: workspaceId } = req.query;

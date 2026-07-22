@@ -104,10 +104,12 @@ create index if not exists idx_budgethq_versions_workspace on budgethq.versions(
 -- workspace owner pastes in once, rather than the single shared process.env credential the
 -- linkedin/bing/capterra/google/meta connectors use today (those pull from one account for the
 -- whole app; this table is what lets each workspace connect its OWN account for connectors that
--- support that, starting with Funnel.io and Supermetrics). `credential` is jsonb rather than a
--- single text column because different providers need different shapes — Funnel.io needs
--- {apiToken, accountId, projectId}, Supermetrics needs {apiKey, dsId, dsAccounts} — and this way
--- adding a new per-workspace-auth provider later doesn't require another migration.
+-- support that — Funnel.io, Supermetrics, Capterra (2026-07-22, API key) and LinkedIn (2026-07-22,
+-- full OAuth2 — credential holds {accessToken, refreshToken, expiresAt, accountId})). `credential`
+-- is jsonb rather than a single text column because different providers need different shapes —
+-- Funnel.io needs {apiToken, accountId, projectId}, Supermetrics needs {apiKey, dsId, dsAccounts},
+-- Capterra needs {apiKeys} — and this way adding a new per-workspace-auth provider later doesn't
+-- require another migration.
 --
 -- No encryption-at-rest beyond Postgres/Neon's own at-rest encryption — same trust model as every
 -- other table in this schema (single database, only ever touched server-side via these API
@@ -116,12 +118,20 @@ create index if not exists idx_budgethq_versions_workspace on budgethq.versions(
 -- encryption of a value nothing outside this database ever reads directly.
 create table if not exists budgethq.connector_credentials (
   workspace_id uuid not null references core.workspaces(id) on delete cascade,
-  provider text not null check (provider in ('funnel','supermetrics')),
+  provider text not null check (provider in ('funnel','supermetrics','capterra','linkedin')),
   credential jsonb not null,
   connected_by uuid not null,
   connected_at timestamptz not null default now(),
   primary key (workspace_id, provider)
 );
+
+-- The check constraint above only takes effect on a fresh create. For a database where this table
+-- already exists with the older ('funnel','supermetrics')-only constraint, drop + re-add it here —
+-- both statements are safe to run every time migrate.js re-applies this file (DROP ... IF EXISTS
+-- no-ops once dropped, then ADD CONSTRAINT re-adds the same definition instead of erroring).
+alter table budgethq.connector_credentials drop constraint if exists connector_credentials_provider_check;
+alter table budgethq.connector_credentials add constraint connector_credentials_provider_check
+  check (provider in ('funnel','supermetrics','capterra','linkedin'));
 
 -- Phase 3 (alerts) — table laid out now so the schema doesn't need another migration when that
 -- phase starts, but nothing reads/writes this yet.

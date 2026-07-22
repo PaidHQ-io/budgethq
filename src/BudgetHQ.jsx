@@ -5649,11 +5649,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // used once per pull (see lib/googleSheets.js), so it's excluded from both the sync-button flow
   // AND the connect-panel flow below and gets its own small inline connector.
   const PLATFORMS=[
-    {key:"linkedin",label:"LinkedIn",status:"live",color:"#0A66C2"},
+    {key:"linkedin",label:"LinkedIn",status:"live",perWorkspaceAuth:true,oauth:true,color:"#0A66C2"},
     {key:"bing",label:"Bing",status:"live",color:"#00809D"},
     {key:"google",label:"Google",status:"csv",color:"#EA4335"},
     {key:"meta",label:"Meta",status:"csv",color:"#1877F2"},
-    {key:"capterra",label:"Capterra",status:"live",color:"#FF7043"},
+    {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",
+      connectFields:[
+        {key:"apiKeys",label:"API keys (JSON)",placeholder:'{"Product A":"key1","Product B":"key2"}'},
+      ]},
     {key:"funnel",label:"Funnel.io",status:"live",perWorkspaceAuth:true,color:"#6C5CE7",
       connectFields:[
         {key:"apiToken",label:"API token",placeholder:"Account Settings → API in Funnel.io"},
@@ -5688,13 +5691,78 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // Which perWorkspaceAuth platforms this workspace has already connected — drives whether
   // clicking the platform button opens the "connect your account" panel or runs a normal sync.
   const[connectedProviders,setConnectedProviders]=useState({});
-  useEffect(()=>{
+  const refreshConnectedProviders=useCallback(()=>{
     if(!workspace?.id||!session?.access_token)return;
     fetch(`/api/workspaces/${workspace.id}/connections`,{headers:{Authorization:`Bearer ${session.access_token}`}})
       .then(r=>r.ok?r.json():{connections:[]})
       .then(({connections})=>setConnectedProviders(Object.fromEntries((connections||[]).map(c=>[c.provider,true]))))
       .catch(()=>{}); // non-fatal — worst case the button just offers to (re)connect
   },[workspace?.id,session?.access_token]);
+  useEffect(()=>{refreshConnectedProviders();},[refreshConnectedProviders]);
+
+  // ── LinkedIn OAuth (2026-07-22) ─────────────────────────────────────────────────────────────
+  // LinkedIn is perWorkspaceAuth like Funnel.io/Supermetrics, but there's no form to fill in — a
+  // LinkedIn access token only exists after the user completes LinkedIn's own consent screen, so
+  // clicking "connect" kicks off a real browser redirect instead of opening connectPanelKey's
+  // generic field form. See api/oauth/linkedin/{start,callback,accounts}.js.
+  const[linkedinPicker,setLinkedinPicker]=useState(null); // {accounts,selectedAccountId} | null
+  const[linkedinPickerSaving,setLinkedinPickerSaving]=useState(false);
+  const startLinkedInOAuth=useCallback(async()=>{
+    if(!canEdit)return;
+    if(!workspace?.id||!session?.access_token){showNotif("No active session — try reloading.");return;}
+    try{
+      const res=await fetch(`/api/oauth/linkedin/start?workspaceId=${encodeURIComponent(workspace.id)}`,{
+        headers:{Authorization:`Bearer ${session.access_token}`},
+      });
+      if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't start LinkedIn connect");}
+      const{url}=await res.json();
+      window.location.href=url;
+    }catch(e){
+      showNotif(`Couldn't connect LinkedIn: ${e.message}`);
+    }
+  },[workspace?.id,session?.access_token,canEdit]);
+  const finalizeLinkedInAccount=useCallback(async(accountId)=>{
+    if(!workspace?.id||!session?.access_token)return;
+    setLinkedinPickerSaving(true);
+    try{
+      const res=await fetch(`/api/oauth/linkedin/accounts?workspaceId=${encodeURIComponent(workspace.id)}`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
+        body:JSON.stringify({accountId}),
+      });
+      if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that account");}
+      setLinkedinPicker(null);
+      showNotif("LinkedIn ad account set — click Sync to pull spend.");
+    }catch(e){
+      showNotif(`Couldn't save LinkedIn account: ${e.message}`);
+    }finally{
+      setLinkedinPickerSaving(false);
+    }
+  },[workspace?.id,session?.access_token]);
+  // Handles landing back here after the OAuth redirect round-trip (callback.js sends the browser
+  // back to `${APP_URL}/?linkedin_oauth=success|select_account|error&...`). Runs once per mount —
+  // the query params are stripped from the URL right after reading so a refresh doesn't re-fire it.
+  useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    const status=params.get("linkedin_oauth");
+    if(!status)return;
+    const wsId=params.get("workspaceId");
+    const message=params.get("message");
+    const cleanUrl=new URL(window.location.href);
+    ["linkedin_oauth","workspaceId","message"].forEach(k=>cleanUrl.searchParams.delete(k));
+    window.history.replaceState({},"",cleanUrl.toString());
+    if(status==="error"){showNotif(`LinkedIn connect failed: ${message||"unknown error"}`);return;}
+    if(status==="success"){showNotif("Connected LinkedIn — click Sync to pull spend.");refreshConnectedProviders();return;}
+    if(status==="select_account"&&wsId&&session?.access_token){
+      fetch(`/api/oauth/linkedin/accounts?workspaceId=${encodeURIComponent(wsId)}`,{headers:{Authorization:`Bearer ${session.access_token}`}})
+        .then(r=>r.json())
+        .then(({accounts,selectedAccountId})=>{
+          setLinkedinPicker({accounts:accounts||[],selectedAccountId});
+          refreshConnectedProviders();
+        })
+        .catch(()=>showNotif("Connected LinkedIn, but couldn't load ad accounts — reconnect if Sync fails."));
+    }
+  },[session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const[connectPanelKey,setConnectPanelKey]=useState(null); // which platform's connect form is open, or null
   const[connectValues,setConnectValues]=useState({});
@@ -6838,6 +6906,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 const active=live||pl.isSheets; // "active" here just means "not a plain CSV placeholder"
                 const handleClick=()=>{
                   if(pl.isSheets){setGsheetSpendOpen(o=>!o);return;}
+                  if(needsConnect&&pl.oauth){startLinkedInOAuth();return;}
                   if(needsConnect){openConnectPanel(pl.key);return;}
                   if(live&&!loading)syncPlatform(pl.key);
                 };
@@ -6892,6 +6961,32 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 </div>
               );
             })()}
+
+            {/* LinkedIn ad-account picker — only appears when the just-connected LinkedIn token can
+                see more than one ad account (see api/oauth/linkedin/callback.js + accounts.js). */}
+            {linkedinPicker&&(
+              <div style={{marginTop:10,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Which LinkedIn ad account?</div>
+                  <span onClick={()=>setLinkedinPicker(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                </div>
+                {linkedinPicker.accounts.length===0?(
+                  <div style={{fontSize:11,color:T.textMuted}}>Connected, but couldn't load your ad accounts. Try Sync — if it fails, reconnect LinkedIn.</div>
+                ):(
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {linkedinPicker.accounts.map(a=>(
+                      <button key={a.id} disabled={linkedinPickerSaving} onClick={()=>finalizeLinkedInAccount(a.id)}
+                        style={{textAlign:"left",padding:"7px 10px",borderRadius:6,
+                          border:`1px solid ${a.id===linkedinPicker.selectedAccountId?T.accentBorder:T.border}`,
+                          background:a.id===linkedinPicker.selectedAccountId?T.accentBg:T.surface,
+                          color:T.text,cursor:linkedinPickerSaving?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:linkedinPickerSaving?0.6:1}}>
+                        {a.name} <span style={{color:T.textMuted,fontSize:10}}>({a.id})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Google Sheets — separate shape from the connect panel above: no stored credential,
                 just a one-shot client-side pull (see lib/googleSheets.js) that lands on the same

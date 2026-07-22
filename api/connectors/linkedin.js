@@ -2,7 +2,17 @@
  * LinkedIn Marketing API connector
  * Pulls campaign-level spend data via adAnalyticsV2
  *
- * Env vars required:
+ * PER-WORKSPACE AUTH (2026-07-22): a workspace connects its OWN LinkedIn ad account via a full
+ * OAuth2 flow (api/oauth/linkedin/{start,callback,accounts}.js) rather than pasting anything —
+ * LinkedIn access tokens aren't something a user can generate by hand, they only come from
+ * completing LinkedIn's own consent screen. credential holds {accessToken, accountId} (see
+ * lib/linkedinOAuth.js for the full shape, including refreshToken/expiresAt — spend.js handles
+ * refreshing before it ever reaches here). Falls back to the legacy shared env vars when no
+ * credential is passed, so Mo's own existing InsightSoftware workspace keeps working without
+ * having to go through the OAuth flow itself — only OTHER workspaces are required to connect
+ * their own account.
+ *
+ * Legacy shared env vars (fallback only):
  *   LINKEDIN_ACCESS_TOKEN
  *   LINKEDIN_ACCOUNT_ID
  */
@@ -111,11 +121,17 @@ async function fetchAnalytics(token, accountId, startDate, endDate) {
   return (await res.json()).elements || [];
 }
 
-export async function getSpend({ startDate, endDate }) {
-  const token = process.env.LINKEDIN_ACCESS_TOKEN;
-  const accountId = process.env.LINKEDIN_ACCOUNT_ID;
-  if (!token) throw new Error("LINKEDIN_ACCESS_TOKEN not set");
-  if (!accountId) throw new Error("LINKEDIN_ACCOUNT_ID not set");
+export async function getSpend({ startDate, endDate, credential }) {
+  const token = credential?.accessToken || process.env.LINKEDIN_ACCESS_TOKEN;
+  const accountId = credential?.accountId || process.env.LINKEDIN_ACCOUNT_ID;
+  if (!token) throw new Error("This workspace hasn't connected LinkedIn yet — reconnect this workspace's LinkedIn account.");
+  if (!accountId) {
+    throw new Error(
+      credential
+        ? "No LinkedIn ad account selected yet for this workspace — pick one to finish connecting."
+        : "LINKEDIN_ACCOUNT_ID not set"
+    );
+  }
 
   const analytics = await fetchAnalytics(token, accountId, startDate, endDate);
   const withSpend = analytics.filter((el) => parseFloat(el.costInLocalCurrency || "0") > 0);
@@ -150,5 +166,8 @@ export const meta = {
   platform: "LinkedIn",
   label: "LinkedIn Ads",
   status: "live",
+  perWorkspaceAuth: true,
+  envVarFallback: true, // see spend.js's doc comment — falls back to LINKEDIN_ACCESS_TOKEN if unconnected
+  oauth: true, // no connectFields form — frontend renders a "Connect with LinkedIn" button instead
   requiredEnvVars: ["LINKEDIN_ACCESS_TOKEN", "LINKEDIN_ACCOUNT_ID"],
 };

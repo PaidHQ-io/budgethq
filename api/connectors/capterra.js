@@ -4,8 +4,13 @@
  * Capterra issues a SEPARATE API key per campaign/product — there's no single account-level
  * key that covers every product, each one has to be requested individually from Capterra's
  * account manager team (Vendor Portal → pick a campaign → API docs → "Email Account Manager").
- * CAPTERRA_API_KEYS holds all of them as one JSON object, so adding a new product later is
- * just an env var edit, not a code change:
+ *
+ * PER-WORKSPACE AUTH (2026-07-22): a workspace connects its own Capterra keys via the generic
+ * connect-panel flow (see connections.js), storing { apiKeys: {"Product A":"key1",...} } — the
+ * exact same shape CAPTERRA_API_KEYS always held, just per-workspace now instead of one shared
+ * env var for the whole app. Falls back to CAPTERRA_API_KEYS when no credential is passed so
+ * Mo's own existing InsightSoftware workspace keeps working without having to re-paste anything
+ * — only OTHER workspaces (which have no such env var) are required to connect their own keys.
  *   CAPTERRA_API_KEYS = {"Auth0":"key1","insightsoftware - Financial Reporting":"key2"}
  *
  * Request/response shape below is confirmed against real requests run from the Vendor Portal's
@@ -78,17 +83,18 @@ async function fetchAllClicksForKey(apiKey, startDate, endDate) {
   return rows;
 }
 
-export async function getSpend({ startDate, endDate }) {
-  const raw = process.env.CAPTERRA_API_KEYS;
-  if (!raw) throw new Error("CAPTERRA_API_KEYS not set");
+export async function getSpend({ startDate, endDate, credential }) {
+  // credential.apiKeys is the per-workspace connected value; raw is the legacy shared fallback.
+  const raw = credential?.apiKeys ?? process.env.CAPTERRA_API_KEYS;
+  if (!raw) throw new Error("This workspace hasn't connected Capterra yet — reconnect this workspace's Capterra account.");
   let keyMap;
   try {
-    keyMap = JSON.parse(raw);
+    keyMap = typeof raw === "string" ? JSON.parse(raw) : raw;
   } catch {
-    throw new Error('CAPTERRA_API_KEYS is not valid JSON — expected {"Campaign Name": "api_key", ...}');
+    throw new Error('Capterra API keys are not valid JSON — expected {"Campaign Name": "api_key", ...}');
   }
-  const campaigns = Object.entries(keyMap);
-  if (!campaigns.length) throw new Error("CAPTERRA_API_KEYS has no campaigns configured");
+  const campaigns = Object.entries(keyMap || {});
+  if (!campaigns.length) throw new Error("No Capterra campaigns configured for this credential");
 
   // Keyed by campaign_group_name+campaign_name+date and summed as rows come in — see
   // AGGREGATION NOTE above for why this can't just push every row and let mergeRows() dedupe.
@@ -150,5 +156,10 @@ export const meta = {
   label: "Capterra",
   icon: "C",
   status: "live",
+  perWorkspaceAuth: true,
+  envVarFallback: true, // see spend.js's doc comment — falls back to CAPTERRA_API_KEYS if unconnected
+  connectFields: [
+    { key: "apiKeys", label: "API keys (JSON)", placeholder: '{"Product A":"key1","Product B":"key2"}' },
+  ],
   requiredEnvVars: ["CAPTERRA_API_KEYS"],
 };

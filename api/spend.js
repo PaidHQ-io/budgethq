@@ -9,12 +9,21 @@
  *   Returns: { rows: [...normalized spend rows] }
  *
  *   workspaceId + a valid Authorization header are only required for connectors flagged
- *   `perWorkspaceAuth: true` in their meta export (funnel, supermetrics) — those pull the calling
- *   workspace's OWN stored credential from budgethq.connector_credentials rather than a shared
- *   process.env var, so this route needs to know which workspace is asking and confirm the caller
- *   actually belongs to it before handing back that workspace's data. linkedin/bing/capterra/
- *   google/meta are unaffected — they keep working exactly as before, no auth required, since
- *   they're still one shared account for the whole app.
+ *   `perWorkspaceAuth: true` in their meta export (funnel, supermetrics, capterra, linkedin) —
+ *   those pull the calling workspace's OWN stored credential from budgethq.connector_credentials
+ *   rather than a shared process.env var, so this route needs to know which workspace is asking
+ *   and confirm the caller actually belongs to it before handing back that workspace's data.
+ *   bing/google/meta are unaffected — they keep working exactly as before, no auth required,
+ *   since they're still one shared account for the whole app.
+ *
+ *   `envVarFallback: true` in a connector's meta (capterra, linkedin) means a workspace with no
+ *   stored per-workspace credential yet doesn't get hard-blocked with "not_connected" — instead
+ *   getWorkspaceCredential returns null and the connector's own getSpend falls back to its legacy
+ *   shared process.env credential. This is what keeps Mo's own pre-existing InsightSoftware
+ *   workspace syncing without any migration step, while any OTHER workspace (no env var to fall
+ *   back to) still gets a clear "connect your account" error from the connector itself. Funnel.io
+ *   and Supermetrics have no such flag/fallback — they never had a shared env var credential, so
+ *   their original hard "not_connected" behavior is untouched.
  *
  * Normalized row shape (same for all platforms):
  *   { campaign_name, campaign_id, platform, date, spend, impressions, clicks }
@@ -23,11 +32,14 @@
 import { CONNECTORS, CONNECTOR_REGISTRY } from "./connectors/index.js";
 import { sql } from "./lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement } from "./lib/auth.js";
+import { isCredentialStale, refreshAccessToken } from "./lib/linkedinOAuth.js";
 
 // Looks up a workspace's stored credential for a perWorkspaceAuth connector. Throws a 400 with a
 // `code: "not_connected"` the frontend can branch on (show a Connect flow) rather than a generic
-// error, distinct from a real auth/permission failure (401/403) or a downstream API error (500).
-async function getWorkspaceCredential(req, workspaceId, provider) {
+// error, distinct from a real auth/permission failure (401/403) or a downstream API error (500) —
+// UNLESS `optional` is set (see envVarFallback doc comment above the imports), in which case a
+// missing row returns null instead of throwing, leaving the fallback decision to the connector.
+async function getWorkspaceCredential(req, workspaceId, provider, { optional = false } = {}) {
   if (!workspaceId) {
     const err = new Error(`workspaceId is required to sync ${provider}`);
     err.status = 400;
@@ -41,6 +53,7 @@ async function getWorkspaceCredential(req, workspaceId, provider) {
     where workspace_id = ${workspaceId} and provider = ${provider}
   `;
   if (!rows.length) {
+    if (optional) return null;
     const err = new Error(`This workspace hasn't connected ${provider} yet.`);
     err.status = 400;
     err.code = "not_connected";
@@ -98,9 +111,23 @@ export default async function handler(req, res) {
     // caller verified as a member of it) before we can call getSpend at all — everything else
     // keeps calling getSpend exactly as before, with no credential argument, reading its shared
     // process.env var same as always.
-    const credential = connector.perWorkspaceAuth
-      ? await getWorkspaceCredential(req, workspaceId, platform.toLowerCase())
+    let credential = connector.perWorkspaceAuth
+      ? await getWorkspaceCredential(req, workspaceId, platform.toLowerCase(), { optional: !!connector.envVarFallback })
       : undefined;
+
+    // LinkedIn's OAuth access token expires (~60 days) — refresh proactively here (the one place
+    // that already has this workspace's stored credential in hand) rather than letting a sync fail
+    // mid-request, then persist the refreshed token back so next time doesn't need to refresh again.
+    if (platform.toLowerCase() === "linkedin" && credential?.refreshToken && isCredentialStale(credential)) {
+      const refreshed = await refreshAccessToken(credential);
+      credential = { ...credential, ...refreshed };
+      await sql`
+        update budgethq.connector_credentials
+        set credential = ${JSON.stringify(credential)}
+        where workspace_id = ${workspaceId} and provider = 'linkedin'
+      `;
+    }
+
     const rows = await connector.getSpend({ startDate, endDate, credential });
     return res.status(200).json({
       platform: connector.platform,
