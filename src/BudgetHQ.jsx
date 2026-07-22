@@ -1095,7 +1095,11 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     if(iFmt==="wide"){
       const mc=iHeaders.filter(h=>isMonthHdr(h));
       iRows.forEach(row=>{
-        const sp=activeDims.map(d=>({dim:d.dim,val:row[d.col]}));
+        // Trimmed so stray leading/trailing whitespace in a dimension value (a spreadsheet that
+        // exports slightly differently between two pulls of "the same" file is a common source of
+        // this) doesn't produce a segKey that looks new instead of matching the existing segment —
+        // see consolidateBudgetSegKeys's doc comment for the duplication this otherwise causes.
+        const sp=activeDims.map(d=>({dim:d.dim,val:String(row[d.col]??"").trim()}));
         if(sp.some(p=>!p.val))return;
         const sk=sp.map(p=>p.val).join("|");
         mc.forEach(col=>{const mk=getMonthKey(col);const amt=parseMoney(row[col]);if(mk&&amt!==null&&amt>0)entries.push({segKey:sk,dims:Object.fromEntries(sp.map(p=>[p.dim,p.val])),monthKey:mk,amount:amt});});
@@ -1133,7 +1137,11 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       // year — e.g. a new client starting in July shouldn't get Jan–Jun back-filled. The user can
       // still hand-adjust any individual month afterward in the Budget Panel grid.
       iRows.forEach(row=>{
-        const sp=activeDims.map(d=>({dim:d.dim,val:row[d.col]}));
+        // Trimmed so stray leading/trailing whitespace in a dimension value (a spreadsheet that
+        // exports slightly differently between two pulls of "the same" file is a common source of
+        // this) doesn't produce a segKey that looks new instead of matching the existing segment —
+        // see consolidateBudgetSegKeys's doc comment for the duplication this otherwise causes.
+        const sp=activeDims.map(d=>({dim:d.dim,val:String(row[d.col]??"").trim()}));
         if(sp.some(p=>!p.val))return;
         const sk=sp.map(p=>p.val).join("|");
         const amt=parseMoney(row[amtCol]);
@@ -1143,7 +1151,11 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       });
     }else{
       iRows.forEach(row=>{
-        const sp=activeDims.map(d=>({dim:d.dim,val:row[d.col]}));
+        // Trimmed so stray leading/trailing whitespace in a dimension value (a spreadsheet that
+        // exports slightly differently between two pulls of "the same" file is a common source of
+        // this) doesn't produce a segKey that looks new instead of matching the existing segment —
+        // see consolidateBudgetSegKeys's doc comment for the duplication this otherwise causes.
+        const sp=activeDims.map(d=>({dim:d.dim,val:String(row[d.col]??"").trim()}));
         if(sp.some(p=>!p.val))return;
         const sk=sp.map(p=>p.val).join("|");const mk=parsePeriod(row[periodCol]);const amt=parseMoney(row[amtCol]);
         if(mk&&amt!==null&&amt>0)entries.push({segKey:sk,dims:Object.fromEntries(sp.map(p=>[p.dim,p.val])),monthKey:mk,amount:amt});
@@ -2738,11 +2750,29 @@ function normalizeRows(rows,colMap){
   }).filter(r=>r.campaign_group_name&&r.spend>0);
 }
 
-// Merge normalized rows — deduplicate by campaign group + campaign + date, new data wins
+// Merge normalized rows — deduplicate by campaign group + campaign + CALENDAR DAY (not the raw
+// date string), new data wins.
+//
+// FIX (2026-07-21): the identity key used to join on r.date as a raw string. That meant the exact
+// same real day could hash to two different keys across two pulls/uploads that happen to format
+// dates differently -- a live API returning "2026-07-21T00:00:00.000Z" one time and
+// "2026-07-21" the next, or re-exporting "the same" CSV from a spreadsheet that serializes dates
+// differently on a second export -- and instead of overwriting, that silently ADDED a second row
+// for the same real day, doubling its spend. This was the actual reported bug: syncing a channel
+// twice, or uploading nominally the same CSV twice/three times, added spend instead of deduping.
+// Keying on parseSpendDate's already-parsed calendar day collapses every date format this app
+// already treats as equivalent everywhere else (pacing math, trend charts) down to one identity,
+// so re-pulling/re-uploading the same data now always overwrites. Campaign identity is trimmed for
+// the same reason -- stray leading/trailing whitespace from a spreadsheet shouldn't be enough to
+// make "Retargeting" and "Retargeting " look like two different ad sets.
+function spendRowKey(r){
+  const d=parseSpendDate(r.date);
+  const dateKey=d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`:String(r.date||"").trim();
+  return `${campaignKey((r.campaign_group_name||"").trim(),(r.campaign_name||"").trim())}||${dateKey}`;
+}
 function mergeRows(existing,incoming){
-  const key=r=>`${campaignKey(r.campaign_group_name,r.campaign_name)}||${r.date}`;
-  const map=new Map(existing.map(r=>[key(r),r]));
-  incoming.forEach(r=>map.set(key(r),r));
+  const map=new Map(existing.map(r=>[spendRowKey(r),r]));
+  incoming.forEach(r=>map.set(spendRowKey(r),r));
   return Array.from(map.values());
 }
 
@@ -2850,6 +2880,47 @@ function renameDimensionValue({budgets,budgetRowMeta,tags,budgetDims,dim,oldVal,
   });
 
   return{budgets:newBudgets,budgetRowMeta:newBudgetRowMeta,tags:newTags};
+}
+
+// Collapses budget segKeys that differ only by leading/trailing whitespace in one or more
+// dimension values (e.g. "APAC|Search" and "APAC |Search" from two exports of "the same" budget
+// file, or a spreadsheet that trims inconsistently) down to one, summing monthly amounts on
+// collision -- same merge semantics as the intentional rename-merge in renameDimensionValue above,
+// since a whitespace-only difference is never a genuinely different segment. Without this,
+// re-importing a budget file whose values pick up stray whitespace on a later export creates a
+// second, phantom segKey that coexists with the original instead of overwriting it -- both then
+// count toward totals.budget in computePacing, silently doubling that segment's budgeted amount.
+// Run once on load (see the workspace-data load effect) so any duplication already sitting in a
+// workspace's stored data self-heals the next time it's opened, not just going forward.
+function consolidateBudgetSegKeys(budgets,budgetRowMeta){
+  let changed=false;
+  const newBudgets=JSON.parse(JSON.stringify(budgets||{}));
+  const newBudgetRowMeta={...(budgetRowMeta||{})};
+  Object.keys(newBudgets).forEach(yr=>{
+    const yearObj=newBudgets[yr];
+    const output={};
+    Object.keys(yearObj).forEach(oldKey=>{
+      const trimmedKey=oldKey.split("|").map(s=>s.trim()).join("|");
+      const entry=yearObj[oldKey];
+      if(trimmedKey!==oldKey){
+        changed=true;
+        if(newBudgetRowMeta[oldKey]&&!newBudgetRowMeta[trimmedKey]){newBudgetRowMeta[trimmedKey]=newBudgetRowMeta[oldKey];delete newBudgetRowMeta[oldKey];}
+      }
+      if(output[trimmedKey]){
+        changed=true;
+        const merged={...output[trimmedKey]};
+        merged.monthly={...(output[trimmedKey].monthly||{})};
+        Object.entries(entry.monthly||{}).forEach(([mk,amt])=>{merged.monthly[mk]=(merged.monthly[mk]||0)+(amt||0);});
+        if(entry.quarterly||output[trimmedKey].quarterly)merged.quarterly={...(entry.quarterly||{}),...(output[trimmedKey].quarterly||{})};
+        if(entry.annual!=null&&merged.annual==null)merged.annual=entry.annual;
+        output[trimmedKey]=merged;
+      }else{
+        output[trimmedKey]=entry;
+      }
+    });
+    newBudgets[yr]=output;
+  });
+  return{budgets:newBudgets,budgetRowMeta:newBudgetRowMeta,changed};
 }
 
 // Removes just the budgetDims tag values (not the whole campaign) from every campaign that
@@ -5006,16 +5077,22 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       .then(([config,rows])=>{
         setTags(config.tags||{});
         setTagDims((config.tagDims||[]).length?config.tagDims:DEFAULT_DIMS);
-        setBudgets(config.budgets||{});
+        // Both passes below self-heal any duplication already sitting in this workspace's stored
+        // data (from before the 2026-07-21 dedup fix) every time it loads, not just going forward —
+        // see mergeRows and consolidateBudgetSegKeys's doc comments for exactly what causes each.
+        const{budgets:cleanBudgets,budgetRowMeta:cleanBudgetRowMeta,changed:budgetsDeduped}=consolidateBudgetSegKeys(config.budgets||{},config.budgetRowMeta||{});
+        setBudgets(cleanBudgets);
         setBudgetDims(config.budgetDims||[]);
-        setBudgetRowMeta(config.budgetRowMeta||{});
+        setBudgetRowMeta(cleanBudgetRowMeta);
         setBudgetMetaDims(config.budgetMetaDims||[]);
         setBudgetImportMeta(config.budgetImportMeta||{});
-        setMergedNormRows(rows||[]);
-        if((rows||[]).length)setStep("tag");
+        const dedupedRows=mergeRows([],rows||[]);
+        const rowsDeduped=dedupedRows.length!==(rows||[]).length;
+        setMergedNormRows(dedupedRows);
+        if(dedupedRows.length)setStep("tag");
         configLoadedRef.current=true;rowsLoadedRef.current=true;
         const configEmpty=isEmptyConfig(config);
-        const rowsEmpty=!(rows||[]).length;
+        const rowsEmpty=!dedupedRows.length;
         // Remember that this workspace is CONFIRMED to have real data on the server — the guard
         // just below refuses to let a later save silently replace it with nothing. Only flips to
         // true, never back to false by loading — going empty has to be an explicit, user-confirmed
@@ -5026,6 +5103,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         if(configEmpty&&rowsEmpty){
           const legacy=readLegacyLocalData();
           if(legacy)setLocalImportPrompt(legacy);
+        }
+        // Surfacing this rather than silently rewriting history — the next debounced save (already
+        // watching mergedNormRows/budgets/budgetRowMeta) persists the cleaned data automatically.
+        if(rowsDeduped||budgetsDeduped){
+          const parts=[];
+          if(rowsDeduped)parts.push(`${(rows||[]).length-dedupedRows.length} duplicate spend row${(rows||[]).length-dedupedRows.length===1?"":"s"}`);
+          if(budgetsDeduped)parts.push("duplicate budget segments");
+          showNotif(`Cleaned up ${parts.join(" and ")} found on load`);
         }
       })
       .catch(e=>{
