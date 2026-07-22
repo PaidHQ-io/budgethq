@@ -92,16 +92,20 @@ export async function putSpendRows(session, workspaceId, rows, fetchOpts = {}) {
 // api/workspaces/[id]/ai-chats.js's doc comment for why this isn't shared workspace-wide like
 // tags/budgets are). Replaces the old single global `localStorage["paidhq_ask_chats"]` key, which
 // had no workspace scoping at all.
-export function getAiChats(session, workspaceId) {
+//
+// Returns/accepts { chats, projects } as of 2026-07-21 — projects are the folder-like grouping
+// chats can be filed under (pinning and labels live directly on each chat record instead, no
+// separate table needed for those). See ai-chats.js for the storage-shape migration note.
+export function getAskAIData(session, workspaceId) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/ai-chats`).then(
-    (d) => d.chats || []
+    (d) => ({ chats: d.chats || [], projects: d.projects || [] })
   );
 }
 
-export function putAiChats(session, workspaceId, chats) {
+export function putAskAIData(session, workspaceId, { chats, projects }) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/ai-chats`, {
     method: "PUT",
-    body: JSON.stringify({ chats }),
+    body: JSON.stringify({ chats, projects }),
   });
 }
 

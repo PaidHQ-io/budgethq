@@ -7,8 +7,15 @@
  * chat history is their own, matching the old per-browser behavior, but correctly siloed per
  * workspace and durable across devices/logins instead of stuck in one browser.
  *
- * GET /ai-chats — returns the CALLER's own chats for this workspace (never anyone else's).
- * PUT /ai-chats — upserts the CALLER's own chats. Body: { chats }.
+ * GET /ai-chats — returns the CALLER's own { chats, projects } for this workspace (never anyone
+ *   else's). `projects` (2026-07-21) is the folder/project list chats can be filed under, alongside
+ *   pinning and free-text labels stored directly on each chat record — see AskAI in BudgetHQ.jsx.
+ * PUT /ai-chats — upserts the CALLER's own { chats, projects }.
+ *
+ * STORAGE NOTE: the underlying `chats` jsonb column's stored VALUE changed shape from a bare
+ * ChatRecord[] array to { chats: ChatRecord[], projects: Project[] } — no DB migration needed since
+ * jsonb doesn't enforce a shape, but GET has to handle rows written before this change, where the
+ * stored value IS still the bare array.
  *
  * Deliberately NOT gated by requireEditAccess — a member (view-only) role restricts changes to
  * real shared workspace data (budgets/tags/spend rows), not someone's own AI conversation history,
@@ -28,14 +35,19 @@ export default withApi(async (req, res) => {
     const rows = await sql`
       select chats from budgethq.ai_chats where workspace_id = ${workspaceId} and user_id = ${userId}
     `;
-    return res.status(200).json({ chats: rows.length ? rows[0].chats : [] });
+    const stored = rows.length ? rows[0].chats : null;
+    if (!stored) return res.status(200).json({ chats: [], projects: [] });
+    // Pre-2026-07-21 rows: stored value is the bare chats array itself.
+    if (Array.isArray(stored)) return res.status(200).json({ chats: stored, projects: [] });
+    return res.status(200).json({ chats: stored.chats || [], projects: stored.projects || [] });
   }
 
   if (req.method === "PUT") {
-    const { chats } = req.body || {};
+    const { chats, projects } = req.body || {};
+    const value = { chats: chats ?? [], projects: projects ?? [] };
     await sql`
       insert into budgethq.ai_chats (workspace_id, user_id, chats, updated_at)
-      values (${workspaceId}, ${userId}, ${JSON.stringify(chats ?? [])}, now())
+      values (${workspaceId}, ${userId}, ${JSON.stringify(value)}, now())
       on conflict (workspace_id, user_id) do update set
         chats = excluded.chats,
         updated_at = now()

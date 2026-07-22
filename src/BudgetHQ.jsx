@@ -6,7 +6,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows,
-  getAiChats, putAiChats,
+  getAskAIData, putAskAIData,
   listVersions, saveVersion, deleteVersion as apiDeleteVersion,
   listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64,
   copyFileToWorkspace,
@@ -2227,12 +2227,43 @@ function pickAskAIExamples(){
   return pool.slice(0,3);
 }
 
+// Buckets chats by recency for the Ask AI sidebar's chat list — same "Today / Yesterday /
+// Previous 7 days / ..." grouping convention as the Claude desktop app's own history sidebar,
+// which is explicitly what this was modeled after. Pinned chats are handled separately by the
+// caller (their own always-on-top section, never bucketed by date).
+function groupChatsByRecency(chats){
+  const startOfDay=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  const today=startOfDay(new Date());
+  const yesterday=new Date(today);yesterday.setDate(yesterday.getDate()-1);
+  const weekAgo=new Date(today);weekAgo.setDate(weekAgo.getDate()-7);
+  const monthAgo=new Date(today);monthAgo.setDate(monthAgo.getDate()-30);
+  const buckets={Today:[],Yesterday:[],"Previous 7 days":[],"Previous 30 days":[],Older:[]};
+  chats.forEach(c=>{
+    const d=startOfDay(new Date(c.updatedAt));
+    if(d.getTime()===today.getTime())buckets.Today.push(c);
+    else if(d.getTime()===yesterday.getTime())buckets.Yesterday.push(c);
+    else if(d>weekAgo)buckets["Previous 7 days"].push(c);
+    else if(d>monthAgo)buckets["Previous 30 days"].push(c);
+    else buckets.Older.push(c);
+  });
+  return Object.entries(buckets).filter(([,list])=>list.length).map(([label,list])=>({label,chats:list}));
+}
+
 // Chat UI for the Ask AI view. Chats are lifted to the parent (askChats/setAskChats) so they
-// persist to localStorage the same way tags/budgets/spend data already do — surviving both
-// in-app navigation and a full page reload. activeAskChatId===null is the "blank/new chat"
-// state; a chat record only gets created in askChats once its first message actually sends, so
-// clicking "New chat" repeatedly doesn't leave a trail of empty entries behind.
-function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activeAskChatId,setActiveAskChatId}){
+// persist server-side per (workspace,user) the same way tags/budgets/spend data already do —
+// surviving both in-app navigation and a full page reload, and following the user across
+// devices. activeAskChatId===null is the "blank/new chat" state; a chat record only gets created
+// in askChats once its first message actually sends, so clicking "New chat" repeatedly doesn't
+// leave a trail of empty entries behind.
+//
+// SIDEBAR REWORK (2026-07-21): the generic left <aside> (Total spend / stat tiles) this tab used
+// to fall back to wasn't relevant here — Ask AI isn't a spend-data view, it's a chat interface —
+// so `sidebarEl` is now a portal target this component owns entirely, used for chat management
+// (search, pinning, projects, labels) modeled on the Claude desktop app's own history sidebar
+// rather than the small header dropdown alone. The header History dropdown stays as-is
+// underneath — it's the only access point on mobile, where sidebarEl is never mounted (see the
+// `!isMobile` gate around the whole stats <aside> in BudgetHQ's render).
+function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl}){
   const[input,setInput]=useState("");
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
@@ -2268,14 +2299,14 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
     }else{
       chatId=`chat_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
       const title=q.length>60?q.slice(0,57)+"…":q;
-      setAskChats(prev=>[{id:chatId,title,messages:[],history:[],updatedAt:Date.now()},...prev]);
+      setAskChats(prev=>[{id:chatId,title,messages:[],history:[],updatedAt:Date.now(),pinned:false,projectId:null,labels:[]},...prev]);
       setActiveAskChatId(chatId);
     }
     const newMessages=[...priorMessages,{role:"user",text:q}];
     setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:newMessages,updatedAt:Date.now()}:c));
     setLoading(true);
     try{
-      const{answer,messages:newHistory}=await askAIRun({question:q,history:priorHistory,ctx:{mergedNormRows,tags,tagDims}});
+      const{answer,messages:newHistory}=await askAIRun({question:q,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets}});
       const finalHistory=[...newHistory,{role:"assistant",content:answer}];
       const finalMessages=[...newMessages,{role:"assistant",text:answer}];
       setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
@@ -2284,19 +2315,250 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
     }finally{
       setLoading(false);
     }
-  },[input,loading,activeAskChatId,askChats,mergedNormRows,tags,tagDims,setAskChats,setActiveAskChatId]);
+  },[input,loading,activeAskChatId,askChats,mergedNormRows,tags,tagDims,budgetDims,budgets,setAskChats,setActiveAskChatId]);
+
+  // ── Sidebar chat management: search, pinning, projects, labels, rename (2026-07-21) ──
+  const[sidebarSearch,setSidebarSearch]=useState("");
+  const[activeProjectId,setActiveProjectId]=useState(null); // null="All chats"; "unfiled" sentinel; else a project id
+  const[activeLabel,setActiveLabel]=useState(null);
+  const[newProjectName,setNewProjectName]=useState("");
+  const[editingProjectId,setEditingProjectId]=useState(null);
+  const[editingProjectName,setEditingProjectName]=useState("");
+  const[chatMenuOpenId,setChatMenuOpenId]=useState(null);
+  const[chatMenuAnchorRect,setChatMenuAnchorRect]=useState(null);
+  const[renamingChatId,setRenamingChatId]=useState(null);
+  const[renamingTitle,setRenamingTitle]=useState("");
+  const[newLabelInput,setNewLabelInput]=useState("");
+
+  const togglePin=useCallback(id=>{setAskChats(prev=>prev.map(c=>c.id===id?{...c,pinned:!c.pinned}:c));},[setAskChats]);
+  const commitRename=useCallback((id,title)=>{
+    const trimmed=title.trim();
+    if(trimmed)setAskChats(prev=>prev.map(c=>c.id===id?{...c,title:trimmed}:c));
+    setRenamingChatId(null);
+  },[setAskChats]);
+  const assignProject=useCallback((chatId,projectId)=>{setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,projectId}:c));},[setAskChats]);
+  const toggleChatLabel=useCallback((chatId,label)=>{
+    setAskChats(prev=>prev.map(c=>{
+      if(c.id!==chatId)return c;
+      const labels=c.labels||[];
+      return{...c,labels:labels.includes(label)?labels.filter(l=>l!==label):[...labels,label]};
+    }));
+  },[setAskChats]);
+  const addProject=useCallback(()=>{
+    const name=newProjectName.trim();
+    if(!name)return;
+    setAskProjects(prev=>[...prev,{id:`proj_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,name}]);
+    setNewProjectName("");
+  },[newProjectName,setAskProjects]);
+  const deleteProject=useCallback(id=>{
+    setAskProjects(prev=>prev.filter(p=>p.id!==id));
+    setAskChats(prev=>prev.map(c=>c.projectId===id?{...c,projectId:null}:c));
+    setActiveProjectId(p=>p===id?null:p);
+  },[setAskProjects,setAskChats]);
+  const commitProjectRename=useCallback((id,name)=>{
+    const trimmed=name.trim();
+    if(trimmed)setAskProjects(prev=>prev.map(p=>p.id===id?{...p,name:trimmed}:p));
+    setEditingProjectId(null);
+  },[setAskProjects]);
+
+  const allLabels=useMemo(()=>{
+    const set=new Set();
+    askChats.forEach(c=>(c.labels||[]).forEach(l=>set.add(l)));
+    return Array.from(set).sort();
+  },[askChats]);
+
+  const filteredSidebarChats=useMemo(()=>{
+    const q=sidebarSearch.trim().toLowerCase();
+    return askChats.filter(c=>{
+      if(q&&!c.title.toLowerCase().includes(q))return false;
+      if(activeProjectId==="unfiled"){if(c.projectId)return false;}
+      else if(activeProjectId&&c.projectId!==activeProjectId)return false;
+      if(activeLabel&&!(c.labels||[]).includes(activeLabel))return false;
+      return true;
+    });
+  },[askChats,sidebarSearch,activeProjectId,activeLabel]);
+  const pinnedSidebarChats=useMemo(()=>filteredSidebarChats.filter(c=>c.pinned).sort((a,b)=>b.updatedAt-a.updatedAt),[filteredSidebarChats]);
+  const unpinnedSidebarChats=useMemo(()=>filteredSidebarChats.filter(c=>!c.pinned).sort((a,b)=>b.updatedAt-a.updatedAt),[filteredSidebarChats]);
+  const recencyGroups=useMemo(()=>groupChatsByRecency(unpinnedSidebarChats),[unpinnedSidebarChats]);
+
+  const menuBtnStyle={display:"block",width:"100%",textAlign:"left",padding:"6px 8px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"};
+
+  const renderChatRow=c=>{
+    const isEditing=renamingChatId===c.id;
+    return(
+      <div key={c.id} onClick={()=>{if(!isEditing)setActiveAskChatId(c.id);}}
+        className={c.id===activeAskChatId?undefined:"bhq-row"}
+        style={{display:"flex",alignItems:"center",gap:4,padding:"5px 6px",borderRadius:6,cursor:"pointer",background:c.id===activeAskChatId?T.rowSelected:"transparent"}}>
+        <span onClick={e=>{e.stopPropagation();togglePin(c.id);}} title={c.pinned?"Unpin":"Pin"} style={{flexShrink:0,cursor:"pointer",opacity:c.pinned?1:0.32,fontSize:11,lineHeight:1}}>📌</span>
+        {isEditing?(
+          <input autoFocus value={renamingTitle} onChange={e=>setRenamingTitle(e.target.value)} onClick={e=>e.stopPropagation()}
+            onKeyDown={e=>{if(e.key==="Enter")commitRename(c.id,renamingTitle);if(e.key==="Escape")setRenamingChatId(null);}}
+            onBlur={()=>commitRename(c.id,renamingTitle)}
+            style={{flex:1,minWidth:0,fontSize:12,padding:"3px 5px",borderRadius:5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+        ):(
+          <span style={{flex:1,minWidth:0,fontSize:12,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.title}</span>
+        )}
+        {!isEditing&&(
+          <button onClick={e=>{e.stopPropagation();setChatMenuAnchorRect(e.currentTarget.getBoundingClientRect());setChatMenuOpenId(chatMenuOpenId===c.id?null:c.id);}}
+            style={{flexShrink:0,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13,padding:"2px 4px",lineHeight:1}}>⋯</button>
+        )}
+      </div>
+    );
+  };
+
+  const sidebarPanel=sidebarEl&&createPortal(
+    <div style={{display:"flex",flexDirection:"column",height:"100%",gap:14}}>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        <Inp value={sidebarSearch} onChange={setSidebarSearch} placeholder="Search chats…" T={T}/>
+        <Btn onClick={startNewChat} variant="primary" size="sm" T={T} style={{width:"100%",justifyContent:"center",gap:6}}>
+          <Icon name="plus" size={12} color={T.onAccent}/> New chat
+        </Btn>
+      </div>
+
+      {pinnedSidebarChats.length>0&&(
+        <div>
+          <SectionLabel T={T} style={{marginBottom:6}}>Pinned</SectionLabel>
+          <div style={{display:"flex",flexDirection:"column",gap:2}}>{pinnedSidebarChats.map(renderChatRow)}</div>
+        </div>
+      )}
+
+      <div>
+        <SectionLabel T={T} style={{marginBottom:6}}>Projects</SectionLabel>
+        <div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:6}}>
+          <div onClick={()=>setActiveProjectId(null)} className={activeProjectId===null?undefined:"bhq-row"}
+            style={{padding:"5px 8px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:activeProjectId===null?700:400,color:T.text,background:activeProjectId===null?T.accentBg:"transparent"}}>
+            All chats ({askChats.length})
+          </div>
+          {askProjects.map(p=>{
+            const count=askChats.filter(c=>c.projectId===p.id).length;
+            const isEditing=editingProjectId===p.id;
+            return(
+              <div key={p.id} style={{display:"flex",alignItems:"center",gap:4}}>
+                {isEditing?(
+                  <input autoFocus value={editingProjectName} onChange={e=>setEditingProjectName(e.target.value)}
+                    onKeyDown={e=>{if(e.key==="Enter")commitProjectRename(p.id,editingProjectName);if(e.key==="Escape")setEditingProjectId(null);}}
+                    onBlur={()=>commitProjectRename(p.id,editingProjectName)}
+                    style={{flex:1,minWidth:0,fontSize:12,padding:"4px 6px",borderRadius:5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                ):(
+                  <div onClick={()=>setActiveProjectId(p.id)} onDoubleClick={()=>{setEditingProjectId(p.id);setEditingProjectName(p.name);}}
+                    className={activeProjectId===p.id?undefined:"bhq-row"} title="Double-click to rename"
+                    style={{flex:1,minWidth:0,padding:"5px 8px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:activeProjectId===p.id?700:400,color:T.text,background:activeProjectId===p.id?T.accentBg:"transparent",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {p.name} ({count})
+                  </div>
+                )}
+                {!isEditing&&<span onClick={()=>deleteProject(p.id)} title="Delete project (chats stay, just unfiled)" style={{color:T.textMuted,cursor:"pointer",fontSize:12,padding:"2px 4px",flexShrink:0}}>✕</span>}
+              </div>
+            );
+          })}
+          <div onClick={()=>setActiveProjectId("unfiled")} className={activeProjectId==="unfiled"?undefined:"bhq-row"}
+            style={{padding:"5px 8px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:activeProjectId==="unfiled"?700:400,color:T.textMuted,background:activeProjectId==="unfiled"?T.accentBg:"transparent"}}>
+            Unfiled ({askChats.filter(c=>!c.projectId).length})
+          </div>
+        </div>
+        <div style={{display:"flex",gap:5}}>
+          <Inp value={newProjectName} onChange={setNewProjectName} placeholder="New project…" T={T} style={{fontSize:11,padding:"5px 8px"}}/>
+          <Btn onClick={addProject} variant="subtle" size="sm" T={T}>+</Btn>
+        </div>
+      </div>
+
+      {allLabels.length>0&&(
+        <div>
+          <SectionLabel T={T} style={{marginBottom:6}}>Labels</SectionLabel>
+          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+            {allLabels.map(l=>{
+              const active=activeLabel===l;
+              return(
+                <button key={l} onClick={()=>setActiveLabel(active?null:l)}
+                  style={{fontSize:10.5,padding:"3px 8px",borderRadius:12,cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:500,background:active?T.accent:T.surfaceEl,color:active?T.onAccent:T.textSub,border:`1px solid ${active?T.accentHover:T.border}`}}>
+                  {l}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <SectionLabel T={T} style={{marginBottom:6}}>Chats</SectionLabel>
+        <div className="bhq-scroll" style={{flex:1,overflow:"auto"}}>
+          {filteredSidebarChats.length===0&&<div style={{fontSize:11,color:T.textMuted,padding:"8px 2px"}}>No chats {sidebarSearch||activeProjectId||activeLabel?"match this filter":"yet"}</div>}
+          {recencyGroups.map(g=>(
+            <div key={g.label} style={{marginBottom:10}}>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted,margin:"4px 0"}}>{g.label}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:2}}>{g.chats.map(renderChatRow)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    sidebarEl
+  );
+
+  const chatMenu=chatMenuOpenId&&chatMenuAnchorRect&&createPortal(
+    <>
+      <div onClick={()=>setChatMenuOpenId(null)} style={{position:"fixed",inset:0,zIndex:999}}/>
+      <div style={{position:"fixed",top:chatMenuAnchorRect.bottom+4,left:Math.max(8,chatMenuAnchorRect.right-224),zIndex:1000,width:224,maxHeight:360,overflow:"auto",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column",gap:2}}>
+        {(()=>{
+          const c=askChats.find(x=>x.id===chatMenuOpenId);
+          if(!c)return null;
+          return(
+            <>
+              <button onClick={()=>{setRenamingChatId(c.id);setRenamingTitle(c.title);setChatMenuOpenId(null);}} style={menuBtnStyle}>Rename</button>
+              <button onClick={()=>{togglePin(c.id);setChatMenuOpenId(null);}} style={menuBtnStyle}>{c.pinned?"Unpin":"Pin"}</button>
+              <div style={{height:1,background:T.border,margin:"4px 0"}}/>
+              <div style={{padding:"4px 8px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Project</div>
+              <button onClick={()=>{assignProject(c.id,null);setChatMenuOpenId(null);}} style={{...menuBtnStyle,fontWeight:!c.projectId?700:400}}>No project</button>
+              {askProjects.map(p=>(
+                <button key={p.id} onClick={()=>{assignProject(c.id,p.id);setChatMenuOpenId(null);}} style={{...menuBtnStyle,fontWeight:c.projectId===p.id?700:400}}>{p.name}</button>
+              ))}
+              <div style={{height:1,background:T.border,margin:"4px 0"}}/>
+              <div style={{padding:"4px 8px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Labels</div>
+              {allLabels.length>0&&(
+                <div style={{display:"flex",flexWrap:"wrap",gap:4,padding:"0 8px 6px"}}>
+                  {allLabels.map(l=>{
+                    const on=(c.labels||[]).includes(l);
+                    return(
+                      <button key={l} onClick={()=>toggleChatLabel(c.id,l)}
+                        style={{fontSize:10.5,padding:"2px 7px",borderRadius:10,cursor:"pointer",fontFamily:"Inter,sans-serif",background:on?T.accent:T.surfaceEl,color:on?T.onAccent:T.textSub,border:`1px solid ${on?T.accentHover:T.border}`}}>
+                        {l}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div style={{display:"flex",gap:4,padding:"0 8px 4px"}}>
+                <input value={newLabelInput} onChange={e=>setNewLabelInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"&&newLabelInput.trim()){toggleChatLabel(c.id,newLabelInput.trim());setNewLabelInput("");}}}
+                  placeholder="Add label…" style={{flex:1,minWidth:0,fontSize:11,padding:"4px 6px",borderRadius:5,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+              </div>
+              <div style={{height:1,background:T.border,margin:"4px 0"}}/>
+              <button onClick={()=>{if(window.confirm(`Delete "${c.title}"? This can't be undone.`))deleteChat(c.id);setChatMenuOpenId(null);}} style={{...menuBtnStyle,color:T.danger}}>Delete chat</button>
+            </>
+          );
+        })()}
+      </div>
+    </>,
+    document.body
+  );
 
   if(!hasData){
     return(
-      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:T.bg}}>
-        <div style={{textAlign:"center",maxWidth:380}}>
-          <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
-            <Icon name="sparkle" size={24} color={T.onAccent}/>
+      <>
+        <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:T.bg}}>
+          <div style={{textAlign:"center",maxWidth:380}}>
+            <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
+              <Icon name="sparkle" size={24} color={T.onAccent}/>
+            </div>
+            <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI needs spend data first</div>
+            <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Import or sync spend data in the Campaign Tagger, then come back here to ask questions about it.</div>
           </div>
-          <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI needs spend data first</div>
-          <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Import or sync spend data in the Campaign Tagger, then come back here to ask questions about it.</div>
         </div>
-      </div>
+        {/* Sidebar still works even with no spend data yet — someone may have saved chats/
+            projects from a previous dataset (see mergedNormRows-cleared edge case in the doc
+            comment above the component). */}
+        {sidebarPanel}
+        {chatMenu}
+      </>
     );
   }
 
@@ -2319,6 +2581,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
   );
 
   return(
+    <>
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 24px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
         <div style={{fontSize:13,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6,fontFamily:"Inter,sans-serif"}}>
@@ -2393,6 +2656,9 @@ function AskAI({T,mergedNormRows,tags,tagDims,hasData,askChats,setAskChats,activ
         </>
       )}
     </div>
+    {sidebarPanel}
+    {chatMenu}
+    </>
   );
 }
 
@@ -2973,12 +3239,20 @@ function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownD
 // the natural-language understanding (parsing "January vs March", matching "EMEA" to a Region
 // tag) but never invents a number itself.
 
-// Tool schemas in Anthropic's tool-use format. Kept intentionally small (3 tools) — enough to
-// answer filtered spend questions across any tag dimension or Platform, for any date range.
+// Tool schemas in Anthropic's tool-use format.
+//
+// EXPANDED 2026-07-21: originally spend-only (query_spend) — Ask AI had no way to answer anything
+// about budgets (what was ALLOCATED) or pacing (allocated vs actual together), and no way to
+// isolate tagged vs. untagged spend specifically, even though those are exactly the three lenses
+// the rest of the app is built around (Budget Panel = allocation, Tagger = tagged/untagged spend,
+// Reporting & Pacing = both together). Added query_budget (budget data alone), query_pacing
+// (budget + spend together, mirroring computePacing's own status/variance logic so Ask AI's
+// answers can't drift from what the Reporting tab itself shows), and a tagged_status filter on
+// query_spend (spend data alone, sliced by whether a campaign carries every Budget By tag or not).
 const ASK_AI_TOOLS=[
   {
     name:"list_tag_dimensions",
-    description:"List the tag dimension names available for filtering/grouping (e.g. Product, Region, Funnel, Pillar, plus any custom ones the user has added). \"Platform\" is always also available as a synthetic dimension even though it isn't in this list.",
+    description:"List the tag dimension names available for filtering/grouping (e.g. Product, Region, Funnel, Pillar, plus any custom ones the user has added), which of those are actually used as Budget By dimensions (only budget_dimensions can be filtered/grouped on in query_budget or query_pacing — the rest only apply to query_spend), and which budget years have any budget data at all. \"Platform\" is always also available as a synthetic dimension for query_spend even though it isn't a tag dimension.",
     input_schema:{type:"object",properties:{},required:[]},
   },
   {
@@ -2988,13 +3262,38 @@ const ASK_AI_TOOLS=[
   },
   {
     name:"query_spend",
-    description:"Get total spend/clicks/impressions for campaigns matching a set of dimension filters within a date range, optionally broken down by one more dimension. This is the only source of truth for numbers — never estimate or recall a figure without calling this.",
+    description:"Get total ACTUAL spend/clicks/impressions for campaigns matching a set of dimension filters within a date range, optionally broken down by one more dimension, optionally restricted to only fully-tagged or only untagged campaigns. This has no concept of budget — use query_budget or query_pacing for anything about allocated/planned amounts. This is the only source of truth for spend numbers — never estimate or recall a figure without calling this.",
     input_schema:{type:"object",properties:{
       filters:{type:"object",description:"Map of dimension name -> exact value to filter to (use \"Platform\" as a key for platform filtering). Omit a dimension entirely to not filter on it.",additionalProperties:{type:"string"}},
       start_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no lower bound."},
       end_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no upper bound."},
       group_by:{type:"string",description:"Optional dimension name (or \"Platform\") to break the total down by."},
+      tagged_status:{type:"string",enum:["any","tagged","untagged"],description:"\"tagged\" = only campaigns that have a value set for EVERY tag dimension (fully tagged, matching the Tagger's own definition). \"untagged\" = campaigns missing at least one. Defaults to \"any\" (no restriction). Use this for questions like \"how much spend is untagged\" or \"what's tagged vs. not\"."},
     },required:[]},
+  },
+  {
+    name:"query_budget",
+    description:"Get total ALLOCATED BUDGET (not actual spend) for segments matching dimension filters, for one year/period. Budgets only exist across the workspace's Budget By dimensions (budget_dimensions from list_tag_dimensions) — filtering on any other dimension returns zero. Use this for questions about what was PLANNED, not what was spent — use query_spend for actual spend, or query_pacing to compare the two.",
+    input_schema:{type:"object",properties:{
+      filters:{type:"object",description:"Map of Budget By dimension name -> exact value. Omit a dimension entirely to not filter on it.",additionalProperties:{type:"string"}},
+      year:{type:"string",description:"e.g. \"2026\". Required."},
+      period_type:{type:"string",enum:["monthly","quarterly","annual"],description:"Defaults to \"annual\" (the full year) if omitted."},
+      month:{type:"string",description:"\"01\"-\"12\" — required if period_type is \"monthly\"."},
+      quarter:{type:"string",description:"\"Q1\"-\"Q4\" — required if period_type is \"quarterly\"."},
+      group_by:{type:"string",description:"Optional Budget By dimension name to break the total down by."},
+    },required:["year"]},
+  },
+  {
+    name:"query_pacing",
+    description:"Get ALLOCATED BUDGET, ACTUAL SPEND, and pacing status TOGETHER for segments matching dimension filters, for one year/period — the combined view, mirroring exactly what the Reporting & Pacing tab itself computes (same status/variance logic), so use this whenever a question compares budget to spend, asks about being over/under/on pace, or asks \"how are we doing\" for a segment or the whole workspace.",
+    input_schema:{type:"object",properties:{
+      filters:{type:"object",description:"Map of Budget By dimension name -> exact value. Omit a dimension entirely to not filter on it.",additionalProperties:{type:"string"}},
+      year:{type:"string",description:"e.g. \"2026\". Required."},
+      period_type:{type:"string",enum:["monthly","quarterly","annual"],description:"Defaults to \"annual\" (the full year) if omitted."},
+      month:{type:"string",description:"\"01\"-\"12\" — required if period_type is \"monthly\"."},
+      quarter:{type:"string",description:"\"Q1\"-\"Q4\" — required if period_type is \"quarterly\"."},
+      group_by:{type:"string",description:"Optional Budget By dimension name to break the total down by."},
+    },required:["year"]},
   },
 ];
 
@@ -3013,7 +3312,15 @@ function askAIListDimensionValues({mergedNormRows,tags,dimension}){
   return Array.from(vals).sort();
 }
 
-function askAIQuerySpend({mergedNormRows,tags,filters,startDate,endDate,groupBy}){
+// "tagged" here means the SAME thing the Tagger's own "needs review" count means: every tag
+// dimension in use has a value on that campaign, not just the dimensions a particular question
+// happens to filter on. Kept as its own check (rather than reusing the filters loop) so
+// tagged_status stays correct regardless of what else a query does or doesn't filter on.
+function isFullyTagged(rowTags,tagDims){
+  return (tagDims||[]).every(d=>rowTags[d]);
+}
+
+function askAIQuerySpend({mergedNormRows,tags,tagDims,filters,startDate,endDate,groupBy,taggedStatus}){
   const start=startDate?parseSpendDate(startDate):null;
   const end=endDate?parseSpendDate(endDate):null;
   const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
@@ -3026,6 +3333,11 @@ function askAIQuerySpend({mergedNormRows,tags,filters,startDate,endDate,groupBy}
     if(end&&(!d||d>end))return;
     const key=campaignKey(row.campaign_group_name,row.campaign_name);
     const rowTags=tags[key]||{};
+    if(taggedStatus&&taggedStatus!=="any"){
+      const tagged=isFullyTagged(rowTags,tagDims);
+      if(taggedStatus==="tagged"&&!tagged)return;
+      if(taggedStatus==="untagged"&&tagged)return;
+    }
     const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
     const matches=filterEntries.every(([dim,val])=>{
       const actual=dim.toLowerCase()==="platform"?platform:(rowTags[dim]||"");
@@ -3051,12 +3363,98 @@ function askAIQuerySpend({mergedNormRows,tags,filters,startDate,endDate,groupBy}
   return result;
 }
 
+// Budget-only query — deliberately does NOT join spend at all (see query_pacing below for the
+// combined view), so this can answer "what did we allocate" even for a period/segment with zero
+// actual spend synced yet. Reads budgets[year] directly rather than routing through
+// computePacing(), which unions in spend-derived segKeys too — budget allocation shouldn't
+// silently disappear from this view just because computePacing's segment set is spend-shaped.
+function askAIQueryBudget({budgets,budgetDims,filters,year,periodType,month,quarter,groupBy}){
+  const yearBudgets=(budgets||{})[year]||{};
+  const{months}=getPeriodRange(periodType||"annual",year,month,quarter);
+  const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
+  let total=0,segCount=0;
+  const groupMap={};
+  Object.entries(yearBudgets).forEach(([segKey,entry])=>{
+    const vals=segKey.split("|");
+    if(vals.length!==budgetDims.length)return; // stale/mismatched-dims segKey — not addressable by current filters
+    const dimVals=Object.fromEntries(budgetDims.map((d,i)=>[d,vals[i]]));
+    const matches=filterEntries.every(([dim,val])=>(dimVals[dim]||"").toLowerCase()===String(val).toLowerCase());
+    if(!matches)return;
+    const monthly=entry.monthly||{};
+    const amt=months.reduce((s,mk)=>s+(monthly[mk]||0),0);
+    if(amt<=0)return;
+    total+=amt;segCount++;
+    if(groupBy){
+      const gv=dimVals[groupBy]||"Unknown";
+      groupMap[gv]=(groupMap[gv]||0)+amt;
+    }
+  });
+  const result={total_budget:Math.round(total*100)/100,segment_count:segCount};
+  if(groupBy){
+    result.breakdown=Object.entries(groupMap).sort((a,b)=>b[1]-a[1]).map(([value,budget])=>({value,budget:Math.round(budget*100)/100}));
+  }
+  return result;
+}
+
+// Combined budget+spend query — reuses computePacing() (the exact function the Reporting &
+// Pacing tab itself renders from) rather than re-deriving status/variance logic separately, so
+// Ask AI's "over budget"/"behind pace" answers can never drift from what that tab shows for the
+// same period.
+function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,filters,year,periodType,month,quarter,groupBy}){
+  const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:periodType||"annual",month,quarter,today:new Date()});
+  const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
+  const matched=pacing.segments.filter(seg=>filterEntries.every(([dim,val])=>{
+    const idx=budgetDims.indexOf(dim);
+    if(idx===-1)return false; // not a Budget By dimension — nothing to match against here
+    return (seg.dims[idx]||"").toLowerCase()===String(val).toLowerCase();
+  }));
+  const totalBudget=matched.reduce((s,x)=>s+x.budget,0);
+  const totalSpend=matched.reduce((s,x)=>s+x.spend,0);
+  const result={
+    total_budget:Math.round(totalBudget*100)/100,
+    total_spend:Math.round(totalSpend*100)/100,
+    variance:Math.round((totalSpend-totalBudget)*100)/100,
+    expected_pace_pct:Math.round(pacing.expectedPct*100),
+    segment_count:matched.length,
+    segments_over_budget:matched.filter(s=>s.status==="over").length,
+    segments_behind_pace:matched.filter(s=>s.status==="behind").length,
+    segments_no_spend_data_yet:matched.filter(s=>s.status==="no-data").length,
+  };
+  if(groupBy){
+    const groupMap={};
+    matched.forEach(seg=>{
+      const idx=budgetDims.indexOf(groupBy);
+      const gv=idx>=0?(seg.dims[idx]||"Unknown"):"Unknown";
+      if(!groupMap[gv])groupMap[gv]={budget:0,spend:0};
+      groupMap[gv].budget+=seg.budget;groupMap[gv].spend+=seg.spend;
+    });
+    result.breakdown=Object.entries(groupMap)
+      .map(([value,v])=>({value,budget:Math.round(v.budget*100)/100,spend:Math.round(v.spend*100)/100,variance:Math.round((v.spend-v.budget)*100)/100}))
+      .sort((a,b)=>b.spend-a.spend);
+  }
+  return result;
+}
+
 // Executes one tool_use block against the app's actual in-memory data — this is what keeps
 // answers grounded, since the model never sees raw rows, only what these return.
 function askAIExecuteTool(toolName,input,ctx){
-  if(toolName==="list_tag_dimensions")return{dimensions:ctx.tagDims};
+  if(toolName==="list_tag_dimensions"){
+    return{
+      dimensions:ctx.tagDims,
+      budget_dimensions:ctx.budgetDims||[],
+      budget_years_with_data:Object.keys(ctx.budgets||{}).sort(),
+    };
+  }
   if(toolName==="list_dimension_values")return{values:askAIListDimensionValues({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,dimension:input.dimension})};
-  if(toolName==="query_spend")return askAIQuerySpend({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,filters:input.filters,startDate:input.start_date,endDate:input.end_date,groupBy:input.group_by});
+  if(toolName==="query_spend")return askAIQuerySpend({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,tagDims:ctx.tagDims,filters:input.filters,startDate:input.start_date,endDate:input.end_date,groupBy:input.group_by,taggedStatus:input.tagged_status});
+  if(toolName==="query_budget"){
+    if(!(ctx.budgetDims||[]).length)return{error:"No Budget By dimensions are set up yet in the Budget Panel — there's no budget data to query."};
+    return askAIQueryBudget({budgets:ctx.budgets,budgetDims:ctx.budgetDims,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by});
+  }
+  if(toolName==="query_pacing"){
+    if(!(ctx.budgetDims||[]).length)return{error:"No Budget By dimensions are set up yet in the Budget Panel — there's no budget data to compare spend against."};
+    return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by});
+  }
   return{error:`Unknown tool: ${toolName}`};
 }
 
@@ -3066,7 +3464,8 @@ function askAIExecuteTool(toolName,input,ctx){
 const ASK_AI_MAX_ROUNDS=6;
 async function askAIRun({question,history,ctx}){
   const today=new Date().toISOString().slice(0,10);
-  const system=`You are answering questions about the user's paid-media spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform" is always available). Dates for query_spend must be YYYY-MM-DD. Always use the tools to get real numbers — never state a spend figure you didn't get from query_spend. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. Answer conversationally and concisely, citing the actual numbers returned.`;
+  const hasBudgets=(ctx.budgetDims||[]).length>0;
+  const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform" is always available for query_spend). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two or asks about pace/over-under-budget. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. Answer conversationally and concisely, citing the actual numbers returned.`;
   const messages=[...history,{role:"user",content:question}];
   for(let round=0;round<ASK_AI_MAX_ROUNDS;round++){
     const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200})});
@@ -4530,6 +4929,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const statsResizing=useRef(false);
   const[budgetSidebarEl,setBudgetSidebarEl]=useState(null); // portal target inside <aside> for the Budget tab's controls
   const[pacingSidebarEl,setPacingSidebarEl]=useState(null); // portal target inside <aside> for the Reporting tab's controls
+  const[askSidebarEl,setAskSidebarEl]=useState(null); // portal target inside <aside> for Ask AI's search/projects/labels/pinned-chats panel — replaces the generic "Total spend" stat tiles that used to show here (not relevant to Ask AI, see 2026-07-21 UX note)
   useEffect(()=>{
     const onMove=e=>{
       if(!statsResizing.current)return;
@@ -4620,11 +5020,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[screenshotError,setScreenshotError]=useState("");
   const[screenshotPreview,setScreenshotPreview]=useState([]); // rows extracted from an image, pending confirm
   const[screenshotFileName,setScreenshotFileName]=useState("");
-  // Ask AI chats — {id,title,messages,history,updatedAt}[], persisted to localStorage same as
-  // everything else in the app. activeAskChatId=null means "viewing a blank/new chat"; a chat
-  // record is only actually created (and added to askChats) once its first message is sent, so
-  // clicking "New chat" repeatedly doesn't pile up empty entries.
+  // Ask AI chats — {id,title,messages,history,updatedAt,pinned,projectId,labels}[], persisted
+  // server-side per (workspace,user) — see getAskAIData/putAskAIData. activeAskChatId=null means
+  // "viewing a blank/new chat"; a chat record is only actually created (and added to askChats) once
+  // its first message is sent, so clicking "New chat" repeatedly doesn't pile up empty entries.
+  // askProjects (2026-07-21) is the folder/project list chats can optionally be filed under —
+  // {id,name}[] — see AskAI's sidebar for create/rename/delete and the assign-to-project action.
   const[askChats,setAskChats]=useState([]);
+  const[askProjects,setAskProjects]=useState([]);
   const[activeAskChatId,setActiveAskChatId]=useState(null);
 
   const[budgets,setBudgets]=useState({});
@@ -4960,8 +5363,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   useEffect(()=>{
     if(!workspace?.id||!session)return;
     aiChatsLoadedRef.current=false;
-    getAiChats(session,workspace.id)
-      .then(chats=>{setAskChats(chats||[]);aiChatsLoadedRef.current=true;})
+    getAskAIData(session,workspace.id)
+      .then(({chats,projects})=>{setAskChats(chats||[]);setAskProjects(projects||[]);aiChatsLoadedRef.current=true;})
       .catch(e=>console.error("[ai chats load]",e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[workspace?.id,sessionUserId]);
@@ -4969,10 +5372,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(!workspace?.id||!session||!aiChatsLoadedRef.current)return;
     clearTimeout(saveAiChatsTimer.current);
     saveAiChatsTimer.current=setTimeout(()=>{
-      putAiChats(session,workspace.id,askChats).catch(e=>console.error("[ai chats save]",e));
+      putAskAIData(session,workspace.id,{chats:askChats,projects:askProjects}).catch(e=>console.error("[ai chats save]",e));
     },800);
     return()=>clearTimeout(saveAiChatsTimer.current);
-  },[askChats,workspace?.id,session]);
+  },[askChats,askProjects,workspace?.id,session]);
 
   // ── Workspace data (tags/dims/budgets/spend rows) — synced with the server, not localStorage ──
   // Tags, tag dimensions, budgets, budget dimensions/annotations, and spend rows are the actual
@@ -6245,6 +6648,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <div ref={setBudgetSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="pacing"?(
             <div ref={setPacingSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="ask"?(
+            <div ref={setAskSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="tagger"?(
             // Lives directly in this component (unlike Budget/Pacing, the Tagger flow isn't a
             // separate child component) so no portal is needed — just render it here in place.
@@ -6877,7 +7282,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
       </div>
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
-      {view==="ask"&&<AskAI T={T} mergedNormRows={mergedNormRows} tags={tags} tagDims={tagDims} hasData={mergedNormRows.length>0} askChats={askChats} setAskChats={setAskChats} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId}/>}
+      {view==="ask"&&<AskAI T={T} mergedNormRows={mergedNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} hasData={mergedNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
