@@ -5709,9 +5709,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     const q=Math.floor(now.getMonth()/3);
     const qStart=new Date(y,q*3,1);
     const qEnd=new Date(y,q*3+3,0);
+    const todayStr=now.toISOString().slice(0,10);
+    const qEndStr=qEnd.toISOString().slice(0,10);
     return{
       start:qStart.toISOString().slice(0,10),
-      end:qEnd.toISOString().slice(0,10),
+      // Default end-of-quarter is routinely in the future (e.g. loading this in July defaults to
+      // Sep 30) — /api/spend already clamps this server-side (see its doc comment), but starting
+      // the picker on a date that's silently going to get overridden anyway is confusing on its
+      // own. Clamp the default the same way the input's max attribute below clamps manual picks.
+      end:qEndStr>todayStr?todayStr:qEndStr,
     };
   });
 
@@ -6960,7 +6966,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <input type="date" value={syncDateRange.start} onChange={e=>setSyncDateRange(p=>({...p,start:e.target.value}))}
                   style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"3px 6px",fontSize:11,outline:"none"}}/>
                 <span style={{fontSize:11,color:T.textMuted}}>→</span>
-                <input type="date" value={syncDateRange.end} onChange={e=>setSyncDateRange(p=>({...p,end:e.target.value}))}
+                <input type="date" value={syncDateRange.end} max={new Date().toISOString().slice(0,10)}
+                  title="Can't pull spend data for dates that haven't happened yet"
+                  onChange={e=>{
+                    const todayStr=new Date().toISOString().slice(0,10);
+                    // Belt-and-suspenders alongside the max attribute above — max blocks picking a
+                    // future date via the calendar UI in every modern browser, but a typed/pasted
+                    // value can still bypass it depending on browser, so clamp here too rather than
+                    // relying on max alone.
+                    setSyncDateRange(p=>({...p,end:e.target.value>todayStr?todayStr:e.target.value}));
+                  }}
                   style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"3px 6px",fontSize:11,outline:"none"}}/>
               </div>
             </div>
