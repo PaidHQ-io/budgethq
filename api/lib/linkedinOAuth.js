@@ -15,14 +15,14 @@
  *
  * STATE: LinkedIn's redirect lands on the callback with no Authorization header at all — the
  * browser navigated there directly, this isn't a fetch we control, so none of the normal
- * Bearer-token auth every other BudgetHQ route relies on is available. Instead, start.js signs
- * {workspaceId, userId, nonce, exp} into an HMAC-signed `state` string using OAUTH_STATE_SECRET (a
- * server-only secret, never exposed to the client except as this opaque signed blob), and the
- * callback verifies + decodes it. That's what proves the person completing LinkedIn's consent
- * screen is the same authenticated user who clicked "Connect" for that specific workspace, without
- * needing a session cookie (which this app's Supabase-Bearer-token auth model doesn't use).
+ * Bearer-token auth every other BudgetHQ route relies on is available. See lib/oauthState.js
+ * (shared with Bing's OAuth flow) for how `state` carries the workspaceId/userId across that hop
+ * instead — that's what proves the person completing LinkedIn's consent screen is the same
+ * authenticated user who clicked "Connect" for that specific workspace, without needing a session
+ * cookie (which this app's Supabase-Bearer-token auth model doesn't use).
  */
-import { createHmac, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
+import { signState, verifyState as verifyStateShared } from "./oauthState.js";
 
 const AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization";
 const TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
@@ -30,28 +30,8 @@ const TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
 // accounts). r_ads_reporting: read campaign analytics. No write scopes requested.
 const SCOPES = ["r_ads", "r_ads_reporting"];
 
-function getStateSecret() {
-  const secret = process.env.OAUTH_STATE_SECRET;
-  if (!secret) throw new Error("OAUTH_STATE_SECRET is not set — required to sign LinkedIn OAuth state");
-  return secret;
-}
-
-export function signState(payload) {
-  const b64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const sig = createHmac("sha256", getStateSecret()).update(b64).digest("base64url");
-  return `${b64}.${sig}`;
-}
-
 export function verifyState(state) {
-  if (!state || typeof state !== "string" || !state.includes(".")) {
-    throw new Error("Invalid or missing state parameter");
-  }
-  const [b64, sig] = state.split(".");
-  const expectedSig = createHmac("sha256", getStateSecret()).update(b64).digest("base64url");
-  if (sig !== expectedSig) throw new Error("State signature mismatch — possible tampering, try connecting again");
-  const payload = JSON.parse(Buffer.from(b64, "base64url").toString("utf8"));
-  if (!payload.exp || Date.now() > payload.exp) throw new Error("This connect link expired — try connecting again");
-  return payload;
+  return verifyStateShared(state, "linkedin");
 }
 
 function getRedirectUri() {
@@ -63,7 +43,7 @@ function getRedirectUri() {
 export function buildAuthorizeUrl({ workspaceId, userId }) {
   const clientId = process.env.LINKEDIN_CLIENT_ID;
   if (!clientId) throw new Error("LINKEDIN_CLIENT_ID is not set");
-  const state = signState({ workspaceId, userId, nonce: randomUUID(), exp: Date.now() + 10 * 60 * 1000 });
+  const state = signState({ workspaceId, userId, provider: "linkedin", nonce: randomUUID(), exp: Date.now() + 10 * 60 * 1000 });
   const params = new URLSearchParams({
     response_type: "code",
     client_id: clientId,

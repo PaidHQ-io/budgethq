@@ -5650,7 +5650,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // AND the connect-panel flow below and gets its own small inline connector.
   const PLATFORMS=[
     {key:"linkedin",label:"LinkedIn",status:"live",perWorkspaceAuth:true,oauth:true,color:"#0A66C2"},
-    {key:"bing",label:"Bing",status:"live",color:"#00809D"},
+    {key:"bing",label:"Bing",status:"live",perWorkspaceAuth:true,oauth:true,color:"#00809D"},
     {key:"google",label:"Google",status:"csv",color:"#EA4335"},
     {key:"meta",label:"Meta",status:"csv",color:"#1877F2"},
     {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",
@@ -5691,11 +5691,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // Which perWorkspaceAuth platforms this workspace has already connected — drives whether
   // clicking the platform button opens the "connect your account" panel or runs a normal sync.
   const[connectedProviders,setConnectedProviders]=useState({});
-  // Which connected providers need re-connecting despite being "connected" — today this only ever
-  // applies to LinkedIn (see api/lib/linkedinOAuth.js's needsReconnectSoon doc comment: its OAuth
-  // tokens can't silently refresh yet since Mo's app isn't an approved Marketing Developer
-  // Platform partner, so a connection quietly goes stale after ~60 days with no error until the
-  // next sync attempt). Surfacing it here means the platform button visibly asks to reconnect
+  // Which connected providers need re-connecting despite being "connected" — see each provider's
+  // needsReconnectSoon doc comment (api/lib/linkedinOAuth.js, api/lib/bingOAuth.js) for why: for
+  // LinkedIn it's a fixed ~60-day countdown (no refresh token available yet at all), for Bing it's
+  // an actual failed refresh attempt (its refresh tokens don't have a predictable expiry to count
+  // down to instead). Surfacing it here means the platform button visibly asks to reconnect
   // BEFORE a sync actually fails.
   const[providersNeedingReconnect,setProvidersNeedingReconnect]=useState({});
   const refreshConnectedProviders=useCallback(()=>{
@@ -5710,67 +5710,74 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   },[workspace?.id,session?.access_token]);
   useEffect(()=>{refreshConnectedProviders();},[refreshConnectedProviders]);
 
-  // ── LinkedIn OAuth (2026-07-22) ─────────────────────────────────────────────────────────────
-  // LinkedIn is perWorkspaceAuth like Funnel.io/Supermetrics, but there's no form to fill in — a
-  // LinkedIn access token only exists after the user completes LinkedIn's own consent screen, so
+  // ── OAuth-connect platforms (LinkedIn 2026-07-22, Bing 2026-07-22) ─────────────────────────
+  // Both are perWorkspaceAuth like Funnel.io/Supermetrics, but neither has a form to fill in — an
+  // access token only exists after the user completes that provider's own consent screen, so
   // clicking "connect" kicks off a real browser redirect instead of opening connectPanelKey's
-  // generic field form. See api/oauth/linkedin/{start,callback,accounts}.js.
-  const[linkedinPicker,setLinkedinPicker]=useState(null); // {accounts,selectedAccountId} | null
-  const[linkedinPickerSaving,setLinkedinPickerSaving]=useState(false);
-  const startLinkedInOAuth=useCallback(async()=>{
+  // generic field form. Shared across both providers via api/oauth/{provider}/{start,callback,
+  // accounts}.js, which all follow the same shape.
+  const OAUTH_PROVIDER_LABELS={linkedin:"LinkedIn",bing:"Microsoft Advertising"};
+  const[oauthPicker,setOauthPicker]=useState(null); // {provider,accounts,selectedAccountId} | null
+  const[oauthPickerSaving,setOauthPickerSaving]=useState(false);
+  const startProviderOAuth=useCallback(async(provider)=>{
     if(!canEdit)return;
     if(!workspace?.id||!session?.access_token){showNotif("No active session — try reloading.");return;}
     try{
-      const res=await fetch(`/api/oauth/linkedin/start?workspaceId=${encodeURIComponent(workspace.id)}`,{
+      const res=await fetch(`/api/oauth/${provider}/start?workspaceId=${encodeURIComponent(workspace.id)}`,{
         headers:{Authorization:`Bearer ${session.access_token}`},
       });
-      if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't start LinkedIn connect");}
+      if(!res.ok){const err=await res.json();throw new Error(err.error||`Couldn't start ${OAUTH_PROVIDER_LABELS[provider]||provider} connect`);}
       const{url}=await res.json();
       window.location.href=url;
     }catch(e){
-      showNotif(`Couldn't connect LinkedIn: ${e.message}`);
+      showNotif(`Couldn't connect ${OAUTH_PROVIDER_LABELS[provider]||provider}: ${e.message}`);
     }
-  },[workspace?.id,session?.access_token,canEdit]);
-  const finalizeLinkedInAccount=useCallback(async(accountId)=>{
+  },[workspace?.id,session?.access_token,canEdit]); // eslint-disable-line react-hooks/exhaustive-deps
+  const finalizeOAuthAccount=useCallback(async(provider,accountId)=>{
     if(!workspace?.id||!session?.access_token)return;
-    setLinkedinPickerSaving(true);
+    setOauthPickerSaving(true);
     try{
-      const res=await fetch(`/api/oauth/linkedin/accounts?workspaceId=${encodeURIComponent(workspace.id)}`,{
+      const res=await fetch(`/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(workspace.id)}`,{
         method:"POST",
         headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
         body:JSON.stringify({accountId}),
       });
       if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that account");}
-      setLinkedinPicker(null);
-      showNotif("LinkedIn ad account set — click Sync to pull spend.");
+      setOauthPicker(null);
+      showNotif(`${OAUTH_PROVIDER_LABELS[provider]||provider} account set — click Sync to pull spend.`);
     }catch(e){
-      showNotif(`Couldn't save LinkedIn account: ${e.message}`);
+      showNotif(`Couldn't save ${OAUTH_PROVIDER_LABELS[provider]||provider} account: ${e.message}`);
     }finally{
-      setLinkedinPickerSaving(false);
+      setOauthPickerSaving(false);
     }
-  },[workspace?.id,session?.access_token]);
-  // Handles landing back here after the OAuth redirect round-trip (callback.js sends the browser
-  // back to `${APP_URL}/?linkedin_oauth=success|select_account|error&...`). Runs once per mount —
-  // the query params are stripped from the URL right after reading so a refresh doesn't re-fire it.
+  },[workspace?.id,session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Handles landing back here after an OAuth redirect round-trip (each provider's callback.js
+  // sends the browser back to `${APP_URL}/?{provider}_oauth=success|select_account|error&...`).
+  // Runs once per mount for each known oauth provider — the query params are stripped from the URL
+  // right after reading so a refresh doesn't re-fire it.
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
-    const status=params.get("linkedin_oauth");
-    if(!status)return;
-    const wsId=params.get("workspaceId");
-    const message=params.get("message");
-    const cleanUrl=new URL(window.location.href);
-    ["linkedin_oauth","workspaceId","message"].forEach(k=>cleanUrl.searchParams.delete(k));
-    window.history.replaceState({},"",cleanUrl.toString());
-    if(status==="error"){showNotif(`LinkedIn connect failed: ${message||"unknown error"}`);return;}
-    if(status==="success"){showNotif("Connected LinkedIn — click Sync to pull spend.");refreshConnectedProviders();return;}
-    if(status==="select_account"&&wsId&&session?.access_token){
-      fetch(`/api/oauth/linkedin/accounts?workspaceId=${encodeURIComponent(wsId)}`,{headers:{Authorization:`Bearer ${session.access_token}`}})
-        .then(r=>r.json())
-        .then(({accounts,selectedAccountId})=>{
-          setLinkedinPicker({accounts:accounts||[],selectedAccountId});
-          refreshConnectedProviders();
-        })
-        .catch(()=>showNotif("Connected LinkedIn, but couldn't load ad accounts — reconnect if Sync fails."));
+    for(const provider of Object.keys(OAUTH_PROVIDER_LABELS)){
+      const status=params.get(`${provider}_oauth`);
+      if(!status)continue;
+      const wsId=params.get("workspaceId");
+      const message=params.get("message");
+      const cleanUrl=new URL(window.location.href);
+      [`${provider}_oauth`,"workspaceId","message"].forEach(k=>cleanUrl.searchParams.delete(k));
+      window.history.replaceState({},"",cleanUrl.toString());
+      const label=OAUTH_PROVIDER_LABELS[provider];
+      if(status==="error"){showNotif(`${label} connect failed: ${message||"unknown error"}`);return;}
+      if(status==="success"){showNotif(`Connected ${label} — click Sync to pull spend.`);refreshConnectedProviders();return;}
+      if(status==="select_account"&&wsId&&session?.access_token){
+        fetch(`/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(wsId)}`,{headers:{Authorization:`Bearer ${session.access_token}`}})
+          .then(r=>r.json())
+          .then(({accounts,selectedAccountId})=>{
+            setOauthPicker({provider,accounts:accounts||[],selectedAccountId});
+            refreshConnectedProviders();
+          })
+          .catch(()=>showNotif(`Connected ${label}, but couldn't load accounts — reconnect if Sync fails.`));
+      }
+      return;
     }
   },[session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -6919,7 +6926,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 const active=live||pl.isSheets; // "active" here just means "not a plain CSV placeholder"
                 const handleClick=()=>{
                   if(pl.isSheets){setGsheetSpendOpen(o=>!o);return;}
-                  if((needsConnect||needsReconnect)&&pl.oauth){startLinkedInOAuth();return;}
+                  if((needsConnect||needsReconnect)&&pl.oauth){startProviderOAuth(pl.key);return;}
                   if(needsConnect){openConnectPanel(pl.key);return;}
                   if(live&&!loading)syncPlatform(pl.key);
                 };
@@ -6975,24 +6982,24 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               );
             })()}
 
-            {/* LinkedIn ad-account picker — only appears when the just-connected LinkedIn token can
-                see more than one ad account (see api/oauth/linkedin/callback.js + accounts.js). */}
-            {linkedinPicker&&(
+            {/* OAuth ad-account picker — only appears when the just-connected LinkedIn/Bing token
+                can see more than one account (see api/oauth/{provider}/callback.js + accounts.js). */}
+            {oauthPicker&&(
               <div style={{marginTop:10,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Which LinkedIn ad account?</div>
-                  <span onClick={()=>setLinkedinPicker(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                  <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
+                  <span onClick={()=>setOauthPicker(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                 </div>
-                {linkedinPicker.accounts.length===0?(
-                  <div style={{fontSize:11,color:T.textMuted}}>Connected, but couldn't load your ad accounts. Try Sync — if it fails, reconnect LinkedIn.</div>
+                {oauthPicker.accounts.length===0?(
+                  <div style={{fontSize:11,color:T.textMuted}}>Connected, but couldn't load your accounts. Try Sync — if it fails, reconnect.</div>
                 ):(
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {linkedinPicker.accounts.map(a=>(
-                      <button key={a.id} disabled={linkedinPickerSaving} onClick={()=>finalizeLinkedInAccount(a.id)}
+                    {oauthPicker.accounts.map(a=>(
+                      <button key={a.id} disabled={oauthPickerSaving} onClick={()=>finalizeOAuthAccount(oauthPicker.provider,a.id)}
                         style={{textAlign:"left",padding:"7px 10px",borderRadius:6,
-                          border:`1px solid ${a.id===linkedinPicker.selectedAccountId?T.accentBorder:T.border}`,
-                          background:a.id===linkedinPicker.selectedAccountId?T.accentBg:T.surface,
-                          color:T.text,cursor:linkedinPickerSaving?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:linkedinPickerSaving?0.6:1}}>
+                          border:`1px solid ${a.id===oauthPicker.selectedAccountId?T.accentBorder:T.border}`,
+                          background:a.id===oauthPicker.selectedAccountId?T.accentBg:T.surface,
+                          color:T.text,cursor:oauthPickerSaving?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:oauthPickerSaving?0.6:1}}>
                         {a.name} <span style={{color:T.textMuted,fontSize:10}}>({a.id})</span>
                       </button>
                     ))}

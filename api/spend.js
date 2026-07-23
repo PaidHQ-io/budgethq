@@ -9,12 +9,12 @@
  *   Returns: { rows: [...normalized spend rows] }
  *
  *   workspaceId + a valid Authorization header are only required for connectors flagged
- *   `perWorkspaceAuth: true` in their meta export (funnel, supermetrics, capterra, linkedin) —
- *   those pull the calling workspace's OWN stored credential from budgethq.connector_credentials
+ *   `perWorkspaceAuth: true` in their meta export (funnel, supermetrics, capterra, linkedin, bing)
+ *   — those pull the calling workspace's OWN stored credential from budgethq.connector_credentials
  *   rather than a shared process.env var, so this route needs to know which workspace is asking
  *   and confirm the caller actually belongs to it before handing back that workspace's data.
- *   bing/google/meta are unaffected — they keep working exactly as before, no auth required,
- *   since they're still one shared account for the whole app.
+ *   google/meta are unaffected — they keep working exactly as before, no auth required, since
+ *   they're still one shared account for the whole app.
  *
  *   `envVarFallback: true` in a connector's meta (capterra, linkedin) means a workspace with no
  *   stored per-workspace credential yet doesn't get hard-blocked with "not_connected" — instead
@@ -32,7 +32,21 @@
 import { CONNECTORS, CONNECTOR_REGISTRY } from "./connectors/index.js";
 import { sql } from "./lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement } from "./lib/auth.js";
-import { isCredentialStale, refreshAccessToken } from "./lib/linkedinOAuth.js";
+import * as linkedinOAuth from "./lib/linkedinOAuth.js";
+import * as bingOAuth from "./lib/bingOAuth.js";
+
+// Per-provider OAuth token refresh — both LinkedIn and Bing are perWorkspaceAuth connectors whose
+// credential can go stale and needs refreshing before a sync call, but the two behave differently
+// enough (see each lib's doc comments) that it's not worth forcing them into one shared shape:
+//   - LinkedIn: refresh tokens aren't available yet at all (see linkedinOAuth.js) — this only ever
+//     fires once Mo's app gets Marketing Developer Platform approval.
+//   - Bing: refresh tokens are standard, but short access-token lifetimes (~60-90 min) mean this
+//     fires on nearly every sync. A refresh that actually fails marks reconnectRequired on the
+//     stored credential (surfaced via connections.js's GET) rather than guessing a stale-by date.
+const OAUTH_REFRESH = {
+  linkedin: linkedinOAuth,
+  bing: bingOAuth,
+};
 
 // Looks up a workspace's stored credential for a perWorkspaceAuth connector. Throws a 400 with a
 // `code: "not_connected"` the frontend can branch on (show a Connect flow) rather than a generic
@@ -115,16 +129,31 @@ export default async function handler(req, res) {
       ? await getWorkspaceCredential(req, workspaceId, platform.toLowerCase(), { optional: !!connector.envVarFallback })
       : undefined;
 
-    // LinkedIn's OAuth access token expires (~60 days) — refresh proactively here (the one place
+    // OAuth access token refresh — see OAUTH_REFRESH's doc comment above. Runs here (the one place
     // that already has this workspace's stored credential in hand) rather than letting a sync fail
-    // mid-request, then persist the refreshed token back so next time doesn't need to refresh again.
-    if (platform.toLowerCase() === "linkedin" && credential?.refreshToken && isCredentialStale(credential)) {
-      const refreshed = await refreshAccessToken(credential);
-      credential = { ...credential, ...refreshed };
+    // mid-request, then persists the result back so next time doesn't need to redo the work.
+    const oauth = OAUTH_REFRESH[platform.toLowerCase()];
+    if (oauth && credential?.refreshToken && oauth.isCredentialStale(credential)) {
+      try {
+        const refreshed = await oauth.refreshAccessToken(credential);
+        credential = { ...credential, ...refreshed };
+      } catch (refreshErr) {
+        // A refresh that actually fails (revoked, password changed, etc.) is the only honest
+        // signal for providers like Bing whose refresh tokens don't have a predictable expiry to
+        // count down to instead — mark it so connections.js's GET can nudge the workspace to
+        // reconnect, then still let the original error surface below.
+        credential = { ...credential, reconnectRequired: true };
+        await sql`
+          update budgethq.connector_credentials
+          set credential = ${JSON.stringify(credential)}
+          where workspace_id = ${workspaceId} and provider = ${platform.toLowerCase()}
+        `;
+        throw refreshErr;
+      }
       await sql`
         update budgethq.connector_credentials
         set credential = ${JSON.stringify(credential)}
-        where workspace_id = ${workspaceId} and provider = 'linkedin'
+        where workspace_id = ${workspaceId} and provider = ${platform.toLowerCase()}
       `;
     }
 

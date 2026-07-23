@@ -21,9 +21,19 @@
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi } from "../../lib/http.js";
-import { needsReconnectSoon } from "../../lib/linkedinOAuth.js";
+import { needsReconnectSoon as linkedinNeedsReconnectSoon } from "../../lib/linkedinOAuth.js";
+import { needsReconnectSoon as bingNeedsReconnectSoon } from "../../lib/bingOAuth.js";
 
-const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin"];
+// Per-provider reconnect check — see each lib's needsReconnectSoon doc comment. LinkedIn's is
+// time-based (no refresh token available at all yet); Bing's is failure-based (refresh tokens are
+// undated, so a failed refresh attempt — tracked as credential.reconnectRequired — is the only
+// honest signal). Every other provider is a plain API key with no expiry, so always false.
+const RECONNECT_CHECKS = {
+  linkedin: linkedinNeedsReconnectSoon,
+  bing: bingNeedsReconnectSoon,
+};
+
+const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing"];
 
 export default withApi(async (req, res) => {
   const { id: workspaceId } = req.query;
@@ -42,10 +52,7 @@ export default withApi(async (req, res) => {
       connections: rows.map((r) => ({
         provider: r.provider,
         connectedAt: r.connected_at,
-        // Only meaningful for linkedin today — its credential can go stale with no way to
-        // silently refresh (see needsReconnectSoon's doc comment). Every other provider is a
-        // plain API key with no expiry, so this is always false for them.
-        needsReconnect: r.provider === "linkedin" ? needsReconnectSoon(r.credential) : false,
+        needsReconnect: RECONNECT_CHECKS[r.provider] ? RECONNECT_CHECKS[r.provider](r.credential) : false,
       })),
     });
   }
