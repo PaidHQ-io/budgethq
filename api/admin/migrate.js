@@ -1,11 +1,17 @@
 /**
- * ONE-TIME bootstrap endpoint: applies db/schema.sql (BudgetHQ's own budgethq.* tables) using
- * DATABASE_URL from Vercel's own runtime env — same rationale as paidhq-core's identical endpoint
+ * MANUAL FALLBACK: applies db/schema.sql (BudgetHQ's own budgethq.* tables) using DATABASE_URL
+ * from Vercel's own runtime env — same rationale as paidhq-core's identical endpoint
  * (api/admin/migrate.js there): Vercel's "sensitive" env vars are write-only once saved, so there's
  * no way to run db/migrate.js locally without the connection string ever being visible again.
- * Safe to call repeatedly — every statement in schema.sql is `create ... if not exists`.
+ * Safe to call repeatedly — every statement in schema.sql is `create ... if not exists` (or an
+ * idempotent drop/add pair for constraints on an existing table).
  *
- * Gated to Mo's accounts. Delete once confirmed applied.
+ * AUTOMATED (2026-07-23): schema.sql now also runs automatically on every Vercel deploy via
+ * db/migrate.js, wired into package.json's `vercel-build` script — see that file's doc comment.
+ * This endpoint is kept as a manual escape hatch (e.g. to re-apply a schema change without waiting
+ * on a full redeploy), not the primary way migrations happen anymore.
+ *
+ * Gated to Mo's accounts.
  */
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";

@@ -1,16 +1,31 @@
 /**
- * One-time (and re-runnable) schema migration script. Run with:
+ * One-time (and re-runnable) schema migration script.
+ *
+ * AUTOMATED (2026-07-23): this now runs automatically on every Vercel deploy — see
+ * package.json's `vercel-build` script (`node db/migrate.js && vite build`). Vercel injects every
+ * configured env var, including ones marked "sensitive", into the build step the same as it does
+ * at runtime, so DATABASE_URL is available here with no extra configuration. A production schema
+ * change (like adding a new connector's provider to connector_credentials' check constraint) now
+ * just ships as part of the normal commit -> push -> deploy flow instead of needing a manual
+ * curl to /api/admin/migrate afterward. That endpoint still exists as a manual fallback (e.g. to
+ * re-apply without a full redeploy), but shouldn't be needed for the common case anymore.
+ *
+ * Can still be run by hand if ever needed:
  *   DATABASE_URL="..." node db/migrate.js
  * or, if DATABASE_URL/POSTGRES_URL is already in your shell env (e.g. pulled via
  * `vercel env pull`), just:
  *   node db/migrate.js
  *
- * IMPORTANT: run paidhq-core's own db/migrate.js FIRST, against the same DATABASE_URL — this
- * schema's tables foreign-key against core.workspaces, which has to exist before these tables can
- * be created.
+ * IMPORTANT (first-time bootstrap only): paidhq-core's own db/migrate.js must run FIRST, against
+ * the same DATABASE_URL — this schema's tables foreign-key against core.workspaces, which has to
+ * exist before these tables can be created. Not a concern for the automated every-deploy run
+ * above, since core.workspaces has existed in production for a long time now — only relevant if
+ * this were ever pointed at a genuinely empty database.
  *
  * schema.sql is written entirely with `create table if not exists` / `create index if not
- * exists`, so this is safe to run again after future schema changes without dropping data.
+ * exists` (plus idempotent `drop constraint if exists` + `add constraint` pairs for constraints
+ * that need to change on an existing table), so this is safe to run again — and again on every
+ * future deploy — without dropping data.
  *
  * Uses the plain `pg` package rather than @neondatabase/serverless. That package's fast paths
  * (the neon() HTTP tagged-template function, and its WebSocket-based Client/Pool) are built for
