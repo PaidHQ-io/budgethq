@@ -21,6 +21,7 @@
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi } from "../../lib/http.js";
+import { needsReconnectSoon } from "../../lib/linkedinOAuth.js";
 
 const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin"];
 
@@ -31,12 +32,21 @@ export default withApi(async (req, res) => {
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
+    // credential is selected here only to derive needsReconnect below — never sent to the client
+    // (see the map() below, which drops it before building the response).
     const rows = await sql`
-      select provider, connected_at from budgethq.connector_credentials
+      select provider, connected_at, credential from budgethq.connector_credentials
       where workspace_id = ${workspaceId}
     `;
     return res.status(200).json({
-      connections: rows.map((r) => ({ provider: r.provider, connectedAt: r.connected_at })),
+      connections: rows.map((r) => ({
+        provider: r.provider,
+        connectedAt: r.connected_at,
+        // Only meaningful for linkedin today — its credential can go stale with no way to
+        // silently refresh (see needsReconnectSoon's doc comment). Every other provider is a
+        // plain API key with no expiry, so this is always false for them.
+        needsReconnect: r.provider === "linkedin" ? needsReconnectSoon(r.credential) : false,
+      })),
     });
   }
 

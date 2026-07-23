@@ -134,3 +134,19 @@ export function isCredentialStale(credential) {
   if (!credential?.expiresAt) return true;
   return Date.now() > credential.expiresAt - 24 * 60 * 60 * 1000;
 }
+
+// Surfaced to the frontend (see connections.js's GET) so a workspace gets a "reconnect" nudge
+// before its LinkedIn sync actually breaks. Mo's app doesn't have LinkedIn's "programmatic refresh
+// tokens" feature approved yet (that's a separate Marketing Developer Platform partner approval on
+// top of plain Advertising API access — see the chat writeup this shipped with), so a connected
+// credential with no refreshToken will NOT silently renew itself: once the 60-day access token
+// expires, syncing that workspace's LinkedIn data fails until the member reconnects. If/when that
+// approval comes through, newly-issued credentials will carry a refreshToken and this will simply
+// stop firing for them (see the `!credential.refreshToken` short-circuit below) — nothing else
+// needs to change to retire this nudge.
+export function needsReconnectSoon(credential, daysAhead = 7) {
+  if (!credential) return false;
+  if (credential.refreshToken) return false; // auto-refreshes silently — see spend.js
+  if (!credential.expiresAt) return true; // no expiry on record — safest to prompt
+  return Date.now() > credential.expiresAt - daysAhead * 24 * 60 * 60 * 1000;
+}

@@ -5691,11 +5691,21 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // Which perWorkspaceAuth platforms this workspace has already connected — drives whether
   // clicking the platform button opens the "connect your account" panel or runs a normal sync.
   const[connectedProviders,setConnectedProviders]=useState({});
+  // Which connected providers need re-connecting despite being "connected" — today this only ever
+  // applies to LinkedIn (see api/lib/linkedinOAuth.js's needsReconnectSoon doc comment: its OAuth
+  // tokens can't silently refresh yet since Mo's app isn't an approved Marketing Developer
+  // Platform partner, so a connection quietly goes stale after ~60 days with no error until the
+  // next sync attempt). Surfacing it here means the platform button visibly asks to reconnect
+  // BEFORE a sync actually fails.
+  const[providersNeedingReconnect,setProvidersNeedingReconnect]=useState({});
   const refreshConnectedProviders=useCallback(()=>{
     if(!workspace?.id||!session?.access_token)return;
     fetch(`/api/workspaces/${workspace.id}/connections`,{headers:{Authorization:`Bearer ${session.access_token}`}})
       .then(r=>r.ok?r.json():{connections:[]})
-      .then(({connections})=>setConnectedProviders(Object.fromEntries((connections||[]).map(c=>[c.provider,true]))))
+      .then(({connections})=>{
+        setConnectedProviders(Object.fromEntries((connections||[]).map(c=>[c.provider,true])));
+        setProvidersNeedingReconnect(Object.fromEntries((connections||[]).filter(c=>c.needsReconnect).map(c=>[c.provider,true])));
+      })
       .catch(()=>{}); // non-fatal — worst case the button just offers to (re)connect
   },[workspace?.id,session?.access_token]);
   useEffect(()=>{refreshConnectedProviders();},[refreshConnectedProviders]);
@@ -6903,27 +6913,30 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 const err=s.startsWith("error:");
                 const live=pl.status==="live";
                 const needsConnect=pl.perWorkspaceAuth&&!connectedProviders[pl.key];
+                // Connected, but its credential is stale/going stale with no way to silently
+                // refresh (LinkedIn only, for now — see providersNeedingReconnect's doc comment).
+                const needsReconnect=!needsConnect&&pl.perWorkspaceAuth&&!!providersNeedingReconnect[pl.key];
                 const active=live||pl.isSheets; // "active" here just means "not a plain CSV placeholder"
                 const handleClick=()=>{
                   if(pl.isSheets){setGsheetSpendOpen(o=>!o);return;}
-                  if(needsConnect&&pl.oauth){startLinkedInOAuth();return;}
+                  if((needsConnect||needsReconnect)&&pl.oauth){startLinkedInOAuth();return;}
                   if(needsConnect){openConnectPanel(pl.key);return;}
                   if(live&&!loading)syncPlatform(pl.key);
                 };
-                const clickable=pl.isSheets||needsConnect||(live&&!loading);
-                const statusText=pl.isSheets?"pull":needsConnect?"connect":live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV";
+                const clickable=pl.isSheets||needsConnect||needsReconnect||(live&&!loading);
+                const statusText=pl.isSheets?"pull":needsReconnect?"reconnect":needsConnect?"connect":live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV";
                 return(
                   <button key={pl.key} onClick={handleClick}
-                    title={pl.isSheets?"Pull spend from a Google Sheet":needsConnect?`Connect your ${pl.label} account`:live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
+                    title={pl.isSheets?"Pull spend from a Google Sheet":needsReconnect?`Your ${pl.label} connection needs to be refreshed`:needsConnect?`Connect your ${pl.label} account`:live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
                     style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,
-                      border:`1px solid ${active?(done?T.successBorder:err?T.dangerBorder:T.accentBorder):T.border}`,
-                      background:active?(done?T.successBg:err?T.dangerBg:T.accentBg):T.surfaceEl,
+                      border:`1px solid ${needsReconnect?T.warningBorder:active?(done?T.successBorder:err?T.dangerBorder:T.accentBorder):T.border}`,
+                      background:needsReconnect?T.warningBg:active?(done?T.successBg:err?T.dangerBg:T.accentBg):T.surfaceEl,
                       cursor:clickable?"pointer":"default",opacity:active?1:0.55,transition:"all 0.15s"}}>
                     <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,
-                      background:active?(done?T.success:err?T.danger:pl.color):T.textMuted,
+                      background:needsReconnect?T.warning:active?(done?T.success:err?T.danger:pl.color):T.textMuted,
                       ...(loading?{border:`2px solid rgba(0,0,0,0.1)`,borderTopColor:pl.color,background:"transparent",animation:"spin 0.7s linear infinite"}:{})}}/>
                     <span style={{fontSize:12,fontWeight:600,color:active?T.text:T.textMuted,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
-                    <span style={{fontSize:10,color:active?(done?T.success:err?T.danger:T.accent):T.textMuted,fontFamily:"Inter,sans-serif"}}>
+                    <span style={{fontSize:10,color:needsReconnect?T.warning:active?(done?T.success:err?T.danger:T.accent):T.textMuted,fontFamily:"Inter,sans-serif"}}>
                       {statusText}
                     </span>
                   </button>
