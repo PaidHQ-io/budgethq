@@ -5737,6 +5737,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // needsReconnect because the fix reopens the account picker with the existing token instead of
   // sending the user through OAuth's consent screen again.
   const[providersNeedingAccountSelection,setProvidersNeedingAccountSelection]=useState({});
+  // Full per-provider detail (connectedAt/connectedBy/summary) for Settings' connections table —
+  // the three boolean maps above only ever fed the sync-bar pills, which don't need this much.
+  const[connectionDetails,setConnectionDetails]=useState([]);
   const refreshConnectedProviders=useCallback(()=>{
     if(!workspace?.id||!session?.access_token)return;
     fetch(`/api/workspaces/${workspace.id}/connections`,{headers:{Authorization:`Bearer ${session.access_token}`}})
@@ -5745,10 +5748,30 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         setConnectedProviders(Object.fromEntries((connections||[]).map(c=>[c.provider,true])));
         setProvidersNeedingReconnect(Object.fromEntries((connections||[]).filter(c=>c.needsReconnect).map(c=>[c.provider,true])));
         setProvidersNeedingAccountSelection(Object.fromEntries((connections||[]).filter(c=>c.needsAccountSelection).map(c=>[c.provider,true])));
+        setConnectionDetails(connections||[]);
       })
       .catch(()=>{}); // non-fatal — worst case the button just offers to (re)connect
   },[workspace?.id,session?.access_token]);
   useEffect(()=>{refreshConnectedProviders();},[refreshConnectedProviders]);
+  // Settings → Connections "Disconnect" — removes the stored credential entirely (existing DELETE
+  // endpoint, previously built but never wired to any button). Confirmed inline rather than a
+  // window.confirm since disconnecting isn't destructive to any DATA already synced, just stops
+  // future syncs until reconnected.
+  const[disconnectingProvider,setDisconnectingProvider]=useState(null);
+  const disconnectConnection=useCallback((provider)=>{
+    if(!workspace?.id||!session?.access_token)return;
+    const label=PLATFORMS.find(p=>p.key===provider)?.label||provider;
+    if(!window.confirm(`Disconnect ${label}? Already-synced spend data stays put — you'll just need to reconnect before syncing again.`))return;
+    setDisconnectingProvider(provider);
+    fetch(`/api/workspaces/${workspace.id}/connections?provider=${encodeURIComponent(provider)}`,{
+      method:"DELETE",
+      headers:{Authorization:`Bearer ${session.access_token}`},
+    })
+      .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||"Couldn't disconnect");}))
+      .then(()=>{refreshConnectedProviders();showNotif(`Disconnected ${label}.`);})
+      .catch(e=>showNotif(`Couldn't disconnect: ${e.message}`))
+      .finally(()=>setDisconnectingProvider(null));
+  },[workspace?.id,session?.access_token,refreshConnectedProviders]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── OAuth-connect platforms (LinkedIn 2026-07-22, Bing 2026-07-22) ─────────────────────────
   // Both are perWorkspaceAuth like Funnel.io/Supermetrics, but neither has a form to fill in — an
@@ -5773,14 +5796,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       showNotif(`Couldn't connect ${OAUTH_PROVIDER_LABELS[provider]||provider}: ${e.message}`);
     }
   },[workspace?.id,session?.access_token,canEdit]); // eslint-disable-line react-hooks/exhaustive-deps
-  const finalizeOAuthAccount=useCallback(async(provider,accountId,customerId)=>{
+  const finalizeOAuthAccount=useCallback(async(provider,accountId,customerId,accountName)=>{
     if(!workspace?.id||!session?.access_token)return;
     setOauthPickerSaving(true);
     try{
       const res=await fetch(`/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(workspace.id)}`,{
         method:"POST",
         headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
-        body:JSON.stringify({accountId,customerId}),
+        body:JSON.stringify({accountId,customerId,accountName}),
       });
       if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that account");}
       setOauthPicker(null);
@@ -7067,7 +7090,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 ):(
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
                     {oauthPicker.accounts.map(a=>(
-                      <button key={a.id} disabled={oauthPickerSaving} onClick={()=>finalizeOAuthAccount(oauthPicker.provider,a.id,a.customerId)}
+                      <button key={a.id} disabled={oauthPickerSaving} onClick={()=>finalizeOAuthAccount(oauthPicker.provider,a.id,a.customerId,a.name)}
                         style={{textAlign:"left",padding:"7px 10px",borderRadius:6,
                           border:`1px solid ${a.id===oauthPicker.selectedAccountId?T.accentBorder:T.border}`,
                           background:a.id===oauthPicker.selectedAccountId?T.accentBg:T.surface,
@@ -7601,6 +7624,115 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           <span onClick={()=>revokeTeamInvite(inv.email)} style={{fontSize:11,color:T.textMuted,cursor:"pointer"}}>Revoke</span>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
+                  <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Connections</div>
+                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:560,marginBottom:14}}>
+                    Every ad account this workspace pulls live spend from — LinkedIn, Microsoft Advertising, Funnel.io, Supermetrics, and Capterra. See who connected each one and switch accounts or disconnect without leaving Settings.
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column"}}>
+                    {PLATFORMS.filter(pl=>pl.perWorkspaceAuth).map((pl,i)=>{
+                      const conn=connectionDetails.find(c=>c.provider===pl.key);
+                      const connectedByEmail=conn?.connectedBy?(teamMembers.find(m=>m.userId===conn.connectedBy)?.email||conn.connectedBy):null;
+                      const summary=conn?.summary||{};
+                      const summaryText=!conn?"—":
+                        pl.oauth?(summary.accountName?`${summary.accountName} (${summary.accountId||"—"})`:(summary.accountId||"No account selected yet")):
+                        pl.key==="funnel"?(summary.accountId?`Account ${summary.accountId}${summary.projectId?` · Project ${summary.projectId}`:""}`:"—"):
+                        pl.key==="supermetrics"?(summary.dsId?`${summary.dsId}${summary.dsAccounts?` · ${summary.dsAccounts}`:""}`:"—"):
+                        pl.key==="capterra"?(summary.products?.length?summary.products.join(", "):"—"):
+                        "—";
+                      const statusLabel=!conn?"Not connected":conn.needsReconnect?"Reconnect needed":conn.needsAccountSelection?"Pick account":"Connected";
+                      const warn=conn&&(conn.needsReconnect||conn.needsAccountSelection);
+                      const statusColor=!conn?T.textMuted:warn?T.warning:T.success;
+                      const statusBg=!conn?T.surfaceEl:warn?T.warningBg:T.successBg;
+                      const statusBorder=!conn?T.border:warn?T.warningBorder:T.successBorder;
+                      return(
+                        <div key={pl.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"11px 4px",borderTop:i>0?`1px solid ${T.border}`:"none",flexWrap:"wrap"}}>
+                          <div style={{minWidth:0,flex:"1 1 260px"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:2}}>
+                              <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
+                              <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
+                              <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
+                            </div>
+                            <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:400}}>{summaryText}</div>
+                            {conn&&(
+                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:2}}>
+                                Connected {conn.connectedAt?new Date(conn.connectedAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—"}
+                                {connectedByEmail?` by ${connectedByEmail}`:""}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                            {!conn&&(
+                              <Btn onClick={()=>pl.oauth?startProviderOAuth(pl.key):openConnectPanel(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Connect</Btn>
+                            )}
+                            {conn?.needsAccountSelection&&(
+                              <Btn onClick={()=>openAccountPicker(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Pick account</Btn>
+                            )}
+                            {conn?.needsReconnect&&(
+                              <Btn onClick={()=>startProviderOAuth(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Reconnect</Btn>
+                            )}
+                            {conn&&!conn.needsAccountSelection&&!conn.needsReconnect&&(
+                              <Btn onClick={()=>pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key)} variant="subtle" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>{pl.oauth?"Switch account":"Edit"}</Btn>
+                            )}
+                            {conn&&(
+                              <Btn onClick={()=>disconnectConnection(pl.key)} variant="danger" size="sm" T={T} disabled={!canEdit||disconnectingProvider===pl.key} title={canEdit?undefined:"View-only access"}>{disconnectingProvider===pl.key?"Disconnecting…":"Disconnect"}</Btn>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Inline edit/connect + account-picker forms — same state/handlers the Reporting
+                      tab's sync bar uses (startProviderOAuth/openConnectPanel/openAccountPicker/
+                      saveConnection/finalizeOAuthAccount), just also rendered here so clicking
+                      Connect/Edit/Switch account from Settings has somewhere to show the form. */}
+                  {connectPanelKey&&PLATFORMS.some(p=>p.key===connectPanelKey&&p.perWorkspaceAuth)&&(()=>{
+                    const pl=PLATFORMS.find(p=>p.key===connectPanelKey);
+                    if(!pl)return null;
+                    return(
+                      <div style={{marginTop:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                          <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>{connectedProviders[pl.key]?"Edit":"Connect"} {pl.label}</div>
+                          <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                          {(pl.connectFields||[]).map(f=>(
+                            <input key={f.key} value={connectValues[f.key]||""} placeholder={f.placeholder}
+                              onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
+                              style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                          ))}
+                        </div>
+                        {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
+                        <Btn onClick={()=>saveConnection(pl.key)}
+                          disabled={connectSaving||(pl.connectFields||[]).some(f=>!f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim())}
+                          variant="primary" size="sm" T={T}>{connectSaving?"Saving…":"Save"}</Btn>
+                      </div>
+                    );
+                  })()}
+                  {oauthPicker&&PLATFORMS.some(p=>p.key===oauthPicker.provider&&p.perWorkspaceAuth)&&(
+                    <div style={{marginTop:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                        <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
+                        <span onClick={()=>setOauthPicker(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                      </div>
+                      {oauthPicker.accounts.length===0?(
+                        <div style={{fontSize:11,color:T.textMuted}}>Couldn't load accounts. Try again, or reconnect if this keeps happening.</div>
+                      ):(
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          {oauthPicker.accounts.map(a=>(
+                            <button key={a.id} disabled={oauthPickerSaving} onClick={()=>finalizeOAuthAccount(oauthPicker.provider,a.id,a.customerId,a.name)}
+                              style={{textAlign:"left",padding:"7px 10px",borderRadius:6,
+                                border:`1px solid ${a.id===oauthPicker.selectedAccountId?T.accentBorder:T.border}`,
+                                background:a.id===oauthPicker.selectedAccountId?T.accentBg:T.surface,
+                                color:T.text,cursor:oauthPickerSaving?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:oauthPickerSaving?0.6:1}}>
+                              {a.name} <span style={{color:T.textMuted,fontSize:10}}>({a.id})</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

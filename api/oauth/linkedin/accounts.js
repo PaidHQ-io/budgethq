@@ -7,7 +7,9 @@
  * finish the connection.
  *
  * GET  — list the ad accounts the workspace's stored LinkedIn token can see.
- * POST Body: { accountId } — save which one to actually sync spend from.
+ * POST Body: { accountId, accountName } — save which one to actually sync spend from. accountName
+ *      is stored purely for display (Settings' connections table) — listAdAccounts() already
+ *      returns it, so this just persists what the picker showed.
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
@@ -43,10 +45,10 @@ export default withApi(async (req, res) => {
 
   if (req.method === "POST") {
     requireEditAccess(role);
-    const { accountId } = req.body || {};
+    const { accountId, accountName } = req.body || {};
     if (!accountId) return res.status(400).json({ error: "accountId is required" });
     const credential = await getStoredCredential(workspaceId);
-    const updated = { ...credential, accountId: String(accountId) };
+    const updated = { ...credential, accountId: String(accountId), accountName: accountName ? String(accountName) : credential.accountName || null };
     await sql`
       update budgethq.connector_credentials
       set credential = ${JSON.stringify(updated)}

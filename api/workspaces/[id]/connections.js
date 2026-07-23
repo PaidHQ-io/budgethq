@@ -47,6 +47,20 @@ const ACCOUNT_INCOMPLETE_CHECKS = {
 
 const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing"];
 
+// Settings' connections-management table needs SOMETHING to show per provider beyond just
+// "connected" — but the credential itself must never reach the client (see GET's doc comment
+// above). Each extractor below picks out only the fields that are safe to show (account names/
+// IDs, data-source IDs) and leaves out anything that's actually a secret (API tokens/keys, OAuth
+// access/refresh tokens). Capterra's apiKeys is a {productName: key} map — only the product names
+// (the object's keys) are safe to show, never the values.
+const SAFE_SUMMARY = {
+  linkedin: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null }),
+  bing: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null, customerId: c?.customerId || null }),
+  funnel: (c) => ({ accountId: c?.accountId || null, projectId: c?.projectId || null }),
+  supermetrics: (c) => ({ dsId: c?.dsId || null, dsAccounts: c?.dsAccounts || null }),
+  capterra: (c) => ({ products: c?.apiKeys ? Object.keys(c.apiKeys) : [] }),
+};
+
 export default withApi(async (req, res) => {
   const { id: workspaceId } = req.query;
   const { userId } = await requireAuth(req);
@@ -54,18 +68,24 @@ export default withApi(async (req, res) => {
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
-    // credential is selected here only to derive needsReconnect below — never sent to the client
-    // (see the map() below, which drops it before building the response).
+    // credential is selected here only to derive needsReconnect/summary below — never sent to the
+    // client itself (see the map() below, which drops it before building the response).
+    // connected_by is a bare uuid (see db/schema.sql) — the frontend resolves it to an email by
+    // matching against the workspace's own member list (already fetched for the Team panel via
+    // paidhq-core's /members endpoint) rather than this route trying to join a users table it
+    // doesn't own.
     const rows = await sql`
-      select provider, connected_at, credential from budgethq.connector_credentials
+      select provider, connected_at, connected_by, credential from budgethq.connector_credentials
       where workspace_id = ${workspaceId}
     `;
     return res.status(200).json({
       connections: rows.map((r) => ({
         provider: r.provider,
         connectedAt: r.connected_at,
+        connectedBy: r.connected_by,
         needsReconnect: RECONNECT_CHECKS[r.provider] ? RECONNECT_CHECKS[r.provider](r.credential) : false,
         needsAccountSelection: ACCOUNT_INCOMPLETE_CHECKS[r.provider] ? ACCOUNT_INCOMPLETE_CHECKS[r.provider](r.credential) : false,
+        summary: SAFE_SUMMARY[r.provider] ? SAFE_SUMMARY[r.provider](r.credential) : {},
       })),
     });
   }

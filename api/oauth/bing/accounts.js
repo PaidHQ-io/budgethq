@@ -6,7 +6,10 @@
  * ?bing_oauth=select_account instead of guessing. Mirrors api/oauth/linkedin/accounts.js.
  *
  * GET  — list the accounts the workspace's stored Microsoft token can see.
- * POST Body: { accountId, customerId } — save which one to actually sync spend from.
+ * POST Body: { accountId, customerId, accountName } — save which one to actually sync spend from.
+ *      accountName is stored purely for display (Settings' connections table) — resolveAccounts()
+ *      already returns it, so this just persists what the picker showed instead of making Settings
+ *      re-call the Bing API every time it renders.
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
@@ -44,10 +47,15 @@ export default withApi(async (req, res) => {
 
   if (req.method === "POST") {
     requireEditAccess(role);
-    const { accountId, customerId } = req.body || {};
+    const { accountId, customerId, accountName } = req.body || {};
     if (!accountId) return res.status(400).json({ error: "accountId is required" });
     const credential = await getStoredCredential(workspaceId);
-    const updated = { ...credential, accountId: String(accountId), customerId: customerId ? String(customerId) : credential.customerId || null };
+    const updated = {
+      ...credential,
+      accountId: String(accountId),
+      customerId: customerId ? String(customerId) : credential.customerId || null,
+      accountName: accountName ? String(accountName) : credential.accountName || null,
+    };
     await sql`
       update budgethq.connector_credentials
       set credential = ${JSON.stringify(updated)}
