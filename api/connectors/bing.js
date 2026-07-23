@@ -15,20 +15,33 @@
  * a published REST reference — see lib/bingOAuth.js's resolveAccounts) don't yet publish a
  * complete field-by-field REST request/response schema to build against with confidence.
  *
- * LIVE-TESTED 2026-07-23 against Mo's real account (first real Bing sync attempt): the header/body
- * shape and element order in buildSubmitReportXml matched Microsoft's own published SOAP template
- * exactly (fetched and diffed directly against learn.microsoft.com's SubmitGenerateReport
- * reference) — that was NOT the problem. The actual failure was "The message with Action ''
- * cannot be processed at the receiver, due to a ContractFilter mismatch at the EndpointDispatcher"
- * — this SOAP 1.1 endpoint uses WCF's basicHttpBinding, which dispatches based on the HTTP
- * SOAPAction header, not the <Action> element already embedded in the SOAP header by soapHeader()
- * below (that element apparently exists for the message body's own bookkeeping, not transport
- * routing). Fixed by having callReportingService also set the SOAPAction HTTP header per call. If
- * a future sync throws a NEW kind of fault (a deserialization complaint naming a specific field,
- * rather than a ContractFilter/routing complaint), that's the next thing to check — the element
- * order inside <CampaignPerformanceReportRequest>, still only verified against the docs, not a
- * live response body yet. Before Jan 2027 this whole connector should be migrated to the REST
- * reporting API once Microsoft's reference for it is complete.
+ * LIVE-TESTED 2026-07-23 against Mo's real account — three sequential bugs found and fixed, each
+ * only visible once the previous one stopped masking it:
+ *   1. "The message with Action '' cannot be processed at the receiver, due to a ContractFilter
+ *      mismatch at the EndpointDispatcher" — this SOAP 1.1 endpoint uses WCF's basicHttpBinding,
+ *      which dispatches based on the HTTP SOAPAction header, not the <Action> element already
+ *      embedded in the SOAP header by soapHeader() below. Fixed by having callReportingService
+ *      also set the SOAPAction HTTP header per call.
+ *   2. Once routing worked, a real ApiFaultDetail came back: ErrorCode InvalidCustomDateRangeEnd.
+ *      Turned out to be legitimate — the Tagger's date range defaulted to a full quarter, which
+ *      extends past today, and there's no such thing as spend data for a future day. Fixed in
+ *      api/spend.js (clamps every live connector's endDate to today) and in the date picker itself
+ *      (max attribute + clamp-on-change).
+ *   3. The SAME error persisted even after the date was correctly clamped to today. Root cause:
+ *      the <Time> element below had CustomDateRangeStart BEFORE CustomDateRangeEnd — Microsoft's
+ *      own template (learn.microsoft.com/.../submitgeneratereport) has End BEFORE Start. WCF's
+ *      strict sequential deserialization silently mis-assigned which value landed in which field
+ *      when they were reversed, so it was actually validating Mo's START date as the END date.
+ *      Fixed by swapping the two elements' order below to match the documented WSDL sequence. This
+ *      is exactly the class of bug this doc comment originally flagged as unverified — the outer
+ *      <CampaignPerformanceReportRequest> body order was checked and correct, but a NESTED child
+ *      element's order (inside <Time>) had the same class of problem and wasn't independently
+ *      checked at the time.
+ * If a future sync throws a NEW kind of fault, re-diff every element's order — including nested
+ * ones — against Microsoft's own SOAP template for that specific request type; don't assume
+ * "the outer body order matched" means every nested object's order was checked too. Before Jan
+ * 2027 this whole connector should be migrated to the REST reporting API once Microsoft's
+ * reference for it is complete.
  */
 
 const REPORTING_SVC_URL = "https://reporting.api.bingads.microsoft.com/Api/Advertiser/Reporting/v13/ReportingService.svc";
@@ -81,16 +94,16 @@ function buildSubmitReportXml({ accessToken, developerToken, customerId, account
           </AccountIds>
         </Scope>
         <Time>
-          <CustomDateRangeStart>
-            <Day>${sd}</Day>
-            <Month>${sm}</Month>
-            <Year>${sy}</Year>
-          </CustomDateRangeStart>
           <CustomDateRangeEnd>
             <Day>${ed}</Day>
             <Month>${em}</Month>
             <Year>${ey}</Year>
           </CustomDateRangeEnd>
+          <CustomDateRangeStart>
+            <Day>${sd}</Day>
+            <Month>${sm}</Month>
+            <Year>${sy}</Year>
+          </CustomDateRangeStart>
           <ReportTimeZone>GreenwichMeanTimeDublinEdinburghLisbonLondon</ReportTimeZone>
         </Time>
       </ReportRequest>
