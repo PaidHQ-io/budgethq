@@ -5750,6 +5750,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       });
       if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that account");}
       setOauthPicker(null);
+      refreshConnectedProviders(); // clears needsAccountSelection so the pill flips back to a normal sync button
       showNotif(`${OAUTH_PROVIDER_LABELS[provider]||provider} account set — click Sync to pull spend.`);
     }catch(e){
       showNotif(`Couldn't save ${OAUTH_PROVIDER_LABELS[provider]||provider} account: ${e.message}`);
