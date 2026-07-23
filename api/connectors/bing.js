@@ -148,9 +148,21 @@ async function callReportingService(xml, action) {
   return text;
 }
 
+// XML text content escapes &, <, >, ", ' as entities — critical here specifically because
+// ReportDownloadUrl is a SAS-signed URL with multiple query params, and every "&" separating them
+// comes back as "&amp;" in the raw XML. Confirmed live 2026-07-23: without decoding, the extracted
+// "URL" contained literal "&amp;" text instead of real "&" characters, so Azure Blob Storage's own
+// query-string parser never found any real separators between sv=/sig=/se=/etc — the entire signed
+// query string collapsed into one unrecognized blob, indistinguishable from having no SAS token at
+// all, which Azure reported back as "PublicAccessNotPermitted" (409) rather than any kind of
+// signature or expiry error that might have pointed at the real cause faster.
+function decodeXmlEntities(s) {
+  return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+}
+
 function extractTag(xml, tag) {
   const match = xml.match(new RegExp(`<(?:\\w+:)?${tag}[^>]*>([\\s\\S]*?)<\\/(?:\\w+:)?${tag}>`, "i"));
-  return match ? match[1].trim() : null;
+  return match ? decodeXmlEntities(match[1].trim()) : null;
 }
 
 async function submitReport(auth) {
