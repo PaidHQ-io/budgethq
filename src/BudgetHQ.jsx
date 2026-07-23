@@ -3679,6 +3679,28 @@ function computePlatformFreshness(mergedNormRows){
   return map;
 }
 
+// Full min/max date range of spend data actually present in BudgetHQ for each platform, regardless
+// of how it got there (live sync, Google Sheets pull, CSV/screenshot upload). Distinct from
+// computePlatformFreshness above, which is specifically "as of what date is this platform's
+// spend current" for pacing/projection math (as_of_date-aware, always the max). This is the
+// simpler, source-agnostic question "what date range of data do we actually have for this
+// platform" — uses each row's own Date column directly (not as_of_date, which describes when
+// a range-exported upload was accurate through, not what calendar days its rows represent).
+function computePlatformDateRange(mergedNormRows){
+  const map={};
+  (mergedNormRows||[]).forEach(row=>{
+    const d=parseSpendDate(row.date);
+    if(!d)return;
+    const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+    if(!map[platform])map[platform]={min:d,max:d};
+    else{
+      if(d<map[platform].min)map[platform].min=d;
+      if(d>map[platform].max)map[platform].max=d;
+    }
+  });
+  return map;
+}
+
 // Core pacing calculation: aggregates spend into budget segments for a period and compares
 // actual spend-to-date against time-elapsed expectation.
 //
@@ -4304,6 +4326,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 
   const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now}),
     [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const platformDateRange=useMemo(()=>computePlatformDateRange(mergedNormRows),[mergedNormRows]);
   const customPacing=useMemo(()=>viewMode==="custom"&&customDims.length?computeCustomGrouping({mergedNormRows,tags:campaignTags,dims:customDims,year,periodType,month,quarter,today:now}):null,
     [viewMode,mergedNormRows,campaignTags,customDims,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
   const trendRange=useMemo(()=>{
@@ -4455,7 +4478,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
           <Divider T={T}/>
           <div style={{padding:"12px 0 4px",display:"flex",flexDirection:"column",gap:6}}>
             <SectionLabel T={T} style={{marginBottom:2}}>Data freshness</SectionLabel>
-            <div style={{fontSize:10,color:T.textMuted,lineHeight:1.5,marginBottom:4}}>Last date each platform actually has spend data for — projections use this per platform instead of assuming everyone's current through today.</div>
+            <div style={{fontSize:10,color:T.textMuted,lineHeight:1.5,marginBottom:4}}>Date range each platform actually has spend data for, regardless of source (sync, Google Sheet, CSV/screenshot) — projections use each platform's own last date instead of assuming everyone's current through today.</div>
             {Object.entries(pacing.platformFreshness||{}).sort(([,a],[,b])=>b-a).map(([platform,date])=>{
               const daysStale=Math.floor((now-date)/86400000);
               // Same 4-color scale as the Pacing column's status colors (pacingStatusMeta) instead
@@ -4464,10 +4487,15 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
               // colors already established elsewhere in this view.
               const color=daysStale<=1?T.success:daysStale<=3?T.accent:daysStale<=6?T.warning:T.danger;
               const label=daysStale<=0?"Today":daysStale===1?"Yesterday":`${daysStale} days ago`;
+              const range=platformDateRange[platform];
+              const fmtShort=d=>d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
               return(
-                <div key={platform} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:11,fontFamily:"Inter,sans-serif"}}>
-                  <span style={{color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{platform}</span>
-                  <span style={{color,fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>
+                <div key={platform} style={{display:"flex",flexDirection:"column",gap:1,padding:"3px 0"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:11,fontFamily:"Inter,sans-serif"}}>
+                    <span style={{color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{platform}</span>
+                    <span style={{color,fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>
+                  </div>
+                  {range&&<div style={{fontSize:10,color:T.textMuted,whiteSpace:"nowrap"}}>{fmtShort(range.min)} – {fmtShort(range.max)}</div>}
                 </div>
               );
             })}
@@ -5843,7 +5871,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         const err=await res.json();
         throw new Error(err.error||"API error");
       }
-      const{rows}=await res.json();
+      const{rows,endDate:effectiveEndDate}=await res.json();
       if(rows.length===0) throw new Error("No spend data returned for this date range");
       // Merge with existing data — don't replace
       setMergedNormRows(prev=>mergeRows(prev,rows));
@@ -5852,7 +5880,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       setLastSyncRange({start:syncDateRange.start,end:syncDateRange.end});
       try{localStorage.setItem("paidhq_sync_range",JSON.stringify({start:syncDateRange.start,end:syncDateRange.end}));}catch(e){}
       checkpoint(`Synced ${platformKey} spend data (${rows.length} rows)`,"tagger_sync");
-      showNotif(`Loaded ${rows.length} ${platformKey} campaigns — merged with existing data`);
+      // /api/spend silently clamps a requested end date past today (see its doc comment — there's
+      // no such thing as spend data for a day that hasn't happened yet). Surfacing that here means
+      // a quarter/half-year range doesn't quietly look "fully synced" when only the portion through
+      // today actually has data.
+      const adjustedNote=effectiveEndDate&&effectiveEndDate!==syncDateRange.end
+        ?` — synced through ${effectiveEndDate} (no data yet for ${effectiveEndDate} to ${syncDateRange.end})`
+        :"";
+      showNotif(`Loaded ${rows.length} ${platformKey} campaigns — merged with existing data${adjustedNote}`);
     }catch(e){
       setSyncState(p=>({...p,[platformKey]:"error:"+e.message}));
     }
