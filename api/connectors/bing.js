@@ -13,15 +13,22 @@
  * decommissioned Jan 31 2027). This connector deliberately still targets SOAP because Microsoft's
  * own reference docs for the REST Reporting endpoints (unlike Customer Management's, which DO have
  * a published REST reference — see lib/bingOAuth.js's resolveAccounts) don't yet publish a
- * complete field-by-field REST request/response schema to build against with confidence. The
- * OAuth flow, the general submit/poll/download/CSV-parse shape, and the header names below are all
- * taken directly from Microsoft's own docs. The one piece that has NOT been tested against a live
- * account (Mo doesn't have a Developer Token yet) is the exact element ORDER inside
- * <CampaignPerformanceReportRequest> in buildSubmitReportXml below — WCF/SOAP services are strict
- * about this matching their WSDL sequence. If a real sync fails with a deserialization-style SOAP
- * fault, this is the first place to check — everything needed to fix it is isolated in that one
- * function. Before Jan 2027 this whole connector should be migrated to the REST reporting API once
- * Microsoft's reference for it is complete.
+ * complete field-by-field REST request/response schema to build against with confidence.
+ *
+ * LIVE-TESTED 2026-07-23 against Mo's real account (first real Bing sync attempt): the header/body
+ * shape and element order in buildSubmitReportXml matched Microsoft's own published SOAP template
+ * exactly (fetched and diffed directly against learn.microsoft.com's SubmitGenerateReport
+ * reference) — that was NOT the problem. The actual failure was "The message with Action ''
+ * cannot be processed at the receiver, due to a ContractFilter mismatch at the EndpointDispatcher"
+ * — this SOAP 1.1 endpoint uses WCF's basicHttpBinding, which dispatches based on the HTTP
+ * SOAPAction header, not the <Action> element already embedded in the SOAP header by soapHeader()
+ * below (that element apparently exists for the message body's own bookkeeping, not transport
+ * routing). Fixed by having callReportingService also set the SOAPAction HTTP header per call. If
+ * a future sync throws a NEW kind of fault (a deserialization complaint naming a specific field,
+ * rather than a ContractFilter/routing complaint), that's the next thing to check — the element
+ * order inside <CampaignPerformanceReportRequest>, still only verified against the docs, not a
+ * live response body yet. Before Jan 2027 this whole connector should be migrated to the REST
+ * reporting API once Microsoft's reference for it is complete.
  */
 
 const REPORTING_SVC_URL = "https://reporting.api.bingads.microsoft.com/Api/Advertiser/Reporting/v13/ReportingService.svc";
@@ -104,10 +111,18 @@ function buildPollReportXml({ accessToken, developerToken, customerId, accountId
 </s:Envelope>`;
 }
 
-async function callReportingService(xml) {
+// `action` here is deliberately ALSO sent as the HTTP SOAPAction header, not just the <Action>
+// element already embedded in the SOAP header by soapHeader() above. Confirmed live 2026-07-23:
+// omitting it produces "The message with Action '' cannot be processed at the receiver, due to a
+// ContractFilter mismatch at the EndpointDispatcher" — WCF's basicHttpBinding (which is what this
+// SOAP 1.1 endpoint uses) routes incoming requests to an operation using the HTTP SOAPAction
+// header, not the message body's own Action element, so without it every request looks like it has
+// no action at all and never reaches any operation. Per the SOAP 1.1 spec the header value should
+// be a quoted string.
+async function callReportingService(xml, action) {
   const res = await fetch(REPORTING_SVC_URL, {
     method: "POST",
-    headers: { "Content-Type": "text/xml; charset=utf-8" },
+    headers: { "Content-Type": "text/xml; charset=utf-8", SOAPAction: `"${action}"` },
     body: xml,
   });
   const text = await res.text();
@@ -127,7 +142,7 @@ function extractTag(xml, tag) {
 
 async function submitReport(auth) {
   const xml = buildSubmitReportXml(auth);
-  const respXml = await callReportingService(xml);
+  const respXml = await callReportingService(xml, "SubmitGenerateReport");
   const reportRequestId = extractTag(respXml, "ReportRequestId");
   if (!reportRequestId) throw new Error("Bing Ads SubmitGenerateReport did not return a ReportRequestId");
   return reportRequestId;
@@ -137,7 +152,7 @@ async function pollUntilDone(auth, reportRequestId) {
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     const xml = buildPollReportXml({ ...auth, reportRequestId });
-    const respXml = await callReportingService(xml);
+    const respXml = await callReportingService(xml, "PollGenerateReport");
     const status = extractTag(respXml, "Status");
     if (status === "Success") {
       const url = extractTag(respXml, "ReportDownloadUrl");
