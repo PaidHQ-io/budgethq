@@ -193,7 +193,17 @@ async function pollUntilDone(auth, reportRequestId) {
 async function downloadAndParseReport(url) {
   const [{ default: JSZip }, { default: Papa }] = await Promise.all([import("jszip"), import("papaparse")]);
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to download Bing Ads report: ${res.status}`);
+  if (!res.ok) {
+    // Undocumented failure mode as of 2026-07-23 — Microsoft's own docs don't mention a 409 here
+    // at all (the download URL is a presumably-SAS-style blob storage link, and the only documented
+    // constraint is "download within 5 minutes of getting the URL or poll for a new one"). Logging
+    // the actual response body/headers rather than guessing — Azure Blob Storage's error responses
+    // are normally self-describing XML (<Error><Code>...</Code><Message>...</Message></Error>).
+    const bodyText = await res.text().catch(() => "<could not read body>");
+    console.error(`[bing connector] Report download failed (${res.status}). Headers:`,
+      JSON.stringify(Object.fromEntries(res.headers.entries())), "Body:", bodyText.slice(0, 2000));
+    throw new Error(`Failed to download Bing Ads report: ${res.status}`);
+  }
   const buf = Buffer.from(await res.arrayBuffer());
   const zip = await JSZip.loadAsync(buf);
   const fileNames = Object.keys(zip.files);
