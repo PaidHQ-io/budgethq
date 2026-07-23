@@ -33,6 +33,18 @@ const RECONNECT_CHECKS = {
   bing: bingNeedsReconnectSoon,
 };
 
+// Distinct from RECONNECT_CHECKS above: a token can be perfectly valid but still missing the ad
+// account it should sync from — e.g. the token exchange succeeded but the account-picker step
+// (api/oauth/{provider}/accounts.js) never got a selection saved. Both LinkedIn and Bing's
+// connectors hard-require credential.accountId to call getSpend at all; Bing additionally needs
+// credential.customerId (see api/connectors/bing.js). Surfacing this separately from
+// needsReconnect matters because the fix is different — reopen the account picker with the
+// EXISTING token (no need to redo the consent screen), not send the user through OAuth again.
+const ACCOUNT_INCOMPLETE_CHECKS = {
+  linkedin: (credential) => !!credential?.accessToken && !credential?.accountId,
+  bing: (credential) => !!credential?.accessToken && (!credential?.accountId || !credential?.customerId),
+};
+
 const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing"];
 
 export default withApi(async (req, res) => {
@@ -53,6 +65,7 @@ export default withApi(async (req, res) => {
         provider: r.provider,
         connectedAt: r.connected_at,
         needsReconnect: RECONNECT_CHECKS[r.provider] ? RECONNECT_CHECKS[r.provider](r.credential) : false,
+        needsAccountSelection: ACCOUNT_INCOMPLETE_CHECKS[r.provider] ? ACCOUNT_INCOMPLETE_CHECKS[r.provider](r.credential) : false,
       })),
     });
   }

@@ -47,9 +47,13 @@ export default async function handler(req, res) {
     if (developerToken) {
       try {
         accounts = await resolveAccounts(tokenCredential.accessToken, developerToken);
-      } catch {
+      } catch (resolveErr) {
         // Non-fatal — the token is still valid and saved below; the account picker will just come
-        // up empty and the user can select an account later once resolved (see accounts.js).
+        // up empty and the user can select an account later once resolved (see accounts.js). Still
+        // logged (rather than silently swallowed) since an empty result here is otherwise
+        // indistinguishable from "this Microsoft login genuinely has no ad accounts" — worth
+        // knowing which one it was next time this misfires.
+        console.error("[bing oauth callback] resolveAccounts failed:", resolveErr.message);
         accounts = [];
       }
     }
@@ -67,7 +71,12 @@ export default async function handler(req, res) {
       do update set credential = excluded.credential, connected_by = excluded.connected_by, connected_at = now()
     `;
 
-    if (accounts.length > 1) {
+    // Anything other than exactly one resolved account needs a picker — zero accounts isn't a
+    // "success" just because the token exchange worked (that used to be reported as bing_oauth=
+    // success, which left the workspace silently "connected" with no accountId/customerId set at
+    // all, and the account picker never got a chance to run — see accounts.js's empty-state UI for
+    // what the zero-accounts case actually shows the user instead).
+    if (accounts.length !== 1) {
       return res.redirect(302, appUrl(`/?bing_oauth=select_account&workspaceId=${encodeURIComponent(payload.workspaceId)}`));
     }
     return res.redirect(302, appUrl(`/?bing_oauth=success&workspaceId=${encodeURIComponent(payload.workspaceId)}`));

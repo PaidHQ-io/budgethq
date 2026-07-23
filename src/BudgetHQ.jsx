@@ -5698,6 +5698,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // down to instead). Surfacing it here means the platform button visibly asks to reconnect
   // BEFORE a sync actually fails.
   const[providersNeedingReconnect,setProvidersNeedingReconnect]=useState({});
+  // A token can be valid but still missing the ad account it should sync from (see
+  // ACCOUNT_INCOMPLETE_CHECKS doc comment in api/workspaces/[id]/connections.js) — distinct from
+  // needsReconnect because the fix reopens the account picker with the existing token instead of
+  // sending the user through OAuth's consent screen again.
+  const[providersNeedingAccountSelection,setProvidersNeedingAccountSelection]=useState({});
   const refreshConnectedProviders=useCallback(()=>{
     if(!workspace?.id||!session?.access_token)return;
     fetch(`/api/workspaces/${workspace.id}/connections`,{headers:{Authorization:`Bearer ${session.access_token}`}})
@@ -5705,6 +5710,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       .then(({connections})=>{
         setConnectedProviders(Object.fromEntries((connections||[]).map(c=>[c.provider,true])));
         setProvidersNeedingReconnect(Object.fromEntries((connections||[]).filter(c=>c.needsReconnect).map(c=>[c.provider,true])));
+        setProvidersNeedingAccountSelection(Object.fromEntries((connections||[]).filter(c=>c.needsAccountSelection).map(c=>[c.provider,true])));
       })
       .catch(()=>{}); // non-fatal — worst case the button just offers to (re)connect
   },[workspace?.id,session?.access_token]);
@@ -5733,14 +5739,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       showNotif(`Couldn't connect ${OAUTH_PROVIDER_LABELS[provider]||provider}: ${e.message}`);
     }
   },[workspace?.id,session?.access_token,canEdit]); // eslint-disable-line react-hooks/exhaustive-deps
-  const finalizeOAuthAccount=useCallback(async(provider,accountId)=>{
+  const finalizeOAuthAccount=useCallback(async(provider,accountId,customerId)=>{
     if(!workspace?.id||!session?.access_token)return;
     setOauthPickerSaving(true);
     try{
       const res=await fetch(`/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(workspace.id)}`,{
         method:"POST",
         headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
-        body:JSON.stringify({accountId}),
+        body:JSON.stringify({accountId,customerId}),
       });
       if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that account");}
       setOauthPicker(null);
@@ -5750,6 +5756,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }finally{
       setOauthPickerSaving(false);
     }
+  },[workspace?.id,session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Reopens the account picker for an already-connected provider whose token never got an account
+  // saved (providersNeedingAccountSelection) — reuses the EXISTING token via GET .../accounts
+  // instead of restarting the OAuth consent screen, since the token itself is fine.
+  const openAccountPicker=useCallback((provider)=>{
+    if(!workspace?.id||!session?.access_token)return;
+    fetch(`/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(workspace.id)}`,{headers:{Authorization:`Bearer ${session.access_token}`}})
+      .then(r=>r.json())
+      .then(({accounts,selectedAccountId})=>{setOauthPicker({provider,accounts:accounts||[],selectedAccountId});})
+      .catch(()=>showNotif(`Couldn't load ${OAUTH_PROVIDER_LABELS[provider]||provider} accounts — try reconnecting instead.`));
   },[workspace?.id,session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
   // Handles landing back here after an OAuth redirect round-trip (each provider's callback.js
   // sends the browser back to `${APP_URL}/?{provider}_oauth=success|select_account|error&...`).
@@ -6923,27 +6939,32 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 // Connected, but its credential is stale/going stale with no way to silently
                 // refresh (LinkedIn only, for now — see providersNeedingReconnect's doc comment).
                 const needsReconnect=!needsConnect&&pl.perWorkspaceAuth&&!!providersNeedingReconnect[pl.key];
+                // Connected with a perfectly valid token, but no ad account was ever saved onto it
+                // (see providersNeedingAccountSelection's doc comment) — fixed by reopening the
+                // account picker, not by redoing the OAuth consent screen.
+                const needsAccountSelection=!needsConnect&&!needsReconnect&&pl.perWorkspaceAuth&&!!providersNeedingAccountSelection[pl.key];
                 const active=live||pl.isSheets; // "active" here just means "not a plain CSV placeholder"
                 const handleClick=()=>{
                   if(pl.isSheets){setGsheetSpendOpen(o=>!o);return;}
                   if((needsConnect||needsReconnect)&&pl.oauth){startProviderOAuth(pl.key);return;}
+                  if(needsAccountSelection&&pl.oauth){openAccountPicker(pl.key);return;}
                   if(needsConnect){openConnectPanel(pl.key);return;}
                   if(live&&!loading)syncPlatform(pl.key);
                 };
-                const clickable=pl.isSheets||needsConnect||needsReconnect||(live&&!loading);
-                const statusText=pl.isSheets?"pull":needsReconnect?"reconnect":needsConnect?"connect":live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV";
+                const clickable=pl.isSheets||needsConnect||needsReconnect||needsAccountSelection||(live&&!loading);
+                const statusText=pl.isSheets?"pull":needsReconnect?"reconnect":needsConnect?"connect":needsAccountSelection?"pick account":live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV";
                 return(
                   <button key={pl.key} onClick={handleClick}
-                    title={pl.isSheets?"Pull spend from a Google Sheet":needsReconnect?`Your ${pl.label} connection needs to be refreshed`:needsConnect?`Connect your ${pl.label} account`:live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
+                    title={pl.isSheets?"Pull spend from a Google Sheet":needsReconnect?`Your ${pl.label} connection needs to be refreshed`:needsConnect?`Connect your ${pl.label} account`:needsAccountSelection?`Pick which ${pl.label} account to sync`:live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
                     style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,
-                      border:`1px solid ${needsReconnect?T.warningBorder:active?(done?T.successBorder:err?T.dangerBorder:T.accentBorder):T.border}`,
-                      background:needsReconnect?T.warningBg:active?(done?T.successBg:err?T.dangerBg:T.accentBg):T.surfaceEl,
+                      border:`1px solid ${(needsReconnect||needsAccountSelection)?T.warningBorder:active?(done?T.successBorder:err?T.dangerBorder:T.accentBorder):T.border}`,
+                      background:(needsReconnect||needsAccountSelection)?T.warningBg:active?(done?T.successBg:err?T.dangerBg:T.accentBg):T.surfaceEl,
                       cursor:clickable?"pointer":"default",opacity:active?1:0.55,transition:"all 0.15s"}}>
                     <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,
-                      background:needsReconnect?T.warning:active?(done?T.success:err?T.danger:pl.color):T.textMuted,
+                      background:(needsReconnect||needsAccountSelection)?T.warning:active?(done?T.success:err?T.danger:pl.color):T.textMuted,
                       ...(loading?{border:`2px solid rgba(0,0,0,0.1)`,borderTopColor:pl.color,background:"transparent",animation:"spin 0.7s linear infinite"}:{})}}/>
                     <span style={{fontSize:12,fontWeight:600,color:active?T.text:T.textMuted,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
-                    <span style={{fontSize:10,color:needsReconnect?T.warning:active?(done?T.success:err?T.danger:T.accent):T.textMuted,fontFamily:"Inter,sans-serif"}}>
+                    <span style={{fontSize:10,color:(needsReconnect||needsAccountSelection)?T.warning:active?(done?T.success:err?T.danger:T.accent):T.textMuted,fontFamily:"Inter,sans-serif"}}>
                       {statusText}
                     </span>
                   </button>
@@ -6995,7 +7016,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 ):(
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
                     {oauthPicker.accounts.map(a=>(
-                      <button key={a.id} disabled={oauthPickerSaving} onClick={()=>finalizeOAuthAccount(oauthPicker.provider,a.id)}
+                      <button key={a.id} disabled={oauthPickerSaving} onClick={()=>finalizeOAuthAccount(oauthPicker.provider,a.id,a.customerId)}
                         style={{textAlign:"left",padding:"7px 10px",borderRadius:6,
                           border:`1px solid ${a.id===oauthPicker.selectedAccountId?T.accentBorder:T.border}`,
                           background:a.id===oauthPicker.selectedAccountId?T.accentBg:T.surface,
