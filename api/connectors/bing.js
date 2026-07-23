@@ -144,7 +144,16 @@ async function submitReport(auth) {
   const xml = buildSubmitReportXml(auth);
   const respXml = await callReportingService(xml, "SubmitGenerateReport");
   const reportRequestId = extractTag(respXml, "ReportRequestId");
-  if (!reportRequestId) throw new Error("Bing Ads SubmitGenerateReport did not return a ReportRequestId");
+  if (!reportRequestId) {
+    // A 200 response with no ReportRequestId means the request WAS dispatched to the right
+    // operation this time (the SOAPAction fix worked) but something about the body's content —
+    // not its transport routing — didn't validate. Logging the raw response is the only way to
+    // see whether that's a business-level ApiFaultDetail/OperationError, a namespace/tag mismatch
+    // extractTag's regex didn't anticipate, or something else entirely — worth knowing before
+    // guessing at a fix a third time.
+    console.error("[bing connector] SubmitGenerateReport response had no ReportRequestId:", respXml.slice(0, 3000));
+    throw new Error("Bing Ads SubmitGenerateReport did not return a ReportRequestId");
+  }
   return reportRequestId;
 }
 
