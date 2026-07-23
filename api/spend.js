@@ -120,6 +120,25 @@ export default async function handler(req, res) {
     });
   }
 
+  // Live connectors pull ACTUAL performance data — there's no such thing as spend for a day that
+  // hasn't happened yet. The Tagger/Reporting date pickers default to a full budget period (e.g. a
+  // quarter), which routinely extends past today, and every ad platform's reporting API validates
+  // this server-side (confirmed live 2026-07-23: Bing's SubmitGenerateReport rejected a request
+  // ending 2026-09-30 while "today" was 2026-07-23 with ErrorCode InvalidCustomDateRangeEnd — a
+  // legitimate rejection, not a bug in this connector). Clamping here means every live connector
+  // gets this for free instead of each one needing its own future-date guard, and the user gets a
+  // clear answer instead of a platform-specific validation error surfacing as a raw API message.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let effectiveEndDate = endDate;
+  if (endDate > todayStr) {
+    if (startDate > todayStr) {
+      return res.status(400).json({
+        error: `${startDate} to ${endDate} is entirely in the future — there's no spend data yet for that range. Try a range that includes today or earlier.`,
+      });
+    }
+    effectiveEndDate = todayStr;
+  }
+
   try {
     // perWorkspaceAuth connectors need that workspace's own stored credential looked up (and the
     // caller verified as a member of it) before we can call getSpend at all — everything else
@@ -157,11 +176,11 @@ export default async function handler(req, res) {
       `;
     }
 
-    const rows = await connector.getSpend({ startDate, endDate, credential });
+    const rows = await connector.getSpend({ startDate, endDate: effectiveEndDate, credential });
     return res.status(200).json({
       platform: connector.platform,
       startDate,
-      endDate,
+      endDate: effectiveEndDate,
       count: rows.length,
       rows,
     });
