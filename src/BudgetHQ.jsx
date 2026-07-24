@@ -6862,7 +6862,18 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 // Tagger's own step==="upload" — clicking Tagger with no data yet sends you to Data
                 // Sources first, matching "connect data before tagging it." Clicking Data Sources
                 // itself always resets to the upload step, same reasoning as the old Tagger branch.
-                if(item.key==="tagger"){if(step!=="tag"){setStep("upload");setView("data");}else setView("tagger");}
+                //
+                // BUG FIX (2026-07-24): this used to branch on `step!=="tag"` instead of whether data
+                // actually exists. `step` is a transient UI-flow flag other buttons leave sitting on
+                // "upload" long after the fact — e.g. the Tagger toolbar's "↑ Add data" button, or
+                // simply visiting Data Sources — and nothing ever resets it back to "tag" unless you
+                // complete a new import. Once that happened, clicking this tab while already on Data
+                // Sources (view==="data", step==="upload") called setStep("upload") and
+                // setView("data") — both no-ops — so literally nothing happened, even though tagged
+                // data was sitting right there. Branching on mergedNormRows.length instead makes this
+                // tab always land you on the Tagger table whenever there's data to show, no matter
+                // what step some earlier click left behind.
+                if(item.key==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}
                 else if(item.key==="data"){setStep("upload");setView("data");}
                 else setView(item.key);
               }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",boxSizing:"border-box",flexShrink:0,border:"none",borderBottom:`2px solid ${active?T.accent:"transparent"}`,background:"transparent",color:active?T.text:T.textSub,fontSize:14,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",transition:"color 0.12s,border-color 0.12s"}}>
@@ -7885,7 +7896,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           "upload"/"map"), not the Tagger table itself — matches the same branch in the NAV.map
           click handler above, now that Add Data lives at view==="data" instead of nested under
           view==="tagger". */}
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map")setView("data");else setView("tagger");}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={visibleNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={visibleNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
+      {/* Same fix as the top-nav Tagger tab above: route off mergedNormRows.length (is there
+          actually data to show), not the transient step flag — see that button's doc comment for
+          why branching on step left this dead-clicking whenever step had drifted off "tag". */}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={visibleNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={visibleNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
       {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
           other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
           dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
