@@ -5736,29 +5736,39 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // used once per pull (see lib/googleSheets.js), so it's excluded from both the sync-button flow
   // AND the connect-panel flow below and gets its own small inline connector.
   const PLATFORMS=[
-    {key:"linkedin",label:"LinkedIn",status:"live",perWorkspaceAuth:true,oauth:true,color:"#0A66C2"},
-    {key:"bing",label:"Bing",status:"live",perWorkspaceAuth:true,oauth:true,color:"#00809D"},
-    {key:"google",label:"Google",status:"csv",color:"#EA4335"},
-    {key:"meta",label:"Meta",status:"csv",color:"#1877F2"},
-    {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",
+    {key:"linkedin",label:"LinkedIn",status:"live",perWorkspaceAuth:true,oauth:true,color:"#0A66C2",desc:"Ad account, OAuth-connected"},
+    {key:"bing",label:"Bing",status:"live",perWorkspaceAuth:true,oauth:true,color:"#00809D",desc:"Microsoft Advertising, OAuth-connected"},
+    {key:"google",label:"Google Ads",status:"csv",color:"#EA4335",desc:"No direct API yet — upload a CSV export"},
+    {key:"meta",label:"Meta Ads",status:"csv",color:"#1877F2",desc:"No direct API yet — upload a CSV export"},
+    {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",desc:"API key per product",
       connectFields:[
         {key:"apiKeys",label:"API keys (JSON)",placeholder:'{"Product A":"key1","Product B":"key2"}'},
       ]},
-    {key:"funnel",label:"Funnel.io",status:"live",perWorkspaceAuth:true,color:"#6C5CE7",
+    {key:"funnel",label:"Funnel.io",status:"live",perWorkspaceAuth:true,color:"#6C5CE7",desc:"Blended multi-channel data via Funnel's API",
       connectFields:[
         {key:"apiToken",label:"API token",placeholder:"Account Settings → API in Funnel.io"},
         {key:"accountId",label:"Account ID",placeholder:"From your Funnel.io app URL"},
         {key:"projectId",label:"Project ID",placeholder:"From your Funnel.io app URL"},
       ]},
-    {key:"supermetrics",label:"Supermetrics",status:"live",perWorkspaceAuth:true,color:"#00C2A8",
+    {key:"supermetrics",label:"Supermetrics",status:"live",perWorkspaceAuth:true,color:"#00C2A8",desc:"Blended multi-channel data via Supermetrics' API",
       connectFields:[
         {key:"apiKey",label:"API key",placeholder:"User settings → API Authentication in Supermetrics"},
         {key:"dsId",label:"Data source ID",placeholder:"e.g. GAWA (Google Ads), FACEBOOK, LINKEDIN"},
         {key:"dsAccounts",label:"Account ID (optional)",placeholder:"Leave blank for every account this key can access"},
       ]},
-    {key:"sheets",label:"Google Sheets",status:"live",isSheets:true,color:"#0F9D58"},
-    {key:"excel",label:"Excel Online",status:"csv",color:"#217346"},
+    {key:"sheets",label:"Google Sheets",status:"live",isSheets:true,color:"#0F9D58",desc:"One-time pull from a sheet URL — no stored credential"},
+    {key:"excel",label:"Excel Online",status:"csv",color:"#217346",desc:"No direct API yet — upload a CSV export"},
   ];
+  // Data Sources tab (2026-07-24, modeled on Funnel.io's Data sources / Connect data source split
+  // per Mo — he's planning to add more connectors over time and wants a dedicated page for browsing/
+  // adding them, separate from the table that manages what's already connected): "connections" is
+  // the default — the table of already-connected sources; "add" is the full grid of everything
+  // connectable (including the CSV/Screenshot/Budget file manual imports) plus a search box and a
+  // breadcrumb back. Resets to "connections" on leaving the Data Sources tab entirely so it never
+  // opens back up mid-browse.
+  const[dataSourcesSubView,setDataSourcesSubView]=useState("connections");
+  const[dataSourceSearch,setDataSourceSearch]=useState("");
+  useEffect(()=>{if(view!=="data")setDataSourcesSubView("connections");},[view]);
   const[lastSyncRange,setLastSyncRange]=useState(()=>{
     try{const s=localStorage.getItem("paidhq_sync_range");return s?JSON.parse(s):null;}catch(e){return null;}
   });
@@ -5805,20 +5815,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // Which perWorkspaceAuth platforms this workspace has already connected — drives whether
   // clicking the platform button opens the "connect your account" panel or runs a normal sync.
   const[connectedProviders,setConnectedProviders]=useState({});
-  // Which connected providers need re-connecting despite being "connected" — see each provider's
-  // needsReconnectSoon doc comment (api/lib/linkedinOAuth.js, api/lib/bingOAuth.js) for why: for
-  // LinkedIn it's a fixed ~60-day countdown (no refresh token available yet at all), for Bing it's
-  // an actual failed refresh attempt (its refresh tokens don't have a predictable expiry to count
-  // down to instead). Surfacing it here means the platform button visibly asks to reconnect
-  // BEFORE a sync actually fails.
-  const[providersNeedingReconnect,setProvidersNeedingReconnect]=useState({});
-  // A token can be valid but still missing the ad account it should sync from (see
-  // ACCOUNT_INCOMPLETE_CHECKS doc comment in api/workspaces/[id]/connections.js) — distinct from
-  // needsReconnect because the fix reopens the account picker with the existing token instead of
-  // sending the user through OAuth's consent screen again.
-  const[providersNeedingAccountSelection,setProvidersNeedingAccountSelection]=useState({});
-  // Full per-provider detail (connectedAt/connectedBy/summary) for Settings' connections table —
-  // the three boolean maps above only ever fed the sync-bar pills, which don't need this much.
+  // Full per-provider detail (connectedAt/connectedBy/summary/needsReconnect/needsAccountSelection)
+  // for the Data Sources tab's connector table + Add data source grid. Used to carry two sibling
+  // boolean maps (providersNeedingReconnect/providersNeedingAccountSelection) for the old sync-bar
+  // pills; removed 2026-07-24 when those pills were replaced — every consumer now reads
+  // needsReconnect/needsAccountSelection straight off the matching connectionDetails entry instead.
   const[connectionDetails,setConnectionDetails]=useState([]);
   const refreshConnectedProviders=useCallback(()=>{
     if(!workspace?.id||!session?.access_token)return;
@@ -5826,8 +5827,6 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       .then(r=>r.ok?r.json():{connections:[]})
       .then(({connections})=>{
         setConnectedProviders(Object.fromEntries((connections||[]).map(c=>[c.provider,true])));
-        setProvidersNeedingReconnect(Object.fromEntries((connections||[]).filter(c=>c.needsReconnect).map(c=>[c.provider,true])));
-        setProvidersNeedingAccountSelection(Object.fromEntries((connections||[]).filter(c=>c.needsAccountSelection).map(c=>[c.provider,true])));
         setConnectionDetails(connections||[]);
       })
       .catch(()=>{}); // non-fatal — worst case the button just offers to (re)connect
@@ -7225,431 +7224,381 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       {/* ── UPLOAD ── (moved 2026-07-24 from view==="tagger" to its own view==="data" — see NAV) */}
       {step==="upload"&&view==="data"&&(
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"auto"}}>
-          {/* Platform sync */}
-          <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-              <SectionLabel T={T} style={{marginBottom:0}}>Pull live spend data</SectionLabel>
-              <div style={{position:"relative"}}>
-                <button onClick={()=>setSyncRangePickerOpen(o=>!o)}
-                  style={{display:"flex",alignItems:"center",gap:6,padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif"}}>
-                  <span style={{color:T.textMuted}}>Range:</span> {syncDateRange.start} → {syncDateRange.end}
-                </button>
-                {syncRangePickerOpen&&(
-                  <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:50,width:340,padding:"12px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
-                    <div style={{display:"flex",gap:14,marginBottom:12,borderBottom:`1px solid ${T.border}`}}>
-                      {["recommended","custom"].map(tab=>(
-                        <span key={tab} onClick={()=>setSyncRangeTab(tab)}
-                          style={{fontSize:12,fontWeight:600,paddingBottom:8,cursor:"pointer",color:syncRangeTab===tab?T.accent:T.textMuted,borderBottom:syncRangeTab===tab?`2px solid ${T.accent}`:"2px solid transparent",textTransform:"capitalize",fontFamily:"Inter,sans-serif"}}>{tab}</span>
+          {/* Shared inline forms — connect-panel / oauth-picker / Google Sheets panel. Rendered once
+              here (not per-subview) since both the Connections table's ⋯ menu AND the Add data
+              source grid's Connect actions below key off this same connectPanelKey/oauthPicker/
+              gsheetSpendOpen state, whichever subview happens to be active when they're triggered. */}
+          {(connectPanelKey||oauthPicker||gsheetSpendOpen)&&(
+            <div style={{padding:"14px 24px 0",background:T.surface,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
+              {connectPanelKey&&(()=>{
+                const pl=PLATFORMS.find(p=>p.key===connectPanelKey);
+                if(!pl)return null;
+                return(
+                  <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                      <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Connect {pl.label}</div>
+                      <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                      {(pl.connectFields||[]).map(f=>(
+                        <input key={f.key} value={connectValues[f.key]||""} placeholder={f.placeholder}
+                          onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
+                          style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
                       ))}
                     </div>
-                    {syncRangeTab==="recommended"?(
-                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                        {SYNC_RANGE_PRESETS.map(p=>(
-                          <button key={p.label} onClick={()=>applySyncRangePreset(p)}
-                            style={{padding:"5px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:T.surfaceEl,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif"}}>{p.label}</button>
+                    {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
+                    <Btn onClick={()=>saveConnection(pl.key)}
+                      disabled={connectSaving||(pl.connectFields||[]).some(f=>!f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim())}
+                      variant="primary" size="sm" T={T}>{connectSaving?"Connecting…":"Connect"}</Btn>
+                  </div>
+                );
+              })()}
+              {oauthPicker&&(
+                <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
+                    <span onClick={()=>setOauthPicker(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                  </div>
+                  {oauthPicker.accounts.length===0?(
+                    <div style={{fontSize:11,color:T.textMuted}}>Connected, but couldn't load your accounts. Try Sync — if it fails, reconnect.</div>
+                  ):(
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {oauthPicker.accounts.map(a=>(
+                        <button key={a.id} disabled={oauthPickerSaving} onClick={()=>finalizeOAuthAccount(oauthPicker.provider,a.id,a.customerId,a.name)}
+                          style={{textAlign:"left",padding:"7px 10px",borderRadius:6,
+                            border:`1px solid ${a.id===oauthPicker.selectedAccountId?T.accentBorder:T.border}`,
+                            background:a.id===oauthPicker.selectedAccountId?T.accentBg:T.surface,
+                            color:T.text,cursor:oauthPickerSaving?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:oauthPickerSaving?0.6:1}}>
+                          {a.name} <span style={{color:T.textMuted,fontSize:10}}>({a.id})</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {gsheetSpendOpen&&(
+                <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Pull spend from Google Sheets</div>
+                    <span onClick={()=>{setGsheetSpendOpen(false);setGsheetSpendError("");setGsheetSpendTabs(null);}} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                  </div>
+                  {gsheetSpendTabs?.length>1?(
+                    <div>
+                      <div style={{fontSize:11,color:T.textSub,marginBottom:6}}>Which tab has the spend data?</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
+                        {gsheetSpendTabs.map(t=>(
+                          <button key={t.sheetId} disabled={gsheetSpendFetching} onClick={()=>fetchGoogleSheetSpendTab(gsheetSpendSpreadsheetId,t.title)}
+                            style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsheetSpendFetching?"default":"pointer",fontSize:11,fontFamily:"Inter,sans-serif",opacity:gsheetSpendFetching?0.6:1}}>{t.title}</button>
                         ))}
                       </div>
-                    ):(
-                      <div>
-                        <div style={{fontSize:11,color:T.textMuted,marginBottom:8,fontFamily:"Inter,sans-serif"}}>Pick an exact start and end date — useful for redoing a specific past window a preset doesn't cover.</div>
-                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                          <input type="date" value={syncDateRange.start} onChange={e=>setSyncDateRange(p=>({...p,start:e.target.value}))}
-                            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
-                          <span style={{fontSize:11,color:T.textMuted}}>→</span>
-                          <input type="date" value={syncDateRange.end} max={new Date().toISOString().slice(0,10)}
-                            title="Can't pull spend data for dates that haven't happened yet"
-                            onChange={e=>{
-                              const todayStr=new Date().toISOString().slice(0,10);
-                              // Belt-and-suspenders alongside the max attribute above — max blocks
-                              // picking a future date via the calendar UI in every modern browser,
-                              // but a typed/pasted value can still bypass it depending on browser,
-                              // so clamp here too rather than relying on max alone.
-                              setSyncDateRange(p=>({...p,end:e.target.value>todayStr?todayStr:e.target.value}));
-                            }}
-                            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
+                    </div>
+                  ):(
+                    <>
+                      <input value={gsheetSpendUrl} onChange={e=>setGsheetSpendUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
+                        onKeyDown={e=>e.key==="Enter"&&!gsheetSpendFetching&&gsheetSpendUrl.trim()&&handleConnectGoogleSheetSpend()}
+                        style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:8}}/>
+                      <Btn onClick={handleConnectGoogleSheetSpend} disabled={gsheetSpendFetching||!gsheetSpendUrl.trim()} variant="primary" size="sm" T={T}>{gsheetSpendFetching?"Connecting…":"Connect"}</Btn>
+                    </>
+                  )}
+                  {gsheetSpendError&&(
+                    <div style={{marginTop:8,fontSize:11,color:T.danger}}>
+                      {gsheetSpendError}
+                      {gsheetSpendError.includes("access")&&(
+                        <>{" "}<span onClick={()=>{switchGoogleAccount();handleConnectGoogleSheetSpend();}} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different Google account</span></>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Hidden file inputs for the manual-import cards on the Add data source grid — kept
+              mounted here rather than per-card so fileRef/screenshotRef stay valid no matter which
+              card (or which subview) triggers them. */}
+          <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+          <input ref={screenshotRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleScreenshotFile(e.target.files[0])}/>
+
+          {dataSourcesSubView==="add"?(
+            /* ── ADD DATA SOURCE ── (2026-07-24, modeled on Funnel.io's "Connect data source" page
+                per Mo — he's planning to add more connectors over time and wants a dedicated,
+                searchable page for browsing/adding them, separate from the table that manages
+                what's already connected. CSV/Screenshot/Budget file are cards here too, alongside
+                the live connectors, per his call when scoping this.) */
+            <div style={{flex:1,padding:isMobile?16:"24px 32px",overflow:"auto"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,fontSize:12,fontFamily:"Inter,sans-serif"}}>
+                <span onClick={()=>setDataSourcesSubView("connections")} style={{color:T.accent,cursor:"pointer",fontWeight:600}}>Data Sources</span>
+                <span style={{color:T.textMuted}}>/</span>
+                <span style={{color:T.textSub}}>Add data source</span>
+              </div>
+              <h1 style={{fontSize:isMobile?20:24,fontWeight:700,color:T.text,letterSpacing:"-0.4px",margin:"6px 0 14px"}}>Add data source</h1>
+              <input value={dataSourceSearch} onChange={e=>setDataSourceSearch(e.target.value)} placeholder="Search data sources…"
+                style={{width:"100%",maxWidth:360,boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"8px 12px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:20}}/>
+              {(()=>{
+                const cards=[
+                  ...PLATFORMS.map(pl=>{
+                    const conn=pl.perWorkspaceAuth?connectionDetails.find(c=>c.provider===pl.key):null;
+                    const isConnected=!!conn;
+                    const warn=isConnected&&(conn.needsReconnect||conn.needsAccountSelection);
+                    let actionLabel,onAction;
+                    if(pl.isSheets){actionLabel="Connect now";onAction=()=>setGsheetSpendOpen(true);}
+                    else if(pl.status==="csv"){actionLabel="Upload CSV";onAction=()=>fileRef.current?.click();}
+                    else if(isConnected&&conn.needsReconnect){actionLabel="Reconnect";onAction=()=>startProviderOAuth(pl.key);}
+                    else if(isConnected&&conn.needsAccountSelection){actionLabel="Pick account";onAction=()=>openAccountPicker(pl.key);}
+                    else if(isConnected){actionLabel="✓ Connected";onAction=()=>setDataSourcesSubView("connections");}
+                    else if(pl.oauth){actionLabel="Connect now";onAction=()=>startProviderOAuth(pl.key);}
+                    else{actionLabel="Connect now";onAction=()=>openConnectPanel(pl.key);}
+                    return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,isConnected,warn,actionLabel,onAction};
+                  }),
+                  {key:"_csv",label:"Spend Data CSV",desc:"Any spend CSV — Google Ads, LinkedIn, Meta, Bing, Capterra exports all work",color:T.textMuted,actionLabel:"Upload CSV",onAction:()=>fileRef.current?.click()},
+                  {key:"_screenshot",label:"Screenshot",desc:"Share a screenshot of a spend report — AI reads it into data",color:T.textMuted,actionLabel:"Upload image",onAction:()=>!screenshotProcessing&&screenshotRef.current?.click()},
+                  {key:"_budget",label:"Budget file",desc:"Excel or CSV budget spreadsheet — AI maps your columns",color:T.textMuted,actionLabel:"Go to Budgets →",onAction:()=>setView("budget")},
+                ].filter(c=>c.label.toLowerCase().includes(dataSourceSearch.trim().toLowerCase()));
+                return(
+                  <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(230px,1fr))",gap:14}}>
+                    {cards.map(c=>{
+                      // CSV/Screenshot cards double as drop targets — same handleDrop/
+                      // handleScreenshotDrop the old upload zone used, so dragging a file straight
+                      // onto the card works exactly like clicking it and picking one.
+                      const isDropTarget=c.key==="_csv"||c.key==="_screenshot";
+                      const dropProps=isDropTarget?{
+                        onDragOver:e=>{e.preventDefault();setDragOver(true);},
+                        onDragLeave:()=>setDragOver(false),
+                        onDrop:c.key==="_csv"?handleDrop:handleScreenshotDrop,
+                      }:{};
+                      return(
+                      <div key={c.key} onClick={c.onAction} className="bhq-row" {...dropProps}
+                        style={{border:`1px solid ${isDropTarget&&dragOver?T.accent:T.border}`,borderRadius:10,background:isDropTarget&&dragOver?T.accentBg:T.surface,padding:"16px",cursor:"pointer",transition:"all 0.15s"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                          <span style={{width:10,height:10,borderRadius:"50%",background:c.color,flexShrink:0}}/>
+                          <span style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>{c.label}</span>
+                          {c.isConnected&&!c.warn&&<Pill color={T.success} bg={T.successBg} border={T.successBorder} style={{fontSize:9}}>Connected</Pill>}
+                          {c.warn&&<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder} style={{fontSize:9}}>Needs attention</Pill>}
                         </div>
-                        <Btn onClick={()=>setSyncRangePickerOpen(false)} variant="primary" size="sm" T={T} style={{marginTop:10}}>Done</Btn>
+                        <div style={{fontSize:12,color:T.textMuted,lineHeight:1.5,marginBottom:c.key==="_screenshot"&&screenshotError?6:14,minHeight:32}}>{c.desc}</div>
+                        {c.key==="_screenshot"&&screenshotError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{screenshotError}</div>}
+                        <div style={{fontSize:12,fontWeight:600,color:T.accent}}>{c.key==="_screenshot"&&screenshotProcessing?"Reading screenshot…":`${c.actionLabel} →`}</div>
+                      </div>
+                      );
+                    })}
+                    {cards.length===0&&(
+                      <div style={{gridColumn:"1/-1",fontSize:13,color:T.textMuted,fontFamily:"Inter,sans-serif",padding:"20px 0"}}>No data sources match "{dataSourceSearch}".</div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          ):(
+            /* ── CONNECTIONS ── (default landing — table of already-connected sources only; browsing/
+                adding new ones now happens on the "add" subview above) */
+            <div style={{padding:"16px 24px",background:T.surface,flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:10}}>
+                <SectionLabel T={T} style={{marginBottom:0}}>Connections</SectionLabel>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{position:"relative"}}>
+                    <button onClick={()=>setSyncRangePickerOpen(o=>!o)}
+                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif"}}>
+                      <span style={{color:T.textMuted}}>Range:</span> {syncDateRange.start} → {syncDateRange.end}
+                    </button>
+                    {syncRangePickerOpen&&(
+                      <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:50,width:340,padding:"12px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
+                        <div style={{display:"flex",gap:14,marginBottom:12,borderBottom:`1px solid ${T.border}`}}>
+                          {["recommended","custom"].map(tab=>(
+                            <span key={tab} onClick={()=>setSyncRangeTab(tab)}
+                              style={{fontSize:12,fontWeight:600,paddingBottom:8,cursor:"pointer",color:syncRangeTab===tab?T.accent:T.textMuted,borderBottom:syncRangeTab===tab?`2px solid ${T.accent}`:"2px solid transparent",textTransform:"capitalize",fontFamily:"Inter,sans-serif"}}>{tab}</span>
+                          ))}
+                        </div>
+                        {syncRangeTab==="recommended"?(
+                          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                            {SYNC_RANGE_PRESETS.map(p=>(
+                              <button key={p.label} onClick={()=>applySyncRangePreset(p)}
+                                style={{padding:"5px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:T.surfaceEl,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif"}}>{p.label}</button>
+                            ))}
+                          </div>
+                        ):(
+                          <div>
+                            <div style={{fontSize:11,color:T.textMuted,marginBottom:8,fontFamily:"Inter,sans-serif"}}>Pick an exact start and end date — useful for redoing a specific past window a preset doesn't cover.</div>
+                            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                              <input type="date" value={syncDateRange.start} onChange={e=>setSyncDateRange(p=>({...p,start:e.target.value}))}
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
+                              <span style={{fontSize:11,color:T.textMuted}}>→</span>
+                              <input type="date" value={syncDateRange.end} max={new Date().toISOString().slice(0,10)}
+                                title="Can't pull spend data for dates that haven't happened yet"
+                                onChange={e=>{
+                                  const todayStr=new Date().toISOString().slice(0,10);
+                                  setSyncDateRange(p=>({...p,end:e.target.value>todayStr?todayStr:e.target.value}));
+                                }}
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
+                            </div>
+                            <Btn onClick={()=>setSyncRangePickerOpen(false)} variant="primary" size="sm" T={T} style={{marginTop:10}}>Done</Btn>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
+                  <Btn onClick={()=>setDataSourcesSubView("add")} variant="primary" size="sm" T={T}>
+                    <Icon name="plus" size={12} color={T.onAccent}/> Add data source
+                  </Btn>
+                </div>
               </div>
-            </div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              {PLATFORMS.map(pl=>{
-                const s=syncState[pl.key]||"idle";
-                const loading=s==="loading";
-                const done=s==="done";
-                const err=s.startsWith("error:");
-                const live=pl.status==="live";
-                const needsConnect=pl.perWorkspaceAuth&&!connectedProviders[pl.key];
-                // Connected, but its credential is stale/going stale with no way to silently
-                // refresh (LinkedIn only, for now — see providersNeedingReconnect's doc comment).
-                const needsReconnect=!needsConnect&&pl.perWorkspaceAuth&&!!providersNeedingReconnect[pl.key];
-                // Connected with a perfectly valid token, but no ad account was ever saved onto it
-                // (see providersNeedingAccountSelection's doc comment) — fixed by reopening the
-                // account picker, not by redoing the OAuth consent screen.
-                const needsAccountSelection=!needsConnect&&!needsReconnect&&pl.perWorkspaceAuth&&!!providersNeedingAccountSelection[pl.key];
-                // "Pause import" (see the connector table below) blocks manual syncs too, not just
-                // the cron heartbeat — see schema.sql's doc comment on the paused column.
-                const isPaused=pl.perWorkspaceAuth&&!!connectionDetails.find(c=>c.provider===pl.key)?.paused;
-                const active=live||pl.isSheets; // "active" here just means "not a plain CSV placeholder"
-                const handleClick=()=>{
-                  if(isPaused)return;
-                  if(pl.isSheets){setGsheetSpendOpen(o=>!o);return;}
-                  if((needsConnect||needsReconnect)&&pl.oauth){startProviderOAuth(pl.key);return;}
-                  if(needsAccountSelection&&pl.oauth){openAccountPicker(pl.key);return;}
-                  if(needsConnect){openConnectPanel(pl.key);return;}
-                  if(live&&!loading)syncPlatform(pl.key);
-                };
-                const clickable=!isPaused&&(pl.isSheets||needsConnect||needsReconnect||needsAccountSelection||(live&&!loading));
-                const statusText=isPaused?"paused":pl.isSheets?"pull":needsReconnect?"reconnect":needsConnect?"connect":needsAccountSelection?"pick account":live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV";
+              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:620,marginBottom:10}}>
+                Every ad account this workspace pulls live spend from — see who connected each one, when it last imported, and manage it from the ⋯ menu.
+              </div>
+              {Object.entries(syncState).filter(([,s])=>s.startsWith("error:")).map(([k,s])=>(
+                <div key={k} style={{marginBottom:6,fontSize:11,color:T.danger}}>{k}: {s.replace("error:","")}</div>
+              ))}
+              {(()=>{
+                const GRID="150px minmax(140px,1.4fr) minmax(140px,1fr) 130px 100px 92px 92px 32px";
+                const connectedPlatforms=PLATFORMS.filter(pl=>pl.perWorkspaceAuth&&connectionDetails.find(c=>c.provider===pl.key));
+                if(connectedPlatforms.length===0){
+                  return(
+                    <div style={{border:`1px dashed ${T.borderStrong}`,borderRadius:10,padding:"28px 20px",textAlign:"center"}}>
+                      <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",marginBottom:4}}>No data sources connected yet</div>
+                      <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif",marginBottom:14}}>Connect LinkedIn, Bing, Funnel.io and more — or upload a CSV/screenshot directly.</div>
+                      <Btn onClick={()=>setDataSourcesSubView("add")} variant="primary" size="sm" T={T}>+ Add data source</Btn>
+                    </div>
+                  );
+                }
                 return(
-                  <button key={pl.key} onClick={handleClick}
-                    title={isPaused?`${pl.label} is paused — resume it below to sync again`:pl.isSheets?"Pull spend from a Google Sheet":needsReconnect?`Your ${pl.label} connection needs to be refreshed`:needsConnect?`Connect your ${pl.label} account`:needsAccountSelection?`Pick which ${pl.label} account to sync`:live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
-                    style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,
-                      border:`1px solid ${(needsReconnect||needsAccountSelection)?T.warningBorder:active?(done?T.successBorder:err?T.dangerBorder:T.accentBorder):T.border}`,
-                      background:(needsReconnect||needsAccountSelection)?T.warningBg:active?(done?T.successBg:err?T.dangerBg:T.accentBg):T.surfaceEl,
-                      cursor:clickable?"pointer":"default",opacity:isPaused?0.45:active?1:0.55,transition:"all 0.15s"}}>
-                    <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,
-                      background:(needsReconnect||needsAccountSelection)?T.warning:active?(done?T.success:err?T.danger:pl.color):T.textMuted,
-                      ...(loading?{border:`2px solid rgba(0,0,0,0.1)`,borderTopColor:pl.color,background:"transparent",animation:"spin 0.7s linear infinite"}:{})}}/>
-                    <span style={{fontSize:12,fontWeight:600,color:active?T.text:T.textMuted,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
-                    <span style={{fontSize:10,color:(needsReconnect||needsAccountSelection)?T.warning:active?(done?T.success:err?T.danger:T.accent):T.textMuted,fontFamily:"Inter,sans-serif"}}>
-                      {statusText}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            {Object.entries(syncState).filter(([,s])=>s.startsWith("error:")).map(([k,s])=>(
-              <div key={k} style={{marginTop:6,fontSize:11,color:T.danger}}>{k}: {s.replace("error:","")}</div>
-            ))}
-
-            {/* Connect-your-account panel — Funnel.io/Supermetrics, generic over whatever
-                connectFields that platform's meta declares. Nothing is sent anywhere until Connect
-                is clicked; the credential goes straight to /api/workspaces/[id]/connections and is
-                never echoed back (see that route). */}
-            {connectPanelKey&&(()=>{
-              const pl=PLATFORMS.find(p=>p.key===connectPanelKey);
-              if(!pl)return null;
-              return(
-                <div style={{marginTop:10,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Connect {pl.label}</div>
-                    <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
-                  </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-                    {(pl.connectFields||[]).map(f=>(
-                      <input key={f.key} value={connectValues[f.key]||""} placeholder={f.placeholder}
-                        onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
-                        style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
-                    ))}
-                  </div>
-                  {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
-                  <Btn onClick={()=>saveConnection(pl.key)}
-                    disabled={connectSaving||(pl.connectFields||[]).some(f=>!f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim())}
-                    variant="primary" size="sm" T={T}>{connectSaving?"Connecting…":"Connect"}</Btn>
-                </div>
-              );
-            })()}
-
-            {/* OAuth ad-account picker — only appears when the just-connected LinkedIn/Bing token
-                can see more than one account (see api/oauth/{provider}/callback.js + accounts.js). */}
-            {oauthPicker&&(
-              <div style={{marginTop:10,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
-                  <span onClick={()=>setOauthPicker(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
-                </div>
-                {oauthPicker.accounts.length===0?(
-                  <div style={{fontSize:11,color:T.textMuted}}>Connected, but couldn't load your accounts. Try Sync — if it fails, reconnect.</div>
-                ):(
-                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {oauthPicker.accounts.map(a=>(
-                      <button key={a.id} disabled={oauthPickerSaving} onClick={()=>finalizeOAuthAccount(oauthPicker.provider,a.id,a.customerId,a.name)}
-                        style={{textAlign:"left",padding:"7px 10px",borderRadius:6,
-                          border:`1px solid ${a.id===oauthPicker.selectedAccountId?T.accentBorder:T.border}`,
-                          background:a.id===oauthPicker.selectedAccountId?T.accentBg:T.surface,
-                          color:T.text,cursor:oauthPickerSaving?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:oauthPickerSaving?0.6:1}}>
-                        {a.name} <span style={{color:T.textMuted,fontSize:10}}>({a.id})</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Google Sheets — separate shape from the connect panel above: no stored credential,
-                just a one-shot client-side pull (see lib/googleSheets.js) that lands on the same
-                header/column-mapping review step a CSV upload does. */}
-            {gsheetSpendOpen&&(
-              <div style={{marginTop:10,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Pull spend from Google Sheets</div>
-                  <span onClick={()=>{setGsheetSpendOpen(false);setGsheetSpendError("");setGsheetSpendTabs(null);}} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
-                </div>
-                {gsheetSpendTabs?.length>1?(
-                  <div>
-                    <div style={{fontSize:11,color:T.textSub,marginBottom:6}}>Which tab has the spend data?</div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-                      {gsheetSpendTabs.map(t=>(
-                        <button key={t.sheetId} disabled={gsheetSpendFetching} onClick={()=>fetchGoogleSheetSpendTab(gsheetSpendSpreadsheetId,t.title)}
-                          style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsheetSpendFetching?"default":"pointer",fontSize:11,fontFamily:"Inter,sans-serif",opacity:gsheetSpendFetching?0.6:1}}>{t.title}</button>
+                <div style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
+                  {!isMobile&&(
+                    <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"7px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
+                      {["Connector","Data source name","Credentials","Status","Connected","Import start","Import end",""].map(h=>(
+                        <SectionLabel key={h} T={T} style={{marginBottom:0}}>{h}</SectionLabel>
                       ))}
                     </div>
-                  </div>
-                ):(
-                  <>
-                    <input value={gsheetSpendUrl} onChange={e=>setGsheetSpendUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
-                      onKeyDown={e=>e.key==="Enter"&&!gsheetSpendFetching&&gsheetSpendUrl.trim()&&handleConnectGoogleSheetSpend()}
-                      style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:8}}/>
-                    <Btn onClick={handleConnectGoogleSheetSpend} disabled={gsheetSpendFetching||!gsheetSpendUrl.trim()} variant="primary" size="sm" T={T}>{gsheetSpendFetching?"Connecting…":"Connect"}</Btn>
-                  </>
-                )}
-                {gsheetSpendError&&(
-                  <div style={{marginTop:8,fontSize:11,color:T.danger}}>
-                    {gsheetSpendError}
-                    {gsheetSpendError.includes("access")&&(
-                      <>{" "}<span onClick={()=>{switchGoogleAccount();handleConnectGoogleSheetSpend();}} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different Google account</span></>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Connector table (2026-07-24, rebuilt to match Funnel.io's Data Sources table per Mo) —
-              one row per perWorkspaceAuth platform, columns: Connector / Data source name /
-              Credentials / Status / Date connected / Import start date / Import end date / a "⋯"
-              actions menu (Switch account, Reconnect, Pause/Resume import, Don't use this data/Use
-              this data, Disconnect). Desktop uses a real grid so every column lines up; mobile falls
-              back to a stacked card since 8 columns don't fit a narrow screen.
-                - "Credentials" shows the BudgetHQ teammate who connected it (connectedByEmail) — the
-                  real third-party login email (LinkedIn/Google account, Funnel API key owner etc.)
-                  isn't captured anywhere today; would need new OAuth scopes per connector to change.
-                - "Import start/end date" are read-only, computed from importDateRangeByProvider
-                  (earliest/latest date among rows this connector actually pulled) rather than an
-                  editable field — see that useMemo's doc comment for the caveat about rows synced
-                  before this shipped.
-              The connect-panel/oauth-picker forms in the sync bar above already handle Connect/
-              Reconnect/Switch account clicks from this table too (both key off the same
-              connectPanelKey/oauthPicker state), so there's no second copy of those forms here. */}
-          <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
-            <SectionLabel T={T} style={{marginBottom:4}}>Connections</SectionLabel>
-            <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:620,marginBottom:10}}>
-              Every ad account this workspace pulls live spend from — see who connected each one, when it last imported, and manage it from the ⋯ menu.
-            </div>
-            {(()=>{
-              const GRID="150px minmax(140px,1.4fr) minmax(140px,1fr) 130px 100px 92px 92px 32px";
-              return(
-              <div style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
-                {!isMobile&&(
-                  <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"7px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
-                    {["Connector","Data source name","Credentials","Status","Connected","Import start","Import end",""].map(h=>(
-                      <SectionLabel key={h} T={T} style={{marginBottom:0}}>{h}</SectionLabel>
-                    ))}
-                  </div>
-                )}
-                {PLATFORMS.filter(pl=>pl.perWorkspaceAuth).map((pl,i)=>{
-                  const conn=connectionDetails.find(c=>c.provider===pl.key);
-                  const connectedByEmail=conn?.connectedBy?(teamMembers.find(m=>m.userId===conn.connectedBy)?.email||conn.connectedBy):null;
-                  const summary=conn?.summary||{};
-                  const summaryText=!conn?"—":
-                    pl.oauth?(summary.accountName?`${summary.accountName} (${summary.accountId||"—"})`:(summary.accountId||"No account selected yet")):
-                    pl.key==="funnel"?(summary.accountId?`Account ${summary.accountId}${summary.projectId?` · Project ${summary.projectId}`:""}`:"—"):
-                    pl.key==="supermetrics"?(summary.dsId?`${summary.dsId}${summary.dsAccounts?` · ${summary.dsAccounts}`:""}`:"—"):
-                    pl.key==="capterra"?(summary.products?.length?summary.products.join(", "):"—"):
-                    "—";
-                  const statusLabel=!conn?"Not connected":conn.needsReconnect?"Reconnect needed":conn.needsAccountSelection?"Pick account":conn.paused?"Paused":"Connected";
-                  const warn=conn&&(conn.needsReconnect||conn.needsAccountSelection);
-                  const statusColor=!conn?T.textMuted:warn?T.warning:conn.paused?T.textMuted:T.success;
-                  const statusBg=!conn?T.surfaceEl:warn?T.warningBg:conn.paused?T.surfaceEl:T.successBg;
-                  const statusBorder=!conn?T.border:warn?T.warningBorder:conn.paused?T.border:T.successBorder;
-                  const importRange=importDateRangeByProvider[pl.key];
-                  const fmtShort=d=>d?new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—";
-                  const menuOpen=connActionsMenuProvider===pl.key;
-                  const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key;
-                  const cell=(content,extra)=><div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
-                  const actionsMenu=conn&&menuOpen&&connActionsMenuAnchorRect&&createPortal(
-                    <>
-                      <div onClick={closeConnActionsMenu} style={{position:"fixed",inset:0,zIndex:999}}/>
-                      <div style={{position:"fixed",top:connActionsMenuAnchorRect.bottom+6,left:Math.max(8,connActionsMenuAnchorRect.right-220),zIndex:1000,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                        {conn.needsAccountSelection&&(
-                          <button onClick={()=>{closeConnActionsMenu();openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
-                        )}
-                        {conn.needsReconnect&&(
-                          <button onClick={()=>{closeConnActionsMenu();startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
-                        )}
-                        {!conn.needsAccountSelection&&!conn.needsReconnect&&(
-                          <button onClick={()=>{closeConnActionsMenu();pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
-                        )}
-                        {!warn&&(
-                          <div style={{padding:"6px 10px 4px"}} onClick={e=>e.stopPropagation()}>
-                            <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,marginBottom:5}}>Sync schedule</div>
-                            <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                              <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11,padding:"4px 7px"}}
-                                onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;v==="manual"
-                                  ?updateSyncSchedule(pl.key,{syncMode:"manual"})
-                                  :updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:conn.rollingWindowDays||14});}}>
-                                <option value="manual">Manual only</option>
-                                <option value="daily">Daily</option>
-                                <option value="weekly">Weekly</option>
-                              </Sel>
-                              {conn.syncMode==="rolling"&&(
-                                <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11,padding:"4px 7px"}}
-                                  onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:conn.syncFrequency,rollingWindowDays:Number(v)});}}>
-                                  <option value="7">Last 7 days</option>
-                                  <option value="14">Last 14 days</option>
-                                  <option value="30">Last 30 days</option>
-                                  <option value="60">Last 60 days</option>
-                                  <option value="90">Last 90 days</option>
+                  )}
+                  {connectedPlatforms.map((pl,i)=>{
+                    const conn=connectionDetails.find(c=>c.provider===pl.key);
+                    const connectedByEmail=conn.connectedBy?(teamMembers.find(m=>m.userId===conn.connectedBy)?.email||conn.connectedBy):null;
+                    const summary=conn.summary||{};
+                    const summaryText=
+                      pl.oauth?(summary.accountName?`${summary.accountName} (${summary.accountId||"—"})`:(summary.accountId||"No account selected yet")):
+                      pl.key==="funnel"?(summary.accountId?`Account ${summary.accountId}${summary.projectId?` · Project ${summary.projectId}`:""}`:"—"):
+                      pl.key==="supermetrics"?(summary.dsId?`${summary.dsId}${summary.dsAccounts?` · ${summary.dsAccounts}`:""}`:"—"):
+                      pl.key==="capterra"?(summary.products?.length?summary.products.join(", "):"—"):
+                      "—";
+                    const statusLabel=conn.needsReconnect?"Reconnect needed":conn.needsAccountSelection?"Pick account":conn.paused?"Paused":"Connected";
+                    const warn=conn.needsReconnect||conn.needsAccountSelection;
+                    const statusColor=warn?T.warning:conn.paused?T.textMuted:T.success;
+                    const statusBg=warn?T.warningBg:conn.paused?T.surfaceEl:T.successBg;
+                    const statusBorder=warn?T.warningBorder:conn.paused?T.border:T.successBorder;
+                    const importRange=importDateRangeByProvider[pl.key];
+                    const fmtShort=d=>d?new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—";
+                    const menuOpen=connActionsMenuProvider===pl.key;
+                    const syncing=(syncState[pl.key]||"idle")==="loading";
+                    const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key||syncing;
+                    const cell=(content,extra)=><div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
+                    const actionsMenu=menuOpen&&connActionsMenuAnchorRect&&createPortal(
+                      <>
+                        <div onClick={closeConnActionsMenu} style={{position:"fixed",inset:0,zIndex:999}}/>
+                        <div style={{position:"fixed",top:connActionsMenuAnchorRect.bottom+6,left:Math.max(8,connActionsMenuAnchorRect.right-220),zIndex:1000,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                          {!conn.paused&&!conn.needsReconnect&&!conn.needsAccountSelection&&(
+                            <button onClick={()=>{closeConnActionsMenu();syncPlatform(pl.key);}} disabled={!canEdit||syncing} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!syncing?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!syncing?1:0.5}}>{syncing?"Syncing…":"Sync now"}</button>
+                          )}
+                          {conn.needsAccountSelection&&(
+                            <button onClick={()=>{closeConnActionsMenu();openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
+                          )}
+                          {conn.needsReconnect&&(
+                            <button onClick={()=>{closeConnActionsMenu();startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
+                          )}
+                          {!conn.needsAccountSelection&&!conn.needsReconnect&&(
+                            <button onClick={()=>{closeConnActionsMenu();pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
+                          )}
+                          {!warn&&(
+                            <div style={{padding:"6px 10px 4px"}} onClick={e=>e.stopPropagation()}>
+                              <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,marginBottom:5}}>Sync schedule</div>
+                              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                                <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                                  onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;v==="manual"
+                                    ?updateSyncSchedule(pl.key,{syncMode:"manual"})
+                                    :updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:conn.rollingWindowDays||14});}}>
+                                  <option value="manual">Manual only</option>
+                                  <option value="daily">Daily</option>
+                                  <option value="weekly">Weekly</option>
                                 </Sel>
+                                {conn.syncMode==="rolling"&&(
+                                  <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                                    onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:conn.syncFrequency,rollingWindowDays:Number(v)});}}>
+                                    <option value="7">Last 7 days</option>
+                                    <option value="14">Last 14 days</option>
+                                    <option value="30">Last 30 days</option>
+                                    <option value="60">Last 60 days</option>
+                                    <option value="90">Last 90 days</option>
+                                  </Sel>
+                                )}
+                              </div>
+                              {conn.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
+                                <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:5}}>
+                                  {conn.lastAutoSyncStatus==="error"
+                                    ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
+                                    :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
+                                </div>
                               )}
                             </div>
-                            {conn.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
-                              <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:5}}>
-                                {conn.lastAutoSyncStatus==="error"
-                                  ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
-                                  :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                        <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
-                        <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in BudgetHQ":"Don't use this data in BudgetHQ"}</button>
-                        <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                        <button onClick={()=>{closeConnActionsMenu();disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
-                      </div>
-                    </>,
-                    document.body
-                  );
-                  const dotsButton=(
-                    <div style={{position:"relative",display:"flex",justifyContent:"flex-end"}}>
-                      <button onClick={e=>{
-                          if(menuOpen){closeConnActionsMenu();return;}
-                          setConnActionsMenuAnchorRect(e.currentTarget.getBoundingClientRect());
-                          setConnActionsMenuProvider(pl.key);
-                        }} title="Actions" disabled={saving}
-                        style={{width:24,height:24,borderRadius:6,background:menuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:saving?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.5:1,fontSize:13,color:T.textSub,fontFamily:"Inter,sans-serif",lineHeight:1}}>⋯</button>
-                      {actionsMenu}
-                    </div>
-                  );
-                  if(isMobile){
-                    return(
-                      <div key={pl.key} style={{padding:"11px 10px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
-                          <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
-                            <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
-                            <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
-                            <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
-                          </div>
-                          {conn?dotsButton:(
-                            <Btn onClick={()=>pl.oauth?startProviderOAuth(pl.key):openConnectPanel(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit}>Connect</Btn>
                           )}
+                          <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
+                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
+                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in BudgetHQ":"Don't use this data in BudgetHQ"}</button>
+                          <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
+                          <button onClick={()=>{closeConnActionsMenu();disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
                         </div>
-                        <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif"}}>{summaryText}</div>
-                        {conn&&(
+                      </>,
+                      document.body
+                    );
+                    const dotsButton=(
+                      <div style={{position:"relative",display:"flex",justifyContent:"flex-end"}}>
+                        <button onClick={e=>{
+                            if(menuOpen){closeConnActionsMenu();return;}
+                            setConnActionsMenuAnchorRect(e.currentTarget.getBoundingClientRect());
+                            setConnActionsMenuProvider(pl.key);
+                          }} title="Actions" disabled={saving}
+                          style={{width:24,height:24,borderRadius:6,background:menuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:saving?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.5:1,fontSize:13,color:T.textSub,fontFamily:"Inter,sans-serif",lineHeight:1}}>⋯</button>
+                        {actionsMenu}
+                      </div>
+                    );
+                    if(isMobile){
+                      return(
+                        <div key={pl.key} style={{padding:"11px 10px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
+                            <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                              <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
+                              <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
+                              <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
+                            </div>
+                            {dotsButton}
+                          </div>
+                          <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif"}}>{summaryText}</div>
                           <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:3}}>
                             {connectedByEmail||"—"} · connected {fmtShort(conn.connectedAt)} · imported {fmtShort(importRange?.start)}–{fmtShort(importRange?.end)}
                           </div>
-                        )}
+                        </div>
+                      );
+                    }
+                    return(
+                      <div key={pl.key} style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 10px",alignItems:"center",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                          <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
+                          <span style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
+                        </div>
+                        {cell(summaryText,{color:T.text})}
+                        {cell(connectedByEmail||"—")}
+                        <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                          <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
+                          {conn.excludedFromData&&<Pill color={T.textMuted} bg={T.surfaceEl} border={T.border} style={{fontSize:10}}>Hidden</Pill>}
+                        </div>
+                        {cell(fmtShort(conn.connectedAt))}
+                        {cell(fmtShort(importRange?.start))}
+                        {cell(fmtShort(importRange?.end))}
+                        {dotsButton}
                       </div>
                     );
-                  }
-                  return(
-                    <div key={pl.key} style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 10px",alignItems:"center",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
-                        <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
-                        <span style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
-                      </div>
-                      {cell(summaryText,{color:T.text})}
-                      {cell(connectedByEmail||"—")}
-                      <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-                        <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
-                        {conn?.excludedFromData&&<Pill color={T.textMuted} bg={T.surfaceEl} border={T.border} style={{fontSize:10}}>Hidden</Pill>}
-                      </div>
-                      {cell(fmtShort(conn?.connectedAt))}
-                      {cell(fmtShort(importRange?.start))}
-                      {cell(fmtShort(importRange?.end))}
-                      {conn?dotsButton:(
-                        <div style={{display:"flex",justifyContent:"flex-end"}}>
-                          <Btn onClick={()=>pl.oauth?startProviderOAuth(pl.key):openConnectPanel(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Connect</Btn>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              );
-            })()}
-          </div>
-
-          {/* Upload zone */}
-          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-          <div style={{width:"100%",maxWidth:560}}>
-
-            {/* Header with cancel */}
-            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:28}}>
-              <div>
-                <h1 style={{fontSize:isMobile?22:26,fontWeight:700,color:T.text,letterSpacing:"-0.5px",marginBottom:6}}>Add data</h1>
-                <p style={{fontSize:14,color:T.textSub,lineHeight:1.65}}>Import spend data to tag campaigns, or load a budget file to set monthly allocations.</p>
-              </div>
-              {/* Was a plain, low-contrast <button> (grey-on-grey, no real button weight) — easy to
-                  miss, per feedback that it was "hard to see" and didn't read as a way back to
-                  existing Tagger data. Now the same shared Btn used everywhere else (real border/
-                  size), and says exactly where it goes instead of just "Cancel" when there's data
-                  to go back to. */}
-              {(mergedNormRows.length>0||view)&&(
-                <Btn onClick={()=>{if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setView("dashboard");setStep("upload");}}}
-                  variant="ghost" size="md" T={T} style={{flexShrink:0,marginLeft:16,marginTop:2}}>
-                  ← {mergedNormRows.length>0?"Back to Tagger data":"Cancel"}
-                </Btn>
-              )}
+                  })}
+                </div>
+                );
+              })()}
             </div>
-
-            {/* Three import options */}
-            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:16,marginBottom:24}}>
-              <PixelPanel T={T} contentStyle={{background:T.surface,padding:"16px"}}>
-                <div style={{marginBottom:8}}><Icon name="chart" size={22} color={T.text}/></div>
-                <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Spend data</div>
-                <div style={{fontSize:12,color:T.textMuted,marginBottom:12,lineHeight:1.5}}>CSV from Google Ads, LinkedIn, Meta, Bing or Capterra</div>
-                <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop} onClick={()=>fileRef.current?.click()}
-                  style={{border:`1.5px dashed ${dragOver?T.accent:T.borderStrong}`,borderRadius:10,padding:"14px",textAlign:"center",cursor:"pointer",background:dragOver?T.accentBg:"transparent",transition:"all 0.15s"}}>
-                  <div style={{fontSize:12,fontWeight:600,color:T.accent}}>Drop CSV or click to browse</div>
-                  <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
-                </div>
-              </PixelPanel>
-              <PixelPanel T={T} contentStyle={{background:T.surface,padding:"16px"}}>
-                <div style={{marginBottom:8}}><Icon name="sparkle" size={22} color={T.text}/></div>
-                <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Screenshot</div>
-                <div style={{fontSize:12,color:T.textMuted,marginBottom:12,lineHeight:1.5}}>Share a screenshot of a spend report — AI reads it into data</div>
-                <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleScreenshotDrop} onClick={()=>!screenshotProcessing&&screenshotRef.current?.click()}
-                  style={{border:`1.5px dashed ${dragOver?T.accent:T.borderStrong}`,borderRadius:10,padding:"14px",textAlign:"center",cursor:screenshotProcessing?"default":"pointer",background:dragOver?T.accentBg:"transparent",transition:"all 0.15s"}}>
-                  <div style={{fontSize:12,fontWeight:600,color:T.accent}}>{screenshotProcessing?"Reading screenshot…":"Drop image or click to browse"}</div>
-                  <input ref={screenshotRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleScreenshotFile(e.target.files[0])}/>
-                </div>
-                {screenshotError&&<div style={{marginTop:8,fontSize:11,color:T.danger}}>{screenshotError}</div>}
-              </PixelPanel>
-              <PixelPanel T={T} onClick={()=>{setView("budget");}} contentStyle={{background:T.surface,padding:"16px",cursor:"pointer"}}>
-                <div style={{marginBottom:8}}><Icon name="wallet" size={22} color={T.text}/></div>
-                <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Budget file</div>
-                <div style={{fontSize:12,color:T.textMuted,marginBottom:12,lineHeight:1.5}}>Excel or CSV budget spreadsheet — AI maps your columns</div>
-                <div style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:10,padding:"14px",textAlign:"center",background:"transparent"}}>
-                  <div style={{fontSize:12,fontWeight:600,color:T.accent}}>Go to Budgets →</div>
-                </div>
-              </PixelPanel>
-            </div>
-
-            <PixelPanel T={T} contentStyle={{background:T.surface,padding:"10px 14px"}}>
-              <SectionLabel T={T} style={{marginBottom:8}}>Supported sources</SectionLabel>
-              <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                {["Google Ads","LinkedIn","Meta Ads","Microsoft Ads","Capterra","Funnel.io","Supermetrics","Google Sheets","Excel Online"].map(p=><span key={p} style={{fontSize:11,background:T.surfaceEl,color:T.textSub,padding:"3px 8px",borderRadius:5,fontWeight:500,border:`1px solid ${T.border}`}}>{p}</span>)}
-              </div>
-            </PixelPanel>
-          </div>
-          </div>
+          )}
         </div>
       )}
 
