@@ -2948,12 +2948,12 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
           {/* Data Source Health, Data freshness, Follow-ups, Quick Actions */}
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
             {/* Modeled on Funnel.io's "Data Source Health" card — same connectionDetails already
-                powering Settings' Connections table, just summarized here so a problem is visible
-                before it silently breaks a sync. */}
+                powering the Data Sources tab's connection-details table, just summarized here so a
+                problem is visible before it silently breaks a sync. */}
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                 <div style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Data source health</div>
-                <span onClick={()=>onNavigate("settings")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:"Inter,sans-serif"}}>Go to Connections →</span>
+                <span onClick={()=>onNavigate("data")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:"Inter,sans-serif"}}>Go to Data Sources →</span>
               </div>
               {!connectionDetails||connectionDetails.length===0?(
                 <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>No connectors set up yet.</div>
@@ -2964,7 +2964,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
                   {dataSourceIssues.map(c=>{
                     const reason=c.needsReconnect?"Needs reconnect":c.needsAccountSelection?"Needs account selection":"Last sync failed";
                     return(
-                      <div key={c.provider} onClick={()=>onNavigate("settings")} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 6px",borderRadius:6,cursor:"pointer",gap:10}}>
+                      <div key={c.provider} onClick={()=>onNavigate("data")} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 6px",borderRadius:6,cursor:"pointer",gap:10}}>
                         <span style={{fontSize:12,color:T.text,fontFamily:"Inter,sans-serif",fontWeight:500,textTransform:"capitalize"}}>{c.provider}</span>
                         <Pill color={T.warning} bg={T.warning+"14"} border={T.warning+"55"}>{reason}</Pill>
                       </div>
@@ -3013,7 +3013,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
               <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:"Inter,sans-serif"}}>Quick actions</div>
               <div style={{display:"flex",flexDirection:"column"}}>
-                <DashQuickAction T={T} label="Connect data sources" onClick={()=>onNavigate("settings")}/>
+                <DashQuickAction T={T} label="Connect data sources" onClick={()=>onNavigate("data")}/>
                 <DashQuickAction T={T} label="Explore your data" onClick={()=>onNavigate("tagger")}/>
                 <DashQuickAction T={T} label="Add a new user to your workspace" onClick={()=>onNavigate("settings")}/>
                 {hasData?(
@@ -7317,6 +7317,106 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             )}
           </div>
 
+          {/* Connection details (moved here 2026-07-24 from Settings — phase 2 of the Data Sources
+              redesign per Mo). Same rows/handlers Settings' Connections card used to render
+              (startProviderOAuth/openConnectPanel/openAccountPicker/disconnectConnection/
+              updateSyncSchedule) — just relocated, not rebuilt. The connect-panel and oauth-picker
+              forms above already handle Connect/Reconnect/Switch account clicks from this table
+              too (both key off the same connectPanelKey/oauthPicker state), so there's no second
+              copy of those forms down here. */}
+          <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
+            <SectionLabel T={T} style={{marginBottom:4}}>Connection details</SectionLabel>
+            <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:560,marginBottom:10}}>
+              Every ad account this workspace pulls live spend from — see who connected each one, set a sync schedule, or switch accounts.
+            </div>
+            <div style={{display:"flex",flexDirection:"column"}}>
+              {PLATFORMS.filter(pl=>pl.perWorkspaceAuth).map((pl,i)=>{
+                const conn=connectionDetails.find(c=>c.provider===pl.key);
+                const connectedByEmail=conn?.connectedBy?(teamMembers.find(m=>m.userId===conn.connectedBy)?.email||conn.connectedBy):null;
+                const summary=conn?.summary||{};
+                const summaryText=!conn?"—":
+                  pl.oauth?(summary.accountName?`${summary.accountName} (${summary.accountId||"—"})`:(summary.accountId||"No account selected yet")):
+                  pl.key==="funnel"?(summary.accountId?`Account ${summary.accountId}${summary.projectId?` · Project ${summary.projectId}`:""}`:"—"):
+                  pl.key==="supermetrics"?(summary.dsId?`${summary.dsId}${summary.dsAccounts?` · ${summary.dsAccounts}`:""}`:"—"):
+                  pl.key==="capterra"?(summary.products?.length?summary.products.join(", "):"—"):
+                  "—";
+                const statusLabel=!conn?"Not connected":conn.needsReconnect?"Reconnect needed":conn.needsAccountSelection?"Pick account":"Connected";
+                const warn=conn&&(conn.needsReconnect||conn.needsAccountSelection);
+                const statusColor=!conn?T.textMuted:warn?T.warning:T.success;
+                const statusBg=!conn?T.surfaceEl:warn?T.warningBg:T.successBg;
+                const statusBorder=!conn?T.border:warn?T.warningBorder:T.successBorder;
+                return(
+                  <div key={pl.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"11px 4px",borderTop:i>0?`1px solid ${T.border}`:"none",flexWrap:"wrap"}}>
+                    <div style={{minWidth:0,flex:"1 1 260px"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:2}}>
+                        <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
+                        <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
+                        <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
+                      </div>
+                      <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:400}}>{summaryText}</div>
+                      {conn&&(
+                        <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:2}}>
+                          Connected {conn.connectedAt?new Date(conn.connectedAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—"}
+                          {connectedByEmail?` by ${connectedByEmail}`:""}
+                        </div>
+                      )}
+                      {conn&&!warn&&(
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}>
+                          <div style={{width:100}}>
+                            <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                              onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;v==="manual"
+                                ?updateSyncSchedule(pl.key,{syncMode:"manual"})
+                                :updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:conn.rollingWindowDays||14});}}>
+                              <option value="manual">Manual only</option>
+                              <option value="daily">Daily</option>
+                              <option value="weekly">Weekly</option>
+                            </Sel>
+                          </div>
+                          {conn.syncMode==="rolling"&&(
+                            <div style={{width:110}}>
+                              <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                                onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:conn.syncFrequency,rollingWindowDays:Number(v)});}}>
+                                <option value="7">Last 7 days</option>
+                                <option value="14">Last 14 days</option>
+                                <option value="30">Last 30 days</option>
+                                <option value="60">Last 60 days</option>
+                                <option value="90">Last 90 days</option>
+                              </Sel>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {conn?.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
+                        <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:3}}>
+                          {conn.lastAutoSyncStatus==="error"
+                            ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
+                            :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                      {!conn&&(
+                        <Btn onClick={()=>pl.oauth?startProviderOAuth(pl.key):openConnectPanel(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Connect</Btn>
+                      )}
+                      {conn?.needsAccountSelection&&(
+                        <Btn onClick={()=>openAccountPicker(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Pick account</Btn>
+                      )}
+                      {conn?.needsReconnect&&(
+                        <Btn onClick={()=>startProviderOAuth(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Reconnect</Btn>
+                      )}
+                      {conn&&!conn.needsAccountSelection&&!conn.needsReconnect&&(
+                        <Btn onClick={()=>pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key)} variant="subtle" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>{pl.oauth?"Switch account":"Edit"}</Btn>
+                      )}
+                      {conn&&(
+                        <Btn onClick={()=>disconnectConnection(pl.key)} variant="danger" size="sm" T={T} disabled={!canEdit||disconnectingProvider===pl.key} title={canEdit?undefined:"View-only access"}>{disconnectingProvider===pl.key?"Disconnecting…":"Disconnect"}</Btn>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Upload zone */}
           <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
           <div style={{width:"100%",maxWidth:560}}>
@@ -7667,7 +7767,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           "upload"/"map"), not the Tagger table itself — matches the same branch in the NAV.map
           click handler above, now that Add Data lives at view==="data" instead of nested under
           view==="tagger". */}
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map")setView("data");else setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={mergedNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map")setView("data");else setView("tagger");}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={mergedNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
       {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
           other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
           dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
@@ -7816,144 +7916,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Connections</div>
                   <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:560,marginBottom:14}}>
-                    Every ad account this workspace pulls live spend from — LinkedIn, Microsoft Advertising, Funnel.io, Supermetrics, and Capterra. See who connected each one and switch accounts or disconnect without leaving Settings.
+                    Connecting and managing ad accounts (LinkedIn, Microsoft Advertising, Funnel.io, Supermetrics, Capterra) now lives in Data Sources — sync schedules, reconnects, and disconnects included.
                   </div>
-                  <div style={{display:"flex",flexDirection:"column"}}>
-                    {PLATFORMS.filter(pl=>pl.perWorkspaceAuth).map((pl,i)=>{
-                      const conn=connectionDetails.find(c=>c.provider===pl.key);
-                      const connectedByEmail=conn?.connectedBy?(teamMembers.find(m=>m.userId===conn.connectedBy)?.email||conn.connectedBy):null;
-                      const summary=conn?.summary||{};
-                      const summaryText=!conn?"—":
-                        pl.oauth?(summary.accountName?`${summary.accountName} (${summary.accountId||"—"})`:(summary.accountId||"No account selected yet")):
-                        pl.key==="funnel"?(summary.accountId?`Account ${summary.accountId}${summary.projectId?` · Project ${summary.projectId}`:""}`:"—"):
-                        pl.key==="supermetrics"?(summary.dsId?`${summary.dsId}${summary.dsAccounts?` · ${summary.dsAccounts}`:""}`:"—"):
-                        pl.key==="capterra"?(summary.products?.length?summary.products.join(", "):"—"):
-                        "—";
-                      const statusLabel=!conn?"Not connected":conn.needsReconnect?"Reconnect needed":conn.needsAccountSelection?"Pick account":"Connected";
-                      const warn=conn&&(conn.needsReconnect||conn.needsAccountSelection);
-                      const statusColor=!conn?T.textMuted:warn?T.warning:T.success;
-                      const statusBg=!conn?T.surfaceEl:warn?T.warningBg:T.successBg;
-                      const statusBorder=!conn?T.border:warn?T.warningBorder:T.successBorder;
-                      return(
-                        <div key={pl.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"11px 4px",borderTop:i>0?`1px solid ${T.border}`:"none",flexWrap:"wrap"}}>
-                          <div style={{minWidth:0,flex:"1 1 260px"}}>
-                            <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:2}}>
-                              <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
-                              <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
-                              <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
-                            </div>
-                            <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:400}}>{summaryText}</div>
-                            {conn&&(
-                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:2}}>
-                                Connected {conn.connectedAt?new Date(conn.connectedAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—"}
-                                {connectedByEmail?` by ${connectedByEmail}`:""}
-                              </div>
-                            )}
-                            {conn&&!warn&&(
-                              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}>
-                                <div style={{width:100}}>
-                                  <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11,padding:"4px 7px"}}
-                                    onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;v==="manual"
-                                      ?updateSyncSchedule(pl.key,{syncMode:"manual"})
-                                      :updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:conn.rollingWindowDays||14});}}>
-                                    <option value="manual">Manual only</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                  </Sel>
-                                </div>
-                                {conn.syncMode==="rolling"&&(
-                                  <div style={{width:110}}>
-                                    <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11,padding:"4px 7px"}}
-                                      onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:conn.syncFrequency,rollingWindowDays:Number(v)});}}>
-                                      <option value="7">Last 7 days</option>
-                                      <option value="14">Last 14 days</option>
-                                      <option value="30">Last 30 days</option>
-                                      <option value="60">Last 60 days</option>
-                                      <option value="90">Last 90 days</option>
-                                    </Sel>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            {conn?.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
-                              <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:3}}>
-                                {conn.lastAutoSyncStatus==="error"
-                                  ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
-                                  :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
-                              </div>
-                            )}
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                            {!conn&&(
-                              <Btn onClick={()=>pl.oauth?startProviderOAuth(pl.key):openConnectPanel(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Connect</Btn>
-                            )}
-                            {conn?.needsAccountSelection&&(
-                              <Btn onClick={()=>openAccountPicker(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Pick account</Btn>
-                            )}
-                            {conn?.needsReconnect&&(
-                              <Btn onClick={()=>startProviderOAuth(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Reconnect</Btn>
-                            )}
-                            {conn&&!conn.needsAccountSelection&&!conn.needsReconnect&&(
-                              <Btn onClick={()=>pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key)} variant="subtle" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>{pl.oauth?"Switch account":"Edit"}</Btn>
-                            )}
-                            {conn&&(
-                              <Btn onClick={()=>disconnectConnection(pl.key)} variant="danger" size="sm" T={T} disabled={!canEdit||disconnectingProvider===pl.key} title={canEdit?undefined:"View-only access"}>{disconnectingProvider===pl.key?"Disconnecting…":"Disconnect"}</Btn>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {/* Inline edit/connect + account-picker forms — same state/handlers the Reporting
-                      tab's sync bar uses (startProviderOAuth/openConnectPanel/openAccountPicker/
-                      saveConnection/finalizeOAuthAccount), just also rendered here so clicking
-                      Connect/Edit/Switch account from Settings has somewhere to show the form. */}
-                  {connectPanelKey&&PLATFORMS.some(p=>p.key===connectPanelKey&&p.perWorkspaceAuth)&&(()=>{
-                    const pl=PLATFORMS.find(p=>p.key===connectPanelKey);
-                    if(!pl)return null;
-                    return(
-                      <div style={{marginTop:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                          <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>{connectedProviders[pl.key]?"Edit":"Connect"} {pl.label}</div>
-                          <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
-                        </div>
-                        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-                          {(pl.connectFields||[]).map(f=>(
-                            <input key={f.key} value={connectValues[f.key]||""} placeholder={f.placeholder}
-                              onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
-                              style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
-                          ))}
-                        </div>
-                        {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
-                        <Btn onClick={()=>saveConnection(pl.key)}
-                          disabled={connectSaving||(pl.connectFields||[]).some(f=>!f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim())}
-                          variant="primary" size="sm" T={T}>{connectSaving?"Saving…":"Save"}</Btn>
-                      </div>
-                    );
-                  })()}
-                  {oauthPicker&&PLATFORMS.some(p=>p.key===oauthPicker.provider&&p.perWorkspaceAuth)&&(
-                    <div style={{marginTop:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                        <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
-                        <span onClick={()=>setOauthPicker(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
-                      </div>
-                      {oauthPicker.accounts.length===0?(
-                        <div style={{fontSize:11,color:T.textMuted}}>Couldn't load accounts. Try again, or reconnect if this keeps happening.</div>
-                      ):(
-                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                          {oauthPicker.accounts.map(a=>(
-                            <button key={a.id} disabled={oauthPickerSaving} onClick={()=>finalizeOAuthAccount(oauthPicker.provider,a.id,a.customerId,a.name)}
-                              style={{textAlign:"left",padding:"7px 10px",borderRadius:6,
-                                border:`1px solid ${a.id===oauthPicker.selectedAccountId?T.accentBorder:T.border}`,
-                                background:a.id===oauthPicker.selectedAccountId?T.accentBg:T.surface,
-                                color:T.text,cursor:oauthPickerSaving?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:oauthPickerSaving?0.6:1}}>
-                              {a.name} <span style={{color:T.textMuted,fontSize:10}}>({a.id})</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <Btn onClick={()=>{setStep("upload");setView("data");}} variant="primary" size="sm" T={T}>Go to Data Sources →</Btn>
                 </div>
                 {canEdit&&<div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
