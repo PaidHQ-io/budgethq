@@ -132,7 +132,7 @@ const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Disp
 // lighter/darker tints of those same three hues rather than off-palette colors, keeping every
 // dimension's pill "on brand" instead of reaching for an arbitrary rainbow.
 const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","#7A9CAA","#0A2226","#8FB0BC"];
-const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
+const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function autoDetect(h){
@@ -5532,7 +5532,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setBudgetMetaDims(localImportPrompt.budgetMetaDims);
     setBudgetImportMeta(localImportPrompt.budgetImportMeta);
     setMergedNormRows(localImportPrompt.rows);
-    if(localImportPrompt.rows.length)setStep("tag");
+    if(localImportPrompt.rows.length){setStep("tag");setView("tagger");}
     clearLegacyLocalKeys();
     setLocalImportPrompt(null);
     checkpoint("Imported data from before sign-in","import_legacy");
@@ -6172,7 +6172,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     checkpoint(`Imported spend data from screenshot — ${screenshotFileName||"image"} (${screenshotPreview.length} rows)`,"tagger_import");
     showNotif(`Added ${screenshotPreview.length} rows from screenshot — merged with existing data`);
     setScreenshotPreview([]);setScreenshotFileName("");
-    setStep("tag");
+    setStep("tag");setView("tagger");
   },[screenshotPreview,screenshotFileName,checkpoint,canEdit]);
 
   // "key" is the composite identity (campaign group + campaign) used everywhere tags/selection
@@ -6488,7 +6488,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       if(!imageItem)return;
       const file=imageItem.getAsFile();
       if(!file)return;
-      if(view==="tagger"&&step==="upload"){
+      if(view==="data"&&step==="upload"){
         e.preventDefault();
         handleScreenshotFile(file);
       }else if(view==="tagger"&&step==="tag"){
@@ -6761,7 +6761,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           {NAV.map(item=>{
             const active=view===item.key;
             return <button key={item.key} className={active?undefined:"bhq-tab"} onClick={()=>{
-                if(item.key==="tagger"){if(step!=="tag")setStep("upload");setView("tagger");}
+                // Add Data now lives at view==="data" (2026-07-24) instead of nested under Campaign
+                // Tagger's own step==="upload" — clicking Tagger with no data yet sends you to Data
+                // Sources first, matching "connect data before tagging it." Clicking Data Sources
+                // itself always resets to the upload step, same reasoning as the old Tagger branch.
+                if(item.key==="tagger"){if(step!=="tag"){setStep("upload");setView("data");}else setView("tagger");}
+                else if(item.key==="data"){setStep("upload");setView("data");}
                 else setView(item.key);
               }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",boxSizing:"border-box",flexShrink:0,border:"none",borderBottom:`2px solid ${active?T.accent:"transparent"}`,background:"transparent",color:active?T.text:T.textSub,fontSize:14,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",transition:"color 0.12s,border-color 0.12s"}}>
               <Icon name={item.icon} size={15} color={active?T.accent:T.textSub}/>
@@ -6776,8 +6781,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <span style={{fontSize:11,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
             </div>
           )}
-          {step==="tag"&&<Btn onClick={()=>setStep("upload")} variant="ghost" size="sm" T={T}>{isMobile?"↑":"↑ Add data"}</Btn>}
-          {step==="tag"&&mergedNormRows.length>0&&canEdit&&<Btn onClick={()=>{allowEmptyRowsWriteRef.current=true;setMergedNormRows([]);setStep("upload");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
+          {step==="tag"&&<Btn onClick={()=>{setStep("upload");setView("data");}} variant="ghost" size="sm" T={T}>{isMobile?"↑":"↑ Add data"}</Btn>}
+          {step==="tag"&&mergedNormRows.length>0&&canEdit&&<Btn onClick={()=>{allowEmptyRowsWriteRef.current=true;setMergedNormRows([]);setStep("upload");setView("data");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
           {workspace&&workspaces&&(
             <div style={{position:"relative"}}>
               <button className="bhq-iconbtn" onClick={()=>setWorkspaceMenuOpen(o=>!o)}
@@ -6917,6 +6922,41 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <div ref={setPacingSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="ask"?(
             <div ref={setAskSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="data"?(
+            // Data Sources' own left column (2026-07-24, per Mo — modeled on Funnel.io's Data
+            // sources page, scoped down since BudgetHQ has ~8 connectors total, not Funnel's scale).
+            // Health list reuses the exact same connectionDetails Settings' Connections table and
+            // the Dashboard's "Data source health" card both already read — one source of truth,
+            // three places it's summarized.
+            <div className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}>
+              <SectionLabel T={T} style={{marginBottom:8,fontSize:11}}>Data source health</SectionLabel>
+              {(()=>{
+                const issues=(connectionDetails||[]).filter(c=>c.needsReconnect||c.needsAccountSelection||c.lastAutoSyncStatus==="error");
+                if(!connectionDetails||connectionDetails.length===0)return<div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,fontFamily:"Inter,sans-serif",marginBottom:14}}>No connectors set up yet — connect one below.</div>;
+                if(issues.length===0)return<div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:"Inter,sans-serif",marginBottom:14}}>All {connectionDetails.length} connected source{connectionDetails.length===1?"":"s"} healthy.</div>;
+                return(
+                  <div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:14}}>
+                    {issues.map(c=>{
+                      const reason=c.needsReconnect?"Reconnect":c.needsAccountSelection?"Pick account":"Sync failed";
+                      return(
+                        <div key={c.provider} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",gap:8}}>
+                          <span style={{fontSize:12,color:T.text,fontFamily:"Inter,sans-serif",textTransform:"capitalize"}}>{c.provider}</span>
+                          <Pill color={T.warning} bg={T.warning+"14"} border={T.warning+"55"} style={{fontSize:10}}>{reason}</Pill>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+              <Divider T={T}/>
+              <div style={{padding:"12px 0"}}>
+                <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
+                <StatRow T={T} size={11} label="Live connectors" value={PLATFORMS.filter(p=>p.status==="live").length.toString()}/>
+                <StatRow T={T} size={11} label="Connected" value={Object.keys(connectedProviders).length.toString()}/>
+                <StatRow T={T} size={11} label="Platforms with data" value={[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).length.toString()}/>
+                <StatRow T={T} size={11} label="Data rows" value={stats.totalRows.toLocaleString()}/>
+              </div>
+            </div>
           ):view==="tagger"?(
             // Lives directly in this component (unlike Budget/Pacing, the Tagger flow isn't a
             // separate child component) so no portal is needed — just render it here in place.
@@ -7084,8 +7124,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
 
       {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"Inter,sans-serif"}}>{notif}</div>}
 
-      {/* ── UPLOAD ── */}
-      {step==="upload"&&view==="tagger"&&(
+      {/* ── UPLOAD ── (moved 2026-07-24 from view==="tagger" to its own view==="data" — see NAV) */}
+      {step==="upload"&&view==="data"&&(
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"auto"}}>
           {/* Platform sync */}
           <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
@@ -7293,7 +7333,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   size), and says exactly where it goes instead of just "Cancel" when there's data
                   to go back to. */}
               {(mergedNormRows.length>0||view)&&(
-                <Btn onClick={()=>{if(mergedNormRows.length>0)setStep("tag");else{setView("dashboard");setStep("upload");}}}
+                <Btn onClick={()=>{if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setView("dashboard");setStep("upload");}}}
                   variant="ghost" size="md" T={T} style={{flexShrink:0,marginLeft:16,marginTop:2}}>
                   ← {mergedNormRows.length>0?"Back to Tagger data":"Cancel"}
                 </Btn>
@@ -7435,7 +7475,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 showNotif(`Added ${withAsOf.length} rows — merged with existing data`);
                 setUploadPlatform("auto");
                 setUploadAsOf("");
-                setStep("tag");
+                setStep("tag");setView("tagger");
               }} disabled={!canProceed||!canEdit} variant="primary" T={T} size="md">Continue to tagging →</Btn>
             </div>
           </div>
@@ -7622,7 +7662,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         </div>
       )}
 
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={mergedNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
+      {/* onNavigate("tagger") from an empty-state card (e.g. "Start with spend data") needs to land
+          on Data Sources (view="data") when there's no data flow in progress yet (step is still
+          "upload"/"map"), not the Tagger table itself — matches the same branch in the NAV.map
+          click handler above, now that Add Data lives at view==="data" instead of nested under
+          view==="tagger". */}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map")setView("data");else setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={mergedNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
       {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
           other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
           dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
