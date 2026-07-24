@@ -303,7 +303,7 @@ const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChang
 // clicking directly on the switch/checkbox fires both handlers and the toggle cancels itself out.
 const Tog=({value,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange(!value);}} style={{width:30,height:17,borderRadius:9,background:value?T.accent:T.borderStrong,position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0}}><div style={{position:"absolute",top:2,left:value?15:2,width:13,height:13,borderRadius:7,background:"#fff",transition:"left 0.18s",boxShadow:"0 1px 3px rgba(0,0,0,0.25)"}}/></div>);
 const Chk=({checked,onChange,T})=>(<div onClick={e=>{e.stopPropagation();onChange();}} style={{width:15,height:15,borderRadius:4,border:`1.5px solid ${checked?T.accent:T.borderStrong}`,background:checked?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all 0.12s"}}>{checked&&<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke={T.text} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>);
-const StatRow=({label,value,color,T})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:12,color:T.textSub}}>{label}</span><span style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:color||T.text}}>{value}</span></div>);
+const StatRow=({label,value,color,T,size=12})=>(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0"}}><span style={{fontSize:size,color:T.textSub}}>{label}</span><span style={{fontSize:size,fontFamily:"Inter,sans-serif",fontWeight:600,color:color||T.text}}>{value}</span></div>);
 // Big label/value card used by the populated Dashboard's summary row (Total budget/Spend/Pacing/
 // Needs attention) — bigger type than StatRow since these are the headline numbers of the page.
 // `sub`/`subColor` are optional — a small second line under the headline value, used for context
@@ -6865,14 +6865,20 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <SectionLabel T={T} style={{marginBottom:8,fontSize:11}}>Tag Dimensions</SectionLabel>
               <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
                 {tagDims.map(dim=>(
-                  <div key={dim} className={applyDim===dim?undefined:"bhq-row"} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent",border:applyDim===dim?`1px solid ${T.accentBorder}`:"1px solid transparent"}}>
-                    <span style={{fontSize:11,color:T.text,fontWeight:applyDim===dim?700:400}}>{dim}</span>
+                  /* Padding/weights aligned to StatRow (2026-07-24, per Mo) — "4px 0" instead of
+                     "6px 8px" so labels start flush left same as Overview's, label weight matches
+                     Overview's (no override, was 700 when selected — background/border below still
+                     show selection), and the count now weight:600 to match StatRow's value weight.
+                     × moved before the count (rather than after) so the count itself, not the
+                     button, is the flush-right element — same right edge as Overview's values. */
+                  <div key={dim} className={applyDim===dim?undefined:"bhq-row"} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 0",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent",border:applyDim===dim?`1px solid ${T.accentBorder}`:"1px solid transparent"}}>
+                    <span style={{fontSize:11,color:T.text}}>{dim}</span>
                     <span style={{display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
                       <button onClick={e=>{e.stopPropagation();deleteDimension(dim);}} title={`Delete "${dim}" dimension`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:0,opacity:0.5,transition:"opacity 0.1s, color 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.color=T.danger;}}
                         onMouseLeave={e=>{e.currentTarget.style.opacity=0.5;e.currentTarget.style.color=T.textMuted;}}>×</button>
+                      <span style={{fontSize:11,fontWeight:600,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
                     </span>
                   </div>
                 ))}
@@ -6884,7 +6890,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <Divider T={T}/>
               <div style={{padding:"12px 0",flex:1}}>
                 <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
-                {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T}/>)}
+                {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T} size={11}/>)}
                 {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif",lineHeight:1.6}}>{stats.dateRange}</div>}
                 <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accentSoft,transition:"width 0.4s",borderRadius:2}}/></div>
                 <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
