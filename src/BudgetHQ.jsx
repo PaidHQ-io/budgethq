@@ -205,6 +205,15 @@ function buildCampaignPlatformIndex(mergedNormRows){
   });
   return idx;
 }
+// Formats a Date's LOCAL calendar day as YYYY-MM-DD — deliberately NOT d.toISOString().slice(0,10),
+// which reads UTC fields. That distinction only bites when a Date was built from local y/m/d
+// components (e.g. new Date(year,0,1) for "start of this year"): toISOString() on that value walks
+// it back to UTC first, so anyone west of Greenwich (all of the US) gets Dec 31 instead of Jan 1 —
+// caught live 2026-07-24 via the sync range picker's "This year" preset (and the picker's own
+// this-quarter default) reporting an import start one day earlier than the date actually picked.
+// d.getFullYear()/getMonth()/getDate() below read the same LOCAL fields the Date was constructed
+// from, so this round-trips exactly instead of drifting across the UTC boundary.
+const localISODate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const parseMoney=v=>{if(v===""||v==null)return null;const n=parseFloat(String(v).replace(/[$,\s%]/g,""));return isNaN(n)?null:n;};
 const fmt$=n=>{if(!n)return"";return"$"+Math.round(n).toLocaleString();};
 const fmtFull=n=>n?"$"+Math.round(n).toLocaleString():"—";
@@ -5999,10 +6008,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     const q=Math.floor(now.getMonth()/3);
     const qStart=new Date(y,q*3,1);
     const qEnd=new Date(y,q*3+3,0);
-    const todayStr=now.toISOString().slice(0,10);
-    const qEndStr=qEnd.toISOString().slice(0,10);
+    const todayStr=localISODate(now);
+    const qEndStr=localISODate(qEnd);
     return{
-      start:qStart.toISOString().slice(0,10),
+      start:localISODate(qStart),
       // Default end-of-quarter is routinely in the future (e.g. loading this in July defaults to
       // Sep 30) — /api/spend already clamps this server-side (see its doc comment), but starting
       // the picker on a date that's silently going to get overridden anyway is confusing on its
@@ -6023,11 +6032,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   ];
   const applySyncRangePreset=(preset)=>{
     const now=new Date();
-    const end=now.toISOString().slice(0,10);
+    const end=localISODate(now);
     let start;
-    if(preset.thisYear){start=new Date(now.getFullYear(),0,1).toISOString().slice(0,10);}
-    else if(preset.months){const s=new Date(now);s.setMonth(s.getMonth()-preset.months);start=s.toISOString().slice(0,10);}
-    else{const s=new Date(now);s.setDate(s.getDate()-(preset.days-1));start=s.toISOString().slice(0,10);}
+    if(preset.thisYear){start=localISODate(new Date(now.getFullYear(),0,1));}
+    else if(preset.months){const s=new Date(now);s.setMonth(s.getMonth()-preset.months);start=localISODate(s);}
+    else{const s=new Date(now);s.setDate(s.getDate()-(preset.days-1));start=localISODate(s);}
     setSyncDateRange({start,end});
     setSyncRangePickerOpen(false);
   };
@@ -7696,10 +7705,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                               <input type="date" value={syncDateRange.start} onChange={e=>setSyncDateRange(p=>({...p,start:e.target.value}))}
                                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
                               <span style={{fontSize:11,color:T.textMuted}}>→</span>
-                              <input type="date" value={syncDateRange.end} max={new Date().toISOString().slice(0,10)}
+                              <input type="date" value={syncDateRange.end} max={localISODate(new Date())}
                                 title="Can't pull spend data for dates that haven't happened yet"
                                 onChange={e=>{
-                                  const todayStr=new Date().toISOString().slice(0,10);
+                                  const todayStr=localISODate(new Date());
                                   setSyncDateRange(p=>({...p,end:e.target.value>todayStr?todayStr:e.target.value}));
                                 }}
                                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
