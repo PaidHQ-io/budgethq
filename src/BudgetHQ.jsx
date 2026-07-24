@@ -5184,6 +5184,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // for files that look month-grained (see handleFile), editable, and left blank for files with
   // real daily dates (LinkedIn, Capterra), where freshness keeps using row dates as before.
   const[uploadAsOf,setUploadAsOf]=useState("");
+  // Whether this file reports one row per month rather than real daily rows — previously only an
+  // invisible heuristic driving the uploadAsOf auto-fill above; promoted to an explicit,
+  // user-confirmable checkbox (see the map step) so a wrong guess is visible and correctable
+  // before merging, instead of silently mis-projecting pacing off an unconfirmed assumption.
+  const[uploadIsMonthly,setUploadIsMonthly]=useState(false);
   const[editingPlatform,setEditingPlatform]=useState(null); // campaign name being edited
   const PLATFORM_OPTIONS=["auto","Google","Meta","LinkedIn","Bing","Capterra","Reddit","Pinterest","TikTok","YouTube","Other"];
   const[mergedNormRows,setMergedNormRows]=useState([]); // normalized rows across ALL platform uploads
@@ -6241,6 +6246,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     },0);
     if(existingTagCount>0) showNotif(`${existingTagCount} campaigns already tagged from previous session`);
     setUploadAsOf("");
+    setUploadIsMonthly(false);
     setStep("map");
   },[tags]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -6287,6 +6293,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(looksMonthly){
       const y=new Date();y.setDate(y.getDate()-1);
       setUploadAsOf(`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`);
+      setUploadIsMonthly(true);
     }
   },[colMap.date,rawRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -6733,7 +6740,27 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     window.addEventListener("keydown",handler);return()=>window.removeEventListener("keydown",handler);
   },[undoTags]);
   const hasF=fCamp||fCampExclude||fGroup||fGroupExclude||fPlat||fSMin||fSMax||fTag||fTagExclude||selectedTagFilters.size>0||fStatus!=="all";
-  const canProceed=colMap.campaign_group_name&&colMap.spend;
+  // "auto" here means "multiple channels — read platform per-row from a mapped column" (see the
+  // Channels selector in the map step). A report with mixed channels but no Platform column
+  // mapped would otherwise silently fall back to normalizeRows' "Unknown" default per row, so
+  // require the mapping in that mode rather than letting rows quietly go unlabeled.
+  const canProceed=colMap.campaign_group_name&&colMap.spend&&(uploadPlatform!=="auto"||!!colMap.platform);
+  // Distinct channels detected in the mapped Platform column, resolved through the same
+  // derivePlatform naming/campaign-type logic used everywhere else (freshness, pacing, filters) —
+  // so what's previewed here is exactly what the rest of the app will call each row, not just the
+  // raw column text. Lets someone importing a multi-channel report catch a bad column pick or an
+  // unrecognized channel label before merging, instead of after.
+  const channelPreview=useMemo(()=>{
+    if(uploadPlatform!=="auto"||!colMap.platform||!rawRows.length)return[];
+    const counts={};
+    rawRows.forEach(row=>{
+      const raw=(row[colMap.platform]||"").trim();
+      if(!raw)return;
+      const resolved=derivePlatform(row[colMap.campaign_group_name],row[colMap.campaign_name],raw,row[colMap.campaign_type]);
+      counts[resolved]=(counts[resolved]||0)+1;
+    });
+    return Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  },[uploadPlatform,colMap.platform,colMap.campaign_group_name,colMap.campaign_name,colMap.campaign_type,rawRows]);
 
   // Settings — independent data-clear actions. Reporting has no state of its own (it's a
   // computed pacing view over Budget + Tagger data), so there's no separate "clear reporting"
@@ -6946,6 +6973,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setSpendConflictReview(null);
     setUploadPlatform("auto");
     setUploadAsOf("");
+    setUploadIsMonthly(false);
     setStep("tag");setView("tagger");
   };
 
@@ -7818,37 +7846,87 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <p style={{fontSize:13,color:T.textSub}}><strong style={{color:T.text,fontWeight:600}}>{fileName}</strong> · {rawRows.length.toLocaleString()} rows</p>
             </div>
             <PixelPanel T={T} style={{marginBottom:18}} contentStyle={{background:T.surface,overflow:"hidden"}}>
-              {/* Platform override */}
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",background:T.accentBg}}>
-                <div>
-                  <span style={{fontSize:13,fontWeight:500,color:T.text}}>Platform</span>
-                  <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Override all rows, or map a column below</div>
+              {/* Channels — single platform override, or multiple channels read per-row from a
+                  mapped column. Reports combining several platforms in one export (a blended
+                  agency report, a multi-channel Sheet) need the latter; a single-platform export
+                  with no Platform column at all needs the former. */}
+              <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`,background:T.accentBg}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:isMobile?"wrap":"nowrap"}}>
+                  <div>
+                    <span style={{fontSize:13,fontWeight:500,color:T.text}}>Channels in this file</span>
+                    <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{uploadPlatform==="auto"?"Map the Platform column below — every distinct value becomes its own channel.":"Every row will be labeled as this one platform."}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button type="button" onClick={()=>setUploadPlatform("auto")}
+                      style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${uploadPlatform==="auto"?T.accent:T.border}`,background:uploadPlatform==="auto"?T.accent:T.surface,color:uploadPlatform==="auto"?"#fff":T.text,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>Multiple channels</button>
+                    <button type="button" onClick={()=>setUploadPlatform(p=>p==="auto"?"Google":p)}
+                      style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${uploadPlatform!=="auto"?T.accent:T.border}`,background:uploadPlatform!=="auto"?T.accent:T.surface,color:uploadPlatform!=="auto"?"#fff":T.text,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>Single channel</button>
+                  </div>
                 </div>
-                <Sel value={uploadPlatform} onChange={setUploadPlatform} T={T}>
-                  {PLATFORM_OPTIONS.map(p=><option key={p} value={p}>{p==="auto"?"— Auto-detect from data —":p}</option>)}
-                </Sel>
+                {uploadPlatform!=="auto"&&(
+                  <div style={{marginTop:10}}>
+                    <Sel value={uploadPlatform} onChange={setUploadPlatform} T={T}>
+                      {PLATFORM_OPTIONS.filter(p=>p!=="auto").map(p=><option key={p} value={p}>{p}</option>)}
+                    </Sel>
+                  </div>
+                )}
+                {uploadPlatform==="auto"&&channelPreview.length>0&&(
+                  <div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:6}}>
+                    {channelPreview.map(([name,count])=>(
+                      <span key={name} style={{fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:20,background:T.surface,border:`1px solid ${T.border}`,color:T.text}}>{name} · {count.toLocaleString()}</span>
+                    ))}
+                  </div>
+                )}
+                {uploadPlatform==="auto"&&!colMap.platform&&rawRows.length>0&&(
+                  <div style={{marginTop:10,fontSize:11,color:T.danger,fontWeight:600}}>Map the Platform column below to continue.</div>
+                )}
               </div>
-              {/* Data-as-of override — see uploadAsOf state comment for why this exists */}
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",background:T.accentBg}}>
-                <div>
-                  <span style={{fontSize:13,fontWeight:500,color:T.text}}>Data accurate through</span>
-                  <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Auto-filled to yesterday when this file looks like a monthly export (Google/Bing report one row per month, e.g. "Jan-26" — not a real daily date). Adjust if you pulled the data on a different day than today, or clear it if this file actually has real per-day rows.</div>
-                </div>
-                <input type="date" value={uploadAsOf} onChange={e=>setUploadAsOf(e.target.value)}
-                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+              {/* Monthly-grain confirmation — previously a silent heuristic driving uploadAsOf's
+                  auto-fill; now an explicit toggle so a wrong guess is visible and correctable. */}
+              <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`,background:T.accentBg}}>
+                <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer"}}>
+                  <input type="checkbox" checked={uploadIsMonthly} onChange={e=>{
+                    const checked=e.target.checked;
+                    setUploadIsMonthly(checked);
+                    if(checked&&!uploadAsOf){
+                      const y=new Date();y.setDate(y.getDate()-1);
+                      setUploadAsOf(`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`);
+                    }
+                  }} style={{marginTop:2,cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
+                  <div>
+                    <span style={{fontSize:13,fontWeight:500,color:T.text}}>This file has one row per month, not per day</span>
+                    <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Google/Bing's manual exports report one row per campaign PER MONTH (e.g. "Jul-26") with the month's total spend — not a real daily date. Checked automatically when every date in the file looks like the 1st of a month; uncheck if this file actually has real per-day rows.</div>
+                  </div>
+                </label>
+                {uploadIsMonthly&&(
+                  <div style={{marginTop:10,display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",alignItems:"center"}}>
+                    <div>
+                      <span style={{fontSize:12,fontWeight:500,color:T.text}}>Data accurate through</span>
+                      <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Each row's full-month spend is treated as current through this date — adjust if you pulled the export on a different day than today.</div>
+                    </div>
+                    <input type="date" value={uploadAsOf} onChange={e=>setUploadAsOf(e.target.value)}
+                      style={{background:T.inputBg,border:`1px solid ${uploadIsMonthly&&!uploadAsOf?T.dangerBorder:T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                  </div>
+                )}
               </div>
               {[...REQUIRED_COLS,...OPTIONAL_COLS].map((field,i)=>{
                 // Hide platform column mapping if a specific platform is selected
                 if(field==="platform"&&uploadPlatform!=="auto")return null;
+                const isRequired=REQUIRED_COLS.includes(field)||(field==="platform"&&uploadPlatform==="auto");
                 return(
-                <div key={field} style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:i<REQUIRED_COLS.length+OPTIONAL_COLS.length-1?`1px solid ${T.border}`:"none",alignItems:"center",background:REQUIRED_COLS.includes(field)&&!colMap[field]?T.dangerBg:"transparent"}}>
-                  <div><span style={{fontSize:13,fontWeight:500,color:T.text}}>{COL_LABELS[field]}</span>{REQUIRED_COLS.includes(field)&&<span style={{fontSize:10,color:T.danger,marginLeft:6,fontWeight:600}}>required</span>}{!REQUIRED_COLS.includes(field)&&<span style={{fontSize:10,color:T.textMuted,marginLeft:6}}>optional</span>}</div>
+                <div key={field} style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:i<REQUIRED_COLS.length+OPTIONAL_COLS.length-1?`1px solid ${T.border}`:"none",alignItems:"center",background:isRequired&&!colMap[field]?T.dangerBg:"transparent"}}>
+                  <div><span style={{fontSize:13,fontWeight:500,color:T.text}}>{COL_LABELS[field]}</span>{isRequired&&<span style={{fontSize:10,color:T.danger,marginLeft:6,fontWeight:600}}>required</span>}{!isRequired&&<span style={{fontSize:10,color:T.textMuted,marginLeft:6}}>optional</span>}</div>
                   <Sel value={colMap[field]||""} onChange={v=>setColMap(p=>({...p,[field]:v||undefined}))} T={T}><option value="">— not mapped —</option>{headers.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
                 </div>
                 );
               })}
             </PixelPanel>
-            {canProceed&&<div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>✓ Found <strong>{campaigns.length}</strong> campaigns · <strong>{fmt$(campaigns.reduce((s,c)=>s+c.spend,0))}</strong> total spend</div>}
+            {canProceed&&(
+              <div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>
+                ✓ Found <strong>{campaigns.length}</strong> campaigns · <strong>{fmt$(campaigns.reduce((s,c)=>s+c.spend,0))}</strong> total spend
+                <div style={{fontWeight:400,marginTop:2,fontSize:12}}>{uploadIsMonthly?`Each row treated as one month's total, accurate through ${uploadAsOf||"—"}.`:"Each row treated as a single day's spend."} {uploadPlatform==="auto"?`Channels read per-row from "${colMap.platform}".`:`All rows labeled "${uploadPlatform}".`}</div>
+              </div>
+            )}
             <div style={{display:"flex",justifyContent:"space-between"}}>
               <Btn onClick={()=>setStep("upload")} variant="ghost" T={T}>← Back</Btn>
               <Btn onClick={()=>{
@@ -7867,6 +7945,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 showNotif(`Added ${withAsOf.length} rows — merged with existing data`);
                 setUploadPlatform("auto");
                 setUploadAsOf("");
+                setUploadIsMonthly(false);
                 setStep("tag");setView("tagger");
               }} disabled={!canProceed||!canEdit} variant="primary" T={T} size="md">Continue to tagging →</Btn>
             </div>
