@@ -9,12 +9,12 @@
  *   Returns: { rows: [...normalized spend rows] }
  *
  *   workspaceId + a valid Authorization header are only required for connectors flagged
- *   `perWorkspaceAuth: true` in their meta export (funnel, supermetrics, capterra, linkedin, bing)
- *   — those pull the calling workspace's OWN stored credential from budgethq.connector_credentials
- *   rather than a shared process.env var, so this route needs to know which workspace is asking
- *   and confirm the caller actually belongs to it before handing back that workspace's data.
- *   google/meta are unaffected — they keep working exactly as before, no auth required, since
- *   they're still one shared account for the whole app.
+ *   `perWorkspaceAuth: true` in their meta export (funnel, supermetrics, capterra, linkedin, bing,
+ *   meta) — those pull the calling workspace's OWN stored credential from
+ *   budgethq.connector_credentials rather than a shared process.env var, so this route needs to
+ *   know which workspace is asking and confirm the caller actually belongs to it before handing
+ *   back that workspace's data. google is unaffected — it keeps working exactly as before, no auth
+ *   required, since it's still one shared account for the whole app.
  *
  *   `envVarFallback: true` in a connector's meta (capterra, linkedin) means a workspace with no
  *   stored per-workspace credential yet doesn't get hard-blocked with "not_connected" — instead

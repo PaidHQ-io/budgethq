@@ -2,8 +2,8 @@
  * /api/workspaces/[id]/connections
  *
  * Per-workspace third-party connector credentials — Funnel.io/Supermetrics/Capterra API keys and
- * LinkedIn's OAuth tokens, as opposed to the single shared process.env credential the bing/google/
- * meta connectors use (one account for the whole app). This is what lets each workspace connect
+ * LinkedIn/Bing/Meta's OAuth tokens, as opposed to the single shared process.env credential the
+ * google connector uses (one account for the whole app). This is what lets each workspace connect
  * ITS OWN account.
  *
  * GET    — list which providers this workspace has connected. Never returns the stored
@@ -36,14 +36,18 @@ import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAcc
 import { withApi } from "../../lib/http.js";
 import { needsReconnectSoon as linkedinNeedsReconnectSoon } from "../../lib/linkedinOAuth.js";
 import { needsReconnectSoon as bingNeedsReconnectSoon } from "../../lib/bingOAuth.js";
+import { needsReconnectSoon as metaNeedsReconnectSoon } from "../../lib/metaOAuth.js";
 
 // Per-provider reconnect check — see each lib's needsReconnectSoon doc comment. LinkedIn's is
 // time-based (no refresh token available at all yet); Bing's is failure-based (refresh tokens are
 // undated, so a failed refresh attempt — tracked as credential.reconnectRequired — is the only
-// honest signal). Every other provider is a plain API key with no expiry, so always false.
+// honest signal). Meta's is also failure-based (see metaOAuth.js — re-extending the long-lived
+// token is attempted well before its ~60-day expiry, so reconnectRequired only flips true if that
+// actually fails). Every other provider is a plain API key with no expiry, so always false.
 const RECONNECT_CHECKS = {
   linkedin: linkedinNeedsReconnectSoon,
   bing: bingNeedsReconnectSoon,
+  meta: metaNeedsReconnectSoon,
 };
 
 // Distinct from RECONNECT_CHECKS above: a token can be perfectly valid but still missing the ad
@@ -56,9 +60,10 @@ const RECONNECT_CHECKS = {
 const ACCOUNT_INCOMPLETE_CHECKS = {
   linkedin: (credential) => !!credential?.accessToken && !credential?.accountId,
   bing: (credential) => !!credential?.accessToken && (!credential?.accountId || !credential?.customerId),
+  meta: (credential) => !!credential?.accessToken && !credential?.accountId,
 };
 
-const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing"];
+const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing", "meta"];
 
 // Settings' connections-management table needs SOMETHING to show per provider beyond just
 // "connected" — but the credential itself must never reach the client (see GET's doc comment
@@ -69,6 +74,7 @@ const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing
 const SAFE_SUMMARY = {
   linkedin: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null }),
   bing: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null, customerId: c?.customerId || null }),
+  meta: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null }),
   funnel: (c) => ({ accountId: c?.accountId || null, projectId: c?.projectId || null }),
   supermetrics: (c) => ({ dsId: c?.dsId || null, dsAccounts: c?.dsAccounts || null }),
   capterra: (c) => ({ products: c?.apiKeys ? Object.keys(c.apiKeys) : [] }),
