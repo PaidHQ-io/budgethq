@@ -6628,11 +6628,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // Per Mo's request (2026-07-24): headers used to fade to T.textMuted (grey) until actively
   // sorted, and only turn T.text (dark) on the active sort column. Now always T.text — active sort
   // is still shown via the underline below, just no longer via color.
-  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
+  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   // White fill, same as the toolbar behind it — Vercel's filter pills are white-on-white with
   // just a border for separation, not a gray fill. paddingLeft is bumped separately on the three
   // primary "contains" fields to make room for the search icon from IconField.
-  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3,height:30,boxSizing:"border-box"};
+  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"6px 9px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3,height:30,boxSizing:"border-box"};
 
   // Persistent stats sidebar (middle column) — shown regardless of which tab is active.
   // Falls back to labeled sample numbers before any real data is loaded, same treatment
@@ -6704,7 +6704,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             return <button key={item.key} className={active?undefined:"bhq-tab"} onClick={()=>{
                 if(item.key==="tagger"){if(step!=="tag")setStep("upload");setView("tagger");}
                 else setView(item.key);
-              }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",boxSizing:"border-box",flexShrink:0,border:"none",borderBottom:`2px solid ${active?T.accent:"transparent"}`,background:"transparent",color:active?T.text:T.textSub,fontSize:13,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",transition:"color 0.12s,border-color 0.12s"}}>
+              }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",boxSizing:"border-box",flexShrink:0,border:"none",borderBottom:`2px solid ${active?T.accent:"transparent"}`,background:"transparent",color:active?T.text:T.textSub,fontSize:14,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",transition:"color 0.12s,border-color 0.12s"}}>
               <Icon name={item.icon} size={15} color={active?T.accent:T.textSub}/>
               {!isMobile&&item.label}
             </button>;
@@ -6723,7 +6723,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <div style={{position:"relative"}}>
               <button className="bhq-iconbtn" onClick={()=>setWorkspaceMenuOpen(o=>!o)}
                 style={{display:"flex",alignItems:"center",gap:6,height:30,padding:"0 10px",borderRadius:8,background:workspaceMenuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",transition:"background 0.12s",fontFamily:"Inter,sans-serif"}}>
-                {!isMobile&&<span style={{fontSize:12,fontWeight:600,color:T.text,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{workspace.name}</span>}
+                {!isMobile&&<span style={{fontSize:11,fontWeight:600,color:T.text,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{workspace.name}</span>}
                 <Icon name="chevronDown" size={11} color={T.textMuted}/>
               </button>
               {workspaceMenuOpen&&(<>
@@ -6749,7 +6749,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           {session&&(
             <div style={{position:"relative"}}>
               <button className="bhq-iconbtn" title={session.user?.email} onClick={()=>setAccountMenuOpen(o=>!o)}
-                style={{width:30,height:30,borderRadius:"50%",background:accountMenuOpen?T.surfaceHover:T.accentBg,border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:12,fontWeight:700,color:T.accent,fontFamily:"Inter,sans-serif"}}>
+                style={{width:30,height:30,borderRadius:"50%",background:accountMenuOpen?T.surfaceHover:T.accentBg,border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11,fontWeight:700,color:T.accent,fontFamily:"Inter,sans-serif"}}>
                 {(session.user?.email||"?")[0].toUpperCase()}
               </button>
               {accountMenuOpen&&(<>
@@ -6862,11 +6862,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             // Lives directly in this component (unlike Budget/Pacing, the Tagger flow isn't a
             // separate child component) so no portal is needed — just render it here in place.
             <div className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}>
-              <SectionLabel T={T} style={{marginBottom:8}}>Tag Dimensions</SectionLabel>
+              <SectionLabel T={T} style={{marginBottom:8,fontSize:11}}>Tag Dimensions</SectionLabel>
               <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
                 {tagDims.map(dim=>(
                   <div key={dim} className={applyDim===dim?undefined:"bhq-row"} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px",borderRadius:6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent",border:applyDim===dim?`1px solid ${T.accentBorder}`:"1px solid transparent"}}>
-                    <span style={{fontSize:13,color:T.text,fontWeight:applyDim===dim?700:400}}>{dim}</span>
+                    <span style={{fontSize:11,color:T.text,fontWeight:applyDim===dim?700:400}}>{dim}</span>
                     <span style={{display:"flex",alignItems:"center",gap:6}}>
                       <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
                       <button onClick={e=>{e.stopPropagation();deleteDimension(dim);}} title={`Delete "${dim}" dimension`}
@@ -6883,7 +6883,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               </div>
               <Divider T={T}/>
               <div style={{padding:"12px 0",flex:1}}>
-                <SectionLabel T={T}>Overview</SectionLabel>
+                <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
                 {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T}/>)}
                 {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif",lineHeight:1.6}}>{stats.dateRange}</div>}
                 <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accentSoft,transition:"width 0.4s",borderRadius:2}}/></div>
@@ -6935,7 +6935,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 {tagDims.some(d=>Object.keys(tagValueMap[d]||{}).length>0)&&(
                   <div style={{marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:14}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                      <SectionLabel T={T} style={{marginBottom:0}}>Filter by tag</SectionLabel>
+                      <SectionLabel T={T} style={{marginBottom:0,fontSize:11}}>Filter by tag</SectionLabel>
                       {selectedTagFilters.size>0&&<span style={{fontSize:10,color:T.text,fontWeight:600,fontFamily:"Inter,sans-serif"}}>{selectedTagFilters.size} active</span>}
                     </div>
                     {tagDims.map(dim=>{
@@ -6943,7 +6943,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       if(!vals.length)return null;
                       return(
                         <div key={dim} style={{marginBottom:12}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"Inter,sans-serif"}}>{dim}</div>
+                          <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"Inter,sans-serif"}}>{dim}</div>
                           <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                             {vals.map(([val,count])=>{
                               const key=`${dim}:${val}`;
@@ -7490,15 +7490,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         of a muted-vs-bold pair — Vercel's row title and metadata fields read at the
                         same visual weight, just differing in which column they sit in. Weight
                         dropped to 400 (2026-07-24, per Mo) — no benefit to bolding row data. */}
-                    {!isMobile&&<div style={{fontSize:12,fontWeight:400,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
+                    {!isMobile&&<div style={{fontSize:11,fontWeight:400,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
                     {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
                         here it means tagged (accent) vs needs review (neutral grey), so the row list
                         reads at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
                       <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?T.accentSoft:"#A1A1AA",flexShrink:0}}/>
-                      <span style={{minWidth:0,fontSize:12,fontWeight:400,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                      <span style={{minWidth:0,fontSize:11,fontWeight:400,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
-                    <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
+                    <div style={{fontSize:11,fontFamily:"Inter,sans-serif",fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
                       {editingPlatform===c.key?(
                         <select autoFocus value={c.platform}
