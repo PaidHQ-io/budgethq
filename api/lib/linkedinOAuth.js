@@ -98,12 +98,26 @@ export async function refreshAccessToken(credential) {
 // Ad accounts the given access token can see — used to auto-pick when there's exactly one, or to
 // populate the "which account?" dropdown when there's more than one. Restricted to ACTIVE accounts
 // since a paused/cancelled account can't return analytics anyway.
+//
+// Found live (2026-07-24): the old /v2/adAccountsV2 call with bracket-notation query params
+// (search.status.values[0]=ACTIVE) 403'd with "Unpermitted fields present in PARAMETER: Data
+// Processing Exception" — that bracket syntax is Rest.li PROTOCOL 1.0 encoding, but the request
+// declared X-Restli-Protocol-Version: 2.0.0, so LinkedIn's server tried to parse it under 2.0 rules
+// and rejected the field outright. Switched to the versioned /rest/adAccounts endpoint with the
+// documented Restli 2.0 search syntax (search=(status:(values:List(ACTIVE)))) plus the
+// LinkedIn-Version header every other /rest-tier call in this file already sends.
 export async function listAdAccounts(accessToken) {
   const res = await fetch(
-    "https://api.linkedin.com/v2/adAccountsV2?q=search&search.status.values[0]=ACTIVE",
-    { headers: { Authorization: `Bearer ${accessToken}`, "X-Restli-Protocol-Version": "2.0.0" } }
+    "https://api.linkedin.com/rest/adAccounts?q=search&search=(status:(values:List(ACTIVE)))",
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "LinkedIn-Version": "202503",
+        "X-Restli-Protocol-Version": "2.0.0",
+      },
+    }
   );
-  if (!res.ok) throw new Error(`LinkedIn adAccountsV2 ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`LinkedIn adAccounts ${res.status}: ${await res.text()}`);
   const data = await res.json();
   return (data.elements || []).map((a) => ({ id: String(a.id), name: a.name || `Account ${a.id}` }));
 }
