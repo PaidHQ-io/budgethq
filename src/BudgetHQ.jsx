@@ -6046,7 +6046,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       const taggedRows=rows.map(r=>({...r,source:`sync:${platformKey}`}));
       // Merge with existing data — don't replace
       setMergedNormRows(prev=>mergeRows(prev,taggedRows));
-      setStep("tag");
+      // setView("tagger") matters here now that Data Sources is its own tab (view==="data") — the
+      // Tagger table only renders at step==="tag"&&view==="tagger" (see below), so leaving view on
+      // "data" after a sync left step==="tag" matching NEITHER that condition NOR the upload zone's
+      // step==="upload"&&view==="data", producing a blank main panel with only the Data Sources
+      // sidebar still showing (2026-07-24, caught via a live sync producing exactly that). Every
+      // other "import finished" path already pairs these two calls — this one just got missed.
+      setStep("tag");setView("tagger");
       setSyncState(p=>({...p,[platformKey]:"done"}));
       setLastSyncRange({start:syncDateRange.start,end:syncDateRange.end});
       try{localStorage.setItem("paidhq_sync_range",JSON.stringify({start:syncDateRange.start,end:syncDateRange.end}));}catch(e){}
