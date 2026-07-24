@@ -694,13 +694,6 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const[screenshotImporting,setScreenshotImporting]=useState(false);
   const[screenshotImportError,setScreenshotImportError]=useState("");
   const screenshotFileRef=useRef();
-  // Google Sheets manual connect — same downstream pipeline as the file/screenshot imports above,
-  // fed by a live fetch of the sheet's grid instead. See handleConnectGoogleSheet below.
-  const[gsheetUrl,setGsheetUrl]=useState("");
-  const[gsheetFetching,setGsheetFetching]=useState(false);
-  const[gsheetError,setGsheetError]=useState("");
-  const[gsheetTabs,setGsheetTabs]=useState(null); // null = not resolved yet; [] once resolved with only 1 tab (auto-picked)
-  const[gsheetSpreadsheetId,setGsheetSpreadsheetId]=useState("");
 
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
 
@@ -1017,6 +1010,16 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     setIHeaderRow(headerIdx);
     setIStep("header");
   };
+  // Google Sheets manual connect — same downstream pipeline as the file/screenshot imports above,
+  // fed by a live fetch of the sheet's grid instead. Connection logic itself lives in the shared
+  // useGoogleSheetConnect hook (see its doc comment) — this just feeds the fetched grid straight
+  // into ingestRawRows, the exact same entry point a file upload uses. Declared here (after
+  // ingestRawRows, not up near the other useRef/useState declarations above) so the closure below
+  // doesn't reference ingestRawRows before it's been declared in this same component body.
+  // Deliberately a plain inline function, NOT useCallback — the hook's onGridRef always captures
+  // whichever version ran most recently (see its doc comment), so this can safely close over
+  // ingestRawRows (itself redefined every render, same reasoning) without going stale.
+  const gsBudget=useGoogleSheetConnect((grid,tabTitle)=>{ingestRawRows(tabTitle,grid);});
   const handleImportFile=file=>{
     if(!file)return;
     parseFileToRows(file,rawRows=>ingestRawRows(file.name,rawRows));
@@ -1056,42 +1059,6 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     };
     reader.onerror=()=>{setScreenshotImportError("Could not read image file");setScreenshotImporting(false);};
     reader.readAsDataURL(file);
-  };
-  // Manual "connect a Google Sheet" — resolves the pasted URL to a spreadsheet ID, lists its tabs,
-  // and either fetches the one tab directly or asks the user to pick one first. Either way the
-  // fetched grid goes through the exact same ingestRawRows() pipeline as a file upload or
-  // screenshot — this is purely a different way to get the raw grid in, not a parallel import path.
-  const handleConnectGoogleSheet=async()=>{
-    const id=parseSpreadsheetId(gsheetUrl);
-    if(!id){setGsheetError("Couldn't find a spreadsheet ID in that link — paste the full Google Sheets URL.");return;}
-    setGsheetError("");setGsheetFetching(true);setGsheetTabs(null);
-    try{
-      const{tabs}=await listSheetTabs(id);
-      if(!tabs.length)throw new Error("That spreadsheet has no sheets/tabs.");
-      setGsheetSpreadsheetId(id);
-      if(tabs.length===1){
-        await fetchGoogleSheetTab(id,tabs[0].title);
-      }else{
-        setGsheetTabs(tabs);
-      }
-    }catch(err){
-      setGsheetError(err.message||"Couldn't connect to that Google Sheet.");
-    }finally{
-      setGsheetFetching(false);
-    }
-  };
-  const fetchGoogleSheetTab=async(spreadsheetId,tabTitle)=>{
-    setGsheetError("");setGsheetFetching(true);
-    try{
-      const rawRows=await fetchSheetGrid(spreadsheetId,tabTitle);
-      if(!rawRows.length)throw new Error(`"${tabTitle}" is empty.`);
-      ingestRawRows(tabTitle,rawRows);
-      setGsheetTabs(null);setGsheetUrl("");
-    }catch(err){
-      setGsheetError(err.message||"Couldn't read that sheet.");
-    }finally{
-      setGsheetFetching(false);
-    }
   };
   // Clipboard paste (Ctrl/Cmd+V) support — only acts while the import modal is open on its
   // upload step, mirroring the same "only intercept when the clipboard actually has an image"
@@ -1427,7 +1394,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const skipMergeReview=()=>{doImport([]);};
   const cancelContraction=()=>{setContractionWarningOpen(false);setContractionInfo([]);setContractionNewDims([]);pendingImportRef.current=null;setIStep("map");};
   const continueContraction=()=>{setContractionWarningOpen(false);setContractionInfo([]);setContractionNewDims([]);doImport([]);};
-  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setIFlatMonths([]);setPreview([]);setCustomDims([]);setAiError("");setISegDim("Campaign");setIGroupHeaderRow(-1);setIGroupDim("Channel");setScreenshotImportError("");setGsheetUrl("");setGsheetError("");setGsheetTabs(null);setGsheetSpreadsheetId("");};
+  const resetImport=()=>{setIStep("upload");setIFileName("");setIRawRows([]);setIHeaderRow(0);setIHeaders([]);setIRows([]);setDimMap({});setPeriodCol("");setAmtCol("");setIFlatMonths([]);setPreview([]);setCustomDims([]);setAiError("");setISegDim("Campaign");setIGroupHeaderRow(-1);setIGroupDim("Channel");setScreenshotImportError("");gsBudget.reset();};
   const closeImport=()=>{setImportOpen(false);resetImport();};
 
   const analyzeWithAI=async()=>{
@@ -1871,31 +1838,31 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                   <div style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:10,padding:"16px",background:T.surfaceEl}}>
                     <div style={{fontSize:13,fontWeight:600,color:T.accent,marginBottom:4}}>Or connect a Google Sheet</div>
                     <div style={{fontSize:12,color:T.textMuted,marginBottom:10}}>Paste the sheet's URL — this pulls a one-time snapshot, same review steps as a file upload. Live auto-refresh is coming later; for now, reconnect and re-import whenever you want the latest numbers.</div>
-                    {gsheetTabs?.length>1?(
+                    {gsBudget.tabs?.length>1?(
                       <div>
                         <div style={{fontSize:12,color:T.textSub,marginBottom:8}}>This spreadsheet has multiple tabs — which one has the budget?</div>
                         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
-                          {gsheetTabs.map(t=>(
-                            <button key={t.sheetId} disabled={gsheetFetching} onClick={()=>fetchGoogleSheetTab(gsheetSpreadsheetId,t.title)}
-                              style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsheetFetching?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:gsheetFetching?0.6:1}}>{t.title}</button>
+                          {gsBudget.tabs.map(t=>(
+                            <button key={t.sheetId} disabled={gsBudget.fetching} onClick={()=>gsBudget.fetchTab(gsBudget.spreadsheetId,t.title)}
+                              style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsBudget.fetching?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:gsBudget.fetching?0.6:1}}>{t.title}</button>
                           ))}
                         </div>
-                        <Btn onClick={()=>{setGsheetTabs(null);setGsheetSpreadsheetId("");}} variant="ghost" size="sm" T={T}>Cancel</Btn>
+                        <Btn onClick={gsBudget.cancelTabs} variant="ghost" size="sm" T={T}>Cancel</Btn>
                       </div>
                     ):(
                       <div style={{display:"flex",gap:8}}>
-                        <input value={gsheetUrl} onChange={e=>setGsheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
-                          onKeyDown={e=>e.key==="Enter"&&!gsheetFetching&&gsheetUrl.trim()&&handleConnectGoogleSheet()}
+                        <input value={gsBudget.url} onChange={e=>gsBudget.setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
+                          onKeyDown={e=>e.key==="Enter"&&!gsBudget.fetching&&gsBudget.url.trim()&&gsBudget.connect()}
                           style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
-                        <Btn onClick={handleConnectGoogleSheet} disabled={gsheetFetching||!gsheetUrl.trim()} variant="primary" size="sm" T={T}>{gsheetFetching?"Connecting…":"Connect"}</Btn>
+                        <Btn onClick={gsBudget.connect} disabled={gsBudget.fetching||!gsBudget.url.trim()} variant="primary" size="sm" T={T}>{gsBudget.fetching?"Connecting…":"Connect"}</Btn>
                       </div>
                     )}
-                    {gsheetError&&(
+                    {gsBudget.error&&(
                       <div style={{marginTop:8,fontSize:11,color:T.danger}}>
-                        {gsheetError}
-                        {/(permission|forbidden|403)/i.test(gsheetError)&&(
+                        {gsBudget.error}
+                        {/(permission|forbidden|403)/i.test(gsBudget.error)&&(
                           <div style={{marginTop:4}}>
-                            That usually means the Google account you're connected as doesn't have access to this sheet. <span onClick={()=>{switchGoogleAccount();handleConnectGoogleSheet();}} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different Google account</span>
+                            That usually means the Google account you're connected as doesn't have access to this sheet. <span onClick={gsBudget.retryWithNewAccount} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different Google account</span>
                           </div>
                         )}
                       </div>
@@ -5046,6 +5013,75 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   );
 }
 
+// Reusable "connect a Google Sheet" state machine (2026-07-24) — resolves a pasted URL to a
+// spreadsheet ID, lists its tabs, and either fetches the one tab directly or surfaces a tab picker
+// first. Consolidated per Mo from three independent, near-identical hand-rolled copies of this
+// exact logic that had accumulated across the app (Budget import, Data Sources' spend pull, and
+// the Campaign Tagger's tag import each had their own url/fetching/error/tabs/spreadsheetId state
+// plus their own connect/fetchTab functions — same async flow, same "sheet is empty" check, even
+// the same "wrong Google account" error-detection regex, copy-pasted three times with tiny drifts
+// between them). Each of the three call sites now just supplies its own `onGrid(grid, tabTitle)`
+// callback for what to DO with the fetched grid — ingest as a budget/spend/tag import respectively
+// — while this hook owns the one shared connection flow all three sit on top of.
+function useGoogleSheetConnect(onGrid){
+  const[url,setUrl]=useState("");
+  const[fetching,setFetching]=useState(false);
+  const[error,setError]=useState("");
+  const[tabs,setTabs]=useState(null); // null = not resolved yet; array once resolved (only shown when >1 — a single tab is fetched automatically)
+  const[spreadsheetId,setSpreadsheetId]=useState("");
+  // onGrid closes over caller-local state (e.g. `tags`, `campaignTags`) and is a fresh function
+  // every render in every caller — held in a ref so fetchTab/connect below don't need it in their
+  // own dependency arrays, the same tension the three original copies already navigated this way.
+  // Updated inside an effect rather than directly in the render body — React (and its lint rule)
+  // wants render to stay pure/side-effect-free, and by the time a user actually triggers connect()/
+  // fetchTab() from a click, this effect has always already committed, so there's no real lag.
+  const onGridRef=useRef(onGrid);
+  useEffect(()=>{onGridRef.current=onGrid;});
+
+  const fetchTab=useCallback(async(id,tabTitle)=>{
+    setError("");setFetching(true);
+    try{
+      const grid=await fetchSheetGrid(id,tabTitle);
+      if(!grid.length)throw new Error(`"${tabTitle}" is empty.`);
+      await onGridRef.current(grid,tabTitle);
+      setTabs(null);setUrl("");
+    }catch(err){
+      setError(err.message||"Couldn't read that sheet.");
+    }finally{
+      setFetching(false);
+    }
+  },[]);
+
+  const connect=useCallback(async()=>{
+    const id=parseSpreadsheetId(url);
+    if(!id){setError("Couldn't find a spreadsheet ID in that link — paste the full Google Sheets URL.");return;}
+    setError("");setFetching(true);setTabs(null);
+    try{
+      const{tabs:t}=await listSheetTabs(id);
+      if(!t.length)throw new Error("That spreadsheet has no sheets/tabs.");
+      setSpreadsheetId(id);
+      if(t.length===1)await fetchTab(id,t[0].title);
+      else setTabs(t);
+    }catch(err){
+      setError(err.message||"Couldn't connect to that Google Sheet.");
+    }finally{
+      setFetching(false);
+    }
+  },[url,fetchTab]);
+
+  const cancelTabs=useCallback(()=>{setTabs(null);setSpreadsheetId("");},[]);
+  // Same "switch account and retry from scratch" behavior all three originals had — re-listing
+  // tabs (rather than just re-fetching the same tab) matters here since a different account may
+  // not even see the same spreadsheet/tabs the first account did.
+  const retryWithNewAccount=useCallback(()=>{switchGoogleAccount();connect();},[connect]);
+  // Full blank-slate reset (url + error + tabs + spreadsheetId together) — distinct from cancelTabs,
+  // which only backs out of an in-progress tab pick. Callers use this when closing/discarding the
+  // whole surrounding import flow (e.g. the Budget import wizard's "start over" reset).
+  const reset=useCallback(()=>{setUrl("");setError("");setTabs(null);setSpreadsheetId("");},[]);
+
+  return{url,setUrl,fetching,error,tabs,spreadsheetId,connect,fetchTab,cancelTabs,retryWithNewAccount,reset};
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitchWorkspace,onCreateWorkspace,accounts,activeAccountKey,onSwitchAccount,onAddAccount,onSignOutAccount,onWorkspacesChanged}={}){
   const T=THEME;
@@ -6154,13 +6190,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // server-side storage. Each pull is a manual one-shot: paste a link, fetch the grid, review/map
   // columns on the same step==="map" screen a CSV upload lands on — same pipeline, different source.
   const[gsheetSpendOpen,setGsheetSpendOpen]=useState(false);
-  const[gsheetSpendUrl,setGsheetSpendUrl]=useState("");
-  const[gsheetSpendFetching,setGsheetSpendFetching]=useState(false);
-  const[gsheetSpendError,setGsheetSpendError]=useState("");
-  const[gsheetSpendTabs,setGsheetSpendTabs]=useState(null);
-  const[gsheetSpendSpreadsheetId,setGsheetSpendSpreadsheetId]=useState("");
 
-  // Shared by handleFile's Papa.parse callback and the Sheets tab fetch below — both end up with
+  // Shared by handleFile's Papa.parse callback and the Sheets grid below — both end up with
   // the same shape (array of row objects + field names) and need to land on the same review step.
   const applySpendGrid=useCallback((data,fields,sourceLabel)=>{
     setFileName(sourceLabel);
@@ -6175,38 +6206,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setStep("map");
   },[tags]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchGoogleSheetSpendTab=useCallback(async(spreadsheetId,tabTitle)=>{
-    setGsheetSpendError("");setGsheetSpendFetching(true);
-    try{
-      const grid=await fetchSheetGrid(spreadsheetId,tabTitle);
-      if(!grid.length)throw new Error(`"${tabTitle}" is empty.`);
-      const[headerRow,...dataRows]=grid;
-      const fields=headerRow.map((h,i)=>h||`Column ${i+1}`);
-      const data=dataRows.map(row=>Object.fromEntries(fields.map((f,i)=>[f,row[i]||""])));
-      applySpendGrid(data,fields,tabTitle);
-      setGsheetSpendTabs(null);setGsheetSpendUrl("");setGsheetSpendOpen(false);
-    }catch(err){
-      setGsheetSpendError(err.message||"Couldn't read that sheet.");
-    }finally{
-      setGsheetSpendFetching(false);
-    }
-  },[applySpendGrid]);
-  const handleConnectGoogleSheetSpend=useCallback(async()=>{
-    const id=parseSpreadsheetId(gsheetSpendUrl);
-    if(!id){setGsheetSpendError("Couldn't find a spreadsheet ID in that link — paste the full Google Sheets URL.");return;}
-    setGsheetSpendError("");setGsheetSpendFetching(true);setGsheetSpendTabs(null);
-    try{
-      const{tabs}=await listSheetTabs(id);
-      if(!tabs.length)throw new Error("That spreadsheet has no sheets/tabs.");
-      setGsheetSpendSpreadsheetId(id);
-      if(tabs.length===1){await fetchGoogleSheetSpendTab(id,tabs[0].title);}
-      else{setGsheetSpendTabs(tabs);}
-    }catch(err){
-      setGsheetSpendError(err.message||"Couldn't connect to that Google Sheet.");
-    }finally{
-      setGsheetSpendFetching(false);
-    }
-  },[gsheetSpendUrl,fetchGoogleSheetSpendTab]);
+  // Connection logic itself lives in the shared useGoogleSheetConnect hook (see its doc comment)
+  // — this just converts the fetched grid into the same {rows, fields} shape a CSV upload's
+  // Papa.parse output has, then feeds it into applySpendGrid above.
+  const gsSpend=useGoogleSheetConnect((grid,tabTitle)=>{
+    const[headerRow,...dataRows]=grid;
+    const fields=headerRow.map((h,i)=>h||`Column ${i+1}`);
+    const data=dataRows.map(row=>Object.fromEntries(fields.map((f,i)=>[f,row[i]||""])));
+    applySpendGrid(data,fields,tabTitle);
+    setGsheetSpendOpen(false);
+  });
 
   const handleFile=useCallback(file=>{
     if(!file)return;
@@ -6565,13 +6574,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   },[applyTagRowsFromRecords]);
   // Google Sheets manual connect for tags — same idea as the Budget import's version, but converts
   // the fetched raw grid into {header:true}-shaped row objects (row 0 = headers) since
-  // applyTagRowsFromRecords expects that shape, same as Papa.parse's CSV output.
+  // applyTagRowsFromRecords expects that shape, same as Papa.parse's CSV output. Connection logic
+  // itself lives in the shared useGoogleSheetConnect hook (see its doc comment).
   const[gsheetTagOpen,setGsheetTagOpen]=useState(false);
-  const[gsheetTagUrl,setGsheetTagUrl]=useState("");
-  const[gsheetTagFetching,setGsheetTagFetching]=useState(false);
-  const[gsheetTagError,setGsheetTagError]=useState("");
-  const[gsheetTagTabs,setGsheetTagTabs]=useState(null);
-  const[gsheetTagSpreadsheetId,setGsheetTagSpreadsheetId]=useState("");
   // Auto-detects the header row (scans the first 10 rows) instead of always trusting row 0 — a
   // title row, note, or blank spacer row above the real header would otherwise make this silently
   // grab the wrong row and, since a tag import specifically needs a Campaign column, produce
@@ -6598,42 +6603,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     });
     return{fields,rows};
   };
-  // Plain functions (not useCallback) — same reasoning as Budget's handleConnectGoogleSheet /
-  // fetchGoogleSheetTab: they close over gridToRecords/applyTagRowsFromRecords, which are
-  // themselves plain functions recreated every render, so a dependency array here can't ever be
-  // fully satisfied without churn either way — matching the rest of this file's existing style
-  // for this exact tension rather than fighting the linter with an unstable dependency.
-  const fetchGoogleSheetTagsTab=async(spreadsheetId,tabTitle)=>{
-    setGsheetTagError("");setGsheetTagFetching(true);
-    try{
-      const rawRows=await fetchSheetGrid(spreadsheetId,tabTitle);
-      if(!rawRows.length)throw new Error(`"${tabTitle}" is empty.`);
-      const{fields,rows}=gridToRecords(rawRows);
-      if(!rows.length)throw new Error(`"${tabTitle}" has a header row but no data rows.`);
-      applyTagRowsFromRecords(rows,fields);
-      setGsheetTagTabs(null);setGsheetTagUrl("");setGsheetTagOpen(false);
-    }catch(err){
-      setGsheetTagError(err.message||"Couldn't read that sheet.");
-    }finally{
-      setGsheetTagFetching(false);
-    }
-  };
-  const handleConnectGoogleSheetTags=async()=>{
-    const id=parseSpreadsheetId(gsheetTagUrl);
-    if(!id){setGsheetTagError("Couldn't find a spreadsheet ID in that link — paste the full Google Sheets URL.");return;}
-    setGsheetTagError("");setGsheetTagFetching(true);setGsheetTagTabs(null);
-    try{
-      const{tabs}=await listSheetTabs(id);
-      if(!tabs.length)throw new Error("That spreadsheet has no sheets/tabs.");
-      setGsheetTagSpreadsheetId(id);
-      if(tabs.length===1)await fetchGoogleSheetTagsTab(id,tabs[0].title);
-      else setGsheetTagTabs(tabs);
-    }catch(err){
-      setGsheetTagError(err.message||"Couldn't connect to that Google Sheet.");
-    }finally{
-      setGsheetTagFetching(false);
-    }
-  };
+  const gsTags=useGoogleSheetConnect((grid,tabTitle)=>{
+    const{fields,rows}=gridToRecords(grid);
+    if(!rows.length)throw new Error(`"${tabTitle}" has a header row but no data rows.`);
+    applyTagRowsFromRecords(rows,fields);
+    setGsheetTagOpen(false);
+  });
   // Clipboard paste (Ctrl/Cmd+V) for screenshots — lets someone with a screenshot already copied
   // (e.g. Cmd+Shift+4 / Snipping Tool) just paste it in rather than saving it as a file first and
   // clicking through a file picker. Scoped to whichever screenshot-import capability is actually
@@ -7184,31 +7159,31 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   <Btn onClick={()=>setGsheetTagOpen(o=>!o)} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>🔗 Connect Google Sheet</Btn>
                   {gsheetTagOpen&&(
                     <div style={{padding:"10px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8}}>
-                      {gsheetTagTabs?.length>1?(
+                      {gsTags.tabs?.length>1?(
                         <div>
                           <div style={{fontSize:11,color:T.textSub,marginBottom:6}}>Which tab has the tagging table?</div>
                           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-                            {gsheetTagTabs.map(t=>(
-                              <button key={t.sheetId} disabled={gsheetTagFetching} onClick={()=>fetchGoogleSheetTagsTab(gsheetTagSpreadsheetId,t.title)}
-                                style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsheetTagFetching?"default":"pointer",fontSize:11,fontFamily:"Inter,sans-serif",opacity:gsheetTagFetching?0.6:1}}>{t.title}</button>
+                            {gsTags.tabs.map(t=>(
+                              <button key={t.sheetId} disabled={gsTags.fetching} onClick={()=>gsTags.fetchTab(gsTags.spreadsheetId,t.title)}
+                                style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsTags.fetching?"default":"pointer",fontSize:11,fontFamily:"Inter,sans-serif",opacity:gsTags.fetching?0.6:1}}>{t.title}</button>
                             ))}
                           </div>
-                          <Btn onClick={()=>{setGsheetTagTabs(null);setGsheetTagSpreadsheetId("");}} variant="ghost" size="sm" T={T}>Cancel</Btn>
+                          <Btn onClick={gsTags.cancelTabs} variant="ghost" size="sm" T={T}>Cancel</Btn>
                         </div>
                       ):(
                         <>
-                          <input value={gsheetTagUrl} onChange={e=>setGsheetTagUrl(e.target.value)} placeholder="Google Sheets URL…"
-                            onKeyDown={e=>e.key==="Enter"&&!gsheetTagFetching&&gsheetTagUrl.trim()&&handleConnectGoogleSheetTags()}
+                          <input value={gsTags.url} onChange={e=>gsTags.setUrl(e.target.value)} placeholder="Google Sheets URL…"
+                            onKeyDown={e=>e.key==="Enter"&&!gsTags.fetching&&gsTags.url.trim()&&gsTags.connect()}
                             style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:6}}/>
-                          <Btn onClick={handleConnectGoogleSheetTags} disabled={gsheetTagFetching||!gsheetTagUrl.trim()} variant="primary" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{gsheetTagFetching?"Connecting…":"Connect"}</Btn>
+                          <Btn onClick={gsTags.connect} disabled={gsTags.fetching||!gsTags.url.trim()} variant="primary" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{gsTags.fetching?"Connecting…":"Connect"}</Btn>
                         </>
                       )}
-                      {gsheetTagError&&(
+                      {gsTags.error&&(
                         <div style={{marginTop:6,fontSize:11,color:T.danger}}>
-                          {gsheetTagError}
-                          {/(permission|forbidden|403)/i.test(gsheetTagError)&&(
+                          {gsTags.error}
+                          {/(permission|forbidden|403)/i.test(gsTags.error)&&(
                             <div style={{marginTop:4}}>
-                              Wrong Google account for this sheet? <span onClick={()=>{switchGoogleAccount();handleConnectGoogleSheetTags();}} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different account</span>
+                              Wrong Google account for this sheet? <span onClick={gsTags.retryWithNewAccount} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different account</span>
                             </div>
                           )}
                         </div>
@@ -7364,31 +7339,31 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                     <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Pull spend from Google Sheets</div>
-                    <span onClick={()=>{setGsheetSpendOpen(false);setGsheetSpendError("");setGsheetSpendTabs(null);}} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                    <span onClick={()=>setGsheetSpendOpen(false)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                   </div>
-                  {gsheetSpendTabs?.length>1?(
+                  {gsSpend.tabs?.length>1?(
                     <div>
                       <div style={{fontSize:11,color:T.textSub,marginBottom:6}}>Which tab has the spend data?</div>
                       <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-                        {gsheetSpendTabs.map(t=>(
-                          <button key={t.sheetId} disabled={gsheetSpendFetching} onClick={()=>fetchGoogleSheetSpendTab(gsheetSpendSpreadsheetId,t.title)}
-                            style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsheetSpendFetching?"default":"pointer",fontSize:11,fontFamily:"Inter,sans-serif",opacity:gsheetSpendFetching?0.6:1}}>{t.title}</button>
+                        {gsSpend.tabs.map(t=>(
+                          <button key={t.sheetId} disabled={gsSpend.fetching} onClick={()=>gsSpend.fetchTab(gsSpend.spreadsheetId,t.title)}
+                            style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsSpend.fetching?"default":"pointer",fontSize:11,fontFamily:"Inter,sans-serif",opacity:gsSpend.fetching?0.6:1}}>{t.title}</button>
                         ))}
                       </div>
                     </div>
                   ):(
                     <>
-                      <input value={gsheetSpendUrl} onChange={e=>setGsheetSpendUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
-                        onKeyDown={e=>e.key==="Enter"&&!gsheetSpendFetching&&gsheetSpendUrl.trim()&&handleConnectGoogleSheetSpend()}
+                      <input value={gsSpend.url} onChange={e=>gsSpend.setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
+                        onKeyDown={e=>e.key==="Enter"&&!gsSpend.fetching&&gsSpend.url.trim()&&gsSpend.connect()}
                         style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:8}}/>
-                      <Btn onClick={handleConnectGoogleSheetSpend} disabled={gsheetSpendFetching||!gsheetSpendUrl.trim()} variant="primary" size="sm" T={T}>{gsheetSpendFetching?"Connecting…":"Connect"}</Btn>
+                      <Btn onClick={gsSpend.connect} disabled={gsSpend.fetching||!gsSpend.url.trim()} variant="primary" size="sm" T={T}>{gsSpend.fetching?"Connecting…":"Connect"}</Btn>
                     </>
                   )}
-                  {gsheetSpendError&&(
+                  {gsSpend.error&&(
                     <div style={{marginTop:8,fontSize:11,color:T.danger}}>
-                      {gsheetSpendError}
-                      {gsheetSpendError.includes("access")&&(
-                        <>{" "}<span onClick={()=>{switchGoogleAccount();handleConnectGoogleSheetSpend();}} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different Google account</span></>
+                      {gsSpend.error}
+                      {/(permission|forbidden|403)/i.test(gsSpend.error)&&(
+                        <>{" "}<span onClick={gsSpend.retryWithNewAccount} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different Google account</span></>
                       )}
                     </div>
                   )}
