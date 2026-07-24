@@ -42,6 +42,20 @@
  * "the outer body order matched" means every nested object's order was checked too. Before Jan
  * 2027 this whole connector should be migrated to the REST reporting API once Microsoft's
  * reference for it is complete.
+ *
+ * REPORT GRANULARITY (2026-07-24): switched from CampaignPerformanceReportRequest to
+ * AdGroupPerformanceReportRequest. The Campaign-level report only had one usable name field
+ * (CampaignName), so campaign_group_name fell back to AccountName ("insightsoftware") for every
+ * row — every campaign in the account collapsed into one group, unlike LinkedIn where
+ * campaign_group_name/campaign_name are two genuinely different tiers. Bing's own hierarchy is
+ * Account > Campaign > Ad Group, which does map onto that same two-tier shape (Campaign ~
+ * LinkedIn's Campaign Group, Ad Group ~ LinkedIn's inner Campaign) — see connectors/linkedin.js's
+ * doc comment for that taxonomy note. New columns: AdGroupId/AdGroupName alongside the existing
+ * CampaignId/CampaignName, both confirmed valid AdGroupPerformanceReportColumn values against
+ * Microsoft's reference docs. NOT yet live-tested against a real account (unlike the three bugs
+ * above, all found via Mo's actual sync) — the element-order landmines documented above apply
+ * here too, so if this throws a new SOAP fault, check nested element order first before assuming
+ * it's a fresh bug class.
  */
 
 const REPORTING_SVC_URL = "https://reporting.api.bingads.microsoft.com/Api/Advertiser/Reporting/v13/ReportingService.svc";
@@ -69,24 +83,26 @@ function buildSubmitReportXml({ accessToken, developerToken, customerId, account
   ${soapHeader({ action: "SubmitGenerateReport", accessToken, developerToken, customerId, accountId })}
   <s:Body>
     <SubmitGenerateReportRequest xmlns="${REPORTING_NS}">
-      <ReportRequest i:type="CampaignPerformanceReportRequest">
+      <ReportRequest i:type="AdGroupPerformanceReportRequest">
         <ExcludeColumnHeaders>false</ExcludeColumnHeaders>
         <ExcludeReportFooter>true</ExcludeReportFooter>
         <ExcludeReportHeader>true</ExcludeReportHeader>
         <Format>Csv</Format>
         <FormatVersion>2.0</FormatVersion>
-        <ReportName>BudgetHQ Campaign Performance</ReportName>
+        <ReportName>BudgetHQ Ad Group Performance</ReportName>
         <ReturnOnlyCompleteData>false</ReturnOnlyCompleteData>
         <Aggregation>Daily</Aggregation>
         <Columns xmlns:a="https://bingads.microsoft.com/Reporting/v13">
-          <a:CampaignPerformanceReportColumn>AccountId</a:CampaignPerformanceReportColumn>
-          <a:CampaignPerformanceReportColumn>AccountName</a:CampaignPerformanceReportColumn>
-          <a:CampaignPerformanceReportColumn>CampaignId</a:CampaignPerformanceReportColumn>
-          <a:CampaignPerformanceReportColumn>CampaignName</a:CampaignPerformanceReportColumn>
-          <a:CampaignPerformanceReportColumn>TimePeriod</a:CampaignPerformanceReportColumn>
-          <a:CampaignPerformanceReportColumn>Impressions</a:CampaignPerformanceReportColumn>
-          <a:CampaignPerformanceReportColumn>Clicks</a:CampaignPerformanceReportColumn>
-          <a:CampaignPerformanceReportColumn>Spend</a:CampaignPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>AccountId</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>AccountName</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>CampaignId</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>CampaignName</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>AdGroupId</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>AdGroupName</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>TimePeriod</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>Impressions</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>Clicks</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>Spend</a:AdGroupPerformanceReportColumn>
         </Columns>
         <Scope>
           <AccountIds xmlns:a="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
@@ -231,10 +247,16 @@ async function downloadAndParseReport(url) {
       // guide's Time Period Column section).
       const date = row.TimePeriod || null;
       if (!date || spend <= 0) return null;
+      // Aligned with LinkedIn's taxonomy (see connectors/linkedin.js's doc comment): BudgetHQ's
+      // campaign_group_name is the platform's own mid-tier "Campaign", and campaign_name is the
+      // leaf tier below it — Bing's Ad Group, same role as LinkedIn's inner "Campaign" object.
+      // Previously this used AccountName ("insightsoftware") as the group, which put every one of
+      // an account's campaigns into a single group and left nothing distinguishing them beyond the
+      // Campaign column — not actually aligned with how LinkedIn/other platforms report here.
       return {
-        campaign_group_name: row.AccountName || "Bing Ads",
-        campaign_name: row.CampaignName || `Campaign ${row.CampaignId || ""}`.trim(),
-        campaign_id: String(row.CampaignId || ""),
+        campaign_group_name: row.CampaignName || "Bing Ads",
+        campaign_name: row.AdGroupName || `Ad Group ${row.AdGroupId || ""}`.trim(),
+        campaign_id: String(row.AdGroupId || row.CampaignId || ""),
         platform: "Bing",
         date,
         spend: Math.round(spend * 100) / 100,
