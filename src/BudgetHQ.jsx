@@ -2663,7 +2663,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,hasData,askChat
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,mergedNormRows}){
+function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,mergedNormRows,connectionDetails,exportTags}){
   const cardBg=T.surface;
   const bc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent,T.accent];
   const cards=[
@@ -2774,6 +2774,13 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
   // Segments with real spend but nobody's entered a budget for them yet — a genuinely actionable
   // gap, distinct from "behind pace," and only detectable once there's spend data to compare against.
   const noBudgetCount=useMemo(()=>pacing?pacing.segments.filter(s=>s.status==="no-budget"&&s.spend>0).length:0,[pacing]);
+
+  // Data Source Health (2026-07-24, per Mo — modeled on Funnel.io's Home dashboard card). Reuses
+  // the exact same connectionDetails already fetched for Settings' Connections table — no new
+  // endpoint. A connector "needs attention" if its OAuth token needs reconnecting (LinkedIn's fixed
+  // ~60-day window, or Bing's refresh actually failing), it's missing an ad account selection, or
+  // its last automated rolling-sync run errored out.
+  const dataSourceIssues=useMemo(()=>(connectionDetails||[]).filter(c=>c.needsReconnect||c.needsAccountSelection||c.lastAutoSyncStatus==="error"),[connectionDetails]);
 
   const safeTextColor=c=>c===T.accent?T.text:c;
 
@@ -2938,8 +2945,35 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
             )}
           </PixelPanel>
 
-          {/* Data freshness + Quick actions */}
+          {/* Data Source Health, Data freshness, Follow-ups, Quick Actions */}
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            {/* Modeled on Funnel.io's "Data Source Health" card — same connectionDetails already
+                powering Settings' Connections table, just summarized here so a problem is visible
+                before it silently breaks a sync. */}
+            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <div style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Data source health</div>
+                <span onClick={()=>onNavigate("settings")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:"Inter,sans-serif"}}>Go to Connections →</span>
+              </div>
+              {!connectionDetails||connectionDetails.length===0?(
+                <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>No connectors set up yet.</div>
+              ):dataSourceIssues.length===0?(
+                <div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>All {connectionDetails.length} connected data source{connectionDetails.length===1?"":"s"} healthy.</div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                  {dataSourceIssues.map(c=>{
+                    const reason=c.needsReconnect?"Needs reconnect":c.needsAccountSelection?"Needs account selection":"Last sync failed";
+                    return(
+                      <div key={c.provider} onClick={()=>onNavigate("settings")} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 6px",borderRadius:6,cursor:"pointer",gap:10}}>
+                        <span style={{fontSize:12,color:T.text,fontFamily:"Inter,sans-serif",fontWeight:500,textTransform:"capitalize"}}>{c.provider}</span>
+                        <Pill color={T.warning} bg={T.warning+"14"} border={T.warning+"55"}>{reason}</Pill>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </PixelPanel>
+
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
               <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10,fontFamily:"Inter,sans-serif"}}>Data freshness</div>
               {Object.keys(freshness).length===0?(
@@ -2954,7 +2988,10 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
             </PixelPanel>
 
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:"Inter,sans-serif"}}>Quick actions</div>
+              {/* Renamed from "Quick actions" (2026-07-24) to make room for the new static Quick
+                  Actions panel below without two panels sharing one name — this one is unchanged
+                  otherwise, still the same contextual to-do nudges. */}
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:"Inter,sans-serif"}}>Follow-ups</div>
               <div style={{display:"flex",flexDirection:"column"}}>
                 {stats.untagged>0&&(
                   <DashQuickAction T={T} label={`${stats.untagged} campaign${stats.untagged===1?"":"s"} need tagging`} onClick={()=>onNavigate("tagger")}/>
@@ -2964,6 +3001,28 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
                 )}
                 {stats.untagged===0&&noBudgetCount===0&&(
                   <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>Nothing pending — you're all caught up.</div>
+                )}
+              </div>
+            </PixelPanel>
+
+            {/* New static Quick Actions panel (2026-07-24, per Mo — modeled on Funnel.io's Home
+                dashboard). "Create dashboard" and "Quick start videos" deliberately left out — no
+                multi-dashboard concept in BudgetHQ yet, and videos are coming later per Mo. "Export
+                your data" reuses the same exportTags() the Tagger sidebar's "Export tags CSV" button
+                already calls, rather than a new "coming soon" stub. */}
+            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:"Inter,sans-serif"}}>Quick actions</div>
+              <div style={{display:"flex",flexDirection:"column"}}>
+                <DashQuickAction T={T} label="Connect data sources" onClick={()=>onNavigate("settings")}/>
+                <DashQuickAction T={T} label="Explore your data" onClick={()=>onNavigate("tagger")}/>
+                <DashQuickAction T={T} label="Add a new user to your workspace" onClick={()=>onNavigate("settings")}/>
+                {hasData?(
+                  <DashQuickAction T={T} label="Export your data" onClick={exportTags}/>
+                ):(
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 8px",opacity:0.5}}>
+                    <span style={{fontSize:12,color:T.text,fontFamily:"Inter,sans-serif"}}>Export your data</span>
+                    <span style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>No data yet</span>
+                  </div>
                 )}
               </div>
             </PixelPanel>
@@ -7563,7 +7622,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         </div>
       )}
 
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={mergedNormRows}/>}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map"){}else setStep("tag");setView("tagger");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={mergedNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
       {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
           other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
           dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
