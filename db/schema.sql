@@ -119,7 +119,7 @@ create index if not exists idx_budgethq_versions_workspace on budgethq.versions(
 -- encryption of a value nothing outside this database ever reads directly.
 create table if not exists budgethq.connector_credentials (
   workspace_id uuid not null references core.workspaces(id) on delete cascade,
-  provider text not null check (provider in ('funnel','supermetrics','capterra','linkedin','bing')),
+  provider text not null check (provider in ('funnel','supermetrics','capterra','linkedin','bing','meta')),
   credential jsonb not null,
   connected_by uuid not null,
   connected_at timestamptz not null default now(),
@@ -132,7 +132,7 @@ create table if not exists budgethq.connector_credentials (
 -- then ADD CONSTRAINT re-adds the same definition instead of erroring).
 alter table budgethq.connector_credentials drop constraint if exists connector_credentials_provider_check;
 alter table budgethq.connector_credentials add constraint connector_credentials_provider_check
-  check (provider in ('funnel','supermetrics','capterra','linkedin','bing'));
+  check (provider in ('funnel','supermetrics','capterra','linkedin','bing','meta'));
 
 -- Recurring sync config (2026-07-23) — every connection defaults to 'manual' (today's only mode:
 -- someone clicks Sync in the Reporting tab or the Connections settings row). Setting sync_mode to

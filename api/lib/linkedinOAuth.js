@@ -95,6 +95,16 @@ export async function refreshAccessToken(credential) {
   return tokenResponseToCredential(data, credential);
 }
 
+// Whether refreshAccessToken above has anything to work with — checked by connectorSync.js
+// BEFORE attempting a refresh on a stale credential, so a workspace with no refreshToken (the
+// common case today — see this file's doc comment on Mo's Programmatic Refresh Tokens not being
+// approved yet) gets its still-possibly-valid access token passed through as-is instead of being
+// proactively marked reconnectRequired 24h ahead of real expiry just because a guaranteed-to-fail
+// refresh was attempted anyway.
+export function canAttemptRefresh(credential) {
+  return !!credential?.refreshToken;
+}
+
 // Ad accounts the given access token can see — used to auto-pick when there's exactly one, or to
 // populate the "which account?" dropdown when there's more than one. Restricted to ACTIVE accounts
 // since a paused/cancelled account can't return analytics anyway.

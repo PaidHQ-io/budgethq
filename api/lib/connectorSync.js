@@ -15,19 +15,25 @@ import { CONNECTORS } from "../connectors/index.js";
 import { sql } from "./db.js";
 import * as linkedinOAuth from "./linkedinOAuth.js";
 import * as bingOAuth from "./bingOAuth.js";
+import * as metaOAuth from "./metaOAuth.js";
 
 // Same map as spend.js used inline before this got factored out — see each lib's doc comments for
-// why LinkedIn and Bing refresh differently (LinkedIn: no refresh tokens issued yet at all, so this
-// never actually fires for it today; Bing: short-lived access tokens, fires on nearly every sync).
-const OAUTH_REFRESH = { linkedin: linkedinOAuth, bing: bingOAuth };
+// why each provider refreshes differently (LinkedIn: no refresh tokens issued yet at all, so this
+// never actually fires for it today; Bing: short-lived access tokens, fires on nearly every sync;
+// Meta: no refresh_token grant at all, this re-extends the current long-lived token instead — see
+// metaOAuth.js's TOKEN MODEL note).
+const OAUTH_REFRESH = { linkedin: linkedinOAuth, bing: bingOAuth, meta: metaOAuth };
 
 // Refreshes an OAuth credential if stale, persisting either the refreshed tokens or a
 // reconnectRequired flag back to the same row — identical behavior to what used to live inline in
 // spend.js. Returns the credential unchanged for providers with no refresh concept (funnel/
-// supermetrics/capterra are plain API keys with no expiry) or one that isn't stale yet.
+// supermetrics/capterra are plain API keys with no expiry), one that isn't stale yet, or one with
+// nothing to refresh with at all (see each module's canAttemptRefresh — e.g. a LinkedIn credential
+// with no refreshToken issued yet: attempting anyway would just throw and mark the still-possibly-
+// valid credential reconnectRequired ahead of its real expiry, worse than leaving it alone).
 export async function refreshCredentialIfStale(workspaceId, provider, credential) {
   const oauth = OAUTH_REFRESH[provider];
-  if (!oauth || !credential?.refreshToken || !oauth.isCredentialStale(credential)) return credential;
+  if (!oauth || !oauth.canAttemptRefresh(credential) || !oauth.isCredentialStale(credential)) return credential;
   try {
     const refreshed = await oauth.refreshAccessToken(credential);
     const updated = { ...credential, ...refreshed };

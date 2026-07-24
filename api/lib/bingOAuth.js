@@ -115,6 +115,13 @@ export async function refreshAccessToken(credential) {
   return tokenResponseToCredential(data, credential);
 }
 
+// Whether refreshAccessToken above has anything to work with — see linkedinOAuth.js's identical
+// helper for why connectorSync.js checks this before attempting a refresh at all, rather than
+// letting a guaranteed-to-fail attempt mark the credential reconnectRequired prematurely.
+export function canAttemptRefresh(credential) {
+  return !!credential?.refreshToken;
+}
+
 // Bing access tokens are short-lived (~60-90 min) — refresh well before expiry rather than
 // LinkedIn's 1-day buffer, since a sync could otherwise start with a token that expires mid-run.
 export function isCredentialStale(credential) {
