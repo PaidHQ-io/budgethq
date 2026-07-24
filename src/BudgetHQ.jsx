@@ -284,22 +284,32 @@ const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10,fontWeight
 const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 9px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",...style}} {...rest}>{children}</span>);
 // Real brand mark for a connector card (2026-07-24, per Mo — "Add data source" cards used to just
 // show a plain colored dot next to the platform name; real logos read as much more polished).
-// Pulled from Simple Icons' free, keyless CDN (cdn.simpleicons.org/<slug>/<hexcolor>) — a flat,
-// single-color SVG rendering of the brand's mark in that platform's own accent color, not the
-// full multi-color logo (Simple Icons doesn't do multi-color). No API key/signup needed, unlike
-// Clearbit's old logo API (shut down Dec 2025) or its paid successors.
-// Falls back to the original plain colored dot — for platforms with no `logo` slug at all (the
-// manual CSV/Screenshot/Budget file cards aren't real brands), AND for any slug that turns out to
-// be wrong or briefly unavailable (onError swaps to the dot so a bad slug never shows a broken-
-// image icon) — so this never looks worse than the pre-logo treatment even if the CDN hiccups.
-const PlatformLogo=({slug,color,size=28})=>{
+//
+// Tried Simple Icons' keyless CDN (cdn.simpleicons.org/<slug>) first, but its catalog turned out to
+// be missing 6 of our 9 platforms entirely (LinkedIn, Bing, Capterra, Funnel.io, Supermetrics, and
+// Microsoft Excel aren't in it at all — Simple Icons has removed several major brands over the years,
+// apparently over trademark requests), and forcing the one Simple Icons DID have (Google Ads) into a
+// single flat color lost enough of its real look to read as wrong.
+//
+// This pulls each platform's actual favicon straight from its own domain instead, via Google's
+// public favicon endpoint (google.com/s2/favicons) — keyless, no signup, and since it's fetched live
+// from the real site it's automatically in that brand's real (multi-)color, current at all times, and
+// works for literally any domain (no per-brand catalog to be missing from). Lower resolution than a
+// hand-vectored logo, but at the ~17px this renders at that isn't visible, and it beats a plain dot.
+// Falls back to the original plain colored dot for platforms with no `domain` at all (the manual
+// CSV/Screenshot/Budget file cards aren't real brands) and, via onError, for any fetch that fails —
+// so this never looks worse than the pre-logo treatment even if Google's endpoint hiccups.
+// Neutral tile background behind every favicon — favicons vary wildly in whether they include their
+// own padding/background, so a fixed light-neutral square keeps the grid visually even regardless.
+const T_LOGO_BG="#F1F3F5";
+const PlatformLogo=({domain,color,size=28})=>{
   const[failed,setFailed]=useState(false);
-  if(!slug||failed){
+  if(!domain||failed){
     return<span style={{width:size,height:size,borderRadius:8,background:color,flexShrink:0,display:"inline-block"}}/>;
   }
   return(
-    <span style={{width:size,height:size,borderRadius:8,background:`${color}1a`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}}>
-      <img src={`https://cdn.simpleicons.org/${slug}/${color.replace("#","")}`} alt="" width={Math.round(size*0.6)} height={Math.round(size*0.6)}
+    <span style={{width:size,height:size,borderRadius:8,background:T_LOGO_BG,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}}>
+      <img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`} alt="" width={Math.round(size*0.62)} height={Math.round(size*0.62)}
         onError={()=>setFailed(true)} style={{display:"block"}}/>
     </span>
   );
@@ -5758,28 +5768,28 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // used once per pull (see lib/googleSheets.js), so it's excluded from both the sync-button flow
   // AND the connect-panel flow below and gets its own small inline connector.
   const PLATFORMS=[
-    {key:"linkedin",label:"LinkedIn",status:"live",perWorkspaceAuth:true,oauth:true,color:"#0A66C2",desc:"Ad account, OAuth-connected",logo:"linkedin"},
-    {key:"bing",label:"Bing",status:"live",perWorkspaceAuth:true,oauth:true,color:"#00809D",desc:"Microsoft Advertising, OAuth-connected",logo:"bing"},
-    {key:"google",label:"Google Ads",status:"csv",color:"#EA4335",desc:"No direct API yet — upload a CSV export",logo:"googleads"},
-    {key:"meta",label:"Meta Ads",status:"csv",color:"#1877F2",desc:"No direct API yet — upload a CSV export",logo:"meta"},
-    {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",desc:"API key per product",logo:"capterra",
+    {key:"linkedin",label:"LinkedIn",status:"live",perWorkspaceAuth:true,oauth:true,color:"#0A66C2",desc:"Ad account, OAuth-connected",domain:"linkedin.com"},
+    {key:"bing",label:"Bing",status:"live",perWorkspaceAuth:true,oauth:true,color:"#00809D",desc:"Microsoft Advertising, OAuth-connected",domain:"bing.com"},
+    {key:"google",label:"Google Ads",status:"csv",color:"#EA4335",desc:"No direct API yet — upload a CSV export",domain:"ads.google.com"},
+    {key:"meta",label:"Meta Ads",status:"csv",color:"#1877F2",desc:"No direct API yet — upload a CSV export",domain:"meta.com"},
+    {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",desc:"API key per product",domain:"capterra.com",
       connectFields:[
         {key:"apiKeys",label:"API keys (JSON)",placeholder:'{"Product A":"key1","Product B":"key2"}'},
       ]},
-    {key:"funnel",label:"Funnel.io",status:"live",perWorkspaceAuth:true,color:"#6C5CE7",desc:"Blended multi-channel data via Funnel's API",logo:"funnel",
+    {key:"funnel",label:"Funnel.io",status:"live",perWorkspaceAuth:true,color:"#6C5CE7",desc:"Blended multi-channel data via Funnel's API",domain:"funnel.io",
       connectFields:[
         {key:"apiToken",label:"API token",placeholder:"Account Settings → API in Funnel.io"},
         {key:"accountId",label:"Account ID",placeholder:"From your Funnel.io app URL"},
         {key:"projectId",label:"Project ID",placeholder:"From your Funnel.io app URL"},
       ]},
-    {key:"supermetrics",label:"Supermetrics",status:"live",perWorkspaceAuth:true,color:"#00C2A8",desc:"Blended multi-channel data via Supermetrics' API",logo:"supermetrics",
+    {key:"supermetrics",label:"Supermetrics",status:"live",perWorkspaceAuth:true,color:"#00C2A8",desc:"Blended multi-channel data via Supermetrics' API",domain:"supermetrics.com",
       connectFields:[
         {key:"apiKey",label:"API key",placeholder:"User settings → API Authentication in Supermetrics"},
         {key:"dsId",label:"Data source ID",placeholder:"e.g. GAWA (Google Ads), FACEBOOK, LINKEDIN"},
         {key:"dsAccounts",label:"Account ID (optional)",placeholder:"Leave blank for every account this key can access"},
       ]},
-    {key:"sheets",label:"Google Sheets",status:"live",isSheets:true,color:"#0F9D58",desc:"One-time pull from a sheet URL — no stored credential",logo:"googlesheets"},
-    {key:"excel",label:"Excel Online",status:"csv",color:"#217346",desc:"No direct API yet — upload a CSV export",logo:"microsoftexcel"},
+    {key:"sheets",label:"Google Sheets",status:"live",isSheets:true,color:"#0F9D58",desc:"One-time pull from a sheet URL — no stored credential",domain:"sheets.google.com"},
+    {key:"excel",label:"Excel Online",status:"csv",color:"#217346",desc:"No direct API yet — upload a CSV export",domain:"office.com"},
   ];
   // Data Sources tab (2026-07-24, modeled on Funnel.io's Data sources / Connect data source split
   // per Mo — he's planning to add more connectors over time and wants a dedicated page for browsing/
@@ -7381,7 +7391,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     else if(isConnected){actionLabel="✓ Connected";onAction=()=>setDataSourcesSubView("connections");}
                     else if(pl.oauth){actionLabel="Connect now";onAction=()=>startProviderOAuth(pl.key);}
                     else{actionLabel="Connect now";onAction=()=>openConnectPanel(pl.key);}
-                    return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,logo:pl.logo,isConnected,warn,actionLabel,onAction};
+                    return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,domain:pl.domain,isConnected,warn,actionLabel,onAction};
                   }),
                   {key:"_csv",label:"Spend Data CSV",desc:"Any spend CSV — Google Ads, LinkedIn, Meta, Bing, Capterra exports all work",color:T.textMuted,actionLabel:"Upload CSV",onAction:()=>fileRef.current?.click()},
                   {key:"_screenshot",label:"Screenshot",desc:"Share a screenshot of a spend report — AI reads it into data",color:T.textMuted,actionLabel:"Upload image",onAction:()=>!screenshotProcessing&&screenshotRef.current?.click()},
@@ -7403,7 +7413,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div key={c.key} onClick={c.onAction} className="bhq-row" {...dropProps}
                         style={{border:`1px solid ${isDropTarget&&dragOver?T.accent:T.border}`,borderRadius:10,background:isDropTarget&&dragOver?T.accentBg:T.surface,padding:"16px",cursor:"pointer",transition:"all 0.15s"}}>
                         <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
-                          <PlatformLogo slug={c.logo} color={c.color}/>
+                          <PlatformLogo domain={c.domain} color={c.color}/>
                           <span style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>{c.label}</span>
                           {c.isConnected&&!c.warn&&<Pill color={T.success} bg={T.successBg} border={T.successBorder} style={{fontSize:9}}>Connected</Pill>}
                           {c.warn&&<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder} style={{fontSize:9}}>Needs attention</Pill>}
