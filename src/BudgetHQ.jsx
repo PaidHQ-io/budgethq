@@ -6002,22 +6002,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[lastSyncRange,setLastSyncRange]=useState(()=>{
     try{const s=localStorage.getItem("paidhq_sync_range");return s?JSON.parse(s):null;}catch(e){return null;}
   });
+  // Defaults to Jan 1 of the current year through today — matches the "This year" preset below
+  // (2026-07-24, per Mo: quarter-to-date was too narrow a default for a first sync).
   const[syncDateRange,setSyncDateRange]=useState(()=>{
     const now=new Date();
-    const y=now.getFullYear();
-    const q=Math.floor(now.getMonth()/3);
-    const qStart=new Date(y,q*3,1);
-    const qEnd=new Date(y,q*3+3,0);
-    const todayStr=localISODate(now);
-    const qEndStr=localISODate(qEnd);
-    return{
-      start:localISODate(qStart),
-      // Default end-of-quarter is routinely in the future (e.g. loading this in July defaults to
-      // Sep 30) — /api/spend already clamps this server-side (see its doc comment), but starting
-      // the picker on a date that's silently going to get overridden anyway is confusing on its
-      // own. Clamp the default the same way the input's max attribute below clamps manual picks.
-      end:qEndStr>todayStr?todayStr:qEndStr,
-    };
+    return{start:localISODate(new Date(now.getFullYear(),0,1)),end:localISODate(now)};
   });
   // Recommended/Custom date-range picker for the manual "Pull live spend data" bar (2026-07-23) —
   // replaces two bare date inputs with Funnel.io-style presets, since typing exact dates every sync
@@ -6289,13 +6278,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       const taggedRows=rows.map(r=>({...r,source:`sync:${platformKey}`}));
       // Merge with existing data — don't replace
       setMergedNormRows(prev=>mergeRows(prev,taggedRows));
-      // setView("tagger") matters here now that Data Sources is its own tab (view==="data") — the
-      // Tagger table only renders at step==="tag"&&view==="tagger" (see below), so leaving view on
-      // "data" after a sync left step==="tag" matching NEITHER that condition NOR the upload zone's
-      // step==="upload"&&view==="data", producing a blank main panel with only the Data Sources
-      // sidebar still showing (2026-07-24, caught via a live sync producing exactly that). Every
-      // other "import finished" path already pairs these two calls — this one just got missed.
-      setStep("tag");setView("tagger");
+      // Deliberately does NOT touch step/view — a manual "Sync now" click happens from the
+      // Connections table on the Data Sources tab, and per Mo (2026-07-24) there's no reason that
+      // should yank the user over to Campaign Tagger; the merged rows are already live wherever
+      // they go next. This relies on step/view being left exactly as they already were (untouched,
+      // not reset), which is only safe because "Sync now" always fires from view==="data" — if this
+      // ever gets called from a different screen, that screen's own step/view stays intact too,
+      // there's just no visual acknowledgment of the sync beyond the notif below and the Connections
+      // table's own Import start/end columns updating on next refresh.
       setSyncState(p=>({...p,[platformKey]:"done"}));
       setLastSyncRange({start:syncDateRange.start,end:syncDateRange.end});
       try{localStorage.setItem("paidhq_sync_range",JSON.stringify({start:syncDateRange.start,end:syncDateRange.end}));}catch(e){}
