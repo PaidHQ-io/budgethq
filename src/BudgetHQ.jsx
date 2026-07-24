@@ -3132,6 +3132,44 @@ function mergeRows(existing,incoming){
   return Array.from(map.values());
 }
 
+// Flags manually-imported rows (CSV/screenshot/Google Sheets) that share identity with an
+// already-LIVE-SYNCED row (same campaign group + campaign + calendar day, via spendRowKey) but
+// disagree on spend — added 2026-07-24 per Mo, since mergeRows above is silent last-write-wins
+// with no platform check in its identity key at all. Without this, a manual import whose campaign
+// naming happens to line up with a synced platform's row would silently overwrite real platform
+// data with no warning; naming that DOESN'T line up exactly would instead double-count as a
+// separate row. This only catches the first case (the identity match) — it can't detect the
+// second (naming mismatch) since there's nothing to key on; that's a naming/mapping problem, not
+// a value conflict, and is out of scope here.
+// Only compares against rows whose source is a real platform sync (source starts with "sync:") —
+// two manual imports disagreeing with each other is just an ordinary re-import (expected,
+// last-write-wins), not "wrong compared to synced platform spend."
+// Threshold is intentionally loose (>$1 or >1% of the synced value, whichever is larger) so this
+// doesn't nag about floating-point/rounding noise between two exports of what's really the same
+// number.
+function detectSpendConflicts(existingRows,incomingRows){
+  const syncedByKey=new Map();
+  existingRows.forEach(r=>{if((r.source||"").startsWith("sync:"))syncedByKey.set(spendRowKey(r),r);});
+  const conflicts=[];
+  incomingRows.forEach(r=>{
+    const synced=syncedByKey.get(spendRowKey(r));
+    if(!synced)return;
+    const diff=Math.abs((r.spend||0)-(synced.spend||0));
+    if(diff>Math.max(1,synced.spend*0.01)){
+      conflicts.push({
+        key:spendRowKey(r),
+        campaignGroupName:r.campaign_group_name,
+        campaignName:r.campaign_name,
+        date:r.date,
+        syncedSpend:synced.spend,
+        syncedPlatform:synced.source.replace(/^sync:/,""),
+        importedSpend:r.spend,
+      });
+    }
+  });
+  return conflicts;
+}
+
 const MONTH_ABBR={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
 
 // ─── PACING ENGINE ────────────────────────────────────────────────────────────
@@ -6495,7 +6533,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
 
   // Shared row-processing core for both the CSV tag import and the screenshot tag import below —
   // takes row objects keyed by column name (exactly what Papa.parse({header:true}) produces, and
-  // what the screenshot path asks Claude's vision to produce directly) and merges them into tags.
+  // what the screenshot path asks Claude's vision to produce directly). Per user decision, this no
+  // longer applies changes immediately: it builds a preview (matched campaigns + any unrecognized
+  // columns detected as new tag dimensions) and opens tagImportPreview for confirmation — the
+  // actual merge happens in confirmTagImport below. All three import entry points (CSV, screenshot,
+  // Google Sheets) route through this one function, so building the preview here covers all three.
+  const[tagImportPreview,setTagImportPreview]=useState(null); // {rows,campCol,groupCol,dimCols,newDims,includedNewDims:Set,matchedCount,skippedCount,sample}
   const applyTagRowsFromRecords=useCallback((rows,fields)=>{
     if(!canEdit)return;
     // Detect campaign group + campaign columns (exported files have both; older exports from
@@ -6506,6 +6549,34 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     // Detect dimension columns (exclude Campaign Group, Campaign, Platform, Spend, Date)
     const skipCols=new Set(["campaign group","campaign","platform","spend","date","impressions","clicks","campaign_name","campaign_group_name","campaign_id"]);
     const dimCols=fields.filter(f=>!skipCols.has(f.toLowerCase())&&f!==campCol&&f!==groupCol);
+    const validRows=rows.filter(row=>(row[campCol]||"").trim());
+    const newDims=dimCols.filter(d=>!tagDims.includes(d));
+    const sample=validRows.slice(0,5).map(row=>{
+      const name=(row[campCol]||"").trim();
+      const groupName=(groupCol?row[groupCol]:"")?.trim()||name;
+      return groupName!==name?`${groupName} · ${name}`:name;
+    });
+    setTagImportPreview({
+      rows:validRows,campCol,groupCol,dimCols,newDims,
+      includedNewDims:new Set(newDims), // default: include — user confirms/unchecks in the preview modal
+      matchedCount:validRows.length,
+      skippedCount:rows.length-validRows.length,
+      sample,
+    });
+  },[tagDims,canEdit]);
+  const toggleNewTagDim=(d)=>{
+    setTagImportPreview(p=>{
+      if(!p)return p;
+      const nx=new Set(p.includedNewDims);
+      if(nx.has(d))nx.delete(d);else nx.add(d);
+      return{...p,includedNewDims:nx};
+    });
+  };
+  const cancelTagImport=()=>setTagImportPreview(null);
+  const confirmTagImport=()=>{
+    if(!tagImportPreview||!canEdit)return;
+    const{rows,campCol,groupCol,dimCols,includedNewDims}=tagImportPreview;
+    const allowedDims=dimCols.filter(d=>tagDims.includes(d)||includedNewDims.has(d));
     let restored=0;
     setTags(p=>{
       const nx={...p};
@@ -6515,17 +6586,17 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         const groupName=(groupCol?row[groupCol]:"")?.trim()||name;
         const key=campaignKey(groupName,name);
         const t={...(nx[key]||{})};
-        dimCols.forEach(d=>{if(row[d]&&row[d].trim())t[d]=row[d].trim();});
+        allowedDims.forEach(d=>{if(row[d]&&row[d].trim())t[d]=row[d].trim();});
         nx[key]=t;
         restored++;
       });
       return nx;
     });
-    // Add any new dimensions found in the file
-    const newDims=dimCols.filter(d=>!tagDims.includes(d));
-    if(newDims.length)setTagDims(p=>[...new Set([...p,...newDims])]);
+    const dimsToAdd=dimCols.filter(d=>includedNewDims.has(d));
+    if(dimsToAdd.length)setTagDims(p=>[...new Set([...p,...dimsToAdd])]);
     showNotif(`Restored tags for ${restored} campaigns`);
-  },[tagDims,canEdit]);
+    setTagImportPreview(null);
+  };
   const importTagsRef=useRef(null);
   const importTagsFromCSV=useCallback((file)=>{
     if(!file)return;
@@ -6839,6 +6910,44 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     {label:"Tagged",value:hasSidebarData?`${stats.tagged.toLocaleString()} (${stats.total?Math.round((stats.tagged/stats.total)*100):0}%)`:"—",dot:sidebarBc[3]},
     {label:"Needs review",value:hasSidebarData?stats.untagged.toLocaleString():"—",dot:hasSidebarData?(stats.untagged>0?sidebarBc[0]:sidebarBc[3]):sidebarBc[0]},
   ];
+
+  // Spend-conflict review — shown at the "Continue to tagging" choke-point (shared by CSV upload
+  // AND Google Sheets spend pull) when an incoming row's spend disagrees with a value that came
+  // from a live platform sync for the same campaign+date. Per user decision: warn and require
+  // explicit confirmation before a sheet/CSV value silently overwrites synced platform data.
+  const[spendConflictReview,setSpendConflictReview]=useState(null); // {conflicts,pendingRows,fileLabel,useImportedSet:Set<key>}
+  // "Use imported" toggling lets the user override the default (keep synced value) per-row rather
+  // than all-or-nothing, since a sheet/CSV disagreeing with sync could be right for some rows
+  // (a genuine correction) and wrong for others (stale export) within the same import.
+  const toggleUseImported=(key)=>{
+    setSpendConflictReview(p=>{
+      if(!p)return p;
+      const nx=new Set(p.useImportedSet);
+      if(nx.has(key))nx.delete(key);else nx.add(key);
+      return{...p,useImportedSet:nx};
+    });
+  };
+  const cancelSpendConflictImport=()=>setSpendConflictReview(null);
+  const confirmSpendConflictImport=()=>{
+    if(!spendConflictReview||!canEdit)return;
+    const{pendingRows,fileLabel,useImportedSet}=spendConflictReview;
+    const conflictKeys=new Set(spendConflictReview.conflicts.map(c=>c.key));
+    // Rows that weren't flagged as conflicts always import normally. Flagged rows only overwrite
+    // the synced value if the user explicitly opted in via the checkbox; otherwise drop them from
+    // the incoming set so mergeRows leaves the existing synced row untouched.
+    const rowsToMerge=pendingRows.filter(r=>{
+      const key=spendRowKey(r);
+      return!conflictKeys.has(key)||useImportedSet.has(key);
+    });
+    setMergedNormRows(prev=>mergeRows(prev,rowsToMerge));
+    const kept=useImportedSet.size;
+    checkpoint(`Imported spend data — ${fileLabel} (${rowsToMerge.length} rows)`,"tagger_import");
+    showNotif(`Added ${rowsToMerge.length} rows — ${kept} conflict${kept===1?"":"s"} overwritten, rest kept synced values`);
+    setSpendConflictReview(null);
+    setUploadPlatform("auto");
+    setUploadAsOf("");
+    setStep("tag");setView("tagger");
+  };
 
   // While this workspace's tags/budgets/spend rows are still loading from the server (or failed
   // to load), show that instead of the normal app shell — better than letting someone start
@@ -7747,8 +7856,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 const norm=normalizeRows(rawRows,colMap);
                 const withPlatform=uploadPlatform==="auto"?norm:norm.map(r=>({...r,platform:uploadPlatform}));
                 const withAsOf=uploadAsOf?withPlatform.map(r=>({...r,as_of_date:uploadAsOf})):withPlatform;
+                const fileLabel=fileName||"CSV";
+                const conflicts=detectSpendConflicts(mergedNormRows,withAsOf);
+                if(conflicts.length){
+                  setSpendConflictReview({conflicts,pendingRows:withAsOf,fileLabel,useImportedSet:new Set()});
+                  return;
+                }
                 setMergedNormRows(prev=>mergeRows(prev,withAsOf));
-                checkpoint(`Imported spend data — ${fileName||"CSV"} (${withAsOf.length} rows)`,"tagger_import");
+                checkpoint(`Imported spend data — ${fileLabel} (${withAsOf.length} rows)`,"tagger_import");
                 showNotif(`Added ${withAsOf.length} rows — merged with existing data`);
                 setUploadPlatform("auto");
                 setUploadAsOf("");
@@ -8429,6 +8544,77 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {spendConflictReview&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <PixelPanel T={T} style={{width:"100%",maxWidth:620,maxHeight:"85vh"}} contentStyle={{background:T.surface,padding:0,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8}}><Icon name="alert" size={16} color={T.warning}/> This import disagrees with synced data</div>
+              <div style={{fontSize:12,color:T.textSub,marginTop:4,lineHeight:1.6}}><strong style={{color:T.text}}>{spendConflictReview.conflicts.length}</strong> row{spendConflictReview.conflicts.length===1?"":"s"} in this import have a spend that doesn't match what's already synced from a live platform connection for the same campaign and date. By default the synced value is kept — check a row below to overwrite it with the imported value instead.</div>
+            </div>
+            <div style={{flex:1,overflow:"auto",padding:22}}>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {spendConflictReview.conflicts.map((c,i)=>{
+                  const useImported=spendConflictReview.useImportedSet.has(c.key);
+                  return(
+                    <label key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",background:useImported?T.warningBg:"transparent"}}>
+                      <input type="checkbox" checked={useImported} onChange={()=>toggleUseImported(c.key)} style={{marginTop:3,cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:4}}>{c.campaignGroupName&&c.campaignGroupName!==c.campaignName?`${c.campaignGroupName} · `:""}{c.campaignName} — {c.date}</div>
+                        <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6}}>Synced from <strong style={{color:T.textSub}}>{c.syncedPlatform}</strong>: <strong style={{color:T.text}}>{fmt$(c.syncedSpend)}</strong> · This import says: <strong style={{color:useImported?T.warning:T.text}}>{fmt$(c.importedSpend)}</strong></div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",gap:8}}>
+              <Btn onClick={cancelSpendConflictImport} variant="ghost" T={T}>Cancel import</Btn>
+              <Btn onClick={confirmSpendConflictImport} variant="primary" T={T}>Continue to tagging →</Btn>
+            </div>
+          </PixelPanel>
+        </div>
+      )}
+
+      {tagImportPreview&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <PixelPanel T={T} style={{width:"100%",maxWidth:560,maxHeight:"85vh"}} contentStyle={{background:T.surface,padding:0,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Review tag import</div>
+              <div style={{fontSize:12,color:T.textSub,marginTop:2}}>Matched <strong style={{color:T.text}}>{tagImportPreview.matchedCount}</strong> campaign{tagImportPreview.matchedCount===1?"":"s"}{tagImportPreview.skippedCount>0?` · skipped ${tagImportPreview.skippedCount} row${tagImportPreview.skippedCount===1?"":"s"} with no campaign name`:""}.</div>
+            </div>
+            <div style={{flex:1,overflow:"auto",padding:22}}>
+              {tagImportPreview.sample.length>0&&(
+                <div style={{marginBottom:tagImportPreview.newDims.length?18:0}}>
+                  <div style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:0.4,marginBottom:8}}>Campaigns being tagged</div>
+                  <div style={{fontSize:12,color:T.textSub,lineHeight:1.8}}>
+                    {tagImportPreview.sample.map((s,i)=><div key={i}>{s}</div>)}
+                    {tagImportPreview.matchedCount>tagImportPreview.sample.length&&<div style={{color:T.textMuted}}>+{tagImportPreview.matchedCount-tagImportPreview.sample.length} more</div>}
+                  </div>
+                </div>
+              )}
+              {tagImportPreview.newDims.length>0&&(
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:0.4,marginBottom:8}}>New tag dimensions detected</div>
+                  <div style={{fontSize:12,color:T.textSub,marginBottom:10,lineHeight:1.6}}>These columns don't match any dimension you're already tracking. Uncheck any that shouldn't be added.</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {tagImportPreview.newDims.map(d=>(
+                      <label key={d} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer",background:tagImportPreview.includedNewDims.has(d)?T.accentBg:"transparent"}}>
+                        <input type="checkbox" checked={tagImportPreview.includedNewDims.has(d)} onChange={()=>toggleNewTagDim(d)} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
+                        <span style={{fontSize:13,color:T.text,fontWeight:600}}>{d}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",gap:8}}>
+              <Btn onClick={cancelTagImport} variant="ghost" T={T}>Cancel</Btn>
+              <Btn onClick={confirmTagImport} variant="primary" T={T}>✓ Apply tags</Btn>
+            </div>
+          </PixelPanel>
         </div>
       )}
 
