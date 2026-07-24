@@ -134,6 +134,28 @@ alter table budgethq.connector_credentials drop constraint if exists connector_c
 alter table budgethq.connector_credentials add constraint connector_credentials_provider_check
   check (provider in ('funnel','supermetrics','capterra','linkedin','bing'));
 
+-- Recurring sync config (2026-07-23) — every connection defaults to 'manual' (today's only mode:
+-- someone clicks Sync in the Reporting tab or the Connections settings row). Setting sync_mode to
+-- 'rolling' opts a connection into api/cron/sync-connectors.js's daily heartbeat, which re-pulls
+-- just the last `rolling_window_days` days for that connector on the cadence in `sync_frequency` —
+-- see that file's doc comment for why a single daily heartbeat (not an hourly one) covers both
+-- 'daily' and 'weekly' without hitting Vercel Hobby's "cron jobs can only run once a day" limit.
+-- last_auto_sync_* columns exist so a failed unattended run (expired token, API error) is visible
+-- in Settings' Connections table instead of silently never updating data again — nobody's watching
+-- a cron job the way they'd notice a manual Sync button's error toast.
+alter table budgethq.connector_credentials add column if not exists sync_mode text not null default 'manual';
+alter table budgethq.connector_credentials drop constraint if exists connector_credentials_sync_mode_check;
+alter table budgethq.connector_credentials add constraint connector_credentials_sync_mode_check
+  check (sync_mode in ('manual','rolling'));
+alter table budgethq.connector_credentials add column if not exists rolling_window_days integer;
+alter table budgethq.connector_credentials add column if not exists sync_frequency text;
+alter table budgethq.connector_credentials drop constraint if exists connector_credentials_sync_frequency_check;
+alter table budgethq.connector_credentials add constraint connector_credentials_sync_frequency_check
+  check (sync_frequency is null or sync_frequency in ('daily','weekly'));
+alter table budgethq.connector_credentials add column if not exists last_auto_sync_at timestamptz;
+alter table budgethq.connector_credentials add column if not exists last_auto_sync_status text;
+alter table budgethq.connector_credentials add column if not exists last_auto_sync_error text;
+
 -- Phase 3 (alerts) — table laid out now so the schema doesn't need another migration when that
 -- phase starts, but nothing reads/writes this yet.
 create table if not exists budgethq.alert_rules (

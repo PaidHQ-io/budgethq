@@ -17,6 +17,12 @@
  *        api/oauth/linkedin/callback.js after the OAuth exchange, never POSTed here directly from
  *        the client (there's no raw token/secret for the user to paste).
  * DELETE ?provider=funnel — disconnect, removing the stored credential entirely.
+ * PATCH  ?provider=bing Body: { syncMode, rollingWindowDays?, syncFrequency? } — set a connection's
+ *        sync schedule. syncMode: 'manual' (default — only ever syncs from a click) or 'rolling'
+ *        (opts into api/cron/sync-connectors.js's daily heartbeat). rollingWindowDays/syncFrequency
+ *        only matter when syncMode is 'rolling'; ignored/cleared otherwise. Doesn't touch
+ *        `credential` at all — separate from POST so changing a schedule never requires resending
+ *        a connector's saved tokens/keys.
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
@@ -75,7 +81,10 @@ export default withApi(async (req, res) => {
     // paidhq-core's /members endpoint) rather than this route trying to join a users table it
     // doesn't own.
     const rows = await sql`
-      select provider, connected_at, connected_by, credential from budgethq.connector_credentials
+      select provider, connected_at, connected_by, credential,
+             sync_mode, rolling_window_days, sync_frequency,
+             last_auto_sync_at, last_auto_sync_status, last_auto_sync_error
+      from budgethq.connector_credentials
       where workspace_id = ${workspaceId}
     `;
     return res.status(200).json({
@@ -86,6 +95,12 @@ export default withApi(async (req, res) => {
         needsReconnect: RECONNECT_CHECKS[r.provider] ? RECONNECT_CHECKS[r.provider](r.credential) : false,
         needsAccountSelection: ACCOUNT_INCOMPLETE_CHECKS[r.provider] ? ACCOUNT_INCOMPLETE_CHECKS[r.provider](r.credential) : false,
         summary: SAFE_SUMMARY[r.provider] ? SAFE_SUMMARY[r.provider](r.credential) : {},
+        syncMode: r.sync_mode,
+        rollingWindowDays: r.rolling_window_days,
+        syncFrequency: r.sync_frequency,
+        lastAutoSyncAt: r.last_auto_sync_at,
+        lastAutoSyncStatus: r.last_auto_sync_status,
+        lastAutoSyncError: r.last_auto_sync_error,
       })),
     });
   }
@@ -108,6 +123,44 @@ export default withApi(async (req, res) => {
     return res.status(200).json({ provider, connected: true });
   }
 
+  if (req.method === "PATCH") {
+    requireEditAccess(myRole);
+    const { provider } = req.query;
+    if (!VALID_PROVIDERS.includes(provider)) {
+      return res.status(400).json({ error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}` });
+    }
+    const { syncMode, rollingWindowDays, syncFrequency } = req.body || {};
+    if (!["manual", "rolling"].includes(syncMode)) {
+      return res.status(400).json({ error: "syncMode must be 'manual' or 'rolling'" });
+    }
+    if (syncMode === "rolling") {
+      if (!["daily", "weekly"].includes(syncFrequency)) {
+        return res.status(400).json({ error: "syncFrequency must be 'daily' or 'weekly' when syncMode is 'rolling'" });
+      }
+      const days = Number(rollingWindowDays);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        return res.status(400).json({ error: "rollingWindowDays must be an integer between 1 and 365" });
+      }
+    }
+    const existing = await sql`
+      select 1 from budgethq.connector_credentials where workspace_id = ${workspaceId} and provider = ${provider}
+    `;
+    if (!existing.length) {
+      return res.status(400).json({ error: `This workspace hasn't connected ${provider} yet.`, code: "not_connected" });
+    }
+    // Manual mode clears the schedule fields entirely rather than leaving stale values behind —
+    // otherwise switching rolling -> manual -> rolling later could silently resurrect an old window/
+    // frequency the user never re-confirmed.
+    await sql`
+      update budgethq.connector_credentials
+      set sync_mode = ${syncMode},
+          rolling_window_days = ${syncMode === "rolling" ? Number(rollingWindowDays) : null},
+          sync_frequency = ${syncMode === "rolling" ? syncFrequency : null}
+      where workspace_id = ${workspaceId} and provider = ${provider}
+    `;
+    return res.status(200).json({ provider, syncMode, rollingWindowDays: syncMode === "rolling" ? Number(rollingWindowDays) : null, syncFrequency: syncMode === "rolling" ? syncFrequency : null });
+  }
+
   if (req.method === "DELETE") {
     requireEditAccess(myRole);
     const { provider } = req.query;
@@ -122,6 +175,6 @@ export default withApi(async (req, res) => {
     return res.status(200).json({ disconnected: result.length > 0 });
   }
 
-  res.setHeader("Allow", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Allow", "GET, POST, PATCH, DELETE, OPTIONS");
   return res.status(405).json({ error: "Method not allowed" });
 });

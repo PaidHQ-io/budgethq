@@ -5720,6 +5720,27 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       end:qEndStr>todayStr?todayStr:qEndStr,
     };
   });
+  // Recommended/Custom date-range picker for the manual "Pull live spend data" bar (2026-07-23) —
+  // replaces two bare date inputs with Funnel.io-style presets, since typing exact dates every sync
+  // is the friction Mo flagged. Presets always compute relative to "today" at click time (not the
+  // range's own start/end), same as Funnel's "Recommended" tab. Custom keeps the plain fixed-date
+  // inputs for the "I need this exact past window" case (e.g. redoing Jan–Jun) that no preset covers.
+  const[syncRangePickerOpen,setSyncRangePickerOpen]=useState(false);
+  const[syncRangeTab,setSyncRangeTab]=useState("recommended");
+  const SYNC_RANGE_PRESETS=[
+    {label:"Last 7 days",days:7},{label:"Last 14 days",days:14},{label:"Last 30 days",days:30},
+    {label:"Last 3 months",months:3},{label:"Last 6 months",months:6},{label:"This year",thisYear:true},
+  ];
+  const applySyncRangePreset=(preset)=>{
+    const now=new Date();
+    const end=now.toISOString().slice(0,10);
+    let start;
+    if(preset.thisYear){start=new Date(now.getFullYear(),0,1).toISOString().slice(0,10);}
+    else if(preset.months){const s=new Date(now);s.setMonth(s.getMonth()-preset.months);start=s.toISOString().slice(0,10);}
+    else{const s=new Date(now);s.setDate(s.getDate()-(preset.days-1));start=s.toISOString().slice(0,10);}
+    setSyncDateRange({start,end});
+    setSyncRangePickerOpen(false);
+  };
 
   // ── Per-workspace connector credentials (Funnel.io, Supermetrics) ──────────────────────────
   // Which perWorkspaceAuth platforms this workspace has already connected — drives whether
@@ -5772,6 +5793,26 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       .catch(e=>showNotif(`Couldn't disconnect: ${e.message}`))
       .finally(()=>setDisconnectingProvider(null));
   },[workspace?.id,session?.access_token,refreshConnectedProviders]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Settings → Connections "Sync schedule" — PATCHes the same connection's sync_mode/window/
+  // frequency. Saves immediately on change (same instant-save pattern as the Team panel's role
+  // dropdown) rather than needing a separate Save button. See api/cron/sync-connectors.js's doc
+  // comment for why "weekly" doesn't mean an exact custom time of day the way Funnel.io's picker
+  // implies — it's a once-daily heartbeat that skips connections that aren't due yet.
+  const[savingSchedule,setSavingSchedule]=useState(null); // provider currently saving, or null
+  const updateSyncSchedule=useCallback((provider,{syncMode,rollingWindowDays,syncFrequency})=>{
+    if(!workspace?.id||!session?.access_token)return;
+    setSavingSchedule(provider);
+    fetch(`/api/workspaces/${workspace.id}/connections?provider=${encodeURIComponent(provider)}`,{
+      method:"PATCH",
+      headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
+      body:JSON.stringify({syncMode,rollingWindowDays,syncFrequency}),
+    })
+      .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||"Couldn't save that schedule");}))
+      .then(()=>{refreshConnectedProviders();showNotif(syncMode==="rolling"?"Rolling sync enabled — runs once daily and checks if this connection is due.":"Switched back to manual sync.");})
+      .catch(e=>showNotif(`Couldn't save schedule: ${e.message}`))
+      .finally(()=>setSavingSchedule(null));
+  },[workspace?.id,session?.access_token,refreshConnectedProviders]);
 
   // ── OAuth-connect platforms (LinkedIn 2026-07-22, Bing 2026-07-22) ─────────────────────────
   // Both are perWorkspaceAuth like Funnel.io/Supermetrics, but neither has a form to fill in — an
@@ -6984,22 +7025,50 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
               <SectionLabel T={T} style={{marginBottom:0}}>Pull live spend data</SectionLabel>
-              <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                <span style={{fontSize:11,color:T.textMuted}}>Range:</span>
-                <input type="date" value={syncDateRange.start} onChange={e=>setSyncDateRange(p=>({...p,start:e.target.value}))}
-                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"3px 6px",fontSize:11,outline:"none"}}/>
-                <span style={{fontSize:11,color:T.textMuted}}>→</span>
-                <input type="date" value={syncDateRange.end} max={new Date().toISOString().slice(0,10)}
-                  title="Can't pull spend data for dates that haven't happened yet"
-                  onChange={e=>{
-                    const todayStr=new Date().toISOString().slice(0,10);
-                    // Belt-and-suspenders alongside the max attribute above — max blocks picking a
-                    // future date via the calendar UI in every modern browser, but a typed/pasted
-                    // value can still bypass it depending on browser, so clamp here too rather than
-                    // relying on max alone.
-                    setSyncDateRange(p=>({...p,end:e.target.value>todayStr?todayStr:e.target.value}));
-                  }}
-                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"3px 6px",fontSize:11,outline:"none"}}/>
+              <div style={{position:"relative"}}>
+                <button onClick={()=>setSyncRangePickerOpen(o=>!o)}
+                  style={{display:"flex",alignItems:"center",gap:6,padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif"}}>
+                  <span style={{color:T.textMuted}}>Range:</span> {syncDateRange.start} → {syncDateRange.end}
+                </button>
+                {syncRangePickerOpen&&(
+                  <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:50,width:340,padding:"12px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
+                    <div style={{display:"flex",gap:14,marginBottom:12,borderBottom:`1px solid ${T.border}`}}>
+                      {["recommended","custom"].map(tab=>(
+                        <span key={tab} onClick={()=>setSyncRangeTab(tab)}
+                          style={{fontSize:12,fontWeight:600,paddingBottom:8,cursor:"pointer",color:syncRangeTab===tab?T.accent:T.textMuted,borderBottom:syncRangeTab===tab?`2px solid ${T.accent}`:"2px solid transparent",textTransform:"capitalize",fontFamily:"Inter,sans-serif"}}>{tab}</span>
+                      ))}
+                    </div>
+                    {syncRangeTab==="recommended"?(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {SYNC_RANGE_PRESETS.map(p=>(
+                          <button key={p.label} onClick={()=>applySyncRangePreset(p)}
+                            style={{padding:"5px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:T.surfaceEl,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif"}}>{p.label}</button>
+                        ))}
+                      </div>
+                    ):(
+                      <div>
+                        <div style={{fontSize:11,color:T.textMuted,marginBottom:8,fontFamily:"Inter,sans-serif"}}>Pick an exact start and end date — useful for redoing a specific past window a preset doesn't cover.</div>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          <input type="date" value={syncDateRange.start} onChange={e=>setSyncDateRange(p=>({...p,start:e.target.value}))}
+                            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
+                          <span style={{fontSize:11,color:T.textMuted}}>→</span>
+                          <input type="date" value={syncDateRange.end} max={new Date().toISOString().slice(0,10)}
+                            title="Can't pull spend data for dates that haven't happened yet"
+                            onChange={e=>{
+                              const todayStr=new Date().toISOString().slice(0,10);
+                              // Belt-and-suspenders alongside the max attribute above — max blocks
+                              // picking a future date via the calendar UI in every modern browser,
+                              // but a typed/pasted value can still bypass it depending on browser,
+                              // so clamp here too rather than relying on max alone.
+                              setSyncDateRange(p=>({...p,end:e.target.value>todayStr?todayStr:e.target.value}));
+                            }}
+                            style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
+                        </div>
+                        <Btn onClick={()=>setSyncRangePickerOpen(false)} variant="primary" size="sm" T={T} style={{marginTop:10}}>Done</Btn>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -7661,6 +7730,39 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                               <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:2}}>
                                 Connected {conn.connectedAt?new Date(conn.connectedAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—"}
                                 {connectedByEmail?` by ${connectedByEmail}`:""}
+                              </div>
+                            )}
+                            {conn&&!warn&&(
+                              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}>
+                                <div style={{width:100}}>
+                                  <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                                    onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;v==="manual"
+                                      ?updateSyncSchedule(pl.key,{syncMode:"manual"})
+                                      :updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:conn.rollingWindowDays||14});}}>
+                                    <option value="manual">Manual only</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                  </Sel>
+                                </div>
+                                {conn.syncMode==="rolling"&&(
+                                  <div style={{width:110}}>
+                                    <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                                      onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:conn.syncFrequency,rollingWindowDays:Number(v)});}}>
+                                      <option value="7">Last 7 days</option>
+                                      <option value="14">Last 14 days</option>
+                                      <option value="30">Last 30 days</option>
+                                      <option value="60">Last 60 days</option>
+                                      <option value="90">Last 90 days</option>
+                                    </Sel>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {conn?.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
+                              <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:3}}>
+                                {conn.lastAutoSyncStatus==="error"
+                                  ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
+                                  :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
                               </div>
                             )}
                           </div>

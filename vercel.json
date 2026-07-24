@@ -12,5 +12,8 @@
         { "key": "Cache-Control", "value": "no-store" }
       ]
     }
+  ],
+  "crons": [
+    { "path": "/api/cron/sync-connectors", "schedule": "0 8 * * *" }
   ]
 }

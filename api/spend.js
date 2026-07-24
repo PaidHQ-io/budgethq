@@ -32,21 +32,7 @@
 import { CONNECTORS, CONNECTOR_REGISTRY } from "./connectors/index.js";
 import { sql } from "./lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement } from "./lib/auth.js";
-import * as linkedinOAuth from "./lib/linkedinOAuth.js";
-import * as bingOAuth from "./lib/bingOAuth.js";
-
-// Per-provider OAuth token refresh — both LinkedIn and Bing are perWorkspaceAuth connectors whose
-// credential can go stale and needs refreshing before a sync call, but the two behave differently
-// enough (see each lib's doc comments) that it's not worth forcing them into one shared shape:
-//   - LinkedIn: refresh tokens aren't available yet at all (see linkedinOAuth.js) — this only ever
-//     fires once Mo's app gets Marketing Developer Platform approval.
-//   - Bing: refresh tokens are standard, but short access-token lifetimes (~60-90 min) mean this
-//     fires on nearly every sync. A refresh that actually fails marks reconnectRequired on the
-//     stored credential (surfaced via connections.js's GET) rather than guessing a stale-by date.
-const OAUTH_REFRESH = {
-  linkedin: linkedinOAuth,
-  bing: bingOAuth,
-};
+import { runConnectorSync } from "./lib/connectorSync.js";
 
 // Looks up a workspace's stored credential for a perWorkspaceAuth connector. Throws a 400 with a
 // `code: "not_connected"` the frontend can branch on (show a Connect flow) rather than a generic
@@ -144,39 +130,16 @@ export default async function handler(req, res) {
     // caller verified as a member of it) before we can call getSpend at all — everything else
     // keeps calling getSpend exactly as before, with no credential argument, reading its shared
     // process.env var same as always.
-    let credential = connector.perWorkspaceAuth
+    const credential = connector.perWorkspaceAuth
       ? await getWorkspaceCredential(req, workspaceId, platform.toLowerCase(), { optional: !!connector.envVarFallback })
       : undefined;
 
-    // OAuth access token refresh — see OAUTH_REFRESH's doc comment above. Runs here (the one place
-    // that already has this workspace's stored credential in hand) rather than letting a sync fail
-    // mid-request, then persists the result back so next time doesn't need to redo the work.
-    const oauth = OAUTH_REFRESH[platform.toLowerCase()];
-    if (oauth && credential?.refreshToken && oauth.isCredentialStale(credential)) {
-      try {
-        const refreshed = await oauth.refreshAccessToken(credential);
-        credential = { ...credential, ...refreshed };
-      } catch (refreshErr) {
-        // A refresh that actually fails (revoked, password changed, etc.) is the only honest
-        // signal for providers like Bing whose refresh tokens don't have a predictable expiry to
-        // count down to instead — mark it so connections.js's GET can nudge the workspace to
-        // reconnect, then still let the original error surface below.
-        credential = { ...credential, reconnectRequired: true };
-        await sql`
-          update budgethq.connector_credentials
-          set credential = ${JSON.stringify(credential)}
-          where workspace_id = ${workspaceId} and provider = ${platform.toLowerCase()}
-        `;
-        throw refreshErr;
-      }
-      await sql`
-        update budgethq.connector_credentials
-        set credential = ${JSON.stringify(credential)}
-        where workspace_id = ${workspaceId} and provider = ${platform.toLowerCase()}
-      `;
-    }
-
-    const rows = await connector.getSpend({ startDate, endDate: effectiveEndDate, credential });
+    // Refresh-if-stale + getSpend — factored into lib/connectorSync.js so this manual sync path and
+    // the cron-driven rolling-sync path (api/cron/sync-connectors.js) run identical logic instead of
+    // two copies quietly drifting apart.
+    const { rows } = await runConnectorSync({
+      workspaceId, provider: platform.toLowerCase(), startDate, endDate: effectiveEndDate, credential,
+    });
     return res.status(200).json({
       platform: connector.platform,
       startDate,
