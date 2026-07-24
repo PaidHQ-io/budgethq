@@ -44,11 +44,15 @@ export default async function handler(req, res) {
 
   // Filtering 'weekly' connections down to just the ones actually due happens right here in SQL —
   // every rolling connection gets pulled if it's 'daily', but a 'weekly' one only comes back once
-  // its last_auto_sync_at is a week old or null (never run yet).
+  // its last_auto_sync_at is a week old or null (never run yet). paused = false excludes anything
+  // the Data Sources tab's "Pause import" action has flagged — see schema.sql's doc comment on
+  // that column; a paused connection stays sync_mode='rolling' underneath (so resuming doesn't
+  // need the schedule re-entered) but is simply never selected here while paused is true.
   const due = await sql`
     select workspace_id, provider, credential, rolling_window_days
     from budgethq.connector_credentials
     where sync_mode = 'rolling'
+      and paused = false
       and (
         sync_frequency = 'daily'
         or last_auto_sync_at is null

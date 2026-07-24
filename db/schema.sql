@@ -156,6 +156,20 @@ alter table budgethq.connector_credentials add column if not exists last_auto_sy
 alter table budgethq.connector_credentials add column if not exists last_auto_sync_status text;
 alter table budgethq.connector_credentials add column if not exists last_auto_sync_error text;
 
+-- Pause / exclude (2026-07-24) — two independent, reversible controls surfaced in the Data
+-- Sources tab's connector table (Funnel.io-style), neither of which touches the stored credential
+-- or deletes anything:
+--   paused: stops this connection from syncing at all — api/cron/sync-connectors.js skips it
+--     outright, and the frontend disables its manual Sync button too. Distinct from sync_mode
+--     ('manual' vs 'rolling') which controls WHETHER cron ever looks at it; paused overrides both
+--     and blocks manual syncs as well, which sync_mode alone can't do.
+--   excluded_from_data: the connection can keep syncing (unless also paused), but every row this
+--     provider has ever contributed is filtered out of BudgetHQ's calculations/views client-side
+--     (see BudgetHQ.jsx's visibleNormRows) — the underlying spend rows are never deleted, so
+--     un-excluding brings everything back immediately with no re-sync needed.
+alter table budgethq.connector_credentials add column if not exists paused boolean not null default false;
+alter table budgethq.connector_credentials add column if not exists excluded_from_data boolean not null default false;
+
 -- Phase 3 (alerts) — table laid out now so the schema doesn't need another migration when that
 -- phase starts, but nothing reads/writes this yet.
 create table if not exists budgethq.alert_rules (

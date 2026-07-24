@@ -5873,6 +5873,35 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       .finally(()=>setSavingSchedule(null));
   },[workspace?.id,session?.access_token,refreshConnectedProviders]);
 
+  // Data Sources connector table's "Pause import" / "Don't use data in BudgetHQ" actions (2026-07-24)
+  // — same instant-save PATCH pattern as the schedule dropdown above, just toggling one boolean at
+  // a time. `flags` is a partial {paused?, excludedFromData?} object so a caller only ever sends the
+  // one thing it's actually changing. See schema.sql's doc comment on these columns for exactly what
+  // each one does.
+  const[savingConnectionFlag,setSavingConnectionFlag]=useState(null); // provider currently saving, or null
+  const updateConnectionFlags=useCallback((provider,flags)=>{
+    if(!workspace?.id||!session?.access_token)return;
+    setSavingConnectionFlag(provider);
+    fetch(`/api/workspaces/${workspace.id}/connections?provider=${encodeURIComponent(provider)}`,{
+      method:"PATCH",
+      headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
+      body:JSON.stringify(flags),
+    })
+      .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||"Couldn't save that");}))
+      .then(()=>{
+        refreshConnectedProviders();
+        const label=PLATFORMS.find(p=>p.key===provider)?.label||provider;
+        if(flags.paused!==undefined)showNotif(flags.paused?`Paused ${label} — it won't sync until resumed.`:`Resumed ${label}.`);
+        if(flags.excludedFromData!==undefined)showNotif(flags.excludedFromData?`${label}'s data is hidden from BudgetHQ — reversible any time.`:`${label}'s data is back in BudgetHQ.`);
+      })
+      .catch(e=>showNotif(`Couldn't save: ${e.message}`))
+      .finally(()=>setSavingConnectionFlag(null));
+  },[workspace?.id,session?.access_token,refreshConnectedProviders]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Connector table's "⋯" actions menu (Switch account/Reconnect/Pause/Exclude/Disconnect) —
+  // same anchored-portal-dropdown pattern as the File Store's "copy to workspace" menu.
+  const[connActionsMenuProvider,setConnActionsMenuProvider]=useState(null);
+  const[connActionsMenuAnchorRect,setConnActionsMenuAnchorRect]=useState(null);
+
   // ── OAuth-connect platforms (LinkedIn 2026-07-22, Bing 2026-07-22) ─────────────────────────
   // Both are perWorkspaceAuth like Funnel.io/Supermetrics, but neither has a form to fill in — an
   // access token only exists after the user completes that provider's own consent screen, so
@@ -5986,6 +6015,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
 
   const syncPlatform=useCallback(async(platformKey)=>{
     if(!canEdit)return;
+    // Belt-and-suspenders alongside the sync bar disabling a paused connector's button (see
+    // PLATFORMS.map's clickable/handleClick below) — blocks it here too in case this ever gets
+    // called from somewhere else that doesn't check first.
+    const pausedConn=connectionDetails.find(c=>c.provider===platformKey);
+    if(pausedConn?.paused){showNotif(`${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} is paused — resume it in Data Sources before syncing.`);return;}
     setSyncState(p=>({...p,[platformKey]:"loading"}));
     try{
       const pl=PLATFORMS.find(p=>p.key===platformKey);
@@ -6002,8 +6036,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       }
       const{rows,endDate:effectiveEndDate}=await res.json();
       if(rows.length===0) throw new Error("No spend data returned for this date range");
+      // Tag each row with which connector pulled it — `sync:${provider}` matches the convention
+      // api/lib/spendRowsStore.js already uses for the cron rolling-sync path, so a manual Sync
+      // click and an automated one are equally traceable back to their connector. This is what
+      // lets "Don't use data in BudgetHQ" (excludedFromData) and the Import start/end date columns
+      // in the connector table find exactly this provider's rows without touching CSV-uploaded or
+      // screenshot-imported data for the same platform. Rows pulled before this shipped (2026-07-24)
+      // won't have this tag until their connector syncs again.
+      const taggedRows=rows.map(r=>({...r,source:`sync:${platformKey}`}));
       // Merge with existing data — don't replace
-      setMergedNormRows(prev=>mergeRows(prev,rows));
+      setMergedNormRows(prev=>mergeRows(prev,taggedRows));
       setStep("tag");
       setSyncState(p=>({...p,[platformKey]:"done"}));
       setLastSyncRange({start:syncDateRange.start,end:syncDateRange.end});
@@ -6020,7 +6062,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }catch(e){
       setSyncState(p=>({...p,[platformKey]:"error:"+e.message}));
     }
-  },[syncDateRange,checkpoint,workspace?.id,session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[syncDateRange,checkpoint,workspace?.id,session?.access_token,connectionDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Google Sheets spend pull ────────────────────────────────────────────────────────────────
   // Deliberately NOT the same "stored credential, click Sync" shape as Funnel/Supermetrics above
@@ -6175,13 +6217,49 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setStep("tag");setView("tagger");
   },[screenshotPreview,screenshotFileName,checkpoint,canEdit]);
 
+  // "Don't use data in BudgetHQ" (excludedFromData, see the connector table's action menu) filters
+  // that provider's rows out of every calculation/view below — reversible, doesn't touch what's
+  // actually stored. Only rows tagged source==="sync:<provider>" are affected (see syncPlatform's
+  // tagging comment above and spendRowsStore.js's matching convention on the cron side); manually
+  // uploaded CSV/screenshot/Sheets rows for the same platform are never touched by this, even if
+  // they happen to share a platform label with an excluded connector. mergedNormRows itself stays
+  // the raw, untouched dataset everywhere else (autosave, snapshots, Settings' "Delete all data") —
+  // visibleNormRows is a read-only view for display/math, not a replacement for it.
+  const excludedProviders=useMemo(()=>new Set((connectionDetails||[]).filter(c=>c.excludedFromData).map(c=>c.provider)),[connectionDetails]);
+  const visibleNormRows=useMemo(()=>{
+    if(excludedProviders.size===0)return mergedNormRows;
+    return mergedNormRows.filter(r=>!r.source||!excludedProviders.has(r.source.replace(/^sync:/,"")));
+  },[mergedNormRows,excludedProviders]);
+
+  // Connector table's "Import start date"/"Import end date" columns (2026-07-24) — per Mo, these
+  // are read-only and auto-computed from sync history rather than a separate editable field: the
+  // earliest/latest date among the rows THIS connector actually pulled (source==="sync:<provider>"),
+  // read from the raw mergedNormRows (not visibleNormRows) so the range still shows correctly while
+  // a connector is excluded — excluding shouldn't make its own history disappear from its own row.
+  // Caveat worth knowing: rows synced before this shipped never got a `source` tag, so an
+  // already-connected provider shows "—" here until its next sync backfills the tag.
+  const importDateRangeByProvider=useMemo(()=>{
+    const map={};
+    mergedNormRows.forEach(r=>{
+      if(!r.source||!r.date)return;
+      const provider=r.source.replace(/^sync:/,"");
+      if(provider===r.source)return; // wasn't a "sync:" tag at all
+      if(!map[provider])map[provider]={start:r.date,end:r.date};
+      else{
+        if(r.date<map[provider].start)map[provider].start=r.date;
+        if(r.date>map[provider].end)map[provider].end=r.date;
+      }
+    });
+    return map;
+  },[mergedNormRows]);
+
   // "key" is the composite identity (campaign group + campaign) used everywhere tags/selection
   // are looked up — ad set/ad group names often repeat across different campaigns, so the leaf
   // name alone isn't a safe identity. "name" (leaf) and "groupName" stay separate for display.
   const campaigns=useMemo(()=>{
-    if(!mergedNormRows.length)return[];
+    if(!visibleNormRows.length)return[];
     const map={};
-    mergedNormRows.forEach(row=>{
+    visibleNormRows.forEach(row=>{
       const name=row.campaign_name;if(!name)return;
       const groupName=row.campaign_group_name||name;
       const key=campaignKey(groupName,name);
@@ -6191,16 +6269,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       map[key].rows++;
     });
     return Object.values(map);
-  },[mergedNormRows]);
+  },[visibleNormRows]);
   const allPlats=useMemo(()=>[...new Set(campaigns.map(c=>c.platform))].sort(),[campaigns]);
   const stats=useMemo(()=>{
     const totalSpend=campaigns.reduce((s,c)=>s+c.spend,0);
     const tagged=campaigns.filter(c=>Object.keys(tags[c.key]||{}).length>0).length;
-    const dates=mergedNormRows.map(r=>r.date).filter(Boolean).sort();
+    const dates=visibleNormRows.map(r=>r.date).filter(Boolean).sort();
     const derivedRange=dates.length?`${dates[0]} → ${dates[dates.length-1]}`:"";
     const displayRange=lastSyncRange?`${lastSyncRange.start} → ${lastSyncRange.end}`:derivedRange;
-    return{total:campaigns.length,tagged,untagged:campaigns.length-tagged,totalSpend,totalRows:mergedNormRows.length,dateRange:displayRange};
-  },[campaigns,tags,rawRows,colMap,lastSyncRange]);
+    return{total:campaigns.length,tagged,untagged:campaigns.length-tagged,totalSpend,totalRows:visibleNormRows.length,dateRange:displayRange};
+  },[campaigns,tags,rawRows,colMap,lastSyncRange,visibleNormRows]);
 
   const filtered=useMemo(()=>{let r=campaigns.filter(c=>{
     if(fCamp){const terms=splitFilterTerms(fCamp);if(terms.length&&!matchesTerms(c.name.toLowerCase(),terms,fCampInclMode))return false;}
@@ -6620,8 +6698,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const exportableView=EXPORTABLE_VIEWS[view]||null;
   const buildCurrentReport=useCallback(()=>{
     if(!exportableView)return null;
-    return exportableView.build({mergedNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims});
-  },[exportableView,mergedNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims]);
+    return exportableView.build({mergedNormRows:visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims});
+  },[exportableView,visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims]);
   const handleExportDownload=useCallback(format=>{
     const report=buildCurrentReport();
     if(!report||!exportableView)return;
@@ -6953,7 +7031,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
                 <StatRow T={T} size={11} label="Live connectors" value={PLATFORMS.filter(p=>p.status==="live").length.toString()}/>
                 <StatRow T={T} size={11} label="Connected" value={Object.keys(connectedProviders).length.toString()}/>
-                <StatRow T={T} size={11} label="Platforms with data" value={[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).length.toString()}/>
+                <StatRow T={T} size={11} label="Platforms with data" value={[...new Set(visibleNormRows.map(r=>r.platform))].filter(Boolean).length.toString()}/>
                 <StatRow T={T} size={11} label="Data rows" value={stats.totalRows.toLocaleString()}/>
               </div>
             </div>
@@ -6989,7 +7067,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <Divider T={T}/>
               <div style={{padding:"12px 0",flex:1}}>
                 <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
-                {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(mergedNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T} size={11}/>)}
+                {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(visibleNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T} size={11}/>)}
                 {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif",lineHeight:1.6}}>{stats.dateRange}</div>}
                 <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accentSoft,transition:"width 0.4s",borderRadius:2}}/></div>
                 <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
@@ -7192,23 +7270,27 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 // (see providersNeedingAccountSelection's doc comment) — fixed by reopening the
                 // account picker, not by redoing the OAuth consent screen.
                 const needsAccountSelection=!needsConnect&&!needsReconnect&&pl.perWorkspaceAuth&&!!providersNeedingAccountSelection[pl.key];
+                // "Pause import" (see the connector table below) blocks manual syncs too, not just
+                // the cron heartbeat — see schema.sql's doc comment on the paused column.
+                const isPaused=pl.perWorkspaceAuth&&!!connectionDetails.find(c=>c.provider===pl.key)?.paused;
                 const active=live||pl.isSheets; // "active" here just means "not a plain CSV placeholder"
                 const handleClick=()=>{
+                  if(isPaused)return;
                   if(pl.isSheets){setGsheetSpendOpen(o=>!o);return;}
                   if((needsConnect||needsReconnect)&&pl.oauth){startProviderOAuth(pl.key);return;}
                   if(needsAccountSelection&&pl.oauth){openAccountPicker(pl.key);return;}
                   if(needsConnect){openConnectPanel(pl.key);return;}
                   if(live&&!loading)syncPlatform(pl.key);
                 };
-                const clickable=pl.isSheets||needsConnect||needsReconnect||needsAccountSelection||(live&&!loading);
-                const statusText=pl.isSheets?"pull":needsReconnect?"reconnect":needsConnect?"connect":needsAccountSelection?"pick account":live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV";
+                const clickable=!isPaused&&(pl.isSheets||needsConnect||needsReconnect||needsAccountSelection||(live&&!loading));
+                const statusText=isPaused?"paused":pl.isSheets?"pull":needsReconnect?"reconnect":needsConnect?"connect":needsAccountSelection?"pick account":live?(loading?"syncing…":done?"✓ synced":err?"error":"sync"):"CSV";
                 return(
                   <button key={pl.key} onClick={handleClick}
-                    title={pl.isSheets?"Pull spend from a Google Sheet":needsReconnect?`Your ${pl.label} connection needs to be refreshed`:needsConnect?`Connect your ${pl.label} account`:needsAccountSelection?`Pick which ${pl.label} account to sync`:live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
+                    title={isPaused?`${pl.label} is paused — resume it below to sync again`:pl.isSheets?"Pull spend from a Google Sheet":needsReconnect?`Your ${pl.label} connection needs to be refreshed`:needsConnect?`Connect your ${pl.label} account`:needsAccountSelection?`Pick which ${pl.label} account to sync`:live?`Sync ${pl.label} spend`:`${pl.label} — upload CSV below`}
                     style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,
                       border:`1px solid ${(needsReconnect||needsAccountSelection)?T.warningBorder:active?(done?T.successBorder:err?T.dangerBorder:T.accentBorder):T.border}`,
                       background:(needsReconnect||needsAccountSelection)?T.warningBg:active?(done?T.successBg:err?T.dangerBg:T.accentBg):T.surfaceEl,
-                      cursor:clickable?"pointer":"default",opacity:active?1:0.55,transition:"all 0.15s"}}>
+                      cursor:clickable?"pointer":"default",opacity:isPaused?0.45:active?1:0.55,transition:"all 0.15s"}}>
                     <span style={{width:8,height:8,borderRadius:"50%",flexShrink:0,
                       background:(needsReconnect||needsAccountSelection)?T.warning:active?(done?T.success:err?T.danger:pl.color):T.textMuted,
                       ...(loading?{border:`2px solid rgba(0,0,0,0.1)`,borderTopColor:pl.color,background:"transparent",animation:"spin 0.7s linear infinite"}:{})}}/>
@@ -7317,104 +7399,171 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             )}
           </div>
 
-          {/* Connection details (moved here 2026-07-24 from Settings — phase 2 of the Data Sources
-              redesign per Mo). Same rows/handlers Settings' Connections card used to render
-              (startProviderOAuth/openConnectPanel/openAccountPicker/disconnectConnection/
-              updateSyncSchedule) — just relocated, not rebuilt. The connect-panel and oauth-picker
-              forms above already handle Connect/Reconnect/Switch account clicks from this table
-              too (both key off the same connectPanelKey/oauthPicker state), so there's no second
-              copy of those forms down here. */}
+          {/* Connector table (2026-07-24, rebuilt to match Funnel.io's Data Sources table per Mo) —
+              one row per perWorkspaceAuth platform, columns: Connector / Data source name /
+              Credentials / Status / Date connected / Import start date / Import end date / a "⋯"
+              actions menu (Switch account, Reconnect, Pause/Resume import, Don't use this data/Use
+              this data, Disconnect). Desktop uses a real grid so every column lines up; mobile falls
+              back to a stacked card since 8 columns don't fit a narrow screen.
+                - "Credentials" shows the BudgetHQ teammate who connected it (connectedByEmail) — the
+                  real third-party login email (LinkedIn/Google account, Funnel API key owner etc.)
+                  isn't captured anywhere today; would need new OAuth scopes per connector to change.
+                - "Import start/end date" are read-only, computed from importDateRangeByProvider
+                  (earliest/latest date among rows this connector actually pulled) rather than an
+                  editable field — see that useMemo's doc comment for the caveat about rows synced
+                  before this shipped.
+              The connect-panel/oauth-picker forms in the sync bar above already handle Connect/
+              Reconnect/Switch account clicks from this table too (both key off the same
+              connectPanelKey/oauthPicker state), so there's no second copy of those forms here. */}
           <div style={{padding:"16px 24px",borderBottom:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
-            <SectionLabel T={T} style={{marginBottom:4}}>Connection details</SectionLabel>
-            <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:560,marginBottom:10}}>
-              Every ad account this workspace pulls live spend from — see who connected each one, set a sync schedule, or switch accounts.
+            <SectionLabel T={T} style={{marginBottom:4}}>Connections</SectionLabel>
+            <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:620,marginBottom:10}}>
+              Every ad account this workspace pulls live spend from — see who connected each one, when it last imported, and manage it from the ⋯ menu.
             </div>
-            <div style={{display:"flex",flexDirection:"column"}}>
-              {PLATFORMS.filter(pl=>pl.perWorkspaceAuth).map((pl,i)=>{
-                const conn=connectionDetails.find(c=>c.provider===pl.key);
-                const connectedByEmail=conn?.connectedBy?(teamMembers.find(m=>m.userId===conn.connectedBy)?.email||conn.connectedBy):null;
-                const summary=conn?.summary||{};
-                const summaryText=!conn?"—":
-                  pl.oauth?(summary.accountName?`${summary.accountName} (${summary.accountId||"—"})`:(summary.accountId||"No account selected yet")):
-                  pl.key==="funnel"?(summary.accountId?`Account ${summary.accountId}${summary.projectId?` · Project ${summary.projectId}`:""}`:"—"):
-                  pl.key==="supermetrics"?(summary.dsId?`${summary.dsId}${summary.dsAccounts?` · ${summary.dsAccounts}`:""}`:"—"):
-                  pl.key==="capterra"?(summary.products?.length?summary.products.join(", "):"—"):
-                  "—";
-                const statusLabel=!conn?"Not connected":conn.needsReconnect?"Reconnect needed":conn.needsAccountSelection?"Pick account":"Connected";
-                const warn=conn&&(conn.needsReconnect||conn.needsAccountSelection);
-                const statusColor=!conn?T.textMuted:warn?T.warning:T.success;
-                const statusBg=!conn?T.surfaceEl:warn?T.warningBg:T.successBg;
-                const statusBorder=!conn?T.border:warn?T.warningBorder:T.successBorder;
-                return(
-                  <div key={pl.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"11px 4px",borderTop:i>0?`1px solid ${T.border}`:"none",flexWrap:"wrap"}}>
-                    <div style={{minWidth:0,flex:"1 1 260px"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:2}}>
-                        <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
-                        <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
-                        <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
-                      </div>
-                      <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:400}}>{summaryText}</div>
-                      {conn&&(
-                        <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:2}}>
-                          Connected {conn.connectedAt?new Date(conn.connectedAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—"}
-                          {connectedByEmail?` by ${connectedByEmail}`:""}
-                        </div>
-                      )}
-                      {conn&&!warn&&(
-                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}>
-                          <div style={{width:100}}>
-                            <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11,padding:"4px 7px"}}
-                              onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;v==="manual"
-                                ?updateSyncSchedule(pl.key,{syncMode:"manual"})
-                                :updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:conn.rollingWindowDays||14});}}>
-                              <option value="manual">Manual only</option>
-                              <option value="daily">Daily</option>
-                              <option value="weekly">Weekly</option>
-                            </Sel>
-                          </div>
-                          {conn.syncMode==="rolling"&&(
-                            <div style={{width:110}}>
-                              <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11,padding:"4px 7px"}}
-                                onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:conn.syncFrequency,rollingWindowDays:Number(v)});}}>
-                                <option value="7">Last 7 days</option>
-                                <option value="14">Last 14 days</option>
-                                <option value="30">Last 30 days</option>
-                                <option value="60">Last 60 days</option>
-                                <option value="90">Last 90 days</option>
+            {(()=>{
+              const GRID="150px minmax(140px,1.4fr) minmax(140px,1fr) 130px 100px 92px 92px 32px";
+              return(
+              <div style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
+                {!isMobile&&(
+                  <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"7px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
+                    {["Connector","Data source name","Credentials","Status","Connected","Import start","Import end",""].map(h=>(
+                      <SectionLabel key={h} T={T} style={{marginBottom:0}}>{h}</SectionLabel>
+                    ))}
+                  </div>
+                )}
+                {PLATFORMS.filter(pl=>pl.perWorkspaceAuth).map((pl,i)=>{
+                  const conn=connectionDetails.find(c=>c.provider===pl.key);
+                  const connectedByEmail=conn?.connectedBy?(teamMembers.find(m=>m.userId===conn.connectedBy)?.email||conn.connectedBy):null;
+                  const summary=conn?.summary||{};
+                  const summaryText=!conn?"—":
+                    pl.oauth?(summary.accountName?`${summary.accountName} (${summary.accountId||"—"})`:(summary.accountId||"No account selected yet")):
+                    pl.key==="funnel"?(summary.accountId?`Account ${summary.accountId}${summary.projectId?` · Project ${summary.projectId}`:""}`:"—"):
+                    pl.key==="supermetrics"?(summary.dsId?`${summary.dsId}${summary.dsAccounts?` · ${summary.dsAccounts}`:""}`:"—"):
+                    pl.key==="capterra"?(summary.products?.length?summary.products.join(", "):"—"):
+                    "—";
+                  const statusLabel=!conn?"Not connected":conn.needsReconnect?"Reconnect needed":conn.needsAccountSelection?"Pick account":conn.paused?"Paused":"Connected";
+                  const warn=conn&&(conn.needsReconnect||conn.needsAccountSelection);
+                  const statusColor=!conn?T.textMuted:warn?T.warning:conn.paused?T.textMuted:T.success;
+                  const statusBg=!conn?T.surfaceEl:warn?T.warningBg:conn.paused?T.surfaceEl:T.successBg;
+                  const statusBorder=!conn?T.border:warn?T.warningBorder:conn.paused?T.border:T.successBorder;
+                  const importRange=importDateRangeByProvider[pl.key];
+                  const fmtShort=d=>d?new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—";
+                  const menuOpen=connActionsMenuProvider===pl.key;
+                  const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key;
+                  const cell=(content,extra)=><div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
+                  const actionsMenu=conn&&menuOpen&&connActionsMenuAnchorRect&&createPortal(
+                    <>
+                      <div onClick={()=>setConnActionsMenuProvider(null)} style={{position:"fixed",inset:0,zIndex:999}}/>
+                      <div style={{position:"fixed",top:connActionsMenuAnchorRect.bottom+6,left:Math.max(8,connActionsMenuAnchorRect.right-220),zIndex:1000,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                        {conn.needsAccountSelection&&(
+                          <button onClick={()=>{setConnActionsMenuProvider(null);openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
+                        )}
+                        {conn.needsReconnect&&(
+                          <button onClick={()=>{setConnActionsMenuProvider(null);startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
+                        )}
+                        {!conn.needsAccountSelection&&!conn.needsReconnect&&(
+                          <button onClick={()=>{setConnActionsMenuProvider(null);pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
+                        )}
+                        {!warn&&(
+                          <div style={{padding:"6px 10px 4px"}} onClick={e=>e.stopPropagation()}>
+                            <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,marginBottom:5}}>Sync schedule</div>
+                            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                              <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                                onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;v==="manual"
+                                  ?updateSyncSchedule(pl.key,{syncMode:"manual"})
+                                  :updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:conn.rollingWindowDays||14});}}>
+                                <option value="manual">Manual only</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
                               </Sel>
+                              {conn.syncMode==="rolling"&&(
+                                <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                                  onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:conn.syncFrequency,rollingWindowDays:Number(v)});}}>
+                                  <option value="7">Last 7 days</option>
+                                  <option value="14">Last 14 days</option>
+                                  <option value="30">Last 30 days</option>
+                                  <option value="60">Last 60 days</option>
+                                  <option value="90">Last 90 days</option>
+                                </Sel>
+                              )}
                             </div>
+                            {conn.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
+                              <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:5}}>
+                                {conn.lastAutoSyncStatus==="error"
+                                  ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
+                                  :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
+                        <button onClick={()=>{setConnActionsMenuProvider(null);updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
+                        <button onClick={()=>{setConnActionsMenuProvider(null);updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in BudgetHQ":"Don't use this data in BudgetHQ"}</button>
+                        <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
+                        <button onClick={()=>{setConnActionsMenuProvider(null);disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
+                      </div>
+                    </>,
+                    document.body
+                  );
+                  const dotsButton=(
+                    <div style={{position:"relative",display:"flex",justifyContent:"flex-end"}}>
+                      <button onClick={e=>{
+                          if(menuOpen){setConnActionsMenuProvider(null);return;}
+                          setConnActionsMenuAnchorRect(e.currentTarget.getBoundingClientRect());
+                          setConnActionsMenuProvider(pl.key);
+                        }} title="Actions" disabled={saving}
+                        style={{width:24,height:24,borderRadius:6,background:menuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:saving?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.5:1,fontSize:13,color:T.textSub,fontFamily:"Inter,sans-serif",lineHeight:1}}>⋯</button>
+                      {actionsMenu}
+                    </div>
+                  );
+                  if(isMobile){
+                    return(
+                      <div key={pl.key} style={{padding:"11px 10px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                            <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
+                            <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
+                            <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
+                          </div>
+                          {conn?dotsButton:(
+                            <Btn onClick={()=>pl.oauth?startProviderOAuth(pl.key):openConnectPanel(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit}>Connect</Btn>
                           )}
                         </div>
-                      )}
-                      {conn?.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
-                        <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:3}}>
-                          {conn.lastAutoSyncStatus==="error"
-                            ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
-                            :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
+                        <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif"}}>{summaryText}</div>
+                        {conn&&(
+                          <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:3}}>
+                            {connectedByEmail||"—"} · connected {fmtShort(conn.connectedAt)} · imported {fmtShort(importRange?.start)}–{fmtShort(importRange?.end)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  return(
+                    <div key={pl.key} style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 10px",alignItems:"center",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                        <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
+                        <span style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
+                      </div>
+                      {cell(summaryText,{color:T.text})}
+                      {cell(connectedByEmail||"—")}
+                      <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                        <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
+                        {conn?.excludedFromData&&<Pill color={T.textMuted} bg={T.surfaceEl} border={T.border} style={{fontSize:10}}>Hidden</Pill>}
+                      </div>
+                      {cell(fmtShort(conn?.connectedAt))}
+                      {cell(fmtShort(importRange?.start))}
+                      {cell(fmtShort(importRange?.end))}
+                      {conn?dotsButton:(
+                        <div style={{display:"flex",justifyContent:"flex-end"}}>
+                          <Btn onClick={()=>pl.oauth?startProviderOAuth(pl.key):openConnectPanel(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Connect</Btn>
                         </div>
                       )}
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                      {!conn&&(
-                        <Btn onClick={()=>pl.oauth?startProviderOAuth(pl.key):openConnectPanel(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Connect</Btn>
-                      )}
-                      {conn?.needsAccountSelection&&(
-                        <Btn onClick={()=>openAccountPicker(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Pick account</Btn>
-                      )}
-                      {conn?.needsReconnect&&(
-                        <Btn onClick={()=>startProviderOAuth(pl.key)} variant="primary" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>Reconnect</Btn>
-                      )}
-                      {conn&&!conn.needsAccountSelection&&!conn.needsReconnect&&(
-                        <Btn onClick={()=>pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key)} variant="subtle" size="sm" T={T} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>{pl.oauth?"Switch account":"Edit"}</Btn>
-                      )}
-                      {conn&&(
-                        <Btn onClick={()=>disconnectConnection(pl.key)} variant="danger" size="sm" T={T} disabled={!canEdit||disconnectingProvider===pl.key} title={canEdit?undefined:"View-only access"}>{disconnectingProvider===pl.key?"Disconnecting…":"Disconnect"}</Btn>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+              );
+            })()}
           </div>
 
           {/* Upload zone */}
@@ -7767,7 +7916,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           "upload"/"map"), not the Tagger table itself — matches the same branch in the NAV.map
           click handler above, now that Add Data lives at view==="data" instead of nested under
           view==="tagger". */}
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map")setView("data");else setView("tagger");}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={mergedNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={mergedNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(step==="upload"||step==="map")setView("data");else setView("tagger");}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={visibleNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={visibleNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
       {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
           other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
           dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
@@ -7775,16 +7924,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           becomes null while hidden (its portal target only exists when view==="budget"), so the
           sidebar contents disappear correctly without any extra guard. */}
       <div style={{display:view==="budget"?"contents":"none"}}>
-        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={mergedNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
+        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
       </div>
-      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={mergedNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
-      {view==="ask"&&<AskAI T={T} mergedNormRows={mergedNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} hasData={mergedNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl}/>}
+      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
+      {view==="ask"&&<AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
         const platformBreakdown=(()=>{
           const map={};
-          mergedNormRows.forEach(r=>{
+          visibleNormRows.forEach(r=>{
             const p=derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type);
             if(!map[p])map[p]={platform:p,rows:0,spend:0,campaigns:new Set()};
             map[p].rows++;map[p].spend+=r.spend;map[p].campaigns.add(campaignKey(r.campaign_group_name,r.campaign_name));

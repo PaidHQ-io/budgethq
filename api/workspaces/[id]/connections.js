@@ -17,12 +17,19 @@
  *        api/oauth/linkedin/callback.js after the OAuth exchange, never POSTed here directly from
  *        the client (there's no raw token/secret for the user to paste).
  * DELETE ?provider=funnel — disconnect, removing the stored credential entirely.
- * PATCH  ?provider=bing Body: { syncMode, rollingWindowDays?, syncFrequency? } — set a connection's
- *        sync schedule. syncMode: 'manual' (default — only ever syncs from a click) or 'rolling'
- *        (opts into api/cron/sync-connectors.js's daily heartbeat). rollingWindowDays/syncFrequency
- *        only matter when syncMode is 'rolling'; ignored/cleared otherwise. Doesn't touch
- *        `credential` at all — separate from POST so changing a schedule never requires resending
- *        a connector's saved tokens/keys.
+ * PATCH  ?provider=bing Body: any subset of { syncMode, rollingWindowDays?, syncFrequency?,
+ *        paused?, excludedFromData? } — each group is applied independently, so a call can flip
+ *        just `paused` without resending a sync schedule, and vice versa. Never touches
+ *        `credential` — separate from POST so none of these ever require resending a connector's
+ *        saved tokens/keys.
+ *          syncMode: 'manual' (default — only ever syncs from a click) or 'rolling' (opts into
+ *            api/cron/sync-connectors.js's daily heartbeat). rollingWindowDays/syncFrequency only
+ *            matter when syncMode is 'rolling'; ignored/cleared otherwise.
+ *          paused: true stops ALL syncing (cron heartbeat skips it, frontend disables manual Sync)
+ *            without disconnecting — see schema.sql's doc comment on the column.
+ *          excludedFromData: true tells the frontend to filter this provider's rows out of every
+ *            calculation/view — enforced entirely client-side (see BudgetHQ.jsx's
+ *            visibleNormRows), this route just stores the flag.
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
@@ -83,7 +90,8 @@ export default withApi(async (req, res) => {
     const rows = await sql`
       select provider, connected_at, connected_by, credential,
              sync_mode, rolling_window_days, sync_frequency,
-             last_auto_sync_at, last_auto_sync_status, last_auto_sync_error
+             last_auto_sync_at, last_auto_sync_status, last_auto_sync_error,
+             paused, excluded_from_data
       from budgethq.connector_credentials
       where workspace_id = ${workspaceId}
     `;
@@ -101,6 +109,8 @@ export default withApi(async (req, res) => {
         lastAutoSyncAt: r.last_auto_sync_at,
         lastAutoSyncStatus: r.last_auto_sync_status,
         lastAutoSyncError: r.last_auto_sync_error,
+        paused: r.paused,
+        excludedFromData: r.excluded_from_data,
       })),
     });
   }
@@ -129,36 +139,74 @@ export default withApi(async (req, res) => {
     if (!VALID_PROVIDERS.includes(provider)) {
       return res.status(400).json({ error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}` });
     }
-    const { syncMode, rollingWindowDays, syncFrequency } = req.body || {};
-    if (!["manual", "rolling"].includes(syncMode)) {
-      return res.status(400).json({ error: "syncMode must be 'manual' or 'rolling'" });
-    }
-    if (syncMode === "rolling") {
-      if (!["daily", "weekly"].includes(syncFrequency)) {
-        return res.status(400).json({ error: "syncFrequency must be 'daily' or 'weekly' when syncMode is 'rolling'" });
-      }
-      const days = Number(rollingWindowDays);
-      if (!Number.isInteger(days) || days < 1 || days > 365) {
-        return res.status(400).json({ error: "rollingWindowDays must be an integer between 1 and 365" });
-      }
-    }
     const existing = await sql`
       select 1 from budgethq.connector_credentials where workspace_id = ${workspaceId} and provider = ${provider}
     `;
     if (!existing.length) {
       return res.status(400).json({ error: `This workspace hasn't connected ${provider} yet.`, code: "not_connected" });
     }
-    // Manual mode clears the schedule fields entirely rather than leaving stale values behind —
-    // otherwise switching rolling -> manual -> rolling later could silently resurrect an old window/
-    // frequency the user never re-confirmed.
-    await sql`
-      update budgethq.connector_credentials
-      set sync_mode = ${syncMode},
-          rolling_window_days = ${syncMode === "rolling" ? Number(rollingWindowDays) : null},
-          sync_frequency = ${syncMode === "rolling" ? syncFrequency : null}
+
+    const body = req.body || {};
+    // Each group below only runs if its key was present in the body, so a single PATCH can touch
+    // just the schedule, just `paused`, or just `excludedFromData` without needing to resend the
+    // others (see this route's top doc comment).
+    if (body.syncMode !== undefined) {
+      const { syncMode, rollingWindowDays, syncFrequency } = body;
+      if (!["manual", "rolling"].includes(syncMode)) {
+        return res.status(400).json({ error: "syncMode must be 'manual' or 'rolling'" });
+      }
+      if (syncMode === "rolling") {
+        if (!["daily", "weekly"].includes(syncFrequency)) {
+          return res.status(400).json({ error: "syncFrequency must be 'daily' or 'weekly' when syncMode is 'rolling'" });
+        }
+        const days = Number(rollingWindowDays);
+        if (!Number.isInteger(days) || days < 1 || days > 365) {
+          return res.status(400).json({ error: "rollingWindowDays must be an integer between 1 and 365" });
+        }
+      }
+      // Manual mode clears the schedule fields entirely rather than leaving stale values behind —
+      // otherwise switching rolling -> manual -> rolling later could silently resurrect an old
+      // window/frequency the user never re-confirmed.
+      await sql`
+        update budgethq.connector_credentials
+        set sync_mode = ${syncMode},
+            rolling_window_days = ${syncMode === "rolling" ? Number(rollingWindowDays) : null},
+            sync_frequency = ${syncMode === "rolling" ? syncFrequency : null}
+        where workspace_id = ${workspaceId} and provider = ${provider}
+      `;
+    }
+    if (body.paused !== undefined) {
+      if (typeof body.paused !== "boolean") {
+        return res.status(400).json({ error: "paused must be a boolean" });
+      }
+      await sql`
+        update budgethq.connector_credentials set paused = ${body.paused}
+        where workspace_id = ${workspaceId} and provider = ${provider}
+      `;
+    }
+    if (body.excludedFromData !== undefined) {
+      if (typeof body.excludedFromData !== "boolean") {
+        return res.status(400).json({ error: "excludedFromData must be a boolean" });
+      }
+      await sql`
+        update budgethq.connector_credentials set excluded_from_data = ${body.excludedFromData}
+        where workspace_id = ${workspaceId} and provider = ${provider}
+      `;
+    }
+
+    const [row] = await sql`
+      select sync_mode, rolling_window_days, sync_frequency, paused, excluded_from_data
+      from budgethq.connector_credentials
       where workspace_id = ${workspaceId} and provider = ${provider}
     `;
-    return res.status(200).json({ provider, syncMode, rollingWindowDays: syncMode === "rolling" ? Number(rollingWindowDays) : null, syncFrequency: syncMode === "rolling" ? syncFrequency : null });
+    return res.status(200).json({
+      provider,
+      syncMode: row.sync_mode,
+      rollingWindowDays: row.rolling_window_days,
+      syncFrequency: row.sync_frequency,
+      paused: row.paused,
+      excludedFromData: row.excluded_from_data,
+    });
   }
 
   if (req.method === "DELETE") {
