@@ -5901,6 +5901,20 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // same anchored-portal-dropdown pattern as the File Store's "copy to workspace" menu.
   const[connActionsMenuProvider,setConnActionsMenuProvider]=useState(null);
   const[connActionsMenuAnchorRect,setConnActionsMenuAnchorRect]=useState(null);
+  // Always clear BOTH together — the menu's fixed, inset:0, full-viewport backdrop (which sits on
+  // top of the entire page, nav bar included, while open) is only NOT rendered when
+  // connActionsMenuProvider is null; leaving connActionsMenuAnchorRect stale behind isn't the bug
+  // by itself (the render check requires both), but this makes it structurally impossible for the
+  // two to ever disagree — reported 2026-07-24 as "clicking anything, including other nav tabs,
+  // does nothing" right after using this menu, which is exactly what a stuck-open backdrop looks
+  // like from the outside (it's fully transparent, so there's nothing to see).
+  const closeConnActionsMenu=useCallback(()=>{setConnActionsMenuProvider(null);setConnActionsMenuAnchorRect(null);},[]);
+  // Extra safety net on top of closeConnActionsMenu being used at every click site: every action in
+  // this menu ends by calling refreshConnectedProviders() (or navigating away entirely), so there's
+  // no legitimate reason for the menu to still be open once connectionDetails has actually changed
+  // — force it closed whenever that happens, so a stuck-open backdrop can't survive past the next
+  // data refresh even in some edge case the per-click closes above didn't anticipate.
+  useEffect(()=>{closeConnActionsMenu();},[connectionDetails,closeConnActionsMenu]);
 
   // ── OAuth-connect platforms (LinkedIn 2026-07-22, Bing 2026-07-22) ─────────────────────────
   // Both are perWorkspaceAuth like Funnel.io/Supermetrics, but neither has a form to fill in — an
@@ -7459,16 +7473,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   const cell=(content,extra)=><div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
                   const actionsMenu=conn&&menuOpen&&connActionsMenuAnchorRect&&createPortal(
                     <>
-                      <div onClick={()=>setConnActionsMenuProvider(null)} style={{position:"fixed",inset:0,zIndex:999}}/>
+                      <div onClick={closeConnActionsMenu} style={{position:"fixed",inset:0,zIndex:999}}/>
                       <div style={{position:"fixed",top:connActionsMenuAnchorRect.bottom+6,left:Math.max(8,connActionsMenuAnchorRect.right-220),zIndex:1000,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
                         {conn.needsAccountSelection&&(
-                          <button onClick={()=>{setConnActionsMenuProvider(null);openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
+                          <button onClick={()=>{closeConnActionsMenu();openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
                         )}
                         {conn.needsReconnect&&(
-                          <button onClick={()=>{setConnActionsMenuProvider(null);startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
+                          <button onClick={()=>{closeConnActionsMenu();startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
                         )}
                         {!conn.needsAccountSelection&&!conn.needsReconnect&&(
-                          <button onClick={()=>{setConnActionsMenuProvider(null);pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
+                          <button onClick={()=>{closeConnActionsMenu();pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
                         )}
                         {!warn&&(
                           <div style={{padding:"6px 10px 4px"}} onClick={e=>e.stopPropagation()}>
@@ -7503,10 +7517,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           </div>
                         )}
                         <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                        <button onClick={()=>{setConnActionsMenuProvider(null);updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
-                        <button onClick={()=>{setConnActionsMenuProvider(null);updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in BudgetHQ":"Don't use this data in BudgetHQ"}</button>
+                        <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
+                        <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in BudgetHQ":"Don't use this data in BudgetHQ"}</button>
                         <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                        <button onClick={()=>{setConnActionsMenuProvider(null);disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
+                        <button onClick={()=>{closeConnActionsMenu();disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
                       </div>
                     </>,
                     document.body
@@ -7514,7 +7528,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   const dotsButton=(
                     <div style={{position:"relative",display:"flex",justifyContent:"flex-end"}}>
                       <button onClick={e=>{
-                          if(menuOpen){setConnActionsMenuProvider(null);return;}
+                          if(menuOpen){closeConnActionsMenu();return;}
                           setConnActionsMenuAnchorRect(e.currentTarget.getBoundingClientRect());
                           setConnActionsMenuProvider(pl.key);
                         }} title="Actions" disabled={saving}
