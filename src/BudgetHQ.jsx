@@ -302,8 +302,40 @@ const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"i
 // Neutral tile background behind every favicon — favicons vary wildly in whether they include their
 // own padding/background, so a fixed light-neutral square keeps the grid visually even regardless.
 const T_LOGO_BG="#F1F3F5";
-const PlatformLogo=({domain,color,size=28})=>{
+// Hand-vectored marks for platforms where the live favicon didn't hold up (2026-07-24, per Mo, who
+// flagged both against reference images of the real logos). Real vector data, not a redraw from
+// memory, so these should be pixel-faithful to the current official marks:
+//   Google Ads — the current (2018-) triangular "A" mark IS just three flat shapes (two diagonal
+//   rounded bars + a circle), so this is built directly from that geometry — two round-capped
+//   <line>s (a straight line with stroke-linecap="round" draws exactly the same rounded-bar shape
+//   a hand-vectored path would, without needing bezier data) plus a <circle>, in Google's own brand
+//   blue/yellow/green.
+//   Bing — genuinely irregular (a folded-ribbon "b"), so freehand redrawing it risked being subtly
+//   off the way the favicon was. Used the exact path data Bing itself ships on bing.com instead
+//   (viewBox 0 0 35 50, two paths — the second at reduced opacity for the fold crease), recolored
+//   from bing.com's white-on-teal original into Bing's teal directly, for use on a light background.
+const GoogleAdsMark=({size=18})=>(
+  <svg viewBox="0 0 100 100" width={size} height={size}>
+    <circle cx="19" cy="84" r="15" fill="#34A853"/>
+    <line x1="50" y1="10" x2="19" y2="84" stroke="#FBBC04" strokeWidth="26" strokeLinecap="round"/>
+    <line x1="50" y1="10" x2="86" y2="82" stroke="#4285F4" strokeWidth="26" strokeLinecap="round"/>
+  </svg>
+);
+const BingMark=({size=18,color="#00809D"})=>(
+  <svg viewBox="0 0 35 50" width={size} height={size}>
+    <path d="M35 24.25l-22.177-7.761 4.338 10.82 6.923 3.225H35V24.25z" fill={color} opacity=".72"/>
+    <path d="M10 38.642V3.5L0 0v44.4L10 50l25-14.382V24.25z" fill={color}/>
+  </svg>
+);
+const PlatformLogo=({domain,color,mark:Mark,size=28})=>{
   const[failed,setFailed]=useState(false);
+  if(Mark){
+    return(
+      <span style={{width:size,height:size,borderRadius:8,background:T_LOGO_BG,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden"}}>
+        <Mark size={Math.round(size*0.62)}/>
+      </span>
+    );
+  }
   if(!domain||failed){
     return<span style={{width:size,height:size,borderRadius:8,background:color,flexShrink:0,display:"inline-block"}}/>;
   }
@@ -5769,8 +5801,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // AND the connect-panel flow below and gets its own small inline connector.
   const PLATFORMS=[
     {key:"linkedin",label:"LinkedIn",status:"live",perWorkspaceAuth:true,oauth:true,color:"#0A66C2",desc:"Ad account, OAuth-connected",domain:"linkedin.com"},
-    {key:"bing",label:"Bing",status:"live",perWorkspaceAuth:true,oauth:true,color:"#00809D",desc:"Microsoft Advertising, OAuth-connected",domain:"bing.com"},
-    {key:"google",label:"Google Ads",status:"csv",color:"#EA4335",desc:"No direct API yet — upload a CSV export",domain:"ads.google.com"},
+    {key:"bing",label:"Bing",status:"live",perWorkspaceAuth:true,oauth:true,color:"#00809D",desc:"Microsoft Advertising, OAuth-connected",domain:"bing.com",mark:BingMark},
+    {key:"google",label:"Google Ads",status:"csv",color:"#EA4335",desc:"No direct API yet — upload a CSV export",domain:"ads.google.com",mark:GoogleAdsMark},
     {key:"meta",label:"Meta Ads",status:"csv",color:"#1877F2",desc:"No direct API yet — upload a CSV export",domain:"meta.com"},
     {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",desc:"API key per product",domain:"capterra.com",
       connectFields:[
@@ -7391,7 +7423,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     else if(isConnected){actionLabel="✓ Connected";onAction=()=>setDataSourcesSubView("connections");}
                     else if(pl.oauth){actionLabel="Connect now";onAction=()=>startProviderOAuth(pl.key);}
                     else{actionLabel="Connect now";onAction=()=>openConnectPanel(pl.key);}
-                    return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,domain:pl.domain,isConnected,warn,actionLabel,onAction};
+                    return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,domain:pl.domain,mark:pl.mark,isConnected,warn,actionLabel,onAction};
                   }),
                   {key:"_csv",label:"Spend Data CSV",desc:"Any spend CSV — Google Ads, LinkedIn, Meta, Bing, Capterra exports all work",color:T.textMuted,actionLabel:"Upload CSV",onAction:()=>fileRef.current?.click()},
                   {key:"_screenshot",label:"Screenshot",desc:"Share a screenshot of a spend report — AI reads it into data",color:T.textMuted,actionLabel:"Upload image",onAction:()=>!screenshotProcessing&&screenshotRef.current?.click()},
@@ -7413,7 +7445,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div key={c.key} onClick={c.onAction} className="bhq-row" {...dropProps}
                         style={{border:`1px solid ${isDropTarget&&dragOver?T.accent:T.border}`,borderRadius:10,background:isDropTarget&&dragOver?T.accentBg:T.surface,padding:"16px",cursor:"pointer",transition:"all 0.15s"}}>
                         <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
-                          <PlatformLogo domain={c.domain} color={c.color}/>
+                          <PlatformLogo domain={c.domain} color={c.color} mark={c.mark}/>
                           <span style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>{c.label}</span>
                           {c.isConnected&&!c.warn&&<Pill color={T.success} bg={T.successBg} border={T.successBorder} style={{fontSize:9}}>Connected</Pill>}
                           {c.warn&&<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder} style={{fontSize:9}}>Needs attention</Pill>}
