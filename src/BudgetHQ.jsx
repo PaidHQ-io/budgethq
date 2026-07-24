@@ -6625,9 +6625,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }
   },[buildCurrentReport,exportableView,emailExportTo,emailExportFormat,emailExportNote]);
 
-  // Muted until actively sorted — Vercel's list has no header row at all, so the closest match
-  // without losing our sort affordance is to make the labels recede until they're doing something.
-  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:sortCol===col?T.text:T.textMuted,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
+  // Per Mo's request (2026-07-24): headers used to fade to T.textMuted (grey) until actively
+  // sorted, and only turn T.text (dark) on the active sort column. Now always T.text — active sort
+  // is still shown via the underline below, just no longer via color.
+  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   // White fill, same as the toolbar behind it — Vercel's filter pills are white-on-white with
   // just a border for separation, not a gray fill. paddingLeft is bumped separately on the three
   // primary "contains" fields to make room for the search icon from IconField.
@@ -7416,8 +7417,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               </div>
               <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"11px 16px 5px",alignItems:"end",gap:8}}>
                 <input type="checkbox" checked={filtered.length>0&&selected.size===filtered.length} onChange={selAll} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
-                {!isMobile&&<SH col="group" label="Campaign Group"/>}
-                <SH col="campaign" label="Campaign"/>
+                {/* Relabeled 2026-07-24 to match current platform terminology (LinkedIn recently
+                    renamed its own UI to "Campaign"/"Ad Set", matching what most other platforms
+                    already call Campaign/Ad Set or Ad Group) — display labels only, the underlying
+                    campaign_group_name/campaign_name fields and CSV import/export column names are
+                    unchanged, since those stay platform-agnostic across Google/Meta/etc. imports. */}
+                {!isMobile&&<SH col="group" label="Campaign"/>}
+                <SH col="campaign" label="Ad Group/Ad Set"/>
                 <SH col="spend" label="Spend"/>
                 {!isMobile&&<SH col="platform" label="Platform"/>}
                 {!isMobile&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -7482,16 +7488,17 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.key)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                     {/* Group and Campaign now share one text treatment (size/weight/color) instead
                         of a muted-vs-bold pair — Vercel's row title and metadata fields read at the
-                        same visual weight, just differing in which column they sit in. */}
-                    {!isMobile&&<div style={{fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
+                        same visual weight, just differing in which column they sit in. Weight
+                        dropped to 400 (2026-07-24, per Mo) — no benefit to bolding row data. */}
+                    {!isMobile&&<div style={{fontSize:12,fontWeight:400,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
                     {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
                         here it means tagged (accent) vs needs review (neutral grey), so the row list
                         reads at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
                       <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?T.accentSoft:"#A1A1AA",flexShrink:0}}/>
-                      <span style={{minWidth:0,fontSize:12,fontWeight:500,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                      <span style={{minWidth:0,fontSize:12,fontWeight:400,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
-                    <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:600,color:T.text}}>{fmt$(c.spend)}</div>
+                    <div style={{fontSize:12,fontFamily:"Inter,sans-serif",fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
                       {editingPlatform===c.key?(
                         <select autoFocus value={c.platform}
