@@ -189,6 +189,22 @@ function derivePlatform(groupName,name,pv,campaignType){
   if(p.includes("capterra"))return"Capterra";
   return pv||"Unknown";
 }
+// "Platform" as a BUDGETING dimension (Budget By / Pacing segment matching, not just Reporting
+// breakdowns) — added 2026-07 so someone can budget/forecast purely by channel with zero manual
+// tagging, same as Reporting's breakdown/AskAI views already allow via resolveDimValue. Unlike a
+// real tag dimension, "Platform" is never stored in campaignTags — there's nothing to look up by
+// campaign key alone, so any code matching campaigns against a segment that includes "Platform"
+// needs a campaignKey -> derived-platform lookup built from actual spend rows. Built once per
+// mergedNormRows change and threaded through to every function below that used to read
+// tags[key][dim] directly for budgetDims.
+function buildCampaignPlatformIndex(mergedNormRows){
+  const idx={};
+  (mergedNormRows||[]).forEach(row=>{
+    const key=campaignKey(row.campaign_group_name,row.campaign_name);
+    if(!idx[key])idx[key]=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+  });
+  return idx;
+}
 const parseMoney=v=>{if(v===""||v==null)return null;const n=parseFloat(String(v).replace(/[$,\s%]/g,""));return isNaN(n)?null:n;};
 const fmt$=n=>{if(!n)return"";return"$"+Math.round(n).toLocaleString();};
 const fmtFull=n=>n?"$"+Math.round(n).toLocaleString():"—";
@@ -700,13 +716,12 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const[showAddRow,setShowAddRow]=useState(false);
   const[newRowVals,setNewRowVals]=useState({});
 
-  const segMatchCount=useCallback(segKey=>{
-    if(!budgetDims.length)return 0;
-    return Object.values(campaignTags||{}).filter(t=>{
-      const vals=budgetDims.map(d=>t[d]);
-      return vals.every(v=>v)&&vals.join("|")===segKey;
-    }).length;
-  },[budgetDims,campaignTags]);
+  // See buildCampaignPlatformIndex's doc comment — needed anywhere budgetDims might include
+  // "Platform", since that value is never actually stored in campaignTags.
+  const platformIndex=useMemo(()=>buildCampaignPlatformIndex(mergedNormRows),[mergedNormRows]);
+  const platformValues=useMemo(()=>[...new Set(Object.values(platformIndex))].sort((a,b)=>a.localeCompare(b)),[platformIndex]);
+
+  const segMatchCount=useCallback(segKey=>countSegmentCampaigns(campaignTags,budgetDims,segKey,platformIndex),[budgetDims,campaignTags,platformIndex]);
 
   const addManualRow=()=>{
     if(!canEdit)return;
@@ -843,12 +858,12 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
 
   const deleteRow=(segKey,label)=>{
     if(!canEdit)return;
-    const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey);
+    const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey,platformIndex);
     const tagNote=matchCount>0?` This also un-tags ${matchCount} matching campaign${matchCount>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
     if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this row.${tagNote}`))return;
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])delete nx[year][segKey];return nx;});
     setBudgetRowMeta(p=>{const nx={...p};delete nx[segKey];return nx;});
-    setTags?.(p=>untagSegmentCampaigns(p,budgetDims,segKey));
+    setTags?.(p=>untagSegmentCampaigns(p,budgetDims,segKey,platformIndex));
     setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
     showNotif(matchCount>0?`Row deleted — un-tagged ${matchCount} campaign${matchCount>1?"s":""}`:"Row deleted");
   };
@@ -876,12 +891,12 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
     if(!canEdit)return;
     if(!selRows.size)return;
     const n=selRows.size;
-    const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k),0);
+    const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k,platformIndex),0);
     const tagNote=totalMatches>0?` This also un-tags ${totalMatches} matching campaign${totalMatches>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
     if(!window.confirm(`Delete ${n} segment${n>1?"s":""}?\n\nThis removes all monthly budget values for ${n>1?"these rows":"this row"}.${tagNote}`))return;
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])selRows.forEach(k=>{delete nx[year][k];});return nx;});
     setBudgetRowMeta(p=>{const nx={...p};selRows.forEach(k=>delete nx[k]);return nx;});
-    setTags?.(p=>{let nt=p;selRows.forEach(k=>{nt=untagSegmentCampaigns(nt,budgetDims,k);});return nt;});
+    setTags?.(p=>{let nt=p;selRows.forEach(k=>{nt=untagSegmentCampaigns(nt,budgetDims,k,platformIndex);});return nt;});
     showNotif(`Deleted ${n} segment${n>1?"s":""}${totalMatches>0?` — un-tagged ${totalMatches} campaign${totalMatches>1?"s":""}`:""}`);
     setSelRows(new Set());
   };
@@ -889,9 +904,18 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const segs=useMemo(()=>{
     if(!budgetDims.length)return[];
     const seen=new Set();const out=[];
-    // Source 1: tagged campaigns
-    Object.entries(campaignTags||{}).forEach(([,tags])=>{
-      const vals=budgetDims.map(d=>tags[d]);if(vals.some(v=>!v))return;
+    // Source 1: every campaign that's ever had spend data, tagged or not — a segment auto-appears
+    // once ALL budgetDims resolve to a real value for it (manual tags for ordinary dimensions,
+    // derived automatically via platformIndex for "Platform"), same "nothing spending silently
+    // goes unbudgeted" principle as before, now true whether or not any manual tagging happened.
+    const seenCampaigns=new Set();
+    (mergedNormRows||[]).forEach(row=>{
+      const ck=campaignKey(row.campaign_group_name,row.campaign_name);
+      if(seenCampaigns.has(ck))return;
+      seenCampaigns.add(ck);
+      const t=campaignTags[ck]||{};
+      const vals=budgetDims.map(d=>d==="Platform"?(platformIndex[ck]||""):t[d]);
+      if(vals.some(v=>!v))return;
       const key=vals.join("|");
       if(!seen.has(key)){seen.add(key);const c={key};budgetDims.forEach((d,i)=>{c[d]=vals[i];});out.push(c);}
     });
@@ -907,7 +931,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       });
     }
     return out.sort((a,b)=>a.key.localeCompare(b.key));
-  },[budgetDims,campaignTags,budgets,year]);
+  },[budgetDims,campaignTags,budgets,year,mergedNormRows,platformIndex]);
 
   // Segments filtered by per-dimension substring match (ANDed) — drives what's visible,
   // what "select all" selects, and what a bulk delete targets. Covers both the primary
@@ -938,7 +962,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   const qOver=useCallback((sk,q)=>{const c=parseMoney(getQC(sk,q.key));return c!==null&&qTotal(sk,q)>c;},[getQC,qTotal]);
   const aOver=useCallback(sk=>{const c=parseMoney(getAC(sk));return c!==null&&rowTotal(sk)>c;},[getAC,rowTotal]);
   const totalY=useMemo(()=>segs.reduce((s,sg)=>s+rowTotal(sg.key),0),[segs,rowTotal]);
-  const dimCount=d=>[...new Set(Object.values(campaignTags||{}).map(t=>t[d]).filter(Boolean))].length;
+  const dimCount=d=>d==="Platform"?platformValues.length:[...new Set(Object.values(campaignTags||{}).map(t=>t[d]).filter(Boolean))].length;
   const toggleDim=d=>{if(!canEdit)return;setBudgetDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);};
   const dcw=130;
 
@@ -1513,7 +1537,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget By</SectionLabel>
-            {(tagDimensions||[]).map(d=>{const on=budgetDims.includes(d);return(
+            {["Platform",...(tagDimensions||[])].map(d=>{const on=budgetDims.includes(d);return(
               <div key={d} className={on?undefined:"bhq-row"} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?T.accentBg:"transparent",border:on?`1px solid ${T.accentBorder}`:"1px solid transparent",marginBottom:2}}>
                 <Chk checked={on} onChange={()=>toggleDim(d)} T={T}/>
                 <span style={{fontSize:13,color:T.text,fontWeight:on?700:400}}>{d}</span>
@@ -1560,8 +1584,16 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
           </div>
         ):segs.length===0?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
-            <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>No tagged segments found</div>
-            <div style={{fontSize:13,color:T.textSub,maxWidth:320,lineHeight:1.65}}>Tag campaigns with <strong style={{color:T.text}}>{budgetDims.join(" + ")}</strong> in the Tagger first.</div>
+            <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>No segments found</div>
+            <div style={{fontSize:13,color:T.textSub,maxWidth:320,lineHeight:1.65}}>
+              {budgetDims.includes("Platform")?(
+                budgetDims.length>1?
+                  <>Import spend data and tag campaigns with <strong style={{color:T.text}}>{budgetDims.filter(d=>d!=="Platform").join(" + ")}</strong> in the Tagger — Platform is detected automatically, no tagging needed for it.</>
+                  :<>Import spend data in the Tagger — Platform is detected automatically, no manual tagging needed.</>
+              ):(
+                <>Tag campaigns with <strong style={{color:T.text}}>{budgetDims.join(" + ")}</strong> in the Tagger first.</>
+              )}
+            </div>
           </div>
         ):(
           <>
@@ -1672,7 +1704,12 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   </td>
                   {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:rbb,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:T.bg,zIndex:1,whiteSpace:"nowrap"}}>
-                    {editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
+                    {d==="Platform"?(
+                      // Derived, not stored — renaming here would only relabel the budget row
+                      // while spend keeps resolving to the original channel name, silently
+                      // breaking the match. Not editable.
+                      <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"Inter,sans-serif",fontWeight:600,borderRadius:6}} title="Derived from spend data — not editable">{seg[d]}</Pill>
+                    ):editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
                       <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                         onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
                         style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",minWidth:80}}/>
@@ -1759,7 +1796,16 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                 <Btn onClick={()=>setShowAddRow(true)} variant="ghost" size="sm" T={T} style={{alignSelf:"flex-start"}}>+ Add segment manually</Btn>
               ):(
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                  {budgetDims.map(d=>(
+                  {budgetDims.map(d=>d==="Platform"?(
+                    // Constrained to channels actually present in spend data — a free-typed value
+                    // here ("google" vs the canonical "Google Search") would silently create a
+                    // segment that never matches real spend, unlike ordinary tag dimensions where
+                    // that risk is more visible/correctable in the Tagger itself.
+                    <Sel key={d} value={newRowVals[d]||""} onChange={v=>setNewRowVals(p=>({...p,[d]:v}))} T={T} style={{width:150}}>
+                      <option value="">Platform…</option>
+                      {platformValues.map(p=><option key={p} value={p}>{p}</option>)}
+                    </Sel>
+                  ):(
                     <input key={d} value={newRowVals[d]||""} onChange={e=>setNewRowVals(p=>({...p,[d]:e.target.value}))} placeholder={d}
                       style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:130}}/>
                   ))}
@@ -3321,23 +3367,39 @@ function consolidateBudgetSegKeys(budgets,budgetRowMeta){
 // matches this segment's exact dimension combo — used when deleting a budget row, so a deleted
 // segment doesn't leave campaigns still carrying a tag combination with no budget behind it.
 // Spend data itself is untouched; matching campaigns simply lose these specific tags and fall
-// back to "needs review" in the Tagger.
-function untagSegmentCampaigns(tags,budgetDims,segKey){
+// back to "needs review" in the Tagger. "Platform" is never actually stored as a tag (see
+// buildCampaignPlatformIndex) so there's nothing to delete for it specifically — matching still
+// needs platformIndex to know which campaigns it applies to, but the delete step itself just
+// skips over it.
+function untagSegmentCampaigns(tags,budgetDims,segKey,platformIndex){
   const vals=segKey.split("|");
   if(vals.length!==budgetDims.length)return tags;
   const newTags={...(tags||{})};
   Object.entries(tags||{}).forEach(([campaign,t])=>{
-    if(!budgetDims.every((d,i)=>t[d]===vals[i]))return;
+    const matches=budgetDims.every((d,i)=>(d==="Platform"?(platformIndex?.[campaign]||""):t[d])===vals[i]);
+    if(!matches)return;
     const nt={...t};
-    budgetDims.forEach(d=>delete nt[d]);
+    budgetDims.forEach(d=>{if(d!=="Platform")delete nt[d];});
     newTags[campaign]=nt;
   });
   return newTags;
 }
-function countSegmentCampaigns(tags,budgetDims,segKey){
+// Campaigns matching a segment aren't limited to ones already present in `tags` once "Platform"
+// is one of the budgetDims — a campaign with zero manual tags can still match a Platform-only (or
+// Platform + already-tagged) segment. Unions tag-known campaign keys with platform-known ones so
+// both are considered; platformIndex is only needed (and only non-empty) when budgetDims actually
+// includes "Platform" — every other caller passes it as undefined and gets the old behavior.
+function countSegmentCampaigns(tags,budgetDims,segKey,platformIndex){
   const vals=segKey.split("|");
   if(vals.length!==budgetDims.length)return 0;
-  return Object.values(tags||{}).filter(t=>budgetDims.every((d,i)=>t[d]===vals[i])).length;
+  const allKeys=new Set([...Object.keys(tags||{}),...(platformIndex?Object.keys(platformIndex):[])]);
+  let count=0;
+  allKeys.forEach(key=>{
+    const t=(tags||{})[key]||{};
+    const matches=budgetDims.every((d,i)=>(d==="Platform"?(platformIndex?.[key]||""):t[d])===vals[i]);
+    if(matches)count++;
+  });
+  return count;
 }
 
 // Reporting drill-down: sums spend for a segment (matched by budgetDims/segKey, within a date
@@ -3351,7 +3413,7 @@ function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownD
     const d=parseSpendDate(row.date);
     if(!d||d<start||d>end)return;
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
-    if(!budgetDims.every((dim,i)=>rowTags[dim]===vals[i]))return;
+    if(!budgetDims.every((dim,i)=>resolveDimValue(row,rowTags,dim)===vals[i]))return;
     const bval=breakdownDim==="Platform"?derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type):(rowTags[breakdownDim]||"Untagged");
     map[bval]=(map[bval]||0)+row.spend;
   });
@@ -3776,7 +3838,7 @@ function computeActualsByMonth({mergedNormRows,tags,budgetDims,year}){
     const d=parseSpendDate(row.date);
     if(!d||d.getFullYear()!==Number(year))return;
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
-    const vals=budgetDims.map(dim=>rowTags[dim]);
+    const vals=budgetDims.map(dim=>resolveDimValue(row,rowTags,dim));
     if(vals.some(v=>!v))return;
     const sk=vals.join("|");
     const mk=String(d.getMonth()+1).padStart(2,"0");
@@ -3887,13 +3949,22 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
 
   const spendMap={};
   const platformSpendMap={}; // {segKey: {platform: spend}} — feeds the per-platform projection
-  // Independent of the period/date range — how many tagged campaigns exist for each segment
-  // at all. If this is 0 for a segment that has a budget, spend will NEVER show up for it no
-  // matter what period you're looking at — it's a tagging/dimension mismatch, not "no spend yet".
+  // Independent of the period/date range — how many campaigns exist for each segment at all. If
+  // this is 0 for a segment that has a budget, spend will NEVER show up for it no matter what
+  // period you're looking at — it's a tagging/dimension mismatch, not "no spend yet".
   const campaignCountMap={};
   if(budgetDims.length){
-    Object.values(tags||{}).forEach(t=>{
-      const vals=budgetDims.map(dim=>t[dim]);
+    // Every campaign that's ever had spend data, not just ones with an entry in `tags` — a
+    // budgetDims of just ["Platform"] resolves entirely from derived data (resolveDimValue),
+    // needing zero manual tagging, so membership can't depend on the campaign already existing
+    // as a tags key the way pure tag-dimension budgeting implicitly could.
+    const seenCampaigns=new Set();
+    mergedNormRows.forEach(row=>{
+      const key=campaignKey(row.campaign_group_name,row.campaign_name);
+      if(seenCampaigns.has(key))return;
+      seenCampaigns.add(key);
+      const rowTags=tags[key]||{};
+      const vals=budgetDims.map(dim=>resolveDimValue(row,rowTags,dim));
       if(vals.some(v=>!v))return;
       const sk=vals.join("|");
       campaignCountMap[sk]=(campaignCountMap[sk]||0)+1;
@@ -3901,7 +3972,8 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
     mergedNormRows.forEach(row=>{
       const d=parseSpendDate(row.date);
       if(!d||d<start||d>end)return;
-      const vals=budgetDims.map(dim=>(tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{})[dim]);
+      const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
+      const vals=budgetDims.map(dim=>resolveDimValue(row,rowTags,dim));
       if(vals.some(v=>!v))return;
       const sk=vals.join("|");
       spendMap[sk]=(spendMap[sk]||0)+row.spend;
@@ -4408,6 +4480,9 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   const[breakdownDim,setBreakdownDim]=useState(""); // "" = no drill-down; else "Platform" or a tag dimension
   const[expandedRows,setExpandedRows]=useState(new Set());
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
+  // See buildCampaignPlatformIndex's doc comment — needed anywhere budgetDims might include
+  // "Platform", since that value is never actually stored in campaignTags.
+  const platformIndex=useMemo(()=>buildCampaignPlatformIndex(mergedNormRows),[mergedNormRows]);
 
   // "View by" — the table's PRIMARY grouping is normally your budget segments (BU/Pillar/Product,
   // whatever budgetDims is set to), since that's the only grouping with a $ budget attached to
@@ -4513,12 +4588,12 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 
   const deleteSegment=(segKey,label)=>{
     if(!canEdit)return;
-    const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey);
+    const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey,platformIndex);
     const tagNote=matchCount>0?` This also un-tags ${matchCount} matching campaign${matchCount>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
     if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this segment in ${year}.${tagNote}`))return;
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])delete nx[year][segKey];return nx;});
     setBudgetRowMeta?.(p=>{const nx={...p};delete nx[segKey];return nx;});
-    setTags?.(p=>untagSegmentCampaigns(p,budgetDims,segKey));
+    setTags?.(p=>untagSegmentCampaigns(p,budgetDims,segKey,platformIndex));
     setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
     showNotif(matchCount>0?`Segment deleted — un-tagged ${matchCount} campaign${matchCount>1?"s":""}`:"Segment deleted");
   };
@@ -4526,12 +4601,12 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
     if(!canEdit)return;
     if(!selRows.size)return;
     const n=selRows.size;
-    const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k),0);
+    const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k,platformIndex),0);
     const tagNote=totalMatches>0?` This also un-tags ${totalMatches} matching campaign${totalMatches>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
     if(!window.confirm(`Delete ${n} segment${n>1?"s":""}?\n\nThis removes all monthly budget values for ${n>1?"these segments":"this segment"} in ${year}.${tagNote}`))return;
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])selRows.forEach(k=>{delete nx[year][k];});return nx;});
     setBudgetRowMeta?.(p=>{const nx={...p};selRows.forEach(k=>delete nx[k]);return nx;});
-    setTags?.(p=>{let nt=p;selRows.forEach(k=>{nt=untagSegmentCampaigns(nt,budgetDims,k);});return nt;});
+    setTags?.(p=>{let nt=p;selRows.forEach(k=>{nt=untagSegmentCampaigns(nt,budgetDims,k,platformIndex);});return nt;});
     showNotif(`Deleted ${n} segment${n>1?"s":""}${totalMatches>0?` — un-tagged ${totalMatches} campaign${totalMatches>1?"s":""}`:""}`);
     setSelRows(new Set());
   };
@@ -4787,7 +4862,10 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                       <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.segKey)} title="Select row — reveals bulk delete once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                     </td>
                     {seg.dims.map((v,i)=><td key={i} style={{padding:"8px 14px",borderBottom:rbb,whiteSpace:"nowrap"}}>
-                      {editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(
+                      {budgetDims[i]==="Platform"?(
+                        // Derived, not stored — see the same guard in the Budget Panel's table.
+                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"Inter,sans-serif",fontWeight:600,borderRadius:6}} title="Derived from spend data — not editable">{v}</Pill>
+                      ):editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(
                         <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                           onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
                           style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",minWidth:80}}/>
