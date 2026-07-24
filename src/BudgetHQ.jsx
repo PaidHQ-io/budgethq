@@ -6918,7 +6918,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         {/* Tabs underline the active one with a 2px accent bottom-border rather than the old
             "browser tab" bordered-box treatment — flat until active/hover, per the VaultHQ
             top-bar convention. */}
-        <div style={{display:"flex",alignItems:"stretch",gap:2,flex:1,paddingLeft:isMobile?4:16,minWidth:0,overflowX:isMobile?"auto":"visible"}}>
+        {/* overflowX was "visible" on desktop (only scrolling on mobile) — fine while the trailing
+            actions area stayed small, but at moderate window widths with a full action toolbar
+            (tagged-count pill + Add data + Clear all, all removed 2026-07-24) this flex item had
+            nowhere to shrink to and its content spilled out over the neighboring actions area
+            instead of wrapping, which is what the overlapping "Reporting & Pacing" label Mo
+            screenshotted actually was. Always-auto means if tabs ever don't fit again, this row
+            scrolls horizontally instead of painting over its neighbor. */}
+        <div style={{display:"flex",alignItems:"stretch",gap:2,flex:1,paddingLeft:isMobile?4:16,minWidth:0,overflowX:"auto"}}>
           {NAV.map(item=>{
             const active=view===item.key;
             return <button key={item.key} className={active?undefined:"bhq-tab"} onClick={()=>{
@@ -6947,14 +6954,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           })}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box"}}>
-          {step==="tag"&&!isMobile&&(
-            <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:20}}>
-              <span style={{width:9,height:9,borderRadius:"50%",background:stats.untagged>0?"#A1A1AA":T.accentSoft,flexShrink:0}}/>
-              <span style={{fontSize:11,color:T.textSub}}><span style={{color:T.text,fontWeight:600}}>{stats.tagged}</span>/{stats.total} tagged</span>
-            </div>
-          )}
-          {step==="tag"&&<Btn onClick={()=>{setStep("upload");setView("data");}} variant="ghost" size="sm" T={T}>{isMobile?"↑":"↑ Add data"}</Btn>}
-          {step==="tag"&&mergedNormRows.length>0&&canEdit&&<Btn onClick={()=>{allowEmptyRowsWriteRef.current=true;setMergedNormRows([]);setStep("upload");setView("data");setLastSyncRange(null);try{localStorage.removeItem("paidhq_rows");localStorage.removeItem("paidhq_sync_range");}catch(e){};}} variant="ghost" size="sm" T={T} style={{color:T.danger}}>{isMobile?"✕":"✕ Clear all"}</Btn>}
+          {/* Removed 2026-07-24, per Mo — this trio (tagged-count pill, "Add data", "Clear all")
+              was crowding the bar badly enough at moderate widths that it visually overlapped the
+              nav tabs (see the responsive fix on the tabs container below too). All three were also
+              redundant with something that already exists elsewhere: the tagged count is in the
+              persistent stats sidebar, "Add data" duplicated the Data Sources nav tab immediately to
+              its left, and "Clear all" duplicated Settings' "Clear Tagger data" section — that one
+              specifically is also the safer home for a destructive, irreversible action anyway.
+              "Add data"'s back-to-Data-Sources role is replaced by a proper "← Back to Data Sources"
+              link inside the Tagger table's own filter row instead (below), rather than living up
+              here. */}
           {workspace&&workspaces&&(
             <div style={{position:"relative"}}>
               <button className="bhq-iconbtn" onClick={()=>setWorkspaceMenuOpen(o=>!o)}
@@ -7812,6 +7821,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   {hasF&&<span style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>}
                 </button>
                 {!filtersOpen&&hasF&&<button onClick={clearF} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
+                {/* Replaces the top bar's old "↑ Add data" button (removed 2026-07-24, see the
+                    doc comment where it used to live) — same destination, just living down here
+                    with the rest of this table's own controls instead of the crowded global bar. */}
+                <div style={{marginLeft:"auto"}}>
+                  <Btn onClick={()=>{setStep("upload");setView("data");}} variant="ghost" size="sm" T={T}>← Back to Data Sources</Btn>
+                </div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"11px 16px 5px",alignItems:"end",gap:8}}>
                 <input type="checkbox" checked={filtered.length>0&&selected.size===filtered.length} onChange={selAll} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
