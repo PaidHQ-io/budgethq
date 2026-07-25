@@ -3647,6 +3647,11 @@ function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,
     // math — surfaced separately so an answer like "how many segments are behind pace" doesn't
     // need to explain why committed lines never show up there.
     segments_committed:matched.filter(s=>s.status==="committed").length,
+    // "constrained" = behind pace, has budget headroom, but impressions haven't grown over the
+    // last couple weeks — a candidate signal that more budget won't fix it (see
+    // detectCapacitySignal's doc comment). Distinct from segments_behind_pace above: every
+    // capacity-constrained segment is also counted there, this is a narrower "and here's why" flag.
+    segments_capacity_constrained:matched.filter(s=>s.capacitySignal==="constrained").length,
   };
   if(groupBy){
     const groupMap={};
@@ -4179,6 +4184,50 @@ function resolveDimValue(row,rowTags,dim){
   return dim==="Platform"?derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type):(rowTags[dim]||"");
 }
 
+// Capacity-vs-budget signal (added 2026-07-25, per Mo — the other half of "why is this segment
+// behind pace," alongside the day-of-week work above). Nothing before this distinguished "behind
+// pace because nobody raised the budget/bids" from "behind pace because the campaign(s)
+// structurally can't spend more" (audience size, frequency cap, or the ad platform's own bid/
+// approval limits capping delivery) — a budget-headroom number alone can't tell those apart, but
+// `spend_rows`' impressions column (already collected, never used until now) can: if a segment's
+// impressions have been flat for a couple weeks despite real budget headroom, more budget alone
+// won't fix it, because delivery has hit some ceiling that has nothing to do with the dollar
+// amount. Requires BOTH spend AND impressions to be flat — impressions flat while spend keeps
+// climbing (or vice versa) usually just means costs changed (CPM/CPC drift, bid strategy), not a
+// delivery ceiling, so this only ever looks at impressions, not spend, to make that call.
+//
+// Heuristic, not a hard verdict — returns:
+//   "constrained" — genuinely behind pace, has budget headroom, AND impressions haven't grown
+//                   meaningfully over the last two comparable windows. Worth a human look.
+//   "growing"     — behind pace with headroom, but impressions ARE still climbing — give it time,
+//                   don't necessarily push more budget/bids at it yet.
+//   null          — not enough signal either way: not behind pace, no headroom, or too little
+//                   impressions history yet to compare two windows.
+//
+// Known limitation: only counts CALENDAR DAYS THAT HAVE AT LEAST ONE ROW as part of the window, so
+// a campaign paused for a few days (zero rows, not zero-valued rows) silently shrinks the window
+// rather than counting as a real dip — reasonable for a v1 heuristic, not a claim of precision.
+const CAPACITY_MIN_DAYS=10; // need at least this many distinct days of impressions history total
+const CAPACITY_WINDOW=7; // compare the last N days against the N days before that
+const CAPACITY_GROWTH_THRESHOLD=0.15; // impressions must grow at least 15% to count as "still growing"
+function detectCapacitySignal(dailyMap,{expectedPct,actualPct,budget,spend}){
+  if(!(budget>0)||spend>=budget)return null; // no headroom left to even ask the question
+  if(actualPct==null)return null;
+  // Mirrors computePacing's own "behind" threshold (delta<-0.1) — only worth asking this question
+  // when the segment is actually reading as behind pace, not just slightly under expected.
+  if(actualPct-expectedPct>=-0.1)return null;
+  const dates=Object.keys(dailyMap||{}).sort();
+  if(dates.length<CAPACITY_MIN_DAYS)return null;
+  const recent=dates.slice(-CAPACITY_WINDOW);
+  const prior=dates.slice(-CAPACITY_WINDOW*2,-CAPACITY_WINDOW);
+  if(prior.length<Math.floor(CAPACITY_WINDOW/2))return null; // not enough of a "before" window to compare against
+  const avgImpr=days=>days.length?days.reduce((s,d)=>s+(dailyMap[d].impressions||0),0)/days.length:0;
+  const recentImpr=avgImpr(recent);
+  const priorImpr=avgImpr(prior);
+  if(priorImpr<=0)return null; // can't compute meaningful growth off a zero base
+  return(recentImpr-priorImpr)/priorImpr<CAPACITY_GROWTH_THRESHOLD?"constrained":"growing";
+}
+
 function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today,budgetRowMeta}){
   const{start,end,months}=getPeriodRange(periodType,year,month,quarter);
   const totalDays=Math.round((end-start)/86400000)+1;
@@ -4197,6 +4246,12 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
   // (not just the full-period-to-date one) when a segment's forecastModel asks for it — see that
   // function's doc comment.
   const platformSpendMap={};
+  // {segKey: {"YYYY-MM-DD": {spend, impressions}}} — segment-level (summed across every platform,
+  // unlike platformSpendMap above which stays split by platform), used only by
+  // detectCapacitySignal below to compare recent-vs-prior spend/impressions trends. Capacity is a
+  // read on "can this segment's total delivery grow at all," not a per-platform question, so it
+  // doesn't need platformSpendMap's per-platform split.
+  const segDailyMap={};
   // Independent of the period/date range — how many campaigns exist for each segment at all. If
   // this is 0 for a segment that has a budget, spend will NEVER show up for it no matter what
   // period you're looking at — it's a tagging/dimension mismatch, not "no spend yet".
@@ -4231,6 +4286,10 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
       platformSpendMap[sk][platform].total+=row.spend;
       const dateKey=localISODate(d);
       platformSpendMap[sk][platform].byDate[dateKey]=(platformSpendMap[sk][platform].byDate[dateKey]||0)+row.spend;
+      if(!segDailyMap[sk])segDailyMap[sk]={};
+      if(!segDailyMap[sk][dateKey])segDailyMap[sk][dateKey]={spend:0,impressions:0};
+      segDailyMap[sk][dateKey].spend+=row.spend;
+      segDailyMap[sk][dateKey].impressions+=row.impressions||0;
     });
   }
 
@@ -4278,7 +4337,11 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
         else status="on-track";
       }
     }
-    return{segKey:sk,dims,budget,spend,actualPct,dailyRate:hasData?dailyRate:null,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0,lowConfidencePlatforms,hasData,committed,forecastModel};
+    // See detectCapacitySignal's doc comment — only meaningful (non-null) when the segment is
+    // actually behind pace with real budget headroom left; committed rows never get flagged since
+    // they don't pace against a daily rate at all.
+    const capacitySignal=committed?null:detectCapacitySignal(segDailyMap[sk],{expectedPct,actualPct,budget,spend});
+    return{segKey:sk,dims,budget,spend,actualPct,dailyRate:hasData?dailyRate:null,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0,lowConfidencePlatforms,hasData,committed,forecastModel,capacitySignal};
   }).filter(s=>s.budget>0||s.spend>0).sort((a,b)=>b.spend-a.spend);
 
   const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
@@ -5341,6 +5404,12 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                     </td>
                     <td style={{padding:"8px 14px",borderBottom:rbb}}>
                       <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border}>{meta.label}</Pill>
+                      {/* Capacity-vs-budget signal (item 45) — see detectCapacitySignal's doc
+                          comment. Only ever shown for the "constrained" case; "growing" and null
+                          are both non-findings, not worth a badge. */}
+                      {seg.capacitySignal==="constrained"&&(
+                        <WarnTip T={T} color={T.accent} text={`Impressions have been flat for about ${CAPACITY_WINDOW*2} days despite budget headroom — more budget alone probably won't fix this. Likely capped by audience size, frequency cap, or the platform's own bid/approval limits, not by dollars.`}/>
+                      )}
                       {/* Forecast model (item 45) — lives here, not the Budget Panel, since it's a
                           pacing/projection choice, not a budget-setup one. Affects Daily Burn/
                           Projected/Status above via computePacing reading budgetRowMeta. */}
