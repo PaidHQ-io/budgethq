@@ -60,6 +60,20 @@
 const BASE = "https://public-api.capterra.com/v2";
 const MAX_PAGES = 200; // runaway guard — a normal sync is a handful of pages per key
 
+// Tolerates the handful of copy-paste mistakes that are the actual real-world cause of
+// "not valid JSON" here — someone pasting the {"Product":"key"} blob out of Notes/Word/Slack,
+// which auto-"smart-quote" straight quotes into curly ones, or leaving a trailing comma after
+// the last entry. Both parse fine as JS but not as strict JSON. Only used as a fallback after a
+// straight JSON.parse fails, so well-formed input is completely unaffected.
+function tryParseLenientJson(str) {
+  const normalized = str
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/,(\s*[}\]])/g, "$1")
+    .trim();
+  return JSON.parse(normalized);
+}
+
 async function fetchAllClicksForKey(apiKey, startDate, endDate) {
   const rows = [];
   let url = `${BASE}/clicks?${new URLSearchParams({
@@ -88,10 +102,18 @@ export async function getSpend({ startDate, endDate, credential }) {
   const raw = credential?.apiKeys ?? process.env.CAPTERRA_API_KEYS;
   if (!raw) throw new Error("This workspace hasn't connected Capterra yet — reconnect this workspace's Capterra account.");
   let keyMap;
-  try {
-    keyMap = typeof raw === "string" ? JSON.parse(raw) : raw;
-  } catch {
-    throw new Error('Capterra API keys are not valid JSON — expected {"Campaign Name": "api_key", ...}');
+  if (typeof raw !== "string") {
+    keyMap = raw;
+  } else {
+    try {
+      keyMap = JSON.parse(raw);
+    } catch {
+      try {
+        keyMap = tryParseLenientJson(raw);
+      } catch {
+        throw new Error('Capterra API keys are not valid JSON — expected {"Campaign Name": "api_key", ...}. Common culprit: curly/"smart" quotes from pasting out of Notes, Word, or Slack instead of straight quotes.');
+      }
+    }
   }
   const campaigns = Object.entries(keyMap || {});
   if (!campaigns.length) throw new Error("No Capterra campaigns configured for this credential");

@@ -825,7 +825,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     {key:"meta",label:"Meta Ads",status:"live",perWorkspaceAuth:true,oauth:true,color:"#1877F2",desc:"Ad account, OAuth-connected",domain:"meta.com"},
     {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",desc:"API key per product",domain:"capterra.com",
       connectFields:[
-        {key:"apiKeys",label:"API keys (JSON)",placeholder:'{"Product A":"key1","Product B":"key2"}'},
+        {key:"apiKeys",label:"API keys (JSON)",type:"json",placeholder:'{"Product A":"key1","Product B":"key2"}'},
       ]},
     {key:"funnel",label:"Funnel.io",status:"live",perWorkspaceAuth:true,color:"#6C5CE7",desc:"Blended multi-channel data via Funnel's API",domain:"funnel.io",
       connectFields:[
@@ -2359,6 +2359,21 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               {connectPanelKey&&(()=>{
                 const pl=PLATFORMS.find(p=>p.key===connectPanelKey);
                 if(!pl)return null;
+                // Tolerates the same copy-paste mistakes the server's parser does (curly "smart"
+                // quotes from Notes/Word/Slack, a trailing comma) — kept lenient here too so a
+                // value that WOULD sync fine isn't blocked from ever being saved. Real JSON.parse
+                // failures still show an inline error immediately, instead of only surfacing as a
+                // cryptic sync error later.
+                const isValidJsonField=(f,val)=>{
+                  if(f.type!=="json")return true;
+                  const s=(val||"").trim();
+                  if(!s)return true; // emptiness is caught by the separate required-field check below
+                  try{JSON.parse(s);return true;}catch{/* fall through to lenient retry */}
+                  try{
+                    const normalized=s.replace(/[‘’]/g,"'").replace(/[“”]/g,'"').replace(/,(\s*[}\]])/g,"$1");
+                    JSON.parse(normalized);return true;
+                  }catch{return false;}
+                };
                 return(
                   <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -2366,15 +2381,28 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                     </div>
                     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-                      {(pl.connectFields||[]).map(f=>(
-                        <input key={f.key} value={connectValues[f.key]||""} placeholder={f.placeholder}
-                          onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
-                          style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
-                      ))}
+                      {(pl.connectFields||[]).map(f=>{
+                        const val=connectValues[f.key]||"";
+                        const jsonOk=isValidJsonField(f,val);
+                        return(
+                          <div key={f.key}>
+                            {f.type==="json"?(
+                              <textarea value={val} placeholder={f.placeholder} rows={3}
+                                onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
+                                style={{width:"100%",boxSizing:"border-box",resize:"vertical",background:T.surface,border:`1px solid ${jsonOk?T.border:T.danger}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
+                            ):(
+                              <input value={val} placeholder={f.placeholder}
+                                onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
+                                style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                            )}
+                            {!jsonOk&&<div style={{fontSize:11,color:T.danger,marginTop:3,fontFamily:"'DM Sans',sans-serif"}}>Not valid JSON — check for curly “smart” quotes (common when pasting from Notes/Word/Slack) or a trailing comma.</div>}
+                          </div>
+                        );
+                      })}
                     </div>
                     {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
                     <Btn onClick={()=>saveConnection(pl.key)}
-                      disabled={connectSaving||(pl.connectFields||[]).some(f=>!f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim())}
+                      disabled={connectSaving||(pl.connectFields||[]).some(f=>!f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim())||(pl.connectFields||[]).some(f=>!isValidJsonField(f,connectValues[f.key]))}
                       variant="primary" size="sm" T={T}>{connectSaving?"Connecting…":"Connect"}</Btn>
                   </div>
                 );
