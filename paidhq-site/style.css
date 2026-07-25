@@ -17,11 +17,14 @@
   --accent:#FF5A36;
   --accent-dark:#C23D1F;
   --accent-bg:#FFE8DF;
-  --teal:#2F6B5E;
+  /* product family colors — one core color per HQ product.
+     Orange (--accent) is reserved for PaidHQ itself (the parent brand). */
+  --teal:#2F6B5E;      /* BudgetHQ */
   --teal-bg:#DEEDE8;
-  --yellow:#FFC93C;
-  --blue:#4A90D9;
-  --pink:#E7568C;
+  --blue:#4A90D9;      /* PerformanceHQ */
+  --yellow:#FFC93C;    /* VaultHQ */
+  --pink:#E7568C;      /* FocusHQ */
+  --purple:#8452D5;    /* AuditHQ */
   --shadow-pixel:4px 4px 0 rgba(33,29,23,0.12);
   --radius:14px;
 }

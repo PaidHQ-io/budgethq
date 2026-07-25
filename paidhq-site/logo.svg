@@ -1,0 +1,21 @@
+<!--
+  PaidHQ mark — a pixel flag made of 6 blocks: one per product in the family.
+  Orange is reserved for PaidHQ itself (the parent brand). Each HQ product
+  gets one core color, reused everywhere that product is referenced.
+
+    PaidHQ        #FF5A36 (orange)
+    BudgetHQ      #2F6B5E (teal)   — live
+    PerformanceHQ #4A90D9 (blue)   — coming
+    VaultHQ       #FFC93C (yellow) — coming
+    FocusHQ       #E7568C (pink)   — coming
+    AuditHQ       #8452D5 (purple) — coming
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges" aria-hidden="true">
+  <rect x="2" y="3" width="4" height="26" fill="#211D17"/>
+  <rect x="6" y="3" width="7" height="7" fill="#FF5A36"/>
+  <rect x="14" y="3" width="7" height="7" fill="#2F6B5E"/>
+  <rect x="22" y="3" width="7" height="7" fill="#4A90D9"/>
+  <rect x="6" y="11" width="7" height="7" fill="#FFC93C"/>
+  <rect x="14" y="11" width="7" height="7" fill="#E7568C"/>
+  <rect x="22" y="11" width="7" height="7" fill="#8452D5"/>
+</svg>
