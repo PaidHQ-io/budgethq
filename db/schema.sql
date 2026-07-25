@@ -43,6 +43,14 @@ create table if not exists budgethq.workspace_config (
   updated_at timestamptz not null default now()
 );
 
+-- Saved Views (item 42, 2026-07-24) — array of {id,name,createdAt,viewMode,customDims,
+-- segFilters,statusFilter,breakdownDim,trendFilterDim,trendFilterValue,trendSeriesDim,
+-- trendMonthSpan} objects, built entirely client-side by PacingDashboard — see BudgetHQ.jsx's
+-- currentViewConfig/applyViewConfig. Added via `alter table` (not folded into the `create table`
+-- above) since that table already exists in production; this runs safely on every deploy either
+-- way per this file's idempotent-migration convention (see db/migrate.js's doc comment).
+alter table budgethq.workspace_config add column if not exists saved_views jsonb not null default '[]';
+
 create table if not exists budgethq.spend_rows (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references core.workspaces(id) on delete cascade,

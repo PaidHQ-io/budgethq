@@ -3732,6 +3732,114 @@ async function askAIRun({question,history,ctx}){
   throw new Error("Ask AI took too many steps without a final answer");
 }
 
+// Tool for the "✨ Ask AI to build a view" box on the Reporting & Pacing tab (item 42 — AI-driven
+// views) — distinct from ASK_AI_TOOLS' query_* tools, which return numbers for a chat answer; this
+// one returns a View-by CONFIGURATION for askAIBuildView to apply directly to the table. See that
+// function's system prompt for the mode-specific filtering rules this schema's description text
+// depends on (budget-mode filters restricted to Budget By dims, custom-mode filters requiring the
+// filtered dim to also be in `dims`).
+const APPLY_VIEW_TOOL={
+  name:"apply_view",
+  description:"Configure the Reporting & Pacing tab's \"View by\" table to match the user's plain-English request. Call this exactly once, as your final action, with the fully resolved configuration — resolve any loosely-typed dimension values via list_dimension_values first so filters match the exact stored spelling/casing.",
+  input_schema:{
+    type:"object",
+    properties:{
+      mode:{type:"string",enum:["budget","custom","trend"],description:"\"budget\": group by the workspace's existing Budget By segments — the only mode with $ Budget/Pacing/Status columns, and filters/status_filter can ONLY use Budget By dimensions in this mode. \"custom\": group spend by any combination of dimensions (no budget column) — filters can only apply to a dimension that's also included in dims, since there's no way to filter without grouping by it too (include the dimension in dims even if the user didn't ask to see it broken out as a column). \"trend\": a month-over-month line per series value for at most ONE filter dimension, not a single-period table."},
+      dims:{type:"array",items:{type:"string"},description:"mode=\"custom\" only: which dimension(s) (tag dimensions, or \"Platform\") to group rows by. Include every dimension you're also filtering on. Ignored for other modes."},
+      filters:{type:"object",additionalProperties:{type:"string"},description:"Map of dimension name -> exact stored value. mode=\"budget\": keys must be Budget By dimensions. mode=\"custom\": keys must also appear in dims. mode=\"trend\": only the first entry is used, as the single filter dim/value."},
+      status_filter:{type:"string",enum:["all","on-track","ahead","behind","over","committed","no-budget","no-data"],description:"mode=\"budget\" only: restrict to one pacing status. Defaults to \"all\"."},
+      breakdown_dim:{type:"string",description:"mode=\"budget\" or \"custom\": an optional dimension to drill each row down by. Omit for none."},
+      trend_series_dim:{type:"string",description:"mode=\"trend\" only: dimension that splits the trend into separate lines, e.g. \"Platform\". Omit for a single unsplit line."},
+      trend_months:{type:"number",description:"mode=\"trend\" only: how many trailing months to show, ending this month. Defaults to 6."},
+      name:{type:"string",description:"Short human-readable name for this view, e.g. \"Meta segments behind pace\" — used to pre-fill the \"Save this view\" prompt after the view is applied."},
+    },
+    required:["mode","name"],
+  },
+};
+
+// Same tool-use-loop shape as askAIRun, but built to produce a structured View-by configuration
+// instead of a text answer. Reuses list_tag_dimensions/list_dimension_values from ASK_AI_TOOLS so
+// the model can resolve loosely-typed values before filtering, same as the chat version — the only
+// way this loop ends successfully is the model calling apply_view; a plain text reply (the model
+// asking a clarifying question, or explaining it can't do something) is surfaced as an error the
+// caller shows inline rather than silently applying nothing.
+const ASK_AI_VIEW_MAX_ROUNDS=4;
+async function askAIBuildView({question,ctx}){
+  const hasBudgets=(ctx.budgetDims||[]).length>0;
+  const system=`You configure the Reporting & Pacing tab's "View by" table from a plain-English request. Tag dimensions: ${ctx.tagDims.join(", ")} (plus "Platform" is always available too). ${hasBudgets?`Budget By dimensions (the ONLY ones usable for mode="budget" grouping/filters/status): ${ctx.budgetDims.join(", ")}. If the user wants to filter or group by something outside that list, use mode="custom" instead (include the dimension in dims).`:"No Budget By dimensions are set up yet, so mode=\"budget\" has nothing to group by — use mode=\"custom\" for anything about spend by dimension."} When the user names a value casually (e.g. "meta" or "emea"), call list_dimension_values first to confirm the exact stored spelling before filtering — filters must match exactly, not a substring. Call apply_view exactly once, as your final action.`;
+  const tools=[ASK_AI_TOOLS[0],ASK_AI_TOOLS[1],APPLY_VIEW_TOOL]; // list_tag_dimensions, list_dimension_values, apply_view
+  const messages=[{role:"user",content:question}];
+  for(let round=0;round<ASK_AI_VIEW_MAX_ROUNDS;round++){
+    const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools,maxTokens:800})});
+    const data=await res.json();
+    if(!res.ok)throw new Error(data?.error||"Ask AI request failed");
+    const applyBlock=(data.content||[]).find(b=>b.type==="tool_use"&&b.name==="apply_view");
+    if(applyBlock)return applyBlock.input;
+    if(data.stop_reason!=="tool_use"){
+      throw new Error(data.text||"Couldn't figure out a view for that — try rephrasing.");
+    }
+    messages.push({role:"assistant",content:data.content});
+    const toolResults=[];
+    for(const block of data.content){
+      if(block.type!=="tool_use"||block.name==="apply_view")continue;
+      let output;
+      try{output=askAIExecuteTool(block.name,block.input||{},ctx);}
+      catch(err){output={error:err.message};}
+      toolResults.push({type:"tool_result",tool_use_id:block.id,content:JSON.stringify(output)});
+    }
+    messages.push({role:"user",content:toolResults});
+  }
+  throw new Error("Took too many steps to build that view — try a more specific request.");
+}
+
+// Translates apply_view's raw tool input into the canonical view-config shape PacingDashboard's
+// applyViewConfig()/savedViews use (see PacingDashboard's currentViewConfig for the same shape
+// built from live UI state) — with defensive validation, since this is model output: drops
+// filters/dims/status/breakdown values that don't actually exist in this workspace rather than
+// trusting them blindly, and auto-includes any custom-mode filter's dimension in dims (the only
+// way custom mode can filter on it at all — see APPLY_VIEW_TOOL's description).
+function aiConfigToViewConfig(raw,{allDimOptions,budgetDims}){
+  const allDims=allDimOptions||["Platform"];
+  const mode=["budget","custom","trend"].includes(raw.mode)&&(raw.mode!=="budget"||(budgetDims||[]).length)?raw.mode:"custom";
+  const rawFilters=raw.filters&&typeof raw.filters==="object"?raw.filters:{};
+  if(mode==="trend"){
+    const[fDim,fVal]=Object.entries(rawFilters).find(([d])=>allDims.includes(d))||[];
+    const seriesDim=allDims.includes(raw.trend_series_dim)?raw.trend_series_dim:"Platform";
+    return{
+      viewMode:"trend",customDims:[],segFilters:{},statusFilter:"all",breakdownDim:"",
+      trendFilterDim:fDim&&fDim!==seriesDim?fDim:"",
+      trendFilterValue:fDim&&fDim!==seriesDim?(fVal||""):"",
+      trendSeriesDim:seriesDim,
+      trendMonthSpan:Math.min(24,Math.max(1,Math.round(raw.trend_months)||6)),
+    };
+  }
+  if(mode==="budget"){
+    const filters={};
+    Object.entries(rawFilters).forEach(([d,v])=>{if((budgetDims||[]).includes(d))filters[d]=v;});
+    const statuses=["all","on-track","ahead","behind","over","committed","no-budget","no-data"];
+    return{
+      viewMode:"budget",customDims:[],segFilters:filters,
+      statusFilter:statuses.includes(raw.status_filter)?raw.status_filter:"all",
+      breakdownDim:allDims.includes(raw.breakdown_dim)?raw.breakdown_dim:"",
+      trendFilterDim:"",trendFilterValue:"",trendSeriesDim:"Platform",trendMonthSpan:6,
+    };
+  }
+  // custom
+  let dims=(raw.dims||[]).filter(d=>allDims.includes(d));
+  const filters={};
+  Object.entries(rawFilters).forEach(([d,v])=>{
+    if(!allDims.includes(d))return;
+    filters[d]=v;
+    if(!dims.includes(d))dims.push(d); // filtering requires grouping by it too — see tool description
+  });
+  if(!dims.length)dims=["Platform"];
+  return{
+    viewMode:"custom",customDims:dims,segFilters:filters,statusFilter:"all",
+    breakdownDim:allDims.includes(raw.breakdown_dim)&&!dims.includes(raw.breakdown_dim)?raw.breakdown_dim:"",
+    trendFilterDim:"",trendFilterValue:"",trendSeriesDim:"Platform",trendMonthSpan:6,
+  };
+}
+
 // Powers the "✨ AI Summary" card on the Budget Panel and Reporting & Pacing tabs. Deliberately NOT
 // a tool-use loop like askAIRun — computePacing()/computeCustomGrouping()/computeMonthlyTrend()
 // already compute the exact same numbers those tabs render on screen, so re-deriving them via tool
@@ -4577,7 +4685,7 @@ const PacingBar=({actualPct,expectedPct,status,T})=>{
   );
 };
 
-function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true}){
+function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -4631,6 +4739,95 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   const[trendEndMonth,setTrendEndMonth]=useState(()=>monthStr(now));
   const trendFilterOptions=allDimOptions.filter(d=>d!==trendSeriesDim);
   const trendSeriesOptions=allDimOptions.filter(d=>d!==trendFilterDim);
+
+  // ── Saved Views (item 42) — save the current View-by setup (mode + dims/filters/status/
+  // breakdown, or trend filter/series/window length) as a named view for one-click recall.
+  // Deliberately does NOT capture year/periodType/month/quarter, or an absolute trend date range —
+  // per Mo, a saved view should always reflect whatever period you're currently looking at (or a
+  // rolling N-month trend window ending "now"), not be frozen to the exact period it was saved in,
+  // so e.g. "Meta segments behind pace" stays useful every quarter instead of only ever showing
+  // Q1 2026. trendMonthSpan is that rolling-window length in months, recomputed against "now" every
+  // time the view is applied (see applyViewConfig below) rather than storing absolute months.
+  const monthsBetween=(startStr,endStr)=>{
+    const[sy,sm]=startStr.split("-").map(Number);
+    const[ey,em]=endStr.split("-").map(Number);
+    return Math.max(1,(ey-sy)*12+(em-sm)+1);
+  };
+  const[savedViewModalOpen,setSavedViewModalOpen]=useState(false);
+  const[savedViewNameDraft,setSavedViewNameDraft]=useState("");
+  const[savedViewsMenuOpen,setSavedViewsMenuOpen]=useState(false);
+  const[aiViewOpen,setAiViewOpen]=useState(false);
+  const[aiViewQuestion,setAiViewQuestion]=useState("");
+  const[aiViewLoading,setAiViewLoading]=useState(false);
+  const[aiViewError,setAiViewError]=useState("");
+
+  // The canonical view-config shape — built from live UI state here, or from AI output via
+  // aiConfigToViewConfig — that both savedViews entries and applyViewConfig below share.
+  const currentViewConfig=()=>({
+    viewMode,
+    customDims:viewMode==="custom"?customDims:[],
+    segFilters:viewMode!=="trend"?segFilters:{},
+    statusFilter:viewMode==="budget"?statusFilter:"all",
+    breakdownDim:viewMode!=="trend"?breakdownDim:"",
+    trendFilterDim:viewMode==="trend"?trendFilterDim:"",
+    trendFilterValue:viewMode==="trend"?trendFilterValue:"",
+    trendSeriesDim:viewMode==="trend"?trendSeriesDim:"Platform",
+    trendMonthSpan:viewMode==="trend"?monthsBetween(trendStartMonth,trendEndMonth):6,
+  });
+  // The one function both "click a saved view" and "AI view applied" funnel through, so the two
+  // entry points can never drift into different behavior for the same config shape.
+  const applyViewConfig=cfg=>{
+    setViewMode(cfg.viewMode);
+    setSelRows(new Set());setExpandedRows(new Set());
+    if(cfg.viewMode==="custom")setCustomDims(cfg.customDims?.length?cfg.customDims:["Platform"]);
+    if(cfg.viewMode==="trend"){
+      const span=Math.min(24,Math.max(1,cfg.trendMonthSpan||6));
+      setTrendEndMonth(monthStr(now));
+      setTrendStartMonth(monthStr(new Date(now.getFullYear(),now.getMonth()-(span-1),1)));
+      setTrendFilterDim(cfg.trendFilterDim||"");
+      setTrendFilterValue(cfg.trendFilterValue||"");
+      setTrendSeriesDim(cfg.trendSeriesDim||"Platform");
+      setSegFilters({});setStatusFilter("all");setBreakdownDim("");
+    }else{
+      setSegFilters(cfg.segFilters||{});
+      setStatusFilter(cfg.viewMode==="budget"?(cfg.statusFilter||"all"):"all");
+      setBreakdownDim(cfg.breakdownDim||"");
+    }
+  };
+  const openSaveViewModal=prefillName=>{setSavedViewNameDraft(prefillName||"");setSavedViewModalOpen(true);};
+  const saveCurrentView=()=>{
+    const name=savedViewNameDraft.trim();
+    if(!name)return;
+    const view={id:`sv_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,name,createdAt:new Date().toISOString(),...currentViewConfig()};
+    setSavedViews?.(p=>[...(p||[]),view]);
+    setSavedViewModalOpen(false);setSavedViewNameDraft("");
+    showNotif(`Saved view "${name}"`);
+  };
+  const applySavedView=view=>{applyViewConfig(view);setSavedViewsMenuOpen(false);showNotif(`Applied "${view.name}"`);};
+  const deleteSavedView=(id,name)=>{
+    if(!window.confirm(`Delete saved view "${name}"?`))return;
+    setSavedViews?.(p=>(p||[]).filter(v=>v.id!==id));
+  };
+  // "AI-driven views" (item 42) — a plain-English request gets turned into a View-by config via
+  // askAIBuildView's tool-use loop, applied immediately, then the Save View modal opens pre-filled
+  // with the AI's suggested name so it can become a normal saved view in one click if it's useful.
+  const runAiView=async()=>{
+    const q=aiViewQuestion.trim();
+    if(!q)return;
+    setAiViewLoading(true);setAiViewError("");
+    try{
+      const raw=await askAIBuildView({question:q,ctx:{mergedNormRows,tags:campaignTags,tagDims:tagDimensions,budgetDims,budgets,budgetRowMeta}});
+      const canonical=aiConfigToViewConfig(raw,{allDimOptions,budgetDims});
+      applyViewConfig(canonical);
+      setAiViewOpen(false);setAiViewQuestion("");
+      openSaveViewModal(raw.name||"AI view");
+      showNotif("Applied AI view — review and save it if it's useful");
+    }catch(err){
+      setAiViewError(err.message||"Couldn't build that view.");
+    }finally{
+      setAiViewLoading(false);
+    }
+  };
 
   // Selecting rows only makes sense within the period/year currently being viewed — clear on change
   const changeYear=y=>{setYear(y);setSelRows(new Set());};
@@ -4901,6 +5098,60 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
             </div>
           )}
         </div>
+        {/* Saved Views + AI-driven views (item 42). "Views" lists/applies/deletes saved
+            configurations; "Ask AI to build a view" turns a plain-English request into a
+            configuration via askAIBuildView, applies it immediately, then opens the same Save
+            View modal pre-filled with the AI's suggested name so it's one click to keep. */}
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
+          <div style={{position:"relative"}}>
+            <Btn onClick={()=>setSavedViewsMenuOpen(p=>!p)} variant="ghost" size="sm" T={T}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="save" size={12} color={T.textSub}/> Views{savedViews?.length?` (${savedViews.length})`:""} <Icon name="chevronDown" size={11} color={T.textMuted}/></span>
+            </Btn>
+            {savedViewsMenuOpen&&(
+              <>
+                <div onClick={()=>setSavedViewsMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:99}}/>
+                <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:100,minWidth:240,maxHeight:320,overflow:"auto",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6}}>
+                  {!savedViews?.length&&<div style={{padding:"10px 8px",fontSize:12,color:T.textMuted}}>No saved views yet.</div>}
+                  {(savedViews||[]).map(v=>(
+                    <div key={v.id} style={{display:"flex",alignItems:"center",gap:2}}>
+                      <button onClick={()=>applySavedView(v)} className="bhq-row" style={{flex:1,display:"block",textAlign:"left",padding:"7px 8px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.name}</button>
+                      <button onClick={()=>deleteSavedView(v.id,v.name)} title="Delete saved view" style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:13,flexShrink:0,fontFamily:"Inter,sans-serif"}}>✕</button>
+                    </div>
+                  ))}
+                  <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
+                  <button onClick={()=>{setSavedViewsMenuOpen(false);openSaveViewModal();}} className="bhq-row" style={{display:"flex",alignItems:"center",gap:6,width:"100%",textAlign:"left",padding:"7px 8px",borderRadius:6,background:"transparent",border:"none",color:T.accentText,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}><Icon name="plus" size={12} color={T.accentText}/> Save current view</button>
+                </div>
+              </>
+            )}
+          </div>
+          <Btn onClick={()=>setAiViewOpen(p=>!p)} variant="ghost" size="sm" T={T}>✨ Ask AI to build a view</Btn>
+          {aiViewOpen&&(
+            <div style={{display:"flex",gap:6,alignItems:"center",flex:"1 1 320px",minWidth:260}}>
+              <input autoFocus value={aiViewQuestion} onChange={e=>setAiViewQuestion(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"&&!aiViewLoading)runAiView();}}
+                placeholder={`e.g. "segments behind pace on Meta this quarter"`}
+                style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+              <Btn onClick={runAiView} disabled={aiViewLoading||!aiViewQuestion.trim()} variant="primary" size="sm" T={T}>{aiViewLoading?"Thinking…":"Go"}</Btn>
+            </div>
+          )}
+          {aiViewError&&<span style={{fontSize:11,color:T.danger}}>{aiViewError}</span>}
+        </div>
+        {savedViewModalOpen&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSavedViewModalOpen(false)}>
+            <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:380,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:20,boxShadow:T.shadowMd}}>
+              <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4}}>Save this view</div>
+              <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>Saves the current View-by setup — mode, filters, and breakdown — for one-click recall later. Always reflects whatever period you're viewing when you reopen it.</div>
+              <input autoFocus value={savedViewNameDraft} onChange={e=>setSavedViewNameDraft(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter")saveCurrentView();if(e.key==="Escape")setSavedViewModalOpen(false);}}
+                placeholder="e.g. Meta segments behind pace"
+                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:14}}/>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <Btn onClick={()=>setSavedViewModalOpen(false)} variant="ghost" size="sm" T={T}>Cancel</Btn>
+                <Btn onClick={saveCurrentView} disabled={!savedViewNameDraft.trim()} variant="primary" size="sm" T={T}>Save view</Btn>
+              </div>
+            </div>
+          </div>
+        )}
         {viewMode==="budget"&&(pacing.segments.length===0?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,textAlign:"center"}}>
             <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>No budget or spend data for {periodLabel}</div>
@@ -5459,6 +5710,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[budgetRowMeta,setBudgetRowMeta]=useState({}); // {segKey: {dim: value}}
   const[budgetMetaDims,setBudgetMetaDims]=useState([]); // annotation dims on budget rows
   const[budgetImportMeta,setBudgetImportMeta]=useState({}); // {year: {hasQuarterlyTotals, hasAnnualTotal}} — captured at import time, used to inform the export-time AI granularity suggestion
+  // Saved Views (item 42) — [{id,name,createdAt,viewMode,customDims,segFilters,statusFilter,
+  // breakdownDim,trendFilterDim,trendFilterValue,trendSeriesDim,trendMonthSpan}], built/consumed
+  // entirely within PacingDashboard (see its currentViewConfig/applyViewConfig). Lives at this
+  // top level only because it rides the same debounced workspace-config save/load as
+  // budgetRowMeta etc. below, not because anything outside the Reporting & Pacing tab reads it.
+  const[savedViews,setSavedViews]=useState([]);
 
   // Tag-value autocomplete sources: values already used in the Budget Panel for each dimension,
   // unioned with values already used on other campaigns' tags — either one matching exactly is
@@ -5913,6 +6170,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         setBudgetRowMeta(cleanBudgetRowMeta);
         setBudgetMetaDims(config.budgetMetaDims||[]);
         setBudgetImportMeta(config.budgetImportMeta||{});
+        setSavedViews(config.savedViews||[]);
         const dedupedRows=mergeRows([],rows||[]);
         const rowsDeduped=dedupedRows.length!==(rows||[]).length;
         setMergedNormRows(dedupedRows);
@@ -5958,7 +6216,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const rowsDirtyRef=useRef(false);
   const latestConfigRef=useRef(null);
   const latestRowsRef=useRef(null);
-  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta};});
+  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews};});
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
   // ── Second, independent safety net (2026-07-20) ─────────────────────────────────────────────
@@ -5986,7 +6244,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta};
+      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews};
       if(isEmptyConfig(payload)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current){
         console.error("[workspace config save] BLOCKED — refusing to overwrite known real data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's data, use Settings → Clear data instead of whatever just triggered this.");
         return; // stays dirty — retries on the next change, or once real data is back
@@ -5997,7 +6255,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
-  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
   // replace-all (not incremental) is the sync model here.
@@ -8341,7 +8599,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       <div style={{display:view==="budget"?"contents":"none"}}>
         <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
       </div>
-      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
+      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
       {view==="ask"&&<AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;

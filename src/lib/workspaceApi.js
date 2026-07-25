@@ -48,7 +48,7 @@ async function apiFetch(session, path, options = {}) {
   return body;
 }
 
-// { tags, tagDims, budgets, budgetDims, budgetRowMeta, budgetMetaDims, budgetImportMeta, updatedAt }
+// { tags, tagDims, budgets, budgetDims, budgetRowMeta, budgetMetaDims, budgetImportMeta, savedViews, updatedAt }
 export function getWorkspaceConfig(session, workspaceId) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/data`);
 }
