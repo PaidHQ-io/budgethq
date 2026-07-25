@@ -120,7 +120,7 @@ export const SpendVsBudgetBar=({T,spend,budget,fmtFull})=>{
   return(
     <div>
       <div style={{position:"relative",height:14,borderRadius:7,background:T.pill,overflow:"hidden"}}>
-        <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${fillPct}%`,background:over?T.danger:T.accentSoft,borderRadius:7,transition:"width 0.2s"}}/>
+        <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${fillPct}%`,background:over?T.danger:T.accent,borderRadius:7,transition:"width 0.2s"}}/>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:9,fontFamily:"'DM Sans',sans-serif"}}>
         <span style={{fontSize:15,fontWeight:800,color:over?T.danger:T.text}}>{fmtFull(spend)}</span>
@@ -145,7 +145,7 @@ export const PlatformSpendBars=({T,rows,fmtFull})=>{
             <span style={{color:T.textMuted}}>{fmtFull(r.spend)}</span>
           </div>
           <div style={{height:6,borderRadius:3,background:T.pill,overflow:"hidden"}}>
-            <div style={{height:"100%",width:`${maxSpend?(r.spend/maxSpend)*100:0}%`,background:T.accentSoft,borderRadius:3}}/>
+            <div style={{height:"100%",width:`${maxSpend?(r.spend/maxSpend)*100:0}%`,background:T.accent,borderRadius:3}}/>
           </div>
         </div>
       ))}
