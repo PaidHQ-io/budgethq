@@ -20,7 +20,7 @@ import {
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
   SectionLabel, Pill, GoogleAdsMark, BingMark, PlatformLogo, Btn, Inp, Sel, StatRow,
-  MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel,
+  MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip,
 } from "./components/shared.jsx";
 import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
 
@@ -2574,7 +2574,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div key={k} style={{marginBottom:6,fontSize:11,color:T.danger}}>{k}: {s.replace("error:","")}</div>
               ))}
               {(()=>{
-                const GRID="150px minmax(140px,1.4fr) minmax(140px,1fr) 130px 100px 92px 92px 32px";
+                const GRID="150px minmax(140px,1.4fr) minmax(140px,1fr) 130px 96px 100px 92px 92px 32px";
                 const connectedPlatforms=PLATFORMS.filter(pl=>pl.perWorkspaceAuth&&connectionDetails.find(c=>c.provider===pl.key));
                 if(connectedPlatforms.length===0){
                   return(
@@ -2589,7 +2589,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div style={{border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
                   {!isMobile&&(
                     <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"7px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
-                      {["Connector","Data source name","Credentials","Status","Connected","Import start","Import end",""].map(h=>(
+                      {["Connector","Data source name","Credentials","Status","Sync","Connected","Import start","Import end",""].map(h=>(
                         <SectionLabel key={h} T={T} style={{marginBottom:0}}>{h}</SectionLabel>
                       ))}
                     </div>
@@ -2609,6 +2609,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     const statusColor=warn?T.warning:conn.paused?T.textMuted:T.success;
                     const statusBg=warn?T.warningBg:conn.paused?T.surfaceEl:T.successBg;
                     const statusBorder=warn?T.warningBorder:conn.paused?T.border:T.successBorder;
+                    // Sync frequency (2026-07-25, per Mo) — shared by both the desktop grid column
+                    // and the mobile card below, so "is this on rolling sync or still manual" is
+                    // answerable at a glance instead of needing the ⋯ menu opened per connector.
+                    const syncRolling=conn.syncMode==="rolling";
+                    const syncFailed=syncRolling&&conn.lastAutoSyncStatus==="error";
+                    const syncLabel=syncRolling?(conn.syncFrequency==="weekly"?"Weekly":"Daily"):"Manual";
+                    const syncColor=syncFailed?T.danger:syncRolling?T.accent:T.textMuted;
+                    const syncBg=syncFailed?T.dangerBg:syncRolling?T.accentBg:T.surfaceEl;
+                    const syncBorder=syncFailed?T.dangerBorder:syncRolling?T.accentBorder:T.border;
+                    const syncTitle=syncRolling?`Rolling sync — ${syncLabel.toLowerCase()}, last ${conn.rollingWindowDays||14} days. Set from the ⋯ menu's Sync schedule.`:"Manual only — data only updates when someone clicks Sync now, or from the ⋯ menu's Sync schedule.";
                     const importRange=importDateRangeByProvider[pl.key];
                     const fmtShort=d=>d?new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—";
                     const menuOpen=connActionsMenuProvider===pl.key;
@@ -2691,6 +2701,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                               <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
                               <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
                               <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
+                              <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10}} title={syncTitle}>{syncLabel}</Pill>
+                              {syncFailed&&(
+                                <WarnTip T={T} text={`Auto-sync failed ${conn.lastAutoSyncAt?new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"}):"recently"}: ${conn.lastAutoSyncError||"unknown error"}`}/>
+                              )}
                             </div>
                             {dotsButton}
                           </div>
@@ -2712,6 +2726,25 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
                           <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
                           {conn.excludedFromData&&<Pill color={T.textMuted} bg={T.surfaceEl} border={T.border} style={{fontSize:10}}>Hidden</Pill>}
+                        </div>
+                        {/* Sync frequency column (2026-07-25, per Mo — this was previously only
+                            visible by opening the ⋯ menu's "Sync schedule" section, which meant the
+                            "is this actually on rolling sync or still just manual" question needed
+                            a click per connector to answer, and was the direct cause of confusion
+                            around item 41's cron fix (rolling sync being off by default read as
+                            "the cron still isn't working" until the ⋯ menu was checked). Manual
+                            (the default for every connector until someone opts in) reads as a muted
+                            neutral pill, matching "Paused"'s treatment elsewhere — it's not an
+                            error state, just the default. Daily/Weekly on rolling sync gets the
+                            same accent treatment as "Connected" in the Status column. A failed
+                            auto-sync (lastAutoSyncStatus==="error") overrides to a danger pill with
+                            a WarnTip carrying the actual error message and date, same copy already
+                            used in the ⋯ menu's own failure note. */}
+                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                          <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10}} title={syncTitle}>{syncLabel}</Pill>
+                          {syncFailed&&(
+                            <WarnTip T={T} text={`Auto-sync failed ${conn.lastAutoSyncAt?new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"}):"recently"}: ${conn.lastAutoSyncError||"unknown error"}`}/>
+                          )}
                         </div>
                         {cell(fmtShort(conn.connectedAt))}
                         {cell(fmtShort(importRange?.start))}
