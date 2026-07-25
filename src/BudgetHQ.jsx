@@ -750,7 +750,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   // the export-preview modal's granularity choice (which the AI suggestion pre-fills based on
   // whether the originally-imported file for this year had quarterly/annual total columns).
   const exportBudgets=({includeMonthly=false,includeQuarterly=false}={})=>{
-    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
+    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta});
     const pacingBySeg={};
     pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
     const actualsByMonth=(includeMonthly||includeQuarterly)?computeActualsByMonth({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,year}):{};
@@ -892,6 +892,23 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       const nx={...p};
       const cur={...(nx[segKey]||{})};
       if(cur._notBudgeted)delete cur._notBudgeted;else cur._notBudgeted=true;
+      nx[segKey]=cur;
+      return nx;
+    });
+  };
+  // "Committed" (lump-sum/prepaid) spend — same underscore-prefixed budgetRowMeta storage as
+  // _notBudgeted above, but the opposite kind of flag: this segment DOES need a budget and money
+  // has genuinely been allocated to it, it just doesn't behave like a steady daily rate (a
+  // sponsorship or IO paid once but running the whole period). computePacing reads this to skip
+  // run-rate projection for the segment entirely — see its `committed` handling and item 45 in
+  // ROADMAP.md for the fuller problem this solves.
+  const isCommitted=segKey=>!!(budgetRowMeta[segKey]||{})._committed;
+  const toggleCommitted=segKey=>{
+    if(!canEdit)return;
+    setBudgetRowMeta(p=>{
+      const nx={...p};
+      const cur={...(nx[segKey]||{})};
+      if(cur._committed)delete cur._committed;else cur._committed=true;
       nx[segKey]=cur;
       return nx;
     });
@@ -1607,7 +1624,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
         ):(
           <>
           <div style={{padding:"14px 16px 0"}}>
-            <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} mode="budget"/>
+            <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} mode="budget"/>
           </div>
           {/* Rollups — budget totals by one Budget By dimension at a time, independent of the
               detail grid's row grain */}
@@ -1707,7 +1724,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                   <span onClick={()=>{clearSegFilters();setHideNotBudgeted(false);}} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>{hideNotBudgeted&&!hasSegFilters?"Show them":"Clear filters"}</span>
                 </td></tr>
               )}
-              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
+              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);const cm=isCommitted(seg.key);return(
                 <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:T.bg,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -1731,6 +1748,9 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                     )}
                     {i===budgetDims.length-1&&nb&&(
                       <span style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textMuted,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"Inter,sans-serif"}}>Not budgeted</span>
+                    )}
+                    {i===budgetDims.length-1&&cm&&(
+                      <span title="Committed spend — excluded from daily-pace projection, see the lock icon in this row's actions" style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textSub,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"Inter,sans-serif"}}>Committed</span>
                     )}
                   </td>)}
                   {budgetMetaDims.map(d=>{
@@ -1762,6 +1782,12 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;if(!nb){e.currentTarget.style.border=`1px solid ${T.border}`;}}}
                         onMouseLeave={e=>{e.currentTarget.style.opacity=nb?1:0.4;if(!nb){e.currentTarget.style.border="1px solid transparent";}}}>
                         <Icon name="ban" size={12} color={nb?T.accent:T.textMuted}/>
+                      </button>
+                      <button onClick={()=>toggleCommitted(seg.key)} title={cm?"Unmark — this segment's spend will pace normally again":"Mark as committed spend — a lump sum/prepaid amount excluded from daily-pace projection"}
+                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:cm?T.accentBg:"transparent",border:`1px solid ${cm?T.accentBorder:"transparent"}`,borderRadius:5,color:cm?T.accent:T.textMuted,cursor:"pointer",fontSize:11,lineHeight:1,padding:0,opacity:cm?1:0.4,transition:"all 0.1s"}}
+                        onMouseEnter={e=>{e.currentTarget.style.opacity=1;if(!cm){e.currentTarget.style.border=`1px solid ${T.border}`;}}}
+                        onMouseLeave={e=>{e.currentTarget.style.opacity=cm?1:0.4;if(!cm){e.currentTarget.style.border="1px solid transparent";}}}>
+                        <Icon name="lock" size={12} color={cm?T.accent:T.textMuted}/>
                       </button>
                       <button onClick={()=>deleteRow(seg.key,budgetDims.map(d=>seg[d]).join(" · "))} title="Delete row"
                         style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
@@ -2349,7 +2375,7 @@ function groupChatsByRecency(chats){
 // rather than the small header dropdown alone. The header History dropdown stays as-is
 // underneath — it's the only access point on mobile, where sidebarEl is never mounted (see the
 // `!isMobile` gate around the whole stats <aside> in BudgetHQ's render).
-function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl}){
+function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl}){
   const[input,setInput]=useState("");
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
@@ -2392,7 +2418,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,hasData,askChat
     setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:newMessages,updatedAt:Date.now()}:c));
     setLoading(true);
     try{
-      const{answer,messages:newHistory}=await askAIRun({question:q,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets}});
+      const{answer,messages:newHistory}=await askAIRun({question:q,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta}});
       const finalHistory=[...newHistory,{role:"assistant",content:answer}];
       const finalMessages=[...newMessages,{role:"assistant",text:answer}];
       setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
@@ -2401,7 +2427,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,hasData,askChat
     }finally{
       setLoading(false);
     }
-  },[input,loading,activeAskChatId,askChats,mergedNormRows,tags,tagDims,budgetDims,budgets,setAskChats,setActiveAskChatId]);
+  },[input,loading,activeAskChatId,askChats,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,setAskChats,setActiveAskChatId]);
 
   // ── Sidebar chat management: search, pinning, projects, labels, rename (2026-07-21) ──
   const[sidebarSearch,setSidebarSearch]=useState("");
@@ -2749,7 +2775,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,hasData,askChat
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,mergedNormRows,connectionDetails,exportTags}){
+function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,campaignTags,mergedNormRows,connectionDetails,exportTags}){
   const cardBg=T.surface;
   const bc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent,T.accent];
   const cards=[
@@ -2808,8 +2834,8 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
   // computePacing degrades to an empty segments array rather than throwing.
   const pacing=useMemo(()=>{
     if(!isPopulated)return null;
-    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:dashPeriodType,month,quarter,today:now});
-  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month,quarter,dashPeriodType]); // eslint-disable-line react-hooks/exhaustive-deps
+    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:dashPeriodType,month,quarter,today:now,budgetRowMeta});
+  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month,quarter,dashPeriodType,budgetRowMeta]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // pacing.daysRemaining is already computed for the projection math — surfacing it here too means
   // "62% spent, expected 58%" comes with the other half of the context (how much runway is left)
@@ -2824,8 +2850,8 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,campaignTags,m
   const prevPeriod=useMemo(()=>stepPeriodBack({periodType:dashPeriodType,year,month,quarter}),[dashPeriodType,year,month,quarter]);
   const prevPacing=useMemo(()=>{
     if(!isPopulated)return null;
-    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year:prevPeriod.year,periodType:dashPeriodType,month:prevPeriod.month,quarter:prevPeriod.quarter,today:now});
-  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,prevPeriod,dashPeriodType]); // eslint-disable-line react-hooks/exhaustive-deps
+    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year:prevPeriod.year,periodType:dashPeriodType,month:prevPeriod.month,quarter:prevPeriod.quarter,today:now,budgetRowMeta});
+  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,prevPeriod,dashPeriodType,budgetRowMeta]); // eslint-disable-line react-hooks/exhaustive-deps
   const prevPeriodSpend=prevPacing?.totals?.spend||0;
   const spendDeltaPct=prevPeriodSpend>0&&hasData?Math.round(((pacing?.totals?.spend||0)-prevPeriodSpend)/prevPeriodSpend*100):null;
   const prevPeriodWord=dashPeriodType==="monthly"?"last month":dashPeriodType==="quarterly"?"last quarter":"last year";
@@ -3599,8 +3625,8 @@ function askAIQueryBudget({budgets,budgetDims,filters,year,periodType,month,quar
 // Pacing tab itself renders from) rather than re-deriving status/variance logic separately, so
 // Ask AI's "over budget"/"behind pace" answers can never drift from what that tab shows for the
 // same period.
-function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,filters,year,periodType,month,quarter,groupBy}){
-  const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:periodType||"annual",month,quarter,today:new Date()});
+function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,filters,year,periodType,month,quarter,groupBy}){
+  const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:periodType||"annual",month,quarter,today:new Date(),budgetRowMeta});
   const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
   const matched=pacing.segments.filter(seg=>filterEntries.every(([dim,val])=>{
     const idx=budgetDims.indexOf(dim);
@@ -3618,6 +3644,10 @@ function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,filters,year,p
     segments_over_budget:matched.filter(s=>s.status==="over").length,
     segments_behind_pace:matched.filter(s=>s.status==="behind").length,
     segments_no_spend_data_yet:matched.filter(s=>s.status==="no-data").length,
+    // Committed (lump-sum/prepaid) segments are deliberately excluded from ahead/behind pace
+    // math — surfaced separately so an answer like "how many segments are behind pace" doesn't
+    // need to explain why committed lines never show up there.
+    segments_committed:matched.filter(s=>s.status==="committed").length,
   };
   if(groupBy){
     const groupMap={};
@@ -3652,7 +3682,7 @@ function askAIExecuteTool(toolName,input,ctx){
   }
   if(toolName==="query_pacing"){
     if(!(ctx.budgetDims||[]).length)return{error:"No Budget By dimensions are set up yet in the Budget Panel — there's no budget data to compare spend against."};
-    return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by});
+    return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,budgetRowMeta:ctx.budgetRowMeta,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by});
   }
   return{error:`Unknown tool: ${toolName}`};
 }
@@ -3702,7 +3732,7 @@ async function askAIRun({question,history,ctx}){
 // the "same every time" complaint that prompted this change. The Budget Panel (mode==="budget")
 // doesn't have this per-view concept — it's a fixed monthly/quarterly/annual grid, not a tab you
 // reconfigure — so it keeps its original always-annual behavior via the `else` branch below.
-async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,mode,view}){
+async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,mode,view}){
   let payload,focus;
   if(mode==="pacing"&&view){
     const{viewMode,periodLabel,dims,segments,totals,expectedPct,daysRemaining,statusFilter,segFilters,trend,trendFilterDim,trendFilterValue,trendSeriesDim}=view;
@@ -3745,6 +3775,7 @@ async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,m
       const topBehind=segments.filter(s=>s.status==="behind").sort((a,b)=>(a.actualPct??0)-(b.actualPct??0)).slice(0,5)
         .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),actualPct:s.actualPct==null?null:Math.round(s.actualPct*100)}));
       const noDataCount=segments.filter(s=>s.budget>0&&!s.hasData).length;
+      const committedCount=segments.filter(s=>s.status==="committed").length;
       payload={
         viewType:"budget-pacing",
         periodLabel,
@@ -3756,19 +3787,21 @@ async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,m
         segmentsOverBudget:topOver,
         segmentsBehindPace:topBehind,
         segmentsWithBudgetButNoSpendDataYet:noDataCount,
+        segmentsCommitted:committedCount,
         activeFilters,
       };
-      focus=`This is the Reporting & Pacing tab, scoped to ${periodLabel} — use exactly this period, not the full year. Focus on pacing performance: overall pace vs the expected pace for this point in ${periodLabel}, which segments are most over budget, which are furthest behind pace, and what's worth a closer look.${activeFilters.length?` The user has filtered this view (${activeFilters.join("; ")}) — every figure above already reflects only that filtered subset, so base the summary on it and mention that it's filtered.`:""}`;
+      focus=`This is the Reporting & Pacing tab, scoped to ${periodLabel} — use exactly this period, not the full year. Focus on pacing performance: overall pace vs the expected pace for this point in ${periodLabel}, which segments are most over budget, which are furthest behind pace, and what's worth a closer look. segmentsCommitted are lump-sum/prepaid budget lines deliberately excluded from pace comparisons — mention them only if the count is non-zero, and don't call them "behind" or "ahead."${activeFilters.length?` The user has filtered this view (${activeFilters.join("; ")}) — every figure above already reflects only that filtered subset, so base the summary on it and mention that it's filtered.`:""}`;
     }
   }else{
     const year=String(new Date().getFullYear());
-    const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
+    const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta});
     const withVariance=pacing.segments.map(s=>({...s,overBy:s.spend-s.budget}));
     const topOver=[...withVariance].filter(s=>s.status==="over").sort((a,b)=>b.overBy-a.overBy).slice(0,5)
       .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),overBy:Math.round(s.overBy)}));
     const topBehind=[...pacing.segments].filter(s=>s.status==="behind").sort((a,b)=>(a.actualPct??0)-(b.actualPct??0)).slice(0,5)
       .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),actualPct:s.actualPct==null?null:Math.round(s.actualPct*100)}));
     const noDataCount=pacing.segments.filter(s=>s.budget>0&&!s.hasData).length;
+    const committedCount=pacing.segments.filter(s=>s.status==="committed").length;
     payload={
       year,
       totalBudgetYTD:Math.round(pacing.totals.budget),
@@ -3779,6 +3812,7 @@ async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,m
       segmentsOverBudget:topOver,
       segmentsBehindPace:topBehind,
       segmentsWithBudgetButNoSpendDataYet:noDataCount,
+      segmentsCommitted:committedCount,
     };
     focus="This is for the Budget Panel (where budgets are set up), so focus on budget SETUP and coverage: how many segments are budgeted, the total budgeted amount, and flag segmentsWithBudgetButNoSpendDataYet as a likely tagging gap worth checking (a segment has a budget but no matching spend rows yet).";
   }
@@ -3792,17 +3826,17 @@ async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,m
 // Self-contained "✨ AI Summary" trigger + result card, shared by the Budget Panel and Reporting &
 // Pacing tabs (see aiSummarizeBudgetPacing above). Owns its own idle/loading/done/error state so
 // each tab gets an independent summary rather than sharing one across navigation.
-function AISummaryCard({T,mergedNormRows,tags,budgetDims,budgets,mode,view}){
+function AISummaryCard({T,mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,mode,view}){
   const[state,setState]=useState({status:"idle",text:"",error:""});
   const run=useCallback(async()=>{
     setState({status:"loading",text:"",error:""});
     try{
-      const text=await aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,mode,view});
+      const text=await aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,mode,view});
       setState({status:"done",text,error:""});
     }catch(err){
       setState({status:"error",text:"",error:err.message||"Summary failed"});
     }
-  },[mergedNormRows,tags,budgetDims,budgets,mode,view]);
+  },[mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,mode,view]);
 
   // The Budget Panel has nothing to summarize until a budget structure exists. The Reporting &
   // Pacing tab's Custom/Trend views don't need budgetDims at all (they group by whatever dimensions
@@ -3945,7 +3979,7 @@ function resolveDimValue(row,rowTags,dim){
   return dim==="Platform"?derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type):(rowTags[dim]||"");
 }
 
-function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today}){
+function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today,budgetRowMeta}){
   const{start,end,months}=getPeriodRange(periodType,year,month,quarter);
   const totalDays=Math.round((end-start)/86400000)+1;
   let elapsedDays;
@@ -4005,15 +4039,26 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
     // segment's actualPct computes as a real 0%, which then reads as a genuine "behind pace" delta.
     const hasData=!!platformSpendMap[sk];
     const actualPct=budget>0&&hasData?spend/budget:null;
+    // "Committed" spend (prepaid sponsorships, lump-sum IOs) doesn't behave like a daily rate at
+    // all — the money's already contracted for the period regardless of when/whether a platform's
+    // own reporting reflects it day by day. Flagged per budget line (same _-prefixed-key-in-
+    // budgetRowMeta pattern as _notBudgeted, set via BudgetManager's lock-icon toggle) rather than
+    // inferred from spend shape, since "this is a lump sum" is knowledge the user has that the data
+    // itself can't reveal. See item 45 in ROADMAP.md for the fuller problem this solves.
+    const committed=!!(budgetRowMeta?.[sk]?._committed);
 
     // Sum each platform's own projection rather than one blended rate — see PROJECTION NOTE.
     const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays});
-    const projected=elapsedDays>0&&hasData?projectedSum:null;
+    // Committed rows skip the run-rate extrapolation entirely — projected is just the committed
+    // amount (budget), or actual spend if that's already higher (an overspend is still real even
+    // on a committed line). Everything else still uses the daily-rate projection as before.
+    const projected=committed?Math.max(spend,budget):(elapsedDays>0&&hasData?projectedSum:null);
     const projectedVariance=budget>0&&projected!=null?projected-budget:null;
     let status="no-budget";
     if(budget>0){
-      if(!hasData)status="no-data";
-      else if(spend>budget)status="over";
+      if(spend>budget)status="over";
+      else if(committed)status="committed";
+      else if(!hasData)status="no-data";
       else{
         const delta=(actualPct??0)-expectedPct;
         if(delta>0.1)status="ahead";
@@ -4021,7 +4066,7 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
         else status="on-track";
       }
     }
-    return{segKey:sk,dims,budget,spend,actualPct,dailyRate:hasData?dailyRate:null,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0,lowConfidencePlatforms,hasData};
+    return{segKey:sk,dims,budget,spend,actualPct,dailyRate:hasData?dailyRate:null,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0,lowConfidencePlatforms,hasData,committed};
   }).filter(s=>s.budget>0||s.spend>0).sort((a,b)=>b.spend-a.spend);
 
   const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
@@ -4160,6 +4205,12 @@ function pacingStatusMeta(status,T){
     case"ahead":return{label:"Ahead of pace",color:T.warning,bg:T.warningBg,border:T.warningBorder};
     case"behind":return{label:"Behind pace",color:T.accent,bg:T.accentBg,border:T.accentBorder};
     case"on-track":return{label:"On track",color:T.success,bg:T.successBg,border:T.successBorder};
+    // Committed (lump-sum/prepaid) budget lines are deliberately excluded from pace comparisons —
+    // see computePacing's `committed` handling — so this reads as a neutral "known, accounted for"
+    // state rather than a pace verdict, distinct from both the warning colors above and the flatter
+    // "no-data"/"no-budget" gray below (this segment DOES have a budget and a real reason not to
+    // pace it, not an absence of information).
+    case"committed":return{label:"Committed spend",color:T.textSub,bg:T.surfaceEl,border:T.border};
     // Distinct from "behind" on purpose — zero spend rows matched for this segment/period isn't the
     // same signal as "we have real spend data and it's genuinely trailing plan." Blending the two
     // made every never-synced segment look like an active problem (see 2026-07-19 UX review).
@@ -4177,7 +4228,7 @@ const fmtSigned=n=>n==null?"—":(n>0?"+":n<0?"−":"")+"$"+Math.round(Math.abs(
 // that shape, and "Email a copy" reuses the exact same generators (as a Blob instead of a download),
 // so a report never has to be built twice or risk drifting between the download and email paths.
 
-function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims}){
+function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta}){
   const campaignMap={};
   (mergedNormRows||[]).forEach(row=>{
     const name=row.campaign_name;if(!name)return;
@@ -4211,7 +4262,7 @@ function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims}){
   const statusCounts={};
   if((budgetDims||[]).length){
     Object.keys(budgets||{}).forEach(year=>{
-      const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
+      const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta});
       pacing.segments.forEach(s=>{statusCounts[s.status]=(statusCounts[s.status]||0)+1;});
     });
   }
@@ -4255,7 +4306,7 @@ function buildBudgetReport({budgets,budgetDims,budgetRowMeta,budgetMetaDims,merg
   const years=Object.keys(budgets||{}).sort();
   const sections=years.map(year=>{
     const yearBudgets=budgets[year]||{};
-    const pacing=(budgetDims||[]).length?computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()}):{segments:[]};
+    const pacing=(budgetDims||[]).length?computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta}):{segments:[]};
     const pacingBySeg={};
     pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
     const headers=[...budgetDims,...(budgetMetaDims||[]),"Annual Budget","Actual Spend","% Used","Pacing Status"];
@@ -4282,13 +4333,13 @@ function buildBudgetReport({budgets,budgetDims,budgetRowMeta,budgetMetaDims,merg
   };
 }
 
-function buildPacingReport({budgets,budgetDims,mergedNormRows,tags}){
+function buildPacingReport({budgets,budgetDims,mergedNormRows,tags,budgetRowMeta}){
   const years=Object.keys(budgets||{}).sort();
   const headers=[...(budgetDims||[]),"Year","Budget","Actual Spend","% Used","Daily Run Rate","Projected Year-End","Variance","Status"];
   const rows=[];
   years.forEach(year=>{
     if(!(budgetDims||[]).length)return;
-    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date()});
+    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta});
     pacing.segments.forEach(s=>{
       rows.push([...s.dims,year,
         `$${Math.round(s.budget).toLocaleString()}`,
@@ -4536,8 +4587,8 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   const breakdownOptions=allDimOptions.filter(d=>!activeDims.includes(d));
   const toggleExpand=key=>setExpandedRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
 
-  const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now}),
-    [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now,budgetRowMeta}),
+    [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter,budgetRowMeta]); // eslint-disable-line react-hooks/exhaustive-deps
   const platformDateRange=useMemo(()=>computePlatformDateRange(mergedNormRows),[mergedNormRows]);
   const customPacing=useMemo(()=>viewMode==="custom"&&customDims.length?computeCustomGrouping({mergedNormRows,tags:campaignTags,dims:customDims,year,periodType,month,quarter,today:now}):null,
     [viewMode,mergedNormRows,campaignTags,customDims,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4719,7 +4770,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 
       {/* Segment table */}
       <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
-        <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} mode="pacing"
+        <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} mode="pacing"
           view={{
             viewMode,
             periodLabel,
@@ -4815,6 +4866,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
               <option value="ahead">Ahead of pace</option>
               <option value="behind">Behind pace</option>
               <option value="over">Over budget</option>
+              <option value="committed">Committed spend</option>
               <option value="no-budget">No budget set</option>
             </Sel>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
@@ -8224,7 +8276,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       {/* Same fix as the top-nav Tagger tab above: route off mergedNormRows.length (is there
           actually data to show), not the transient step flag — see that button's doc comment for
           why branching on step left this dead-clicking whenever step had drifted off "tag". */}
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={visibleNormRows.length>0} budgets={budgets} budgetDims={budgetDims} campaignTags={tags} mergedNormRows={visibleNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={visibleNormRows.length>0} budgets={budgets} budgetDims={budgetDims} budgetRowMeta={budgetRowMeta} campaignTags={tags} mergedNormRows={visibleNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
       {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
           other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
           dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
@@ -8235,7 +8287,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
       </div>
       {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
-      {view==="ask"&&<AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl}/>}
+      {view==="ask"&&<AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
