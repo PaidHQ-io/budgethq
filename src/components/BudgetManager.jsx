@@ -1114,13 +1114,13 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                       // Derived, not stored — renaming here would only relabel the budget row
                       // while spend keeps resolving to the original channel name, silently
                       // breaking the match. Not editable.
-                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",borderRadius:6}} title="Derived from spend data — not editable">{seg[d]}</Pill>
+                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",borderRadius:6}} title="Derived from spend data — not editable">{seg[d]}</Pill>
                     ):editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
                       <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                         onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
-                        style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:"#272727",padding:"3px 8px",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:"'DM Sans',sans-serif",minWidth:80}}/>
+                        style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:"#272727",padding:"3px 8px",fontSize:14,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:"'DM Sans',sans-serif",minWidth:80}}/>
                     ):(
-                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",cursor:"text",borderRadius:6}}
+                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",cursor:"text",borderRadius:6}}
                         onClick={()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
                     )}
                     {i===budgetDims.length-1&&!nb&&segMatchCount(seg.key)===0&&(
