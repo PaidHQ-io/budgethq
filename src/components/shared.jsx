@@ -298,6 +298,7 @@ export const Icon=({name,size=18,color="currentColor"})=>{
     case"check":return<svg {...p}><path d="M5 12.5l4.5 4.5L19 7"/></svg>;
     case"ban":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5l13 13"/></svg>;
     case"filter":return<svg {...p}><path d="M3 4.5h18L14 12.5v6l-4 2v-8Z"/></svg>;
+    case"info":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M12 8h.01"/><path d="M11.25 11.5h1v5.5h1"/></svg>;
     default:return null;
   }
 };
@@ -327,6 +328,25 @@ export const WarnTip=({T,text,size=12,color})=>(
   </span>
 );
 
+// Neutral hover tooltip for explaining HOW something works (as opposed to WarnTip's "something's
+// off, look at this") — same mouseenter/mouseleave opacity-toggle mechanism, but a plain "i" glyph
+// instead of a warning triangle, opens downward instead of upward (meant for controls near the top
+// of a panel, where an upward tooltip would clip against the header above), and is wider/left-
+// aligned with `whiteSpace:"pre-line"` so callers can write real multi-paragraph explanations
+// (blank lines in `text` become paragraph breaks) instead of one dense run-on sentence. Added
+// 2026-07-25 for the forecasting-model explanation in PacingDashboard, but generic — safe to reuse
+// anywhere else an "explain this" affordance is needed.
+export const InfoTip=({T,text,size=13,width=320})=>(
+  <span
+    onMouseEnter={e=>{const t=e.currentTarget.querySelector("[data-tip]");if(t)t.style.opacity=1;}}
+    onMouseLeave={e=>{const t=e.currentTarget.querySelector("[data-tip]");if(t)t.style.opacity=0;}}
+    style={{marginLeft:6,display:"inline-flex",position:"relative",cursor:"help"}}>
+    <Icon name="info" size={size} color={T.textMuted}/>
+    <span data-tip style={{position:"absolute",top:"140%",left:0,opacity:0,pointerEvents:"none",transition:"opacity 0.1s",background:T.surface,color:T.text,fontSize:11.5,fontWeight:500,lineHeight:1.55,padding:"10px 12px",borderRadius:8,border:`1px solid ${T.border}`,boxShadow:T.shadowMd,width,whiteSpace:"pre-line",textAlign:"left",zIndex:50,fontFamily:"Inter,sans-serif"}}>
+      {text}
+    </span>
+  </span>
+);
 
 // Self-contained "✨ AI Summary" trigger + result card, shared by the Budget Panel and
 // Reporting & Pacing tabs. Owns its own idle/loading/done/error state so each tab gets an

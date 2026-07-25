@@ -36,24 +36,44 @@ export const THEME = {
 export const MONTHS=[{key:"01",label:"Jan"},{key:"02",label:"Feb"},{key:"03",label:"Mar"},{key:"04",label:"Apr"},{key:"05",label:"May"},{key:"06",label:"Jun"},{key:"07",label:"Jul"},{key:"08",label:"Aug"},{key:"09",label:"Sep"},{key:"10",label:"Oct"},{key:"11",label:"Nov"},{key:"12",label:"Dec"}];
 export const QUARTERS=[{key:"Q1",months:["01","02","03"],label:"Q1 Cap"},{key:"Q2",months:["04","05","06"],label:"Q2 Cap"},{key:"Q3",months:["07","08","09"],label:"Q3 Cap"},{key:"Q4",months:["10","11","12"],label:"Q4 Cap"}];
 // Forecast-model options for a budget segment (see budgetRowMeta[segKey]._forecastModel and
-// computePacing/projectPlatformSegment for the math each one drives). "full-period" is the
-// hard-coded last-resort default (see computePacing's forecastModel fallback chain) if nothing
-// else is set anywhere — everyday users instead see whatever the workspace's global default is
-// (PacingDashboard's own selector, defaultForecastModel), since that's meant to be the thing
-// people actually tune. trailing1/trailing3 added 2026-07-25 per Mo: even trailing7 dilutes a
-// budget shift made 2 days ago across 5+ days of the old rate before it moves the projection
-// much — these two exist for "I need this to react almost immediately," at the cost of being
-// noisier (single-day spend swings from weekday/weekend patterns, a platform's reporting lag,
-// etc. move the projection directly, with nothing to smooth them out).
+// computePacing/projectPlatformSegment for the math each one drives).
+//
+// Redesigned 2026-07-25 per Mo, replacing the original 7-option list (full-period/committed/
+// trailing1/3/7/14/30) — that list required understanding what a "trailing window" even was and
+// picking a number with no real guidance, for a payoff (more reactive pacing) most people didn't
+// actually need most of the time. Down to three real choices now:
+//   "auto"      — the new default (see computePacing's fallback chain below). Adaptive: blends
+//                 the full-period rate with a short recent one, see computeAutoBlendWeight/
+//                 projectPlatformSegment. Right for almost every segment, no tuning required.
+//   "committed" — unchanged: a known lump sum, skips run-rate projection entirely.
+//   "manual"    — replaces the old fixed trailing1/3/7/14/30 presets with one free-form
+//                 "trailing N days" number the user picks themselves. Stored the same way the
+//                 presets always were internally (the literal string "trailingN", parsed by
+//                 projectPlatformSegment's trailingMatch regex) — "manual" only exists as a UI-
+//                 level grouping label; there is no separate stored "manual" value.
+// The legacy literal "full-period" string is still recognized by projectPlatformSegment (for
+// configs saved before this redesign) but is no longer offered as a choice anywhere in the UI —
+// it behaves as a distinct always-cumulative mode, deliberately not folded into "auto", so existing
+// saved data doesn't silently change behavior underneath anyone.
 export const FORECAST_MODELS=[
-  {value:"full-period",label:"Full period",hint:"Cumulative average of all spend to date, projected across the whole period — standard pacing."},
+  {value:"auto",label:"Auto",hint:"Adaptive — blends the full-period rate with the last 7 days, leaning on whichever is more trustworthy as they diverge. The right choice for almost every segment."},
   {value:"committed",label:"Committed spend",hint:"A known lump sum/prepaid amount — skips run-rate projection entirely."},
-  {value:"trailing1",label:"Trailing 1-day (yesterday)",hint:"Projects from only the most recent day's spend — reacts instantly to a budget change but is noisy (a single low-spend day, e.g. a weekend, swings the whole projection)."},
-  {value:"trailing3",label:"Trailing 3-day average",hint:"Projects from the last 3 days' rate — reacts fast to a recent shift while smoothing out a single unusual day."},
-  {value:"trailing7",label:"Trailing 7-day average",hint:"Projects from the last 7 days' rate instead of the whole period-to-date — reacts fast to recent budget changes."},
-  {value:"trailing14",label:"Trailing 14-day average",hint:"Projects from the last 14 days' rate."},
-  {value:"trailing30",label:"Trailing 30-day average",hint:"Projects from the last 30 days' rate — smoother than 7d, still recent-weighted."},
 ];
+// Default trailing window (in days) prefilled for a segment/workspace switching into Manual mode
+// for the first time — matches the old "trailing7" preset, the most commonly used one.
+export const DEFAULT_MANUAL_TRAILING_DAYS=7;
+// Human label for ANY forecastModel value actually seen in the wild — "auto"/"committed" (current),
+// "trailingN" for any N (Manual, or a legacy preset), and the legacy literal "full-period". Used
+// anywhere a value needs to be displayed (tooltips, row-level select, reports) instead of a raw
+// FORECAST_MODELS.find(), since Manual's N is free-form and can't be enumerated in that list.
+export function forecastModelLabel(value){
+  if(!value||value==="auto")return "Auto";
+  if(value==="committed")return "Committed spend";
+  if(value==="full-period")return "Full period (legacy)";
+  const m=/^trailing(\d+)$/.exec(value);
+  if(m)return `Manual (trailing ${m[1]}d)`;
+  return value;
+}
 // Row-level picker sentinel — "inherit the workspace's global default" is stored as simply having
 // NO _forecastModel key at all (see setForecastModel below), same as before global defaults
 // existed. This constant is just the <select>'s value for that state; never itself persisted.
@@ -742,27 +762,61 @@ export function computePlatformDateRange(mergedNormRows){
 // view) — the per-platform projection math doesn't care what a segment IS, only how much each
 // platform spent within it and how fresh that platform's data is.
 //
-// forecastModel (optional, computePacing only — computeCustomGrouping never passes one, so it
-// always gets the full-period behavior below): any "trailingN" value (trailing1, trailing3,
-// trailing7, trailing14, trailing30 — see FORECAST_MODELS) switches the rate-estimation window from
-// "every elapsed day" to "just the last N days", so a recent budget change shows up in the
-// projection right away instead of being diluted by weeks of prior history. N is parsed straight
-// out of the model string rather than hardcoded per value, so adding another window to
-// FORECAST_MODELS (e.g. a future trailing2) doesn't need a matching change here.
+// forecastModel (optional, computePacing only — computeCustomGrouping never passes one, which
+// now means it gets Auto below, same as any segment that hasn't set anything explicitly):
+//   - "auto" (or unset/unrecognized) — see computeAutoBlendWeight and the isAuto branch below.
+//   - "trailingN" (Manual) — a single flat N-day window, no blending. N is parsed straight out of
+//     the model string rather than hardcoded per value.
+//   - "full-period" (legacy only, no longer offered in the UI) — a single flat window of every
+//     elapsed day, exactly the pre-2026-07-25 default behavior.
+//   - "committed" — reaches this function too (harmless; computePacing ignores its projectedSum
+//     and uses the committed amount directly instead), takes the full-period branch.
 //
 // platformDowIndex (optional — see computePlatformDayOfWeekIndex; omitted/missing entries fall
-// back to DEFAULT_DOW_INDEX, i.e. neutral/no adjustment) deseasonalizes every known day in the
+// back to DEFAULT_DOW_INDEX, i.e. neutral/no adjustment) deseasonalizes every known day in each
 // estimation window before averaging (actual ÷ that weekday's index), then reseasonalizes when
 // projecting across the full period (typical-day rate × each individual day's own index, summed —
 // not a flat totalDays count, since a period ending on a weekend has a different weekday mix than
-// one ending mid-week). This is what fixes trailing1/trailing3's biggest weakness: without it, a
-// quiet Sunday reads as "spend crashed," not "this is a normal Sunday."
+// one ending mid-week). This is what fixes a short window's biggest weakness: without it, a quiet
+// Sunday reads as "spend crashed," not "this is a normal Sunday."
 //
 // Shared by both computePacing (budget segments) and computeCustomGrouping (arbitrary dimension
 // view) — the per-platform projection math doesn't care what a segment IS, only how much each
 // platform spent within it, how fresh that platform's data is, and (now) that platform's weekly
 // shape. requires platformSpendMap's per-platform entries to carry a `byDate` breakdown (see
 // computePacing's aggregation loop) — computeCustomGrouping's entries have one too for this reason.
+
+// Shared by both branches below — averages a platform's deseasonalized daily spend (actual ÷ that
+// weekday's index) over the `windowDays` immediately before and including `asOf`. A flat window,
+// same math either way; what differs between Auto and Manual/full-period is which window(s) get
+// computed and how they're combined, not how any single window itself is averaged.
+function deseasonalizedRate(byDate,dowIdx,asOf,windowDays){
+  if(!windowDays)return 0;
+  let sum=0;
+  for(let i=0;i<windowDays;i++){
+    const d=new Date(asOf.getTime()-i*86400000);
+    sum+=(byDate[localISODate(d)]||0)/(dowIdx[d.getDay()]||1);
+  }
+  return sum/windowDays;
+}
+// Auto's tuning knobs. Below AUTO_DIVERGENCE_LOW relative difference between the long-run and
+// short-run rate, they're close enough that the long-run (more stable, less noisy) rate is used
+// outright. Above AUTO_DIVERGENCE_HIGH, they've diverged enough that something real clearly
+// changed recently (a budget shift, a platform coming online, a pause), so the short-run rate is
+// trusted outright instead. In between, a linear ramp blends the two — no hard cutoff, so a
+// borderline segment doesn't flip its whole projection based on one extra dollar of spend.
+export const AUTO_SHORT_WINDOW=7;
+export const AUTO_DIVERGENCE_LOW=0.15;
+export const AUTO_DIVERGENCE_HIGH=0.50;
+// Returns the WEIGHT ON THE SHORT RATE, 0 (ignore it, pure long-run) to 1 (pure short-run). Only
+// exported for testability/reuse — projectPlatformSegment is the only real caller.
+export function computeAutoBlendWeight(longRate,shortRate){
+  if(!(longRate>0))return shortRate>0?1:0; // nothing to compare against yet — trust whatever exists
+  const divergence=Math.abs(shortRate-longRate)/longRate;
+  if(divergence<=AUTO_DIVERGENCE_LOW)return 0;
+  if(divergence>=AUTO_DIVERGENCE_HIGH)return 1;
+  return(divergence-AUTO_DIVERGENCE_LOW)/(AUTO_DIVERGENCE_HIGH-AUTO_DIVERGENCE_LOW);
+}
 export function projectPlatformSegment(platformSpendMap,platformFreshness,{start,end,today,totalDays,forecastModel,platformDowIndex}){
   let platformProjectedSum=0;
   // See PROJECTION NOTE above — platforms whose projection here was extrapolated from a single
@@ -771,6 +825,11 @@ export function projectPlatformSegment(platformSpendMap,platformFreshness,{start
   const lowConfidencePlatforms=[];
   const trailingMatch=/^trailing(\d+)$/.exec(forecastModel||"");
   const trailingDays=trailingMatch?parseInt(trailingMatch[1],10):null;
+  // Anything that isn't a recognized Manual (trailingN), the legacy "full-period" literal, or
+  // "committed" gets Auto — which includes the explicit "auto" string, undefined (every
+  // computeCustomGrouping call), and any unrecognized future value, so this fails toward the
+  // better default rather than silently reverting to flat full-period math.
+  const isAuto=!trailingDays&&forecastModel!=="full-period"&&forecastModel!=="committed";
   Object.entries(platformSpendMap||{}).forEach(([platform,pData])=>{
     const byDate=pData?.byDate||{};
     const dowIdx=platformDowIndex?.[platform]||DEFAULT_DOW_INDEX;
@@ -779,17 +838,27 @@ export function projectPlatformSegment(platformSpendMap,platformFreshness,{start
     if(asOf>end)asOf=end;
     const pElapsedDays=asOf<start?0:Math.min(totalDays,Math.floor((asOf-start)/86400000)+1);
     if(pElapsedDays>0){
-      // Window clamped to min(trailingDays,pElapsedDays) — or every elapsed day for the full-period
-      // default — so a segment only a few days into its period ramps up gracefully on e.g. a
-      // "trailing30" model instead of needing a full 30 days of history before producing any
-      // number at all.
-      const window=trailingDays?Math.min(trailingDays,pElapsedDays):pElapsedDays;
-      let deseasonSum=0;
-      for(let i=0;i<window;i++){
-        const d=new Date(asOf.getTime()-i*86400000);
-        deseasonSum+=(byDate[localISODate(d)]||0)/(dowIdx[d.getDay()]||1);
+      let typicalDayRate;
+      if(isAuto){
+        // Blend the full-period ("long-run") deseasonalized rate with a short recent window,
+        // weighted by how much they've diverged (computeAutoBlendWeight). Barely any history yet
+        // (pElapsedDays<=AUTO_SHORT_WINDOW) skips the blend entirely — a "recent window" isn't
+        // meaningfully different from "everything so far" yet, so there's nothing to weigh.
+        const longRate=deseasonalizedRate(byDate,dowIdx,asOf,pElapsedDays);
+        if(pElapsedDays>AUTO_SHORT_WINDOW){
+          const shortRate=deseasonalizedRate(byDate,dowIdx,asOf,AUTO_SHORT_WINDOW);
+          const weight=computeAutoBlendWeight(longRate,shortRate);
+          typicalDayRate=longRate+(shortRate-longRate)*weight;
+        }else{
+          typicalDayRate=longRate;
+        }
+      }else{
+        // Manual (trailingN) or legacy full-period — one flat window, no blending. Window is
+        // clamped to min(trailingDays,pElapsedDays) so a segment only a few days into its period
+        // ramps up gracefully instead of needing N full days of history before producing a number.
+        const window=trailingDays?Math.min(trailingDays,pElapsedDays):pElapsedDays;
+        typicalDayRate=deseasonalizedRate(byDate,dowIdx,asOf,window);
       }
-      const typicalDayRate=window?deseasonSum/window:0;
       let periodDowSum=0;
       for(let d=new Date(start);d<=end;d=new Date(d.getTime()+86400000)){
         periodDowSum+=dowIdx[d.getDay()]||1;
@@ -858,8 +927,9 @@ export function detectCapacitySignal(dailyMap,{expectedPct,actualPct,budget,spen
 // threading). A row's own budgetRowMeta[sk]._forecastModel, when present, always wins over this —
 // see the fallback chain below, same priority order as the legacy _committed key. Every caller
 // that doesn't have this value handy (report builders, AI tools called from contexts that never
-// threaded it through) can simply omit it; it defaults to "full-period" exactly like before this
-// feature existed, so nothing regresses for callers that haven't been updated.
+// threaded it through) can simply omit it; it defaults to "auto" (2026-07-25, was "full-period"
+// before the Auto/Manual/Committed redesign — see FORECAST_MODELS above), so an un-updated caller
+// now gets the better adaptive default instead of the old always-cumulative one.
 export function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today,budgetRowMeta,defaultForecastModel}){
   const{start,end,months}=getPeriodRange(periodType,year,month,quarter);
   const totalDays=Math.round((end-start)/86400000)+1;
@@ -938,16 +1008,16 @@ export function computePacing({mergedNormRows,tags,budgetDims,budgets,year,perio
     // segment's actualPct computes as a real 0%, which then reads as a genuine "behind pace" delta.
     const hasData=!!platformSpendMap[sk];
     const actualPct=budget>0&&hasData?spend/budget:null;
-    // Per-segment forecast model (committed lump-sum, trailing-N-day average, or the full-period
-    // default) — flagged per budget line (same _-prefixed-key-in-budgetRowMeta pattern as
-    // _notBudgeted, set via PacingDashboard's per-row model picker) rather than inferred from
-    // spend shape, since "this is a lump sum" / "weight recent days" is knowledge the user has
-    // that the data itself can't reveal. Priority: an explicit per-row override always wins, then
-    // the legacy `_committed` boolean (segments toggled on before multi-model shipped), then the
-    // workspace's global default (see defaultForecastModel above), then "full-period" as the
-    // last-resort default if nothing is set anywhere. See item 45 in ROADMAP.md.
+    // Per-segment forecast model (Auto, Committed lump-sum, or Manual trailing-N-day average) —
+    // flagged per budget line (same _-prefixed-key-in-budgetRowMeta pattern as _notBudgeted, set
+    // via PacingDashboard's per-row model picker) rather than inferred from spend shape, since
+    // "this is a lump sum" / "I want a specific window" is knowledge the user has that the data
+    // itself can't reveal. Priority: an explicit per-row override always wins, then the legacy
+    // `_committed` boolean (segments toggled on before multi-model shipped), then the workspace's
+    // global default (see defaultForecastModel above), then "auto" as the last-resort default if
+    // nothing is set anywhere. See item 45 in ROADMAP.md.
     const rowMeta=budgetRowMeta?.[sk]||{};
-    const forecastModel=rowMeta._forecastModel||(rowMeta._committed?"committed":(defaultForecastModel||"full-period"));
+    const forecastModel=rowMeta._forecastModel||(rowMeta._committed?"committed":(defaultForecastModel||"auto"));
     const committed=forecastModel==="committed";
 
     // Sum each platform's own projection rather than one blended rate — see PROJECTION NOTE.

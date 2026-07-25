@@ -54,9 +54,17 @@ alter table budgethq.workspace_config add column if not exists saved_views jsonb
 -- Global default forecast model (item 45, 2026-07-25) — workspace-wide fallback for
 -- computePacing's per-segment forecastModel, used whenever a budget row has no explicit
 -- budget_row_meta[segKey]._forecastModel override. Plain text, not jsonb, since it's always one
--- of FORECAST_MODELS' string values (see BudgetHQ.jsx) — 'full-period' matches computePacing's
--- pre-existing implicit default, so an unconfigured workspace's pacing math is unchanged.
+-- of FORECAST_MODELS' string values (see lib/core.js) — 'full-period' matched computePacing's
+-- pre-existing implicit default at the time, so an unconfigured workspace's pacing math was
+-- unchanged when this column was first added.
 alter table budgethq.workspace_config add column if not exists default_forecast_model text not null default 'full-period';
+-- Auto/Manual/Committed redesign (2026-07-25, see lib/core.js's FORECAST_MODELS doc comment) —
+-- 'auto' is the new adaptive default, replacing the old always-cumulative 'full-period'. A plain
+-- `alter column set default` (unlike `add column if not exists` above) re-runs safely on every
+-- deploy per this file's idempotent-migration convention, and actually takes effect on a column
+-- that already exists from before this change — needed since only NEW rows pick up a column
+-- default; this doesn't touch any workspace_config row that's already set the old default.
+alter table budgethq.workspace_config alter column default_forecast_model set default 'auto';
 
 create table if not exists budgethq.spend_rows (
   id uuid primary key default gen_random_uuid(),

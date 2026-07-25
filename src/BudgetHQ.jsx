@@ -199,9 +199,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // computePacing whenever a segment has no per-row override (budgetRowMeta[sk]._forecastModel).
   // Lives at this same top level, rides the same debounced save, for the same reason savedViews
   // does above: a single value the whole workspace shares, not something scoped to one tab's UI
-  // state. Defaults to "full-period" — the same default computePacing already fell back to before
-  // this existed — so an unconfigured workspace behaves identically to today.
-  const[defaultForecastModel,setDefaultForecastModel]=useState("full-period");
+  // state. Defaults to "auto" (2026-07-25, was "full-period" before the Auto/Manual/Committed
+  // redesign — see FORECAST_MODELS in lib/core.js) — the same default computePacing itself falls
+  // back to, so an unconfigured workspace gets the adaptive model out of the box.
+  const[defaultForecastModel,setDefaultForecastModel]=useState("auto");
 
   // Tag-value autocomplete sources: values already used in the Budget Panel for each dimension,
   // unioned with values already used on other campaigns' tags — either one matching exactly is
@@ -657,7 +658,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         setBudgetMetaDims(config.budgetMetaDims||[]);
         setBudgetImportMeta(config.budgetImportMeta||{});
         setSavedViews(config.savedViews||[]);
-        setDefaultForecastModel(config.defaultForecastModel||"full-period");
+        setDefaultForecastModel(config.defaultForecastModel||"auto");
         const dedupedRows=mergeRows([],rows||[]);
         const rowsDeduped=dedupedRows.length!==(rows||[]).length;
         setMergedNormRows(dedupedRows);

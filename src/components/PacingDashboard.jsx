@@ -4,10 +4,41 @@ import {
   computePacing, computePlatformDateRange, computeCustomGrouping, computeCustomBreakdown,
   computeMonthlyTrend, computeSpendBreakdown, renameDimensionValue, countSegmentCampaigns,
   untagSegmentCampaigns, buildCampaignPlatformIndex, pacingStatusMeta, fmtFull, fmtSigned,
-  FORECAST_MODELS, FORECAST_MODEL_INHERIT, CAPACITY_WINDOW, MONTHS, QUARTERS,
+  FORECAST_MODELS, FORECAST_MODEL_INHERIT, DEFAULT_MANUAL_TRAILING_DAYS, forecastModelLabel,
+  AUTO_SHORT_WINDOW, AUTO_DIVERGENCE_LOW, AUTO_DIVERGENCE_HIGH, CAPACITY_WINDOW, MONTHS, QUARTERS,
 } from "../lib/core.js";
 import { askAIBuildView, aiConfigToViewConfig } from "../lib/askAI.js";
-import { Icon, Btn, SectionLabel, Sel, Divider, PixelPanel, AISummaryCard, Pill, WarnTip } from "./shared.jsx";
+import { Icon, Btn, SectionLabel, Sel, Divider, PixelPanel, AISummaryCard, Pill, WarnTip, InfoTip } from "./shared.jsx";
+
+// Forecast-model "mode" — the 3 user-facing choices (Auto/Committed/Manual) — vs. the raw stored
+// string (see FORECAST_MODELS in lib/core.js): Manual doesn't have one fixed stored value, it's
+// "trailingN" for whatever N the user picked, so it can't be enumerated as a plain <select> option
+// the way Auto/Committed can. These two helpers translate between the two, used by both the global
+// control and the per-row picker below so that logic isn't duplicated for each.
+const forecastModeOf=v=>{
+  if(!v||v===FORECAST_MODEL_INHERIT)return FORECAST_MODEL_INHERIT;
+  if(v==="committed")return "committed";
+  if(v==="auto")return "auto";
+  return "manual"; // "trailingN" (Manual, current or legacy preset) or the legacy "full-period"
+};
+const manualDaysOf=v=>{
+  const m=/^trailing(\d+)$/.exec(v||"");
+  return m?parseInt(m[1],10):DEFAULT_MANUAL_TRAILING_DAYS;
+};
+// Explanation of the forecasting plumbing (per Mo, 2026-07-25) — surfaced via an InfoTip next to
+// the global control. Kept as one shared string (not JSX) so the exact same explanation shows up
+// whether it's triggered from the global control or, in future, from anywhere else that wants it.
+const FORECAST_EXPLANATION=`How projections work, in order:
+
+1. Each platform's own spend is projected separately (not one blended rate for a segment), using that platform's own "as of" date — so a platform that's a week stale doesn't drag down one that's synced live.
+
+2. Every day is first deseasonalized by that platform's day-of-week pattern (a quiet Sunday isn't read as "spend crashed") before any averaging happens — this applies underneath all three models below.
+
+Auto (default): blends the full-period rate with the last ${AUTO_SHORT_WINDOW} days. Under ${Math.round(AUTO_DIVERGENCE_LOW*100)}% divergence between them, it trusts the full-period rate. Over ${Math.round(AUTO_DIVERGENCE_HIGH*100)}%, it trusts the recent rate. In between, it blends the two proportionally. No tuning needed.
+
+Manual: projects from a trailing window of a specific number of days you choose — reacts to a recent budget change exactly as fast as your window is short, at the cost of more day-to-day noise the shorter it gets.
+
+Committed: skips projection entirely — treats the budget as a known lump sum already spent (or actual spend, if that's already higher).`;
 
 // src/components/PacingDashboard.jsx — Reporting & Pacing tab (2026-07-25 split, per Mo).
 // Includes TrendLineChart and PacingBar, the two small chart components only this tab uses.
@@ -285,28 +316,28 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
     showNotif(matchCount>0?`Segment deleted — un-tagged ${matchCount} campaign${matchCount>1?"s":""}`:"Segment deleted");
   };
-  // Per-segment forecast model (item 45) — lives here, not the Budget Panel, per Mo: choosing HOW
-  // a segment's spend gets projected (full-period average, committed lump-sum, or a trailing-N-day
-  // average) is a pacing/projection decision, not a budget-setup one, so the picker belongs where
-  // you're actually looking at pacing status and projected spend. Same underscore-prefixed
-  // budgetRowMeta storage as everywhere else (_notBudgeted in BudgetManager, etc.) — this reads/
-  // writes the exact same shared object, just from this tab instead. Falls back to the pre-multi-
-  // model `_committed` boolean for rows toggled on before this shipped.
+  // Per-segment forecast model (item 45, redesigned 2026-07-25 into Auto/Manual/Committed — see
+  // forecastModeOf/manualDaysOf and FORECAST_MODELS' doc comment in lib/core.js) — lives here, not
+  // the Budget Panel, per Mo: choosing HOW a segment's spend gets projected is a pacing/projection
+  // decision, not a budget-setup one, so the picker belongs where you're actually looking at pacing
+  // status and projected spend. Same underscore-prefixed budgetRowMeta storage as everywhere else
+  // (_notBudgeted in BudgetManager, etc.) — this reads/writes the exact same shared object, just
+  // from this tab instead. Falls back to the pre-multi-model `_committed` boolean for rows toggled
+  // on before this shipped.
   //
   // Global default (2026-07-25, per Mo: "there should be a global forecasting model selector
   // instead of just individual rows. the individual row selector should override the global") —
   // getForecastModelOverride returns "" (FORECAST_MODEL_INHERIT) when a row has no explicit
-  // override, which is what drives the <select>'s displayed value; getEffectiveForecastModel is
+  // override, which is what drives the row picker's displayed mode; getEffectiveForecastModel is
   // the value actually used for computation (mirrors computePacing's own fallback chain exactly,
   // so what's shown here can never drift from what's projected). setForecastModel's "" case is the
   // row's "go back to inheriting the global default" action — same underlying storage as before
-  // (deleting the key), just reachable from an explicit menu item now instead of only implicitly
-  // via "full-period".
+  // (deleting the key), just reachable from an explicit menu item now instead of only implicitly.
   const getForecastModelOverride=segKey=>{
     const m=budgetRowMeta?.[segKey]||{};
     return m._forecastModel||(m._committed?"committed":FORECAST_MODEL_INHERIT);
   };
-  const getEffectiveForecastModel=segKey=>getForecastModelOverride(segKey)||defaultForecastModel||"full-period";
+  const getEffectiveForecastModel=segKey=>getForecastModelOverride(segKey)||defaultForecastModel||"auto";
   const setForecastModel=(segKey,model)=>{
     if(!canEdit)return;
     setBudgetRowMeta?.(p=>{
@@ -317,6 +348,32 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       nx[segKey]=cur;
       return nx;
     });
+  };
+  // Row picker's onChange target — takes the 3-way mode (inherit/auto/committed/manual) selected
+  // in the <select> and writes the actual stored value: "manual" needs a day count, which it either
+  // reuses from the row's existing override (switching Manual's number, or coming from a different
+  // mode back to a Manual row someone had already set) or falls back to DEFAULT_MANUAL_TRAILING_DAYS
+  // for a row going into Manual for the very first time.
+  const setForecastModelMode=(segKey,mode)=>{
+    if(mode==="manual")setForecastModel(segKey,`trailing${manualDaysOf(getForecastModelOverride(segKey))}`);
+    else setForecastModel(segKey,mode);
+  };
+  const setForecastModelManualDays=(segKey,days)=>{
+    const n=Math.max(1,Math.min(365,parseInt(days,10)||DEFAULT_MANUAL_TRAILING_DAYS));
+    setForecastModel(segKey,`trailing${n}`);
+  };
+  // Same mode/manual-days split as the row picker above, but for the workspace-wide default —
+  // there's no "inherit" state here (this IS the fallback everything else inherits), so the
+  // segmented control just has the 3 real modes.
+  const setDefaultForecastModelMode=mode=>{
+    if(!canEdit)return;
+    if(mode==="manual")setDefaultForecastModel?.(`trailing${manualDaysOf(defaultForecastModel)}`);
+    else setDefaultForecastModel?.(mode);
+  };
+  const setDefaultForecastModelManualDays=days=>{
+    if(!canEdit)return;
+    const n=Math.max(1,Math.min(365,parseInt(days,10)||DEFAULT_MANUAL_TRAILING_DAYS));
+    setDefaultForecastModel?.(`trailing${n}`);
   };
   const bulkDeleteSegments=()=>{
     if(!canEdit)return;
@@ -586,20 +643,40 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             </Sel>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
-            {/* Global forecast model (item 45, 2026-07-25) — per Mo: "there should be a global
-                forecasting model selector instead of just individual rows. the individual row
-                selector should override the global." Sets defaultForecastModel, the workspace-wide
-                fallback computePacing uses for every segment that doesn't have its own explicit
-                per-row override (see getForecastModelOverride/getEffectiveForecastModel above and
-                each row's picker, which now defaults to "Use global default" instead of a fixed
-                "Full period"). Budget-mode only — Custom/Trend views group ad-hoc, not by budget
-                segment, so there's no per-row model to default for. */}
+            {/* Global forecast model (item 45, 2026-07-25; redesigned same day from a 7-option
+                <select> into this Auto/Manual/Committed segmented control — per Mo: "there should
+                be a global forecasting model selector instead of just individual rows. the
+                individual row selector should override the global," followed by "we have too many
+                [models] and I don't understand them ... the point is accurate forecasting, not
+                overly complex options.") Sets defaultForecastModel, the workspace-wide fallback
+                computePacing uses for every segment that doesn't have its own explicit per-row
+                override (see getForecastModelOverride/getEffectiveForecastModel above and each
+                row's picker, which defaults to "Use global default"). Budget-mode only — Custom/
+                Trend views group ad-hoc, not by budget segment, so there's no per-row model to
+                default for. */}
             <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Default forecast model:</span>
-            <select value={defaultForecastModel} onChange={e=>setDefaultForecastModel?.(e.target.value)} disabled={!canEdit}
-              title="Workspace-wide default — any segment without its own row-level override uses this model."
-              style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",width:190}}>
-              {FORECAST_MODELS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
+            <div style={{display:"flex",alignItems:"center",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:2,gap:2}}>
+              {[{mode:"auto",label:"Auto"},{mode:"manual",label:"Manual"},{mode:"committed",label:"Committed"}].map(o=>{
+                const active=forecastModeOf(defaultForecastModel)===o.mode;
+                return(
+                  <button key={o.mode} onClick={()=>setDefaultForecastModelMode(o.mode)} disabled={!canEdit}
+                    title={FORECAST_MODELS.find(fm=>fm.value===o.mode)?.hint||(o.mode==="manual"?"Projects from a trailing window of a specific number of days you choose.":"")}
+                    style={{border:"none",borderRadius:4,padding:"5px 10px",fontSize:12,fontFamily:"Inter,sans-serif",cursor:canEdit?"pointer":"default",background:active?T.accent:"transparent",color:active?T.onAccent:T.textSub,fontWeight:active?600:500,transition:"all 0.1s"}}>
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+            {forecastModeOf(defaultForecastModel)==="manual"&&(
+              <span style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:T.textSub}}>
+                trailing
+                <input type="number" min={1} max={365} value={manualDaysOf(defaultForecastModel)} disabled={!canEdit}
+                  onChange={e=>setDefaultForecastModelManualDays(e.target.value)}
+                  style={{width:48,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 6px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                days
+              </span>
+            )}
+            <InfoTip T={T} text={FORECAST_EXPLANATION} width={360}/>
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
             <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Break down by:</span>
             <Sel value={breakdownDim} onChange={v=>{setBreakdownDim(v);setExpandedRows(new Set());}} T={T} style={{width:150}}>
@@ -696,18 +773,31 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                       {seg.capacitySignal==="constrained"&&(
                         <WarnTip T={T} color={T.accent} text={`Impressions have been flat for about ${CAPACITY_WINDOW*2} days despite budget headroom — more budget alone probably won't fix this. Likely capped by audience size, frequency cap, or the platform's own bid/approval limits, not by dollars.`}/>
                       )}
-                      {/* Forecast model (item 45) — lives here, not the Budget Panel, since it's a
-                          pacing/projection choice, not a budget-setup one. Affects Daily Burn/
-                          Projected/Status above via computePacing reading budgetRowMeta. Defaults
-                          to inheriting the tab's global model (set above the table) — picking
-                          anything else here is an explicit per-row override, highlighted so it's
-                          obvious which rows deviate from the workspace default. */}
-                      <select value={getForecastModelOverride(seg.segKey)} onChange={e=>setForecastModel(seg.segKey,e.target.value)} disabled={!canEdit}
-                        title={`Forecast model — how this segment's spend is projected across the period. Currently: ${FORECAST_MODELS.find(m=>m.value===getEffectiveForecastModel(seg.segKey))?.label||"Full period"}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
-                        style={{display:"block",marginTop:4,maxWidth:118,fontSize:10,color:getForecastModelOverride(seg.segKey)?T.accent:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.accentBg:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.accentBorder:T.border}`,borderRadius:5,padding:"1px 3px",cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",outline:"none"}}>
-                        <option value={FORECAST_MODEL_INHERIT}>Use global default ({FORECAST_MODELS.find(m=>m.value===defaultForecastModel)?.label||"Full period"})</option>
-                        {FORECAST_MODELS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
-                      </select>
+                      {/* Forecast model (item 45, redesigned 2026-07-25 into Auto/Manual/Committed
+                          — see the global control's comment above) — lives here, not the Budget
+                          Panel, since it's a pacing/projection choice, not a budget-setup one.
+                          Affects Daily Burn/Projected/Status above via computePacing reading
+                          budgetRowMeta. Defaults to inheriting the tab's global model (set above
+                          the table) — picking anything else here is an explicit per-row override,
+                          highlighted so it's obvious which rows deviate from the workspace default.
+                          Manual shows a second, narrower trailing-days input right below the select
+                          — kept as two stacked controls rather than crammed onto one line, there
+                          just isn't 118px of row width to fit both side by side. */}
+                      <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:2,maxWidth:118}}>
+                        <select value={forecastModeOf(getForecastModelOverride(seg.segKey))} onChange={e=>setForecastModelMode(seg.segKey,e.target.value)} disabled={!canEdit}
+                          title={`Forecast model — how this segment's spend is projected across the period. Currently: ${forecastModelLabel(getEffectiveForecastModel(seg.segKey))}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
+                          style={{display:"block",fontSize:10,color:getForecastModelOverride(seg.segKey)?T.accent:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.accentBg:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.accentBorder:T.border}`,borderRadius:5,padding:"1px 3px",cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",outline:"none"}}>
+                          <option value={FORECAST_MODEL_INHERIT}>Use global ({forecastModelLabel(defaultForecastModel)})</option>
+                          <option value="auto">Auto</option>
+                          <option value="committed">Committed</option>
+                          <option value="manual">Manual</option>
+                        </select>
+                        {forecastModeOf(getForecastModelOverride(seg.segKey))==="manual"&&(
+                          <input type="number" min={1} max={365} value={manualDaysOf(getForecastModelOverride(seg.segKey))} disabled={!canEdit}
+                            onChange={e=>setForecastModelManualDays(seg.segKey,e.target.value)} title="Trailing window, in days"
+                            style={{width:52,fontSize:10,color:T.text,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,padding:"1px 3px",fontFamily:"Inter,sans-serif",outline:"none"}}/>
+                        )}
+                      </div>
                     </td>
                     <td style={{padding:"8px 8px",borderBottom:rbb}}>
                       <button onClick={()=>deleteSegment(seg.segKey,label)} title="Delete segment"

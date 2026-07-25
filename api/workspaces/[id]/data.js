@@ -25,7 +25,7 @@ export const config = { api: { bodyParser: false } };
 const EMPTY_CONFIG = {
   tags: {}, tagDims: [], budgets: {}, budgetDims: [],
   budgetRowMeta: {}, budgetMetaDims: [], budgetImportMeta: {}, savedViews: [],
-  defaultForecastModel: "full-period", updatedAt: null,
+  defaultForecastModel: "auto", updatedAt: null,
 };
 
 const toCamel = (row) => ({
@@ -64,7 +64,7 @@ export default withApi(async (req, res) => {
          ${JSON.stringify(b.budgets ?? {})}, ${JSON.stringify(b.budgetDims ?? [])},
          ${JSON.stringify(b.budgetRowMeta ?? {})}, ${JSON.stringify(b.budgetMetaDims ?? [])},
          ${JSON.stringify(b.budgetImportMeta ?? {})}, ${JSON.stringify(b.savedViews ?? [])},
-         ${b.defaultForecastModel || "full-period"}, now())
+         ${b.defaultForecastModel || "auto"}, now())
       on conflict (workspace_id) do update set
         tags = excluded.tags,
         tag_dims = excluded.tag_dims,
