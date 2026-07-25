@@ -69,7 +69,6 @@ const FORECAST_MODELS=[
   {value:"trailing14",label:"Trailing 14-day average",hint:"Projects from the last 14 days' rate."},
   {value:"trailing30",label:"Trailing 30-day average",hint:"Projects from the last 30 days' rate — smoother than 7d, still recent-weighted."},
 ];
-const FORECAST_MODEL_LABELS=Object.fromEntries(FORECAST_MODELS.map(m=>[m.value,m.label]));
 const MONTH_MAP={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12",january:"01",february:"02",march:"03",april:"04",june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
 // Two-level campaign hierarchy: "campaign_group_name" is the top level (LinkedIn's own
 // "Campaign Group"; what Meta/Google/Bing/Reddit simply call "Campaign"). "campaign_name" is
@@ -908,27 +907,13 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       return nx;
     });
   };
-  // Per-segment forecast model — same underscore-prefixed budgetRowMeta storage as _notBudgeted
-  // above, but describing HOW a segment that does need a budget should be projected: the default
-  // full-period cumulative average, a committed/lump-sum bypass, or a trailing-N-day average that
-  // reacts faster to recent budget changes. computePacing reads _forecastModel (falling back to
-  // the pre-multi-model `_committed` boolean for rows toggled on before this shipped) — see its
-  // handling and item 45 in ROADMAP.md for the fuller problem this solves.
-  const getForecastModel=segKey=>{
-    const m=budgetRowMeta[segKey]||{};
-    return m._forecastModel||(m._committed?"committed":"full-period");
-  };
-  const setForecastModel=(segKey,model)=>{
-    if(!canEdit)return;
-    setBudgetRowMeta(p=>{
-      const nx={...p};
-      const cur={...(nx[segKey]||{})};
-      delete cur._committed; // legacy key, fully superseded by _forecastModel going forward
-      if(model==="full-period")delete cur._forecastModel;else cur._forecastModel=model;
-      nx[segKey]=cur;
-      return nx;
-    });
-  };
+  // Per-segment forecast model (full-period/committed/trailing-N) lives in the Reporting & Pacing
+  // tab now, not here — see PacingDashboard's getForecastModel/setForecastModel. Per Mo: choosing
+  // HOW a segment's spend should be projected belongs where pacing/projections are actually
+  // viewed and acted on, not in the Budget Panel where you're just setting $ allocations. Budget
+  // Panel still only owns _notBudgeted (isNotBudgeted/toggleNotBudgeted above) since that's a
+  // budget-setup concept, not a projection one. budgetRowMeta itself is unchanged — it's the same
+  // shared object either UI reads/writes, just no picker rendered here anymore.
   const bulkDeleteSelected=()=>{
     if(!canEdit)return;
     if(!selRows.size)return;
@@ -1740,7 +1725,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                   <span onClick={()=>{clearSegFilters();setHideNotBudgeted(false);}} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>{hideNotBudgeted&&!hasSegFilters?"Show them":"Clear filters"}</span>
                 </td></tr>
               )}
-              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);const fm=getForecastModel(seg.key);return(
+              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
                 <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:T.bg,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -1764,9 +1749,6 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                     )}
                     {i===budgetDims.length-1&&nb&&(
                       <span style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textMuted,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"Inter,sans-serif"}}>Not budgeted</span>
-                    )}
-                    {i===budgetDims.length-1&&fm!=="full-period"&&(
-                      <span title={`Forecast model: ${FORECAST_MODEL_LABELS[fm]||fm} — see the model picker in this row's actions`} style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textSub,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"Inter,sans-serif"}}>{FORECAST_MODEL_LABELS[fm]||fm}</span>
                     )}
                   </td>)}
                   {budgetMetaDims.map(d=>{
@@ -1799,11 +1781,6 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                         onMouseLeave={e=>{e.currentTarget.style.opacity=nb?1:0.4;if(!nb){e.currentTarget.style.border="1px solid transparent";}}}>
                         <Icon name="ban" size={12} color={nb?T.accent:T.textMuted}/>
                       </button>
-                      <select value={fm} onChange={e=>setForecastModel(seg.key,e.target.value)} disabled={!canEdit}
-                        title="Forecast model — how this segment's spend is projected across the period"
-                        style={{height:20,maxWidth:88,fontSize:10,color:fm!=="full-period"?T.accent:T.textMuted,background:fm!=="full-period"?T.accentBg:"transparent",border:`1px solid ${fm!=="full-period"?T.accentBorder:T.border}`,borderRadius:5,padding:"0 2px",cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",outline:"none"}}>
-                        {FORECAST_MODELS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
-                      </select>
                       <button onClick={()=>deleteRow(seg.key,budgetDims.map(d=>seg[d]).join(" · "))} title="Delete row"
                         style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
@@ -4909,6 +4886,28 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
     setSelRows(p=>{const nx=new Set(p);nx.delete(segKey);return nx;});
     showNotif(matchCount>0?`Segment deleted — un-tagged ${matchCount} campaign${matchCount>1?"s":""}`:"Segment deleted");
   };
+  // Per-segment forecast model (item 45) — lives here, not the Budget Panel, per Mo: choosing HOW
+  // a segment's spend gets projected (full-period average, committed lump-sum, or a trailing-N-day
+  // average) is a pacing/projection decision, not a budget-setup one, so the picker belongs where
+  // you're actually looking at pacing status and projected spend. Same underscore-prefixed
+  // budgetRowMeta storage as everywhere else (_notBudgeted in BudgetManager, etc.) — this reads/
+  // writes the exact same shared object, just from this tab instead. Falls back to the pre-multi-
+  // model `_committed` boolean for rows toggled on before this shipped.
+  const getForecastModel=segKey=>{
+    const m=budgetRowMeta?.[segKey]||{};
+    return m._forecastModel||(m._committed?"committed":"full-period");
+  };
+  const setForecastModel=(segKey,model)=>{
+    if(!canEdit)return;
+    setBudgetRowMeta?.(p=>{
+      const nx={...p};
+      const cur={...(nx[segKey]||{})};
+      delete cur._committed; // legacy key, fully superseded by _forecastModel going forward
+      if(model==="full-period")delete cur._forecastModel;else cur._forecastModel=model;
+      nx[segKey]=cur;
+      return nx;
+    });
+  };
   const bulkDeleteSegments=()=>{
     if(!canEdit)return;
     if(!selRows.size)return;
@@ -5266,6 +5265,14 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                     </td>
                     <td style={{padding:"8px 14px",borderBottom:rbb}}>
                       <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border}>{meta.label}</Pill>
+                      {/* Forecast model (item 45) — lives here, not the Budget Panel, since it's a
+                          pacing/projection choice, not a budget-setup one. Affects Daily Burn/
+                          Projected/Status above via computePacing reading budgetRowMeta. */}
+                      <select value={getForecastModel(seg.segKey)} onChange={e=>setForecastModel(seg.segKey,e.target.value)} disabled={!canEdit}
+                        title="Forecast model — how this segment's spend is projected across the period"
+                        style={{display:"block",marginTop:4,maxWidth:118,fontSize:10,color:getForecastModel(seg.segKey)!=="full-period"?T.accent:T.textMuted,background:getForecastModel(seg.segKey)!=="full-period"?T.accentBg:"transparent",border:`1px solid ${getForecastModel(seg.segKey)!=="full-period"?T.accentBorder:T.border}`,borderRadius:5,padding:"1px 3px",cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",outline:"none"}}>
+                        {FORECAST_MODELS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
+                      </select>
                     </td>
                     <td style={{padding:"8px 8px",borderBottom:rbb}}>
                       <button onClick={()=>deleteSegment(seg.segKey,label)} title="Delete segment"
