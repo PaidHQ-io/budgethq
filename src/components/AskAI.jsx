@@ -178,7 +178,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
   const unpinnedSidebarChats=useMemo(()=>filteredSidebarChats.filter(c=>!c.pinned).sort((a,b)=>b.updatedAt-a.updatedAt),[filteredSidebarChats]);
   const recencyGroups=useMemo(()=>groupChatsByRecency(unpinnedSidebarChats),[unpinnedSidebarChats]);
 
-  const menuBtnStyle={display:"block",width:"100%",textAlign:"left",padding:"6px 8px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"};
+  const menuBtnStyle={display:"block",width:"100%",textAlign:"left",padding:"6px 8px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"};
 
   const renderChatRow=c=>{
     const isEditing=renamingChatId===c.id;
@@ -191,7 +191,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
           <input autoFocus value={renamingTitle} onChange={e=>setRenamingTitle(e.target.value)} onClick={e=>e.stopPropagation()}
             onKeyDown={e=>{if(e.key==="Enter")commitRename(c.id,renamingTitle);if(e.key==="Escape")setRenamingChatId(null);}}
             onBlur={()=>commitRename(c.id,renamingTitle)}
-            style={{flex:1,minWidth:0,fontSize:12,padding:"3px 5px",borderRadius:5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+            style={{flex:1,minWidth:0,fontSize:12,padding:"3px 5px",borderRadius:5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
         ):(
           <span style={{flex:1,minWidth:0,fontSize:12,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.title}</span>
         )}
@@ -235,7 +235,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
                   <input autoFocus value={editingProjectName} onChange={e=>setEditingProjectName(e.target.value)}
                     onKeyDown={e=>{if(e.key==="Enter")commitProjectRename(p.id,editingProjectName);if(e.key==="Escape")setEditingProjectId(null);}}
                     onBlur={()=>commitProjectRename(p.id,editingProjectName)}
-                    style={{flex:1,minWidth:0,fontSize:12,padding:"4px 6px",borderRadius:5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                    style={{flex:1,minWidth:0,fontSize:12,padding:"4px 6px",borderRadius:5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                 ):(
                   <div onClick={()=>setActiveProjectId(p.id)} onDoubleClick={()=>{setEditingProjectId(p.id);setEditingProjectName(p.name);}}
                     className={activeProjectId===p.id?undefined:"bhq-row"} title="Double-click to rename"
@@ -266,7 +266,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
               const active=activeLabel===l;
               return(
                 <button key={l} onClick={()=>setActiveLabel(active?null:l)}
-                  style={{fontSize:10.5,padding:"3px 8px",borderRadius:12,cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:500,background:active?T.accent:T.surfaceEl,color:active?T.onAccent:T.textSub,border:`1px solid ${active?T.accentHover:T.border}`}}>
+                  style={{fontSize:10.5,padding:"3px 8px",borderRadius:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:500,background:active?T.accent:T.surfaceEl,color:active?T.onAccent:T.textSub,border:`1px solid ${active?T.accentHover:T.border}`}}>
                   {l}
                 </button>
               );
@@ -316,7 +316,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
                     const on=(c.labels||[]).includes(l);
                     return(
                       <button key={l} onClick={()=>toggleChatLabel(c.id,l)}
-                        style={{fontSize:10.5,padding:"2px 7px",borderRadius:10,cursor:"pointer",fontFamily:"Inter,sans-serif",background:on?T.accent:T.surfaceEl,color:on?T.onAccent:T.textSub,border:`1px solid ${on?T.accentHover:T.border}`}}>
+                        style={{fontSize:10.5,padding:"2px 7px",borderRadius:10,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",background:on?T.accent:T.surfaceEl,color:on?T.onAccent:T.textSub,border:`1px solid ${on?T.accentHover:T.border}`}}>
                         {l}
                       </button>
                     );
@@ -326,7 +326,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
               <div style={{display:"flex",gap:4,padding:"0 8px 4px"}}>
                 <input value={newLabelInput} onChange={e=>setNewLabelInput(e.target.value)}
                   onKeyDown={e=>{if(e.key==="Enter"&&newLabelInput.trim()){toggleChatLabel(c.id,newLabelInput.trim());setNewLabelInput("");}}}
-                  placeholder="Add label…" style={{flex:1,minWidth:0,fontSize:11,padding:"4px 6px",borderRadius:5,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                  placeholder="Add label…" style={{flex:1,minWidth:0,fontSize:11,padding:"4px 6px",borderRadius:5,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
               </div>
               <div style={{height:1,background:T.border,margin:"4px 0"}}/>
               <button onClick={()=>{if(window.confirm(`Delete "${c.title}"? This can't be undone.`))deleteChat(c.id);setChatMenuOpenId(null);}} style={{...menuBtnStyle,color:T.danger}}>Delete chat</button>
@@ -346,8 +346,8 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
             <div style={{width:48,height:48,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
               <Icon name="sparkle" size={24} color={T.onAccent}/>
             </div>
-            <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI needs spend data first</div>
-            <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Import or sync spend data in the Campaign Tagger, then come back here to ask questions about it.</div>
+            <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>Ask AI needs spend data first</div>
+            <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>Import or sync spend data in the Campaign Tagger, then come back here to ask questions about it.</div>
           </div>
         </div>
         {/* Sidebar still works even with no spend data yet — someone may have saved chats/
@@ -368,7 +368,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
         onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
         placeholder="Ask about your spend data…"
         rows={1}
-        style={{flex:1,resize:"none",border:"none",outline:"none",background:"transparent",color:T.text,fontSize:15,lineHeight:1.55,fontFamily:"Inter,sans-serif",padding:"8px 0",maxHeight:140,overflow:"auto"}}
+        style={{flex:1,resize:"none",border:"none",outline:"none",background:"transparent",color:T.text,fontSize:15,lineHeight:1.55,fontFamily:"'DM Sans',sans-serif",padding:"8px 0",maxHeight:140,overflow:"auto"}}
       />
       <button onClick={()=>send()} disabled={loading||!input.trim()}
         style={{width:36,height:36,borderRadius:"50%",background:input.trim()&&!loading?T.accent:T.surfaceEl,border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:input.trim()&&!loading?"pointer":"default",flexShrink:0,transition:"background 0.15s"}}>
@@ -381,7 +381,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
     <>
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 24px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-        <div style={{fontSize:13,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6,fontFamily:"Inter,sans-serif"}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6,fontFamily:"'DM Sans',sans-serif"}}>
           <Icon name="sparkle" size={15} color={T.text}/> Ask AI
         </div>
         <div style={{display:"flex",gap:8,position:"relative"}}>
@@ -395,11 +395,11 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
             <>
               <div onClick={()=>setHistoryOpen(false)} style={{position:"fixed",inset:0,zIndex:35}}/>
               <div style={{position:"absolute",top:"120%",right:0,width:300,maxHeight:380,overflow:"auto",background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,boxShadow:T.shadowLg,zIndex:40}}>
-                {askChats.length===0&&<div style={{padding:18,fontSize:12,color:T.textMuted,textAlign:"center",fontFamily:"Inter,sans-serif"}}>No past chats yet</div>}
+                {askChats.length===0&&<div style={{padding:18,fontSize:12,color:T.textMuted,textAlign:"center",fontFamily:"'DM Sans',sans-serif"}}>No past chats yet</div>}
                 {[...askChats].sort((a,b)=>b.updatedAt-a.updatedAt).map(c=>(
                   <div key={c.id} onClick={()=>{setActiveAskChatId(c.id);setHistoryOpen(false);}}
                     style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"10px 14px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:c.id===activeAskChatId?T.rowSelected:"transparent"}}>
-                    <span style={{fontSize:12,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,fontFamily:"Inter,sans-serif"}}>{c.title}</span>
+                    <span style={{fontSize:12,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,fontFamily:"'DM Sans',sans-serif"}}>{c.title}</span>
                     <span onClick={e=>deleteChat(c.id,e)} title="Delete chat"
                       style={{color:T.textMuted,cursor:"pointer",fontSize:14,padding:"2px 4px",flexShrink:0,lineHeight:1}}>✕</span>
                   </div>
@@ -414,18 +414,18 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
         <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
           <div style={{width:"100%",maxWidth:640}}>
             <div style={{textAlign:"center",marginBottom:24}}>
-              <div style={{fontSize:22,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"Inter,sans-serif"}}>Ask AI about your spend data</div>
-              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif"}}>Ask in plain language — answers are pulled from your actual tagged campaigns, not guessed.</div>
+              <div style={{fontSize:22,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>Ask AI about your spend data</div>
+              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>Ask in plain language — answers are pulled from your actual tagged campaigns, not guessed.</div>
             </div>
             {composer}
             <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
               {examples.map(ex=>(
-                <button key={ex} onClick={()=>send(ex)} style={{textAlign:"left",padding:"10px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                <button key={ex} onClick={()=>send(ex)} style={{textAlign:"left",padding:"10px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,color:T.text,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
                   {ex}
                 </button>
               ))}
             </div>
-            {error&&<div style={{marginTop:14,padding:"10px 14px",borderRadius:10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,fontFamily:"Inter,sans-serif"}}>{error}</div>}
+            {error&&<div style={{marginTop:14,padding:"10px 14px",borderRadius:10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>{error}</div>}
           </div>
         </div>
       ):(
@@ -434,17 +434,17 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
             <div style={{maxWidth:720,margin:"0 auto",padding:"0 24px"}}>
               {messages.map((m,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:14}}>
-                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:m.role==="user"?T.accent:T.surface,border:m.role==="user"?"none":`1px solid ${T.border}`,color:m.role==="user"?"#FFFFFF":T.text,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",fontFamily:"Inter,sans-serif"}}>
+                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:m.role==="user"?T.accent:T.surface,border:m.role==="user"?"none":`1px solid ${T.border}`,color:m.role==="user"?"#FFFFFF":T.text,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",fontFamily:"'DM Sans',sans-serif"}}>
                     {m.text}
                   </div>
                 </div>
               ))}
               {loading&&(
                 <div style={{display:"flex",justifyContent:"flex-start",marginBottom:14}}>
-                  <div style={{padding:"10px 14px",borderRadius:12,background:T.surface,border:`1px solid ${T.border}`,color:T.textMuted,fontSize:13,fontFamily:"Inter,sans-serif"}}>Thinking…</div>
+                  <div style={{padding:"10px 14px",borderRadius:12,background:T.surface,border:`1px solid ${T.border}`,color:T.textMuted,fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>Thinking…</div>
                 </div>
               )}
-              {error&&<div style={{padding:"10px 14px",borderRadius:10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,marginBottom:14,fontFamily:"Inter,sans-serif"}}>{error}</div>}
+              {error&&<div style={{padding:"10px 14px",borderRadius:10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,marginBottom:14,fontFamily:"'DM Sans',sans-serif"}}>{error}</div>}
             </div>
           </div>
           <div style={{borderTop:`1px solid ${T.border}`,padding:"14px 16px 18px",flexShrink:0}}>

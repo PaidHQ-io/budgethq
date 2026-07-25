@@ -66,7 +66,7 @@ function InviteStatusBanner({ status, onDismiss }) {
         color,
         fontSize: 13,
         fontWeight: 500,
-        fontFamily: "Inter,sans-serif",
+        fontFamily: "'DM Sans',sans-serif",
         boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
         maxWidth: "min(90vw, 480px)",
       }}
@@ -90,7 +90,7 @@ function CenteredScreen({ children }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontFamily: "Inter,sans-serif",
+        fontFamily: "'DM Sans',sans-serif",
         padding: 24,
       }}
     >
@@ -158,7 +158,7 @@ function CreateWorkspaceScreen({ name, setName, kind, setKind, onSubmit, loading
             fontSize: 13,
             outline: "none",
             marginBottom: 16,
-            fontFamily: "Inter,sans-serif",
+            fontFamily: "'DM Sans',sans-serif",
           }}
         />
 
@@ -201,7 +201,7 @@ function CreateWorkspaceScreen({ name, setName, kind, setKind, onSubmit, loading
             fontWeight: 600,
             cursor: loading ? "default" : "pointer",
             opacity: loading || !name.trim() ? 0.6 : 1,
-            fontFamily: "Inter,sans-serif",
+            fontFamily: "'DM Sans',sans-serif",
           }}
         >
           {loading ? "Creating…" : "Create workspace"}
@@ -437,7 +437,7 @@ export default function WorkspaceGate({
                 fontSize: 12,
                 color: T.text,
                 cursor: "pointer",
-                fontFamily: "Inter,sans-serif",
+                fontFamily: "'DM Sans',sans-serif",
               }}
             >
               Try again
@@ -453,7 +453,7 @@ export default function WorkspaceGate({
       <>
         {banner}
         <CenteredScreen>
-          <div style={{ color: T.textMuted, fontSize: 13, fontFamily: "Inter,sans-serif" }}>
+          <div style={{ color: T.textMuted, fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>
             Loading your workspaces…
           </div>
         </CenteredScreen>

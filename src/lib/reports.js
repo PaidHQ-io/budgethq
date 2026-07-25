@@ -171,8 +171,10 @@ export function reportToHTMLString(report){
       <thead><tr>${sec.headers.map(h=>`<th style="text-align:left;padding:8px 10px;background:#FAFAFA;border-bottom:2px solid #D4D4D4;color:#666666;font-weight:600;">${escHtml(h)}</th>`).join("")}</tr></thead>
       <tbody>${(sec.rows.length?sec.rows:null)?sec.rows.map((r,i)=>`<tr style="background:${i%2?"#FAFAFA":"#FFFFFF"};">${r.map(c=>`<td style="padding:7px 10px;border-bottom:1px solid #EAEAEA;color:#171717;">${escHtml(c)}</td>`).join("")}</tr>`).join(""):`<tr><td colspan="${sec.headers.length}" style="padding:14px 10px;color:#8F8F8F;">No data</td></tr>`}</tbody>
     </table>`).join("");
-  return`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(report.title)}</title></head>
-  <body style="font-family:-apple-system,Inter,sans-serif;background:#FFFFFF;padding:32px;margin:0;">
+  return`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(report.title)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"></head>
+  <body style="font-family:'DM Sans',-apple-system,sans-serif;background:#FFFFFF;padding:32px;margin:0;">
     <div style="max-width:900px;margin:0 auto;background:#FFFFFF;border-radius:8px;padding:32px 36px;border:1px solid #EAEAEA;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
         <span style="width:26px;height:26px;border-radius:7px;background:#000000;display:inline-block;"></span>

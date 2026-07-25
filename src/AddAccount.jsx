@@ -24,7 +24,7 @@ function CenteredScreen({ children }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontFamily: "Inter,sans-serif",
+        fontFamily: "'DM Sans',sans-serif",
         padding: 24,
       }}
     >
@@ -162,7 +162,7 @@ export default function AddAccountScreen() {
             fontSize: 13,
             fontWeight: 600,
             cursor: "pointer",
-            fontFamily: "Inter,sans-serif",
+            fontFamily: "'DM Sans',sans-serif",
           }}
         >
           Close this tab

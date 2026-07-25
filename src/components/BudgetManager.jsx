@@ -1040,26 +1040,26 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                         <tr key={r.value}>
                           <td style={{padding:"6px 10px",fontSize:12,color:T.text,borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.value}</td>
                           {MONTHS.map(m=>(
-                            <td key={m.key} style={{padding:"6px 8px",fontSize:12,color:r.months[m.key]?T.text:T.textDim,textAlign:"right",fontFamily:"Inter,sans-serif",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.months[m.key]?fmt$(r.months[m.key]):"—"}</td>
+                            <td key={m.key} style={{padding:"6px 8px",fontSize:12,color:r.months[m.key]?T.text:T.textDim,textAlign:"right",fontFamily:"'DM Sans',sans-serif",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.months[m.key]?fmt$(r.months[m.key]):"—"}</td>
                           ))}
                           {QUARTERS.map(q=>{
                             const qv=q.months.reduce((s,mk)=>s+(r.months[mk]||0),0);
-                            return <td key={q.key} style={{padding:"6px 8px",fontSize:12,color:qv?T.textSub:T.textDim,textAlign:"right",fontFamily:"Inter,sans-serif",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{qv?fmt$(qv):"—"}</td>;
+                            return <td key={q.key} style={{padding:"6px 8px",fontSize:12,color:qv?T.textSub:T.textDim,textAlign:"right",fontFamily:"'DM Sans',sans-serif",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{qv?fmt$(qv):"—"}</td>;
                           })}
-                          <td style={{padding:"6px 10px",fontSize:12,color:T.accent,fontWeight:700,textAlign:"right",fontFamily:"Inter,sans-serif",borderBottom:`1px solid ${T.border}`,borderLeft:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(r.total)}</td>
+                          <td style={{padding:"6px 10px",fontSize:12,color:T.accent,fontWeight:700,textAlign:"right",fontFamily:"'DM Sans',sans-serif",borderBottom:`1px solid ${T.border}`,borderLeft:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(r.total)}</td>
                         </tr>
                       ))}
                       <tr>
                         <td style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:T.text}}>Total</td>
                         {MONTHS.map(m=>{
                           const mv=rows.reduce((s,r)=>s+(r.months[m.key]||0),0);
-                          return <td key={m.key} style={{padding:"6px 8px",fontSize:12,fontWeight:600,color:T.text,textAlign:"right",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>{mv?fmt$(mv):"—"}</td>;
+                          return <td key={m.key} style={{padding:"6px 8px",fontSize:12,fontWeight:600,color:T.text,textAlign:"right",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>{mv?fmt$(mv):"—"}</td>;
                         })}
                         {QUARTERS.map(q=>{
                           const qv=rows.reduce((s,r)=>s+q.months.reduce((ss,mk)=>ss+(r.months[mk]||0),0),0);
-                          return <td key={q.key} style={{padding:"6px 8px",fontSize:12,fontWeight:600,color:T.textSub,textAlign:"right",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{qv?fmt$(qv):"—"}</td>;
+                          return <td key={q.key} style={{padding:"6px 8px",fontSize:12,fontWeight:600,color:T.textSub,textAlign:"right",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{qv?fmt$(qv):"—"}</td>;
                         })}
-                        <td style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:T.accent,textAlign:"right",fontFamily:"Inter,sans-serif",borderLeft:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(total)}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:T.accent,textAlign:"right",fontFamily:"'DM Sans',sans-serif",borderLeft:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(total)}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1077,7 +1077,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                 {[...budgetDims,...budgetMetaDims].map(d=><option key={d} value={d}>{d}</option>)}
               </Sel>
               <input value={applyMetaVal} onChange={e=>setApplyMetaVal(e.target.value)} placeholder="Value…" onKeyDown={e=>e.key==="Enter"&&applyMetaToSelected()}
-                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:130}}/>
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",width:130}}/>
               <Btn onClick={applyMetaToSelected} disabled={!applyMetaDim||!applyMetaVal} variant="primary" size="sm" T={T}>Apply</Btn>
               <Btn onClick={()=>setSelRows(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
               <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
@@ -1127,7 +1127,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                       <WarnTip T={T} text="No campaigns are tagged to this segment yet. Spend won't roll up here until a campaign is tagged with this exact combination in the Tagger."/>
                     )}
                     {i===budgetDims.length-1&&nb&&(
-                      <span style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textMuted,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"Inter,sans-serif"}}>Not budgeted</span>
+                      <span style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textMuted,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"'DM Sans',sans-serif"}}>Not budgeted</span>
                     )}
                   </td>)}
                   {budgetMetaDims.map(d=>{
@@ -1187,7 +1187,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
               <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
               {[...budgetDims,...budgetMetaDims].map(d=>(
                 <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
-                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:120}}/>
+                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",width:120}}/>
               ))}
               {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
               {segs.some(sg=>isNotBudgeted(sg.key))&&(
@@ -1213,7 +1213,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                     </Sel>
                   ):(
                     <input key={d} value={newRowVals[d]||""} onChange={e=>setNewRowVals(p=>({...p,[d]:e.target.value}))} placeholder={d}
-                      style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:130}}/>
+                      style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",width:130}}/>
                   ))}
                   <Btn onClick={addManualRow} disabled={budgetDims.some(d=>!newRowVals[d]?.trim())} variant="primary" size="sm" T={T}>Add</Btn>
                   <Btn onClick={()=>{setShowAddRow(false);setNewRowVals({});}} variant="ghost" size="sm" T={T}>Cancel</Btn>
@@ -1224,7 +1224,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
         )}
       </div>
 
-      {notif&&<div style={{position:"fixed",bottom:24,right:24,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:300,boxShadow:T.shadowMd,fontFamily:"Inter,sans-serif"}}>{notif}</div>}
+      {notif&&<div style={{position:"fixed",bottom:24,right:24,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:300,boxShadow:T.shadowMd,fontFamily:"'DM Sans',sans-serif"}}>{notif}</div>}
 
       {/* ── IMPORT MODAL ── */}
       {importOpen&&(
@@ -1247,7 +1247,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                   const sk=IMPORT_STEPS[i];const idx=IMPORT_STEPS.indexOf(iStep);
                   return <div key={sk} style={{display:"flex",alignItems:"center",gap:5}}>{i>0&&<span style={{color:T.textDim,fontSize:11}}>›</span>}<span style={{fontSize:12,color:iStep===sk?T.accent:idx>i?T.success:T.textMuted,fontWeight:iStep===sk?600:400}}>{idx>i?"✓ ":""}{label}</span></div>;
                 })}
-                <button onClick={closeImport} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,marginLeft:6,fontFamily:"Inter,sans-serif"}}>×</button>
+                <button onClick={closeImport} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,marginLeft:6,fontFamily:"'DM Sans',sans-serif"}}>×</button>
               </div>
             </div>
 
@@ -1261,7 +1261,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                     <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Which year do these budgets apply to?</div>
                     <div style={{fontSize:12,color:T.textSub,marginBottom:10}}>Applied to all entries — even if the year isn't in the file.</div>
                     <div style={{display:"flex",gap:8}}>
-                      {years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textSub,cursor:"pointer",fontSize:15,fontWeight:iYear===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>)}
+                      {years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{flex:1,padding:"10px 0",borderRadius:8,border:`1.5px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textSub,cursor:"pointer",fontSize:15,fontWeight:iYear===y?700:400,fontFamily:"'DM Sans',sans-serif"}}>{y}</button>)}
                     </div>
                   </div>
                   <div onClick={()=>fileRef.current?.click()} style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:10,padding:"36px 20px",textAlign:"center",cursor:"pointer",background:T.surfaceEl}}>
@@ -1296,7 +1296,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
                           {gsBudget.tabs.map(t=>(
                             <button key={t.sheetId} disabled={gsBudget.fetching} onClick={()=>gsBudget.fetchTab(gsBudget.spreadsheetId,t.title)}
-                              style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsBudget.fetching?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:gsBudget.fetching?0.6:1}}>{t.title}</button>
+                              style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsBudget.fetching?"default":"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",opacity:gsBudget.fetching?0.6:1}}>{t.title}</button>
                           ))}
                         </div>
                         <Btn onClick={gsBudget.cancelTabs} variant="ghost" size="sm" T={T}>Cancel</Btn>
@@ -1305,7 +1305,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                       <div style={{display:"flex",gap:8}}>
                         <input value={gsBudget.url} onChange={e=>gsBudget.setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
                           onKeyDown={e=>e.key==="Enter"&&!gsBudget.fetching&&gsBudget.url.trim()&&gsBudget.connect()}
-                          style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                          style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                         <Btn onClick={gsBudget.connect} disabled={gsBudget.fetching||!gsBudget.url.trim()} variant="primary" size="sm" T={T}>{gsBudget.fetching?"Connecting…":"Connect"}</Btn>
                       </div>
                     )}
@@ -1325,7 +1325,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                     {[{label:"Wide format",example:"Product | Jan | Feb | Mar | Apr..."},{label:"Long format",example:"Product | Platform | Month | Budget"}].map(f=>(
                       <div key={f.label} style={{padding:"10px 12px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8}}>
                         <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:3}}>{f.label}</div>
-                        <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{f.example}</div>
+                        <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{f.example}</div>
                       </div>
                     ))}
                   </div>
@@ -1338,7 +1338,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                   {aiError&&<div style={{padding:"9px 12px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:8,marginBottom:14,fontSize:12,color:T.danger}}>{aiError}</div>}
                   <div style={{padding:"10px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                     <span style={{fontSize:12,color:T.accent,fontWeight:500}}>Year: <strong>{iYear}</strong> · Click a row to set it as the header</span>
-                    <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{padding:"2px 8px",borderRadius:4,border:`1px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif"}}>{y}</button>)}</div>
+                    <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{padding:"2px 8px",borderRadius:4,border:`1px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif"}}>{y}</button>)}</div>
                   </div>
 
                   <div style={{marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
@@ -1367,7 +1367,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                                 {isHeader?"→":ri+1}
                               </td>
                               {row.slice(0,8).map((cell,ci)=>(
-                                <td key={ci} style={{padding:"6px 10px",color:isHeader?T.accent:isSkip?T.danger:isEmpty?T.textDim:T.text,fontWeight:isHeader?600:400,fontFamily:isHeader?"Inter,sans-serif":"Inter,sans-serif",fontSize:isHeader?11:11,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                <td key={ci} style={{padding:"6px 10px",color:isHeader?T.accent:isSkip?T.danger:isEmpty?T.textDim:T.text,fontWeight:isHeader?600:400,fontFamily:isHeader?"'DM Sans',sans-serif":"'DM Sans',sans-serif",fontSize:isHeader?11:11,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                                   {cell||""}
                                 </td>
                               ))}
@@ -1410,7 +1410,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                           <div style={{fontSize:11,color:T.textMuted}}>What are these columns? e.g. Campaign, Ad Set</div>
                         </div>
                         <input value={iSegDim} onChange={e=>setISegDim(e.target.value)} placeholder="e.g. Campaign"
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                       </div>
 
                       {/* Group header row */}
@@ -1427,7 +1427,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                             <div>
                               <div style={{fontSize:12,color:T.textSub,marginBottom:4}}>Which row contains channel labels?</div>
                               <select value={iGroupHeaderRow} onChange={e=>setIGroupHeaderRow(parseInt(e.target.value))}
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:"100%"}}>
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",width:"100%"}}>
                                 {iRawRows.slice(0,iHeaderRow).map((_,i)=>(
                                   <option key={i} value={i}>Row {i+1}: {(iRawRows[i]||[]).filter(v=>String(v||"").trim()).slice(0,3).join(" | ")}</option>
                                 ))}
@@ -1436,7 +1436,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                             <div>
                               <div style={{fontSize:12,color:T.textSub,marginBottom:4}}>Name for this group dimension</div>
                               <input value={iGroupDim} onChange={e=>setIGroupDim(e.target.value)} placeholder="e.g. Channel, Platform"
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",width:"100%"}}/>
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",width:"100%"}}/>
                             </div>
                           </div>
                         )}
@@ -1471,9 +1471,9 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                       {customDims.length===0&&<div style={{fontSize:12,color:T.textMuted,padding:"8px 0"}}>Map any additional columns to new tag dimensions not yet in your list.</div>}
                       {customDims.map((cd,i)=>(
                         <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 28px",gap:8,marginBottom:8,alignItems:"center"}}>
-                          <input value={cd.name} onChange={e=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Dimension name (e.g. BU)" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                          <input value={cd.name} onChange={e=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Dimension name (e.g. BU)" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                           <Sel value={cd.col} onChange={v=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,col:v}:x))} T={T}><option value="">— select column —</option>{iHeaders.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
-                          <button onClick={()=>setCustomDims(p=>p.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,padding:"4px",fontFamily:"Inter,sans-serif"}}>×</button>
+                          <button onClick={()=>setCustomDims(p=>p.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,padding:"4px",fontFamily:"'DM Sans',sans-serif"}}>×</button>
                         </div>
                       ))}
                     </div>
@@ -1513,7 +1513,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                         const active=iFlatMonths.includes(m.key);
                         return(
                           <button key={m.key} type="button" onClick={()=>setIFlatMonths(p=>active?p.filter(k=>k!==m.key):[...p,m.key].sort())}
-                            style={{padding:"6px 4px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"center",
+                            style={{padding:"6px 4px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"center",
                               background:active?T.accent:T.surfaceEl,color:active?"#fff":T.text,
                               border:`1px solid ${active?T.accentHover:T.border}`}}>
                             {m.label}
@@ -1549,8 +1549,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                         {pvGrouped.map((sg,i)=>{const rt=Object.values(sg.months).reduce((s,v)=>s+v,0);return(
                           <tr key={i}>
                             {dimCols.map(d=><td key={d} style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,color:T.text}}>{sg.dims[d]||"—"}</td>)}
-                            {MONTHS.filter(m=>(preview||[]).some(e=>e.monthKey===m.key)).map(m=><td key={m.key} style={{padding:"7px 6px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"Inter,sans-serif",color:sg.months[m.key]?T.text:T.textDim}}>{sg.months[m.key]?fmt$(sg.months[m.key]):"—"}</td>)}
-                            <td style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"Inter,sans-serif",fontWeight:700,color:T.accent}}>{fmt$(rt)}</td>
+                            {MONTHS.filter(m=>(preview||[]).some(e=>e.monthKey===m.key)).map(m=><td key={m.key} style={{padding:"7px 6px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:sg.months[m.key]?T.text:T.textDim}}>{sg.months[m.key]?fmt$(sg.months[m.key]):"—"}</td>)}
+                            <td style={{padding:"7px 10px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontWeight:700,color:T.accent}}>{fmt$(rt)}</td>
                           </tr>
                         );})}
                       </tbody>
@@ -1585,7 +1585,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
           <PixelPanel T={T} style={{width:"100%",maxWidth:460}} contentStyle={{background:T.surface,padding:0}}>
             <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div style={{fontSize:15,fontWeight:700,color:T.text}}>Export preview — {year}</div>
-              <button onClick={()=>setExportPreviewOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:"Inter,sans-serif"}}>×</button>
+              <button onClick={()=>setExportPreviewOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:"'DM Sans',sans-serif"}}>×</button>
             </div>
             <div style={{padding:22}}>
               {exportAnalyzing?(

@@ -38,7 +38,7 @@ const AskAI = lazy(() => import("./components/AskAI.jsx"));
 // Minimal, theme-matched fallback while a lazily-loaded tab chunk is still fetching — deliberately
 // plain (no logo/branding) since this only ever shows for a moment on a cold chunk load.
 const TabLoadingFallback = () => (
-  <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:60,color:THEME.textMuted,fontSize:13,fontFamily:"Inter,sans-serif"}}>
+  <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:60,color:THEME.textMuted,fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>
     <span style={{width:14,height:14,border:`2px solid ${THEME.border}`,borderTopColor:THEME.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block",marginRight:8}}/>
     Loading…
   </div>
@@ -1855,7 +1855,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // White fill, same as the toolbar behind it — Vercel's filter pills are white-on-white with
   // just a border for separation, not a gray fill. paddingLeft is bumped separately on the three
   // primary "contains" fields to make room for the search icon from IconField.
-  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"6px 9px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",width:"100%",marginTop:3,height:30,boxSizing:"border-box"};
+  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"6px 9px",fontSize:11,outline:"none",fontFamily:"'DM Sans',sans-serif",width:"100%",marginTop:3,height:30,boxSizing:"border-box"};
 
   // Persistent stats sidebar (middle column) — shown regardless of which tab is active.
   // Falls back to labeled sample numbers before any real data is loaded, same treatment
@@ -1913,23 +1913,23 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // lands, or silently losing data if a save effect fired against the pre-load empty state.
   if(workspace&&workspaceDataLoading){
     return(
-      <div style={{height:"100vh",width:"100vw",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.textMuted,fontFamily:"Inter,sans-serif",fontSize:13}}>
+      <div style={{height:"100vh",width:"100vw",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",fontSize:13}}>
         Loading {workspace.name}…
       </div>
     );
   }
   if(workspace&&workspaceDataError){
     return(
-      <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.bg,fontFamily:"Inter,sans-serif",padding:24}}>
+      <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.bg,fontFamily:"'DM Sans',sans-serif",padding:24}}>
         <div style={{padding:"12px 16px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:8,color:T.danger,fontSize:13,maxWidth:420,textAlign:"center"}}>{workspaceDataError}</div>
-        <button onClick={()=>window.location.reload()} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"7px 16px",fontSize:12,color:T.text,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>Reload</button>
+        <button onClick={()=>window.location.reload()} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"7px 16px",fontSize:12,color:T.text,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Reload</button>
       </div>
     );
   }
 
   return(
-    <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"Inter,sans-serif",overflow:"hidden",position:"relative"}}>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+    <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",position:"relative"}}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
 
       {/* ── TOP BAR ──
           The divider under the bar is NOT one continuous border on this outer div — that made
@@ -2009,7 +2009,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           {workspace&&workspaces&&(
             <div style={{position:"relative"}}>
               <button className="bhq-iconbtn" onClick={()=>setWorkspaceMenuOpen(o=>!o)}
-                style={{display:"flex",alignItems:"center",gap:6,height:30,padding:"0 10px",borderRadius:8,background:workspaceMenuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",transition:"background 0.12s",fontFamily:"Inter,sans-serif"}}>
+                style={{display:"flex",alignItems:"center",gap:6,height:30,padding:"0 10px",borderRadius:8,background:workspaceMenuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",transition:"background 0.12s",fontFamily:"'DM Sans',sans-serif"}}>
                 {!isMobile&&<span style={{fontSize:11,fontWeight:600,color:T.text,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{workspace.name}</span>}
                 <Icon name="chevronDown" size={11} color={T.textMuted}/>
               </button>
@@ -2019,14 +2019,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Workspaces</div>
                   {workspaces.map(w=>(
                     <button key={w.id} className="bhq-row" onClick={()=>{setWorkspaceMenuOpen(false);onSwitchWorkspace&&onSwitchWorkspace(w.id);}}
-                      style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 10px",borderRadius:6,background:w.id===workspace.id?T.accentBg:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                      style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 10px",borderRadius:6,background:w.id===workspace.id?T.accentBg:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
                       <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
                       {w.id===workspace.id&&<Icon name="check" size={13} color={T.accent}/>}
                     </button>
                   ))}
                   <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
                   <button className="bhq-row" onClick={()=>{setWorkspaceMenuOpen(false);onCreateWorkspace&&onCreateWorkspace();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
                     + New workspace
                   </button>
                 </div>
@@ -2036,7 +2036,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           {session&&(
             <div style={{position:"relative"}}>
               <button className="bhq-iconbtn" title={session.user?.email} onClick={()=>setAccountMenuOpen(o=>!o)}
-                style={{width:30,height:30,borderRadius:"50%",background:accountMenuOpen?T.surfaceHover:T.accentBg,border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11,fontWeight:700,color:T.accent,fontFamily:"Inter,sans-serif"}}>
+                style={{width:30,height:30,borderRadius:"50%",background:accountMenuOpen?T.surfaceHover:T.accentBg,border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11,fontWeight:700,color:T.accent,fontFamily:"'DM Sans',sans-serif"}}>
                 {(session.user?.email||"?")[0].toUpperCase()}
               </button>
               {accountMenuOpen&&(<>
@@ -2045,7 +2045,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   <div style={{padding:"7px 10px 8px",fontSize:12,color:T.text,fontWeight:600,wordBreak:"break-all"}}>{session.user?.email}</div>
                   <div style={{height:1,background:T.border,margin:"2px 4px 6px"}}/>
                   <button className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onSignOut&&onSignOut();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
                     Sign out
                   </button>
                   {/* Other accounts held in this browser (e.g. a client's login alongside your
@@ -2057,7 +2057,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Switch account</div>
                     {accounts.filter(a=>a.storageKey!==activeAccountKey).map(a=>(
                       <button key={a.storageKey} className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onSwitchAccount&&onSwitchAccount(a.storageKey);}}
-                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left",overflow:"hidden"}}>
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left",overflow:"hidden"}}>
                         <span style={{width:18,height:18,borderRadius:"50%",background:T.accentBg,color:T.accent,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{(a.email||"?")[0].toUpperCase()}</span>
                         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.email}</span>
                       </button>
@@ -2065,7 +2065,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   </>)}
                   <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
                   <button className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onAddAccount&&onAddAccount();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
                     + Add account
                   </button>
                 </div>
@@ -2088,27 +2088,27 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div style={{display:"flex",gap:4,padding:"0 6px 6px"}}>
                   {EXPORT_FORMATS.map(f=>(
                     <button key={f.key} className="bhq-row" onClick={()=>{setFileMenuOpen(false);handleExportDownload(f.key);}}
-                      style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                      style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
                       {f.label}
                     </button>
                   ))}
                 </div>
                 <button className="bhq-row" disabled={sheetsExporting} onClick={()=>{setFileMenuOpen(false);handleExportToGoogleSheets();}}
-                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
                   <Icon name="export" size={14} color={T.textSub}/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
                 </button>
                 <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);openEmailExport();}}
-                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
                   <Icon name="mail" size={14} color={T.textSub}/> Email a copy…
                 </button>
                 <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
               </>)}
               {canEdit&&<button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
-                style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
                 <Icon name="save" size={14} color={T.textSub}/> Name current version…
               </button>}
               {canEdit&&<button className="bhq-row" onClick={openVersionHistory}
-                style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left"}}>
+                style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
                 <Icon name="clock" size={14} color={T.textSub}/> Version history
               </button>}
             </div>
@@ -2121,7 +2121,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           plainly regardless of which tab you're on, rather than only finding out via a failed
           save. Owners/admins never see this. */}
       {!canEdit&&(
-        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.accentBorder}`,fontSize:12,color:T.text,fontFamily:"Inter,sans-serif",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.accentBorder}`,fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>
           <Icon name="lock" size={12} color={T.textSub}/>
           You have view-only access to this workspace — ask an owner or admin for edit access.
         </div>
@@ -2155,15 +2155,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <SectionLabel T={T} style={{marginBottom:8,fontSize:11}}>Data source health</SectionLabel>
               {(()=>{
                 const issues=(connectionDetails||[]).filter(c=>c.needsReconnect||c.needsAccountSelection||c.lastAutoSyncStatus==="error");
-                if(!connectionDetails||connectionDetails.length===0)return<div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,fontFamily:"Inter,sans-serif",marginBottom:14}}>No connectors set up yet — connect one below.</div>;
-                if(issues.length===0)return<div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:"Inter,sans-serif",marginBottom:14}}>All {connectionDetails.length} connected source{connectionDetails.length===1?"":"s"} healthy.</div>;
+                if(!connectionDetails||connectionDetails.length===0)return<div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",marginBottom:14}}>No connectors set up yet — connect one below.</div>;
+                if(issues.length===0)return<div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",marginBottom:14}}>All {connectionDetails.length} connected source{connectionDetails.length===1?"":"s"} healthy.</div>;
                 return(
                   <div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:14}}>
                     {issues.map(c=>{
                       const reason=c.needsReconnect?"Reconnect":c.needsAccountSelection?"Pick account":"Sync failed";
                       return(
                         <div key={c.provider} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",gap:8}}>
-                          <span style={{fontSize:12,color:T.text,fontFamily:"Inter,sans-serif",textTransform:"capitalize"}}>{c.provider}</span>
+                          <span style={{fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif",textTransform:"capitalize"}}>{c.provider}</span>
                           <Pill color={T.warning} bg={T.warning+"14"} border={T.warning+"55"} style={{fontSize:10}}>{reason}</Pill>
                         </div>
                       );
@@ -2200,7 +2200,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:0,opacity:0.5,transition:"opacity 0.1s, color 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.color=T.danger;}}
                         onMouseLeave={e=>{e.currentTarget.style.opacity=0.5;e.currentTarget.style.color=T.textMuted;}}>×</button>
-                      <span style={{fontSize:11,fontWeight:600,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
+                      <span style={{fontSize:11,fontWeight:600,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
                     </span>
                   </div>
                 ))}
@@ -2213,7 +2213,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div style={{padding:"12px 0",flex:1}}>
                 <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
                 {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(visibleNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T} size={11}/>)}
-                {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif",lineHeight:1.6}}>{stats.dateRange}</div>}
+                {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:"'DM Sans',sans-serif",lineHeight:1.6}}>{stats.dateRange}</div>}
                 <div style={{marginTop:10,height:3,background:T.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accentSoft,transition:"width 0.4s",borderRadius:2}}/></div>
                 <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
                 <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
@@ -2232,7 +2232,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
                             {gsTags.tabs.map(t=>(
                               <button key={t.sheetId} disabled={gsTags.fetching} onClick={()=>gsTags.fetchTab(gsTags.spreadsheetId,t.title)}
-                                style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsTags.fetching?"default":"pointer",fontSize:11,fontFamily:"Inter,sans-serif",opacity:gsTags.fetching?0.6:1}}>{t.title}</button>
+                                style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsTags.fetching?"default":"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",opacity:gsTags.fetching?0.6:1}}>{t.title}</button>
                             ))}
                           </div>
                           <Btn onClick={gsTags.cancelTabs} variant="ghost" size="sm" T={T}>Cancel</Btn>
@@ -2241,7 +2241,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         <>
                           <input value={gsTags.url} onChange={e=>gsTags.setUrl(e.target.value)} placeholder="Google Sheets URL…"
                             onKeyDown={e=>e.key==="Enter"&&!gsTags.fetching&&gsTags.url.trim()&&gsTags.connect()}
-                            style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:6}}/>
+                            style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 8px",fontSize:11,outline:"none",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}/>
                           <Btn onClick={gsTags.connect} disabled={gsTags.fetching||!gsTags.url.trim()} variant="primary" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{gsTags.fetching?"Connecting…":"Connect"}</Btn>
                         </>
                       )}
@@ -2264,21 +2264,21 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   <div style={{marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:14}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                       <SectionLabel T={T} style={{marginBottom:0,fontSize:11}}>Filter by tag</SectionLabel>
-                      {selectedTagFilters.size>0&&<span style={{fontSize:10,color:T.text,fontWeight:600,fontFamily:"Inter,sans-serif"}}>{selectedTagFilters.size} active</span>}
+                      {selectedTagFilters.size>0&&<span style={{fontSize:10,color:T.text,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>{selectedTagFilters.size} active</span>}
                     </div>
                     {tagDims.map(dim=>{
                       const vals=Object.entries(tagValueMap[dim]||{}).sort((a,b)=>b[1]-a[1]);
                       if(!vals.length)return null;
                       return(
                         <div key={dim} style={{marginBottom:12}}>
-                          <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"Inter,sans-serif"}}>{dim}</div>
+                          <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:"'DM Sans',sans-serif"}}>{dim}</div>
                           <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                             {vals.map(([val,count])=>{
                               const key=`${dim}:${val}`;
                               const active=selectedTagFilters.has(key);
                               return(
                                 <button key={val} onClick={()=>toggleTagFilter(dim,val)}
-                                  style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:14,fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:"Inter,sans-serif",
+                                  style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:14,fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",
                                     background:active?T.accent:T.surfaceEl,
                                     color:T.text,
                                     border:`1px solid ${active?T.accentHover:T.border}`,
@@ -2293,9 +2293,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       );
                     })}
                     {selectedTagFilters.size>0&&(
-                      <div style={{fontSize:11,color:T.textMuted,marginTop:4,fontFamily:"Inter,sans-serif"}}>
+                      <div style={{fontSize:11,color:T.textMuted,marginTop:4,fontFamily:"'DM Sans',sans-serif"}}>
                         AND across dimensions · OR within
-                        <button onClick={()=>setSelectedTagFilters(new Set())} style={{display:"block",fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"Inter,sans-serif"}}>Clear tag filters ×</button>
+                        <button onClick={()=>setSelectedTagFilters(new Set())} style={{display:"block",fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"'DM Sans',sans-serif"}}>Clear tag filters ×</button>
                       </div>
                     )}
                   </div>
@@ -2305,7 +2305,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           ):(<>
           <PixelPanel T={T} style={{opacity:hasSidebarData?1:0.7}} contentStyle={{padding:"14px 16px",background:T.accentBg}}>
             <div style={{fontSize:10,fontWeight:700,color:T.textSub,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>Total spend</div>
-            <div style={{fontSize:20,fontWeight:800,color:T.text,fontFamily:"Inter,sans-serif"}}>{hasSidebarData?"$"+Math.round(stats.totalSpend).toLocaleString():"No data yet"}</div>
+            <div style={{fontSize:20,fontWeight:800,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{hasSidebarData?"$"+Math.round(stats.totalSpend).toLocaleString():"No data yet"}</div>
           </PixelPanel>
           {!hasSidebarData&&(
             <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 10px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:20,alignSelf:"flex-start"}}>
@@ -2319,7 +2319,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <span style={{width:7,height:7,borderRadius:"50%",background:s.dot,flexShrink:0}}/>
                 <span style={{fontSize:10,fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>{s.label}</span>
               </div>
-              <div style={{fontSize:19,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>{s.value}</div>
+              <div style={{fontSize:19,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{s.value}</div>
             </PixelPanel>
           ))}
           </>)}
@@ -2345,7 +2345,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       {/* ── MAIN ── */}
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
 
-      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"Inter,sans-serif"}}>{notif}</div>}
+      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"'DM Sans',sans-serif"}}>{notif}</div>}
 
       {/* ── UPLOAD ── (moved 2026-07-24 from view==="tagger" to its own view==="data" — see NAV) */}
       {step==="upload"&&view==="data"&&(
@@ -2362,14 +2362,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 return(
                   <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                      <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Connect {pl.label}</div>
+                      <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Connect {pl.label}</div>
                       <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                     </div>
                     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                       {(pl.connectFields||[]).map(f=>(
                         <input key={f.key} value={connectValues[f.key]||""} placeholder={f.placeholder}
                           onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
-                          style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                          style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                       ))}
                     </div>
                     {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
@@ -2382,7 +2382,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               {oauthPicker&&(
                 <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
+                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
                     <span onClick={()=>setOauthPicker(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                   </div>
                   {oauthPicker.accounts.length===0?(
@@ -2394,7 +2394,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           style={{textAlign:"left",padding:"7px 10px",borderRadius:6,
                             border:`1px solid ${a.id===oauthPicker.selectedAccountId?T.accentBorder:T.border}`,
                             background:a.id===oauthPicker.selectedAccountId?T.accentBg:T.surface,
-                            color:T.text,cursor:oauthPickerSaving?"default":"pointer",fontSize:12,fontFamily:"Inter,sans-serif",opacity:oauthPickerSaving?0.6:1}}>
+                            color:T.text,cursor:oauthPickerSaving?"default":"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",opacity:oauthPickerSaving?0.6:1}}>
                           {a.name} <span style={{color:T.textMuted,fontSize:10}}>({a.id})</span>
                         </button>
                       ))}
@@ -2405,7 +2405,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               {gsheetSpendOpen&&(
                 <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Pull spend from Google Sheets</div>
+                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Pull spend from Google Sheets</div>
                     <span onClick={()=>setGsheetSpendOpen(false)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                   </div>
                   {gsSpend.tabs?.length>1?(
@@ -2414,7 +2414,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
                         {gsSpend.tabs.map(t=>(
                           <button key={t.sheetId} disabled={gsSpend.fetching} onClick={()=>gsSpend.fetchTab(gsSpend.spreadsheetId,t.title)}
-                            style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsSpend.fetching?"default":"pointer",fontSize:11,fontFamily:"Inter,sans-serif",opacity:gsSpend.fetching?0.6:1}}>{t.title}</button>
+                            style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsSpend.fetching?"default":"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",opacity:gsSpend.fetching?0.6:1}}>{t.title}</button>
                         ))}
                       </div>
                     </div>
@@ -2422,7 +2422,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     <>
                       <input value={gsSpend.url} onChange={e=>gsSpend.setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
                         onKeyDown={e=>e.key==="Enter"&&!gsSpend.fetching&&gsSpend.url.trim()&&gsSpend.connect()}
-                        style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:8}}/>
+                        style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",marginBottom:8}}/>
                       <Btn onClick={gsSpend.connect} disabled={gsSpend.fetching||!gsSpend.url.trim()} variant="primary" size="sm" T={T}>{gsSpend.fetching?"Connecting…":"Connect"}</Btn>
                     </>
                   )}
@@ -2452,14 +2452,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 what's already connected. CSV/Screenshot/Budget file are cards here too, alongside
                 the live connectors, per his call when scoping this.) */
             <div style={{flex:1,padding:isMobile?16:"24px 32px",overflow:"auto"}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,fontSize:12,fontFamily:"Inter,sans-serif"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
                 <span onClick={()=>setDataSourcesSubView("connections")} style={{color:T.accent,cursor:"pointer",fontWeight:600}}>Data Sources</span>
                 <span style={{color:T.textMuted}}>/</span>
                 <span style={{color:T.textSub}}>Add data source</span>
               </div>
               <h1 style={{fontSize:isMobile?20:24,fontWeight:700,color:T.text,letterSpacing:"-0.4px",margin:"6px 0 14px"}}>Add data source</h1>
               <input value={dataSourceSearch} onChange={e=>setDataSourceSearch(e.target.value)} placeholder="Search data sources…"
-                style={{width:"100%",maxWidth:360,boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"8px 12px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif",marginBottom:20}}/>
+                style={{width:"100%",maxWidth:360,boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:8,color:T.text,padding:"8px 12px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",marginBottom:20}}/>
               {(()=>{
                 const cards=[
                   ...PLATFORMS.map(pl=>{
@@ -2497,7 +2497,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         style={{border:`1px solid ${isDropTarget&&dragOver?T.accent:T.border}`,borderRadius:10,background:isDropTarget&&dragOver?T.accentBg:T.surface,padding:"16px",cursor:"pointer",transition:"all 0.15s"}}>
                         <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
                           <PlatformLogo domain={c.domain} color={c.color} mark={c.mark}/>
-                          <span style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>{c.label}</span>
+                          <span style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{c.label}</span>
                           {c.isConnected&&!c.warn&&<Pill color={T.success} bg={T.successBg} border={T.successBorder} style={{fontSize:9}}>Connected</Pill>}
                           {c.warn&&<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder} style={{fontSize:9}}>Needs attention</Pill>}
                         </div>
@@ -2508,7 +2508,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       );
                     })}
                     {cards.length===0&&(
-                      <div style={{gridColumn:"1/-1",fontSize:13,color:T.textMuted,fontFamily:"Inter,sans-serif",padding:"20px 0"}}>No data sources match "{dataSourceSearch}".</div>
+                      <div style={{gridColumn:"1/-1",fontSize:13,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",padding:"20px 0"}}>No data sources match "{dataSourceSearch}".</div>
                     )}
                   </div>
                 );
@@ -2523,7 +2523,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <div style={{position:"relative"}}>
                     <button onClick={()=>setSyncRangePickerOpen(o=>!o)}
-                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif"}}>
+                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 9px",borderRadius:6,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif"}}>
                       <span style={{color:T.textMuted}}>Range:</span> {syncDateRange.start} → {syncDateRange.end}
                     </button>
                     {syncRangePickerOpen&&(
@@ -2531,19 +2531,19 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         <div style={{display:"flex",gap:14,marginBottom:12,borderBottom:`1px solid ${T.border}`}}>
                           {["recommended","custom"].map(tab=>(
                             <span key={tab} onClick={()=>setSyncRangeTab(tab)}
-                              style={{fontSize:12,fontWeight:600,paddingBottom:8,cursor:"pointer",color:syncRangeTab===tab?T.accent:T.textMuted,borderBottom:syncRangeTab===tab?`2px solid ${T.accent}`:"2px solid transparent",textTransform:"capitalize",fontFamily:"Inter,sans-serif"}}>{tab}</span>
+                              style={{fontSize:12,fontWeight:600,paddingBottom:8,cursor:"pointer",color:syncRangeTab===tab?T.accent:T.textMuted,borderBottom:syncRangeTab===tab?`2px solid ${T.accent}`:"2px solid transparent",textTransform:"capitalize",fontFamily:"'DM Sans',sans-serif"}}>{tab}</span>
                           ))}
                         </div>
                         {syncRangeTab==="recommended"?(
                           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                             {SYNC_RANGE_PRESETS.map(p=>(
                               <button key={p.label} onClick={()=>applySyncRangePreset(p)}
-                                style={{padding:"5px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:T.surfaceEl,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif"}}>{p.label}</button>
+                                style={{padding:"5px 10px",borderRadius:20,border:`1px solid ${T.border}`,background:T.surfaceEl,color:T.text,cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif"}}>{p.label}</button>
                             ))}
                           </div>
                         ):(
                           <div>
-                            <div style={{fontSize:11,color:T.textMuted,marginBottom:8,fontFamily:"Inter,sans-serif"}}>Pick an exact start and end date — useful for redoing a specific past window a preset doesn't cover.</div>
+                            <div style={{fontSize:11,color:T.textMuted,marginBottom:8,fontFamily:"'DM Sans',sans-serif"}}>Pick an exact start and end date — useful for redoing a specific past window a preset doesn't cover.</div>
                             <div style={{display:"flex",gap:6,alignItems:"center"}}>
                               <input type="date" value={syncDateRange.start} onChange={e=>setSyncDateRange(p=>({...p,start:e.target.value}))}
                                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
@@ -2567,7 +2567,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   </Btn>
                 </div>
               </div>
-              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:620,marginBottom:10}}>
+              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:620,marginBottom:10}}>
                 Every ad account this workspace pulls live spend from — see who connected each one, when it last imported, and manage it from the ⋯ menu.
               </div>
               {Object.entries(syncState).filter(([,s])=>s.startsWith("error:")).map(([k,s])=>(
@@ -2579,8 +2579,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 if(connectedPlatforms.length===0){
                   return(
                     <div style={{border:`1px dashed ${T.borderStrong}`,borderRadius:10,padding:"28px 20px",textAlign:"center"}}>
-                      <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",marginBottom:4}}>No data sources connected yet</div>
-                      <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif",marginBottom:14}}>Connect LinkedIn, Bing, Funnel.io and more — or upload a CSV/screenshot directly.</div>
+                      <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",marginBottom:4}}>No data sources connected yet</div>
+                      <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginBottom:14}}>Connect LinkedIn, Bing, Funnel.io and more — or upload a CSV/screenshot directly.</div>
                       <Btn onClick={()=>setDataSourcesSubView("add")} variant="primary" size="sm" T={T}>+ Add data source</Btn>
                     </div>
                   );
@@ -2624,22 +2624,22 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     const menuOpen=connActionsMenuProvider===pl.key;
                     const syncing=(syncState[pl.key]||"idle")==="loading";
                     const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key||syncing;
-                    const cell=(content,extra)=><div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
+                    const cell=(content,extra)=><div style={{fontSize:12,color:T.textSub,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
                     const actionsMenu=menuOpen&&connActionsMenuAnchorRect&&createPortal(
                       <>
                         <div onClick={closeConnActionsMenu} style={{position:"fixed",inset:0,zIndex:999}}/>
                         <div style={{position:"fixed",top:connActionsMenuAnchorRect.bottom+6,left:Math.max(8,connActionsMenuAnchorRect.right-220),zIndex:1000,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
                           {!conn.paused&&!conn.needsReconnect&&!conn.needsAccountSelection&&(
-                            <button onClick={()=>{closeConnActionsMenu();syncPlatform(pl.key);}} disabled={!canEdit||syncing} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!syncing?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!syncing?1:0.5}}>{syncing?"Syncing…":"Sync now"}</button>
+                            <button onClick={()=>{closeConnActionsMenu();syncPlatform(pl.key);}} disabled={!canEdit||syncing} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!syncing?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit&&!syncing?1:0.5}}>{syncing?"Syncing…":"Sync now"}</button>
                           )}
                           {conn.needsAccountSelection&&(
-                            <button onClick={()=>{closeConnActionsMenu();openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
+                            <button onClick={()=>{closeConnActionsMenu();openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
                           )}
                           {conn.needsReconnect&&(
-                            <button onClick={()=>{closeConnActionsMenu();startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
+                            <button onClick={()=>{closeConnActionsMenu();startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
                           )}
                           {!conn.needsAccountSelection&&!conn.needsReconnect&&(
-                            <button onClick={()=>{closeConnActionsMenu();pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
+                            <button onClick={()=>{closeConnActionsMenu();pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
                           )}
                           {!warn&&(
                             <div style={{padding:"6px 10px 4px"}} onClick={e=>e.stopPropagation()}>
@@ -2665,7 +2665,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                                 )}
                               </div>
                               {conn.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
-                                <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:5}}>
+                                <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginTop:5}}>
                                   {conn.lastAutoSyncStatus==="error"
                                     ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
                                     :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
@@ -2674,10 +2674,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                             </div>
                           )}
                           <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
-                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in BudgetHQ":"Don't use this data in BudgetHQ"}</button>
+                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
+                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in BudgetHQ":"Don't use this data in BudgetHQ"}</button>
                           <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                          <button onClick={()=>{closeConnActionsMenu();disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"Inter,sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
+                          <button onClick={()=>{closeConnActionsMenu();disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
                         </div>
                       </>,
                       document.body
@@ -2689,7 +2689,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                             setConnActionsMenuAnchorRect(e.currentTarget.getBoundingClientRect());
                             setConnActionsMenuProvider(pl.key);
                           }} title="Actions" disabled={saving}
-                          style={{width:24,height:24,borderRadius:6,background:menuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:saving?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.5:1,fontSize:13,color:T.textSub,fontFamily:"Inter,sans-serif",lineHeight:1}}>⋯</button>
+                          style={{width:24,height:24,borderRadius:6,background:menuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:saving?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.5:1,fontSize:13,color:T.textSub,fontFamily:"'DM Sans',sans-serif",lineHeight:1}}>⋯</button>
                         {actionsMenu}
                       </div>
                     );
@@ -2699,7 +2699,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
                             <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
                               <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
-                              <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{pl.label}</span>
+                              <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{pl.label}</span>
                               <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
                               <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10}} title={syncTitle}>{syncLabel}</Pill>
                               {syncFailed&&(
@@ -2708,8 +2708,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                             </div>
                             {dotsButton}
                           </div>
-                          <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif"}}>{summaryText}</div>
-                          <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif",marginTop:3}}>
+                          <div style={{fontSize:12,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>{summaryText}</div>
+                          <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginTop:3}}>
                             {connectedByEmail||"—"} · connected {fmtShort(conn.connectedAt)} · imported {fmtShort(importRange?.start)}–{fmtShort(importRange?.end)}
                           </div>
                         </div>
@@ -2719,7 +2719,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div key={pl.key} style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 10px",alignItems:"center",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                         <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
                           <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
-                          <span style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
+                          <span style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
                         </div>
                         {cell(summaryText,{color:T.text})}
                         {cell(connectedByEmail||"—")}
@@ -2821,9 +2821,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   </div>
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
                     <button type="button" onClick={()=>setUploadPlatform("auto")}
-                      style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${uploadPlatform==="auto"?T.accent:T.border}`,background:uploadPlatform==="auto"?T.accent:T.surface,color:uploadPlatform==="auto"?"#fff":T.text,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>Multiple channels</button>
+                      style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${uploadPlatform==="auto"?T.accent:T.border}`,background:uploadPlatform==="auto"?T.accent:T.surface,color:uploadPlatform==="auto"?"#fff":T.text,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Multiple channels</button>
                     <button type="button" onClick={()=>setUploadPlatform(p=>p==="auto"?"Google":p)}
-                      style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${uploadPlatform!=="auto"?T.accent:T.border}`,background:uploadPlatform!=="auto"?T.accent:T.surface,color:uploadPlatform!=="auto"?"#fff":T.text,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>Single channel</button>
+                      style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${uploadPlatform!=="auto"?T.accent:T.border}`,background:uploadPlatform!=="auto"?T.accent:T.surface,color:uploadPlatform!=="auto"?"#fff":T.text,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Single channel</button>
                   </div>
                 </div>
                 {uploadPlatform!=="auto"&&(
@@ -2868,7 +2868,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Each row's full-month spend is treated as current through this date — adjust if you pulled the export on a different day than today.</div>
                     </div>
                     <input type="date" value={uploadAsOf} onChange={e=>setUploadAsOf(e.target.value)}
-                      style={{background:T.inputBg,border:`1px solid ${uploadIsMonthly&&!uploadAsOf?T.dangerBorder:T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                      style={{background:T.inputBg,border:`1px solid ${uploadIsMonthly&&!uploadAsOf?T.dangerBorder:T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                   </div>
                 )}
               </div>
@@ -2923,7 +2923,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             {suggestions.length>0&&(
               <div style={{padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.border}`,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
                 <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text}}>Suggest</span>
-                {suggestions.map(s=><button key={s.key} onClick={()=>applySug(s.dim,s.val)} style={{fontSize:12,background:T.surface,border:`1px solid ${T.border}`,color:T.text,borderRadius:14,padding:"3px 10px",cursor:"pointer",fontFamily:"Inter,sans-serif",fontWeight:500}}>Apply {s.dim}: {s.val} to {s.count} untagged</button>)}
+                {suggestions.map(s=><button key={s.key} onClick={()=>applySug(s.dim,s.val)} style={{fontSize:12,background:T.surface,border:`1px solid ${T.border}`,color:T.text,borderRadius:14,padding:"3px 10px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:500}}>Apply {s.dim}: {s.val} to {s.count} untagged</button>)}
               </div>
             )}
             {selected.size>0&&(
@@ -2932,7 +2932,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <span style={{color:T.textMuted,fontSize:13}}>→</span>
                 <Sel value={applyDim} onChange={setApplyDim} T={T} style={{width:130,fontSize:12}}><option value="">Dimension…</option>{tagDims.map(d=><option key={d} value={d}>{d}</option>)}</Sel>
                 <TagAutocompleteInput T={T} value={applyVal} onChange={setApplyVal} suggestions={dimSuggestions(applyDim)} onEnter={applyTags} placeholder="Tag value…" style={{width:130}}
-                  inputStyle={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif",transition:"border-color 0.12s"}}/>
+                  inputStyle={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",transition:"border-color 0.12s"}}/>
                 <Btn onClick={applyTags} disabled={!applyDim||!applyVal} variant="primary" size="sm" T={T}>Apply</Btn>
                 <Btn onClick={()=>bulkRemoveTag(applyDim)} disabled={!applyDim} variant="danger" size="sm" T={T}>Remove</Btn>
                 <div style={{width:1,height:16,background:T.border}}/>
@@ -2947,12 +2947,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <div style={{borderBottom:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0}}>
               <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px 0"}}>
                 <button onClick={()=>setFiltersOpen(o=>!o)} title={filtersOpen?"Hide filters":"Show filters"}
-                  style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontFamily:"Inter,sans-serif",fontSize:11,fontWeight:600,color:T.text,outline:"none"}}>
+                  style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:600,color:T.text,outline:"none"}}>
                   <Icon name="filter" size={12} color={T.text}/>
                   Filters
                   {hasF&&<span style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>}
                 </button>
-                {!filtersOpen&&hasF&&<button onClick={clearF} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
+                {!filtersOpen&&hasF&&<button onClick={clearF} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
                 {/* Replaces the top bar's old "↑ Add data" button (removed 2026-07-24, see the
                     doc comment where it used to live) — same destination, just living down here
                     with the rest of this table's own controls instead of the crowded global bar. */}
@@ -2974,7 +2974,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 {!isMobile&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                   <SH col="tags" label="Tags"/>
                   {tagsHistory.length>0&&<button onClick={undoTags} title="Undo last tag action (⌘Z)"
-                    style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:5,color:T.text,cursor:"pointer",fontSize:10,padding:"1px 6px",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>
+                    style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:5,color:T.text,cursor:"pointer",fontSize:10,padding:"1px 6px",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>
                     ↩ Undo ({tagsHistory.length})
                   </button>}
                 </div>}
@@ -3014,7 +3014,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     </IconField>
                     <MatchModeToggle mode={fTagInclMode} onChange={setFTagInclMode} T={T}/>
                     <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{...fIn,width:120,cursor:"pointer",marginTop:0}}><option value="all">All</option><option value="tagged">Tagged</option><option value="untagged">Needs review</option></select>
-                    {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.danger}`,color:T.danger,borderRadius:6,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
+                    {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.danger}`,color:T.danger,borderRadius:6,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>Clear ×</button>}
                   </div>
                   <div style={{display:"flex",gap:4}}>
                     <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes… (a, b)" title={`Comma-separate multiple terms — ${fTagExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0}}/>
@@ -3035,21 +3035,21 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         of a muted-vs-bold pair — Vercel's row title and metadata fields read at the
                         same visual weight, just differing in which column they sit in. Weight
                         dropped to 400 (2026-07-24, per Mo) — no benefit to bolding row data. */}
-                    {!isMobile&&<div style={{fontSize:11,fontWeight:400,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
+                    {!isMobile&&<div style={{fontSize:11,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
                     {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
                         here it means tagged (accent) vs needs review (neutral grey), so the row list
                         reads at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
                       <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?T.accentSoft:"#A1A1AA",flexShrink:0}}/>
-                      <span style={{minWidth:0,fontSize:11,fontWeight:400,fontFamily:"Inter,sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                      <span style={{minWidth:0,fontSize:11,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
-                    <div style={{fontSize:11,fontFamily:"Inter,sans-serif",fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
+                    <div style={{fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
                       {editingPlatform===c.key?(
                         <select autoFocus value={c.platform}
                           onChange={e=>{if(!canEdit)return;const plat=e.target.value;setMergedNormRows(prev=>prev.map(r=>campaignKey(r.campaign_group_name,r.campaign_name)===c.key?{...r,platform:plat}:r));setEditingPlatform(null);}}
                           onBlur={()=>setEditingPlatform(null)}
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:11,padding:"2px 6px",outline:"none",fontFamily:"Inter,sans-serif",cursor:"pointer"}}>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:11,padding:"2px 6px",outline:"none",fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
                           {PLATFORM_OPTIONS.filter(p=>p!=="auto").map(p=><option key={p} value={p}>{p}</option>)}
                         </select>
                       ):(
@@ -3073,13 +3073,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           const dimIdx=tagDims.indexOf(dim);
                           const dc=TAG_DIM_COLORS[(dimIdx>=0?dimIdx:0)%TAG_DIM_COLORS.length];
                           return(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:6,background:dc+"14",color:dc,border:`1px solid ${dc}40`,gap:2,fontFamily:"Inter,sans-serif"}}>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:6,background:dc+"14",color:dc,border:`1px solid ${dc}40`,gap:2,fontFamily:"'DM Sans',sans-serif"}}>
                             <span style={{opacity:0.75,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
                               <TagAutocompleteInput T={T} autoFocus value={editVal} onChange={setEditVal} suggestions={dimSuggestions(dim)}
                                 onEnter={saveEdit} onEscape={()=>{setEditingTag(null);setEditVal("");}} onBlur={saveEdit}
                                 style={{width:Math.max(60,editVal.length*7+20)+"px"}}
-                                inputStyle={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontWeight:600,width:"100%",fontFamily:"Inter,sans-serif",padding:0}}/>
+                                inputStyle={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontWeight:600,width:"100%",fontFamily:"'DM Sans',sans-serif",padding:0}}/>
                             ):(
                               <span onClick={e=>{e.stopPropagation();if(!canEdit)return;setEditingTag({campaign:c.key,dim});setEditVal(val);}} style={{cursor:canEdit?"text":"default",fontWeight:600}}>{val}</span>
                             )}
@@ -3146,9 +3146,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         const rowSection=({title,desc,stat,action,label,disabled})=>(
           <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
             <div>
-              <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>{title}</div>
-              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480}}>{desc}</div>
-              <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif"}}>{stat}</div>
+              <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>{title}</div>
+              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:480}}>{desc}</div>
+              <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"'DM Sans',sans-serif"}}>{stat}</div>
             </div>
             <Btn onClick={action} variant="danger" size="sm" T={T} disabled={disabled||!canEdit} title={canEdit?undefined:"View-only access"} style={{flexShrink:0}}>{label}</Btn>
           </div>
@@ -3159,27 +3159,27 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div style={{marginBottom:32}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
                   <div style={{width:36,height:36,borderRadius:10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="gear" size={17} color={T.text}/></div>
-                  <h1 style={{fontSize:22,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:"Inter,sans-serif"}}>Settings</h1>
+                  <h1 style={{fontSize:22,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:"'DM Sans',sans-serif"}}>Settings</h1>
                 </div>
-                <p style={{fontSize:13,color:T.textSub,fontFamily:"Inter,sans-serif"}}>Manage the data stored in this BudgetHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
+                <p style={{fontSize:13,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>Manage the data stored in this BudgetHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 {canManageTeam&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Workspace</div>
-                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>Rename this workspace, or permanently delete it below.</div>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Workspace</div>
+                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:520,marginBottom:14}}>Rename this workspace, or permanently delete it below.</div>
                     <div style={{display:"flex",gap:6,marginBottom:workspaceNameError?6:0}}>
                       <input value={workspaceNameInput} onChange={e=>{setWorkspaceNameInput(e.target.value);setWorkspaceNameError("");}}
                         onKeyDown={e=>e.key==="Enter"&&saveWorkspaceName()}
-                        style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                        style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                       <Btn onClick={saveWorkspaceName} variant="primary" size="sm" T={T} disabled={workspaceNameSaving||!workspaceNameInput.trim()||workspaceNameInput.trim()===workspace?.name}>{workspaceNameSaving?"Saving…":"Save"}</Btn>
                     </div>
                     {workspaceNameError&&<div style={{fontSize:11,color:T.danger}}>{workspaceNameError}</div>}
                     {isOwner&&(
                       <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
                         <div>
-                          <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>Delete this workspace</div>
-                          <div style={{fontSize:12,color:T.textMuted,marginTop:2,fontFamily:"Inter,sans-serif"}}>Permanently removes all spend data, tags, budgets, files, version history, and AI chats. There's no undo.</div>
+                          <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Delete this workspace</div>
+                          <div style={{fontSize:12,color:T.textMuted,marginTop:2,fontFamily:"'DM Sans',sans-serif"}}>Permanently removes all spend data, tags, budgets, files, version history, and AI chats. There's no undo.</div>
                         </div>
                         <Btn onClick={()=>{setDeleteWorkspaceOpen(true);setDeleteWorkspaceConfirmText("");setDeleteWorkspaceError("");}} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Delete workspace</Btn>
                       </div>
@@ -3188,10 +3188,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 )}
                 <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>Team</div>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Team</div>
                     <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:11}}>Your access: {myRole==="owner"?"Owner":myRole==="admin"?"Admin":"Member (view only)"}</Pill>
                   </div>
-                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>
+                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:520,marginBottom:14}}>
                     {canManageTeam?"Invite people to this workspace and control what they can do. Members can view every tab but can't edit tags, budgets, or spend data — Admins and Owners have full edit access.":"Owners and admins manage who has access here and what they can do."}
                   </div>
                   {canManageTeam&&(
@@ -3200,7 +3200,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         <input value={inviteEmail} onChange={e=>{setInviteEmail(e.target.value);setInviteError("");}}
                           onKeyDown={e=>e.key==="Enter"&&!inviteSending&&inviteEmail.trim()&&sendInvite()}
                           placeholder="Email address" type="email"
-                          style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                          style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                         <div style={{width:130}}>
                           <Sel value={inviteRole} onChange={setInviteRole} T={T}>
                             <option value="member">Member</option>
@@ -3214,7 +3214,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     </div>
                   )}
                   {teamMembersLoading?(
-                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif",padding:"8px 0"}}>Loading…</div>
+                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",padding:"8px 0"}}>Loading…</div>
                   ):(
                     <div>
                       {teamMembers.map((m,i)=>{
@@ -3222,7 +3222,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         return(
                           <div key={m.userId} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"9px 4px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                             <div style={{minWidth:0,display:"flex",alignItems:"center",gap:8}}>
-                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280}}>{m.email||m.userId}</div>
+                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280}}>{m.email||m.userId}</div>
                               {isMe&&<span style={{fontSize:11,color:T.textMuted}}>(you)</span>}
                               {!m.acceptedAt&&<Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:10}}>pending</Pill>}
                             </div>
@@ -3255,7 +3255,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div style={{fontSize:11,fontWeight:700,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Pending invites</div>
                       {teamInvites.map((inv,i)=>(
                         <div key={inv.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"7px 4px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                          <div style={{fontSize:12,color:T.textSub,fontFamily:"Inter,sans-serif"}}>{inv.email} <span style={{color:T.textMuted}}>· {inv.role==="owner"?"Owner":inv.role==="admin"?"Admin":"Member"}</span></div>
+                          <div style={{fontSize:12,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>{inv.email} <span style={{color:T.textMuted}}>· {inv.role==="owner"?"Owner":inv.role==="admin"?"Admin":"Member"}</span></div>
                           <span onClick={()=>revokeTeamInvite(inv.email)} style={{fontSize:11,color:T.textMuted,cursor:"pointer"}}>Revoke</span>
                         </div>
                       ))}
@@ -3263,25 +3263,25 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   )}
                 </div>
                 <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Connections</div>
-                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:560,marginBottom:14}}>
+                  <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Connections</div>
+                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:560,marginBottom:14}}>
                     Connecting and managing ad accounts (LinkedIn, Microsoft Advertising, Funnel.io, Supermetrics, Capterra) now lives in Data Sources — sync schedules, reconnects, and disconnects included.
                   </div>
                   <Btn onClick={()=>{setStep("upload");setView("data");}} variant="primary" size="sm" T={T}>Go to Data Sources →</Btn>
                 </div>
                 {canEdit&&<div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"Inter,sans-serif"}}>File Store</div>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>File Store</div>
                     <Btn onClick={()=>manualFileRef.current?.click()} variant="subtle" size="sm" T={T}>
                       <Icon name="plus" size={12} color={T.text}/> Add file
                     </Btn>
                     <input ref={manualFileRef} type="file" style={{display:"none"}} onChange={e=>{addManualFile(e.target.files[0]);e.target.value="";}}/>
                   </div>
-                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>Every spend CSV you import and every tag CSV you import or export is automatically archived here as a backup copy. Add anything else you want to keep on hand — PDFs, insertion orders, whatever — with "Add file". These are just stored for reference; nothing here is read by the rest of the app.</div>
+                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:520,marginBottom:14}}>Every spend CSV you import and every tag CSV you import or export is automatically archived here as a backup copy. Add anything else you want to keep on hand — PDFs, insertion orders, whatever — with "Add file". These are just stored for reference; nothing here is read by the rest of the app.</div>
                   {fileStoreLoading?(
-                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif",padding:"12px 0"}}>Loading…</div>
+                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",padding:"12px 0"}}>Loading…</div>
                   ):fileStoreList.length===0?(
-                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif",padding:"12px 0"}}>No files saved yet.</div>
+                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",padding:"12px 0"}}>No files saved yet.</div>
                   ):(
                     <div style={{maxHeight:320,overflow:"auto"}}>
                       {fileStoreList.map((f,i)=>(
@@ -3289,8 +3289,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
                             <Icon name="file" size={14} color={T.textMuted}/>
                             <div style={{minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:340}}>{f.name}</div>
-                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>
+                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:340}}>{f.name}</div>
+                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>
                                 <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{marginRight:6,fontSize:10}}>{f.category}</Pill>
                                 {fmtFileSize(f.size)} · {new Date(f.createdAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
                               </div>
@@ -3317,7 +3317,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                                       <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Copy to workspace</div>
                                       {copyTargetWorkspaces.map(w=>(
                                         <button key={w.id} className="bhq-row" onClick={()=>copyFileToOtherWorkspace(f.id,w.id,w.name)}
-                                          style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",textAlign:"left",overflow:"hidden"}}>
+                                          style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"left",overflow:"hidden"}}>
                                           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
                                         </button>
                                       ))}
@@ -3345,16 +3345,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 })}
                 {canEdit&&platformBreakdown.length>0&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Clear Tagger data by channel</div>
-                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480,marginBottom:14}}>Remove just one platform's spend rows — handy if you imported the wrong file and need to isolate and undo it. Tags are kept; a campaign only disappears once none of its rows are left.</div>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Clear Tagger data by channel</div>
+                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:480,marginBottom:14}}>Remove just one platform's spend rows — handy if you imported the wrong file and need to isolate and undo it. Tags are kept; a campaign only disappears once none of its rows are left.</div>
                     <div>
                       {platformBreakdown.map((p,i)=>(
                         <div key={p.platform} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"10px 0",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
                             <span style={{width:8,height:8,borderRadius:"50%",background:PLATFORM_COLORS[p.platform]||T.textMuted,flexShrink:0}}/>
                             <div style={{minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"Inter,sans-serif"}}>{p.platform}</div>
-                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>{p.rows.toLocaleString()} row{p.rows===1?"":"s"} · {p.campaigns.toLocaleString()} campaign{p.campaigns===1?"":"s"} · {fmt$(p.spend)}</div>
+                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{p.platform}</div>
+                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{p.rows.toLocaleString()} row{p.rows===1?"":"s"} · {p.campaigns.toLocaleString()} campaign{p.campaigns===1?"":"s"} · {fmt$(p.spend)}</div>
                             </div>
                           </div>
                           <Btn onClick={()=>clearPlatformData(p.platform,p.rows)} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Clear</Btn>
@@ -3365,25 +3365,25 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 )}
                 {canEdit&&mergedNormRows.length>0&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Clear Tagger data by date range</div>
-                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:520,marginBottom:14}}>Remove spend rows within a specific date range, optionally scoped to one platform — e.g. redo or purge just one month without touching the rest. Tags are kept; a campaign only disappears once none of its rows are left.</div>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Clear Tagger data by date range</div>
+                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:520,marginBottom:14}}>Remove spend rows within a specific date range, optionally scoped to one platform — e.g. redo or purge just one month without touching the rest. Tags are kept; a campaign only disappears once none of its rows are left.</div>
                     <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
                       <div>
-                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Platform</div>
+                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Platform</div>
                         <Sel value={clearRangePlatform} onChange={setClearRangePlatform} T={T} style={{width:180}}>
                           <option value="all">All platforms</option>
                           {platformBreakdown.map(p=><option key={p.platform} value={p.platform}>{p.platform}</option>)}
                         </Sel>
                       </div>
                       <div>
-                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"Inter,sans-serif"}}>From</div>
+                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>From</div>
                         <input type="date" value={clearRangeStart} onChange={e=>setClearRangeStart(e.target.value)}
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                       </div>
                       <div>
-                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Through</div>
+                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Through</div>
                         <input type="date" value={clearRangeEnd} onChange={e=>setClearRangeEnd(e.target.value)}
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                       </div>
                     </div>
                     {(()=>{
@@ -3393,7 +3393,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       const hasRange=clearRangeStart||clearRangeEnd;
                       return(
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
-                          <div style={{fontSize:12,color:T.textMuted,fontFamily:"Inter,sans-serif"}}>
+                          <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>
                             {hasRange?`${matches.length.toLocaleString()} row${matches.length===1?"":"s"} · ${campaignCount.toLocaleString()} campaign${campaignCount===1?"":"s"} · ${fmt$(spend)} match this range`:"Pick a start and/or end date to see what matches"}
                           </div>
                           <Btn onClick={clearDateRangeData} variant="danger" size="sm" T={T} disabled={!hasRange||!matches.length} style={{flexShrink:0}}>Clear range</Btn>
@@ -3419,9 +3419,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div style={{marginTop:8,paddingTop:20,borderTop:`1px solid ${T.border}`}}>
                   <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
                     <div>
-                      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"Inter,sans-serif"}}>Delete your PaidHQ account</div>
-                      <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"Inter,sans-serif",maxWidth:480}}>Permanently deletes the login itself ({session?.user?.email}) — not just this workspace, every workspace you're in across all of PaidHQ. This is different from "Sign out," which only forgets this account in this browser.</div>
-                      <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"Inter,sans-serif"}}>Blocked if this account is the sole owner of any workspace — transfer ownership or delete those workspaces first.</div>
+                      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Delete your PaidHQ account</div>
+                      <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:480}}>Permanently deletes the login itself ({session?.user?.email}) — not just this workspace, every workspace you're in across all of PaidHQ. This is different from "Sign out," which only forgets this account in this browser.</div>
+                      <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"'DM Sans',sans-serif"}}>Blocked if this account is the sole owner of any workspace — transfer ownership or delete those workspaces first.</div>
                     </div>
                     <Btn onClick={()=>{setDeleteAccountOpen(true);setDeleteAccountConfirmText("");setDeleteAccountError("");}} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Delete account</Btn>
                   </div>
@@ -3464,7 +3464,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div style={{fontSize:12,fontWeight:600,color:T.textMuted,marginBottom:6}}>Type <strong style={{color:T.text}}>{workspace?.name}</strong> to confirm</div>
               <input autoFocus value={deleteWorkspaceConfirmText} onChange={e=>{setDeleteWorkspaceConfirmText(e.target.value);setDeleteWorkspaceError("");}}
                 onKeyDown={e=>{if(e.key==="Enter"&&deleteWorkspaceConfirmText.trim()===workspace?.name)confirmDeleteWorkspace();if(e.key==="Escape")setDeleteWorkspaceOpen(false);}}
-                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
               {deleteWorkspaceError&&<div style={{marginTop:8,fontSize:12,color:T.danger}}>{deleteWorkspaceError}</div>}
             </div>
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
@@ -3485,7 +3485,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div style={{fontSize:12,fontWeight:600,color:T.textMuted,marginBottom:6}}>Type <strong style={{color:T.text}}>{session?.user?.email}</strong> to confirm</div>
               <input autoFocus value={deleteAccountConfirmText} onChange={e=>{setDeleteAccountConfirmText(e.target.value);setDeleteAccountError("");}}
                 onKeyDown={e=>{if(e.key==="Enter"&&deleteAccountConfirmText.trim().toLowerCase()===(session?.user?.email||"").toLowerCase())confirmDeleteAccount();if(e.key==="Escape")setDeleteAccountOpen(false);}}
-                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
               {deleteAccountError&&<div style={{marginTop:8,fontSize:12,color:T.danger}}>{deleteAccountError}</div>}
             </div>
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
@@ -3504,7 +3504,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <div style={{padding:20}}>
               <div style={{fontSize:12,color:T.textSub,marginBottom:10}}>Saves a snapshot of everything — Tagger and Budget data — as it is right now, so you can come back to this exact point later.</div>
               <input autoFocus value={nameVersionInput} onChange={e=>setNameVersionInput(e.target.value)} placeholder="e.g. Before Q3 revision" onKeyDown={e=>{if(e.key==="Enter")saveNamedVersion();if(e.key==="Escape")setNameVersionOpen(false);}}
-                style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
             </div>
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               <Btn onClick={()=>{setNameVersionOpen(false);setNameVersionInput("");}} variant="ghost" T={T}>Cancel</Btn>
@@ -3523,14 +3523,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div>
                 <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>To</div>
                 <input autoFocus type="email" value={emailExportTo} onChange={e=>setEmailExportTo(e.target.value)} placeholder="name@company.com"
-                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif",boxSizing:"border-box"}}/>
+                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box"}}/>
               </div>
               <div>
                 <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>Format</div>
                 <div style={{display:"flex",gap:6}}>
                   {EXPORT_FORMATS.map(f=>(
                     <button key={f.key} onClick={()=>setEmailExportFormat(f.key)}
-                      style={{flex:1,padding:"7px 0",borderRadius:6,border:`1.5px solid ${emailExportFormat===f.key?T.accentHover:T.border}`,background:emailExportFormat===f.key?T.accent:"transparent",color:emailExportFormat===f.key?T.text:T.textMuted,fontSize:12,fontWeight:emailExportFormat===f.key?700:500,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                      style={{flex:1,padding:"7px 0",borderRadius:6,border:`1.5px solid ${emailExportFormat===f.key?T.accentHover:T.border}`,background:emailExportFormat===f.key?T.accent:"transparent",color:emailExportFormat===f.key?T.text:T.textMuted,fontSize:12,fontWeight:emailExportFormat===f.key?700:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
                       {f.label}
                     </button>
                   ))}
@@ -3539,7 +3539,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div>
                 <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>Note <span style={{fontWeight:400,color:T.textMuted}}>(optional)</span></div>
                 <textarea value={emailExportNote} onChange={e=>setEmailExportNote(e.target.value)} placeholder="Add a message for the recipient…" rows={3}
-                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"Inter,sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
+                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",resize:"vertical",boxSizing:"border-box"}}/>
               </div>
               {emailError&&<div style={{fontSize:12,color:T.danger,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:7,padding:"8px 10px"}}>{emailError}</div>}
             </div>
@@ -3560,7 +3560,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div style={{fontSize:15,fontWeight:700,color:T.text}}>Version history</div>
                 <div style={{fontSize:12,color:T.textSub,marginTop:2}}>Saved automatically after imports and data clears, or manually via ⋯ → Name current version.</div>
               </div>
-              <button onClick={()=>setVersionHistoryOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:"Inter,sans-serif"}}>×</button>
+              <button onClick={()=>setVersionHistoryOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:"'DM Sans',sans-serif"}}>×</button>
             </div>
             <div style={{flex:1,overflow:"auto",padding:"8px 12px"}}>
               {versionsLoading?(
@@ -3582,7 +3582,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           <div style={{fontSize:13,color:T.text,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v.label}</div>
                           <div style={{fontSize:11,color:T.textMuted}}>{new Date(v.timestamp).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}</div>
                         </div>
-                        <button onClick={e=>{e.stopPropagation();restoreVersion(v);}} style={{fontSize:11,fontWeight:600,color:T.accent,background:"transparent",border:`1px solid ${T.accentBorder}`,borderRadius:6,padding:"4px 9px",cursor:"pointer",fontFamily:"Inter,sans-serif",flexShrink:0}}>Restore</button>
+                        <button onClick={e=>{e.stopPropagation();restoreVersion(v);}} style={{fontSize:11,fontWeight:600,color:T.accent,background:"transparent",border:`1px solid ${T.accentBorder}`,borderRadius:6,padding:"4px 9px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>Restore</button>
                         <button onClick={e=>deleteVersion(v.id,e)} title="Delete this version"
                           style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,flexShrink:0}}>✕</button>
                       </div>
@@ -3670,8 +3670,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         *{box-sizing:border-box;margin:0;padding:0;}
         html,body{height:100%;width:100%;overflow:hidden;}
         #root{height:100%;width:100%;display:flex;flex-direction:column;}
-        body{font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;}
-        input,select,button,textarea{font-family:'Inter',sans-serif;}
+        body{font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;}
+        input,select,button,textarea{font-family:'DM Sans',sans-serif;}
         input::placeholder{color:${T.textMuted};}
         select option{background:${T.surface};color:${T.text};}
         ::-webkit-scrollbar{width:5px;height:5px;}

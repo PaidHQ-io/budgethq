@@ -29,7 +29,7 @@ function LoadingScreen() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontFamily: "Inter,sans-serif",
+        fontFamily: "'DM Sans',sans-serif",
         color: "#8F8F8F",
         fontSize: 13,
       }}

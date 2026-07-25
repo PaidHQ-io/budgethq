@@ -34,7 +34,7 @@ const inputStyle = {
   fontSize: 13,
   outline: "none",
   marginBottom: 14,
-  fontFamily: "Inter,sans-serif",
+  fontFamily: "'DM Sans',sans-serif",
 };
 
 const labelStyle = {
@@ -43,7 +43,7 @@ const labelStyle = {
   fontWeight: 600,
   color: T.textMuted,
   marginBottom: 5,
-  fontFamily: "Inter,sans-serif",
+  fontFamily: "'DM Sans',sans-serif",
 };
 
 // Minimal recognizable renditions of each provider's mark — not pixel-exact brand assets, just
@@ -166,7 +166,7 @@ export default function AuthScreen({ client = defaultClient, redirectTo = window
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontFamily: "Inter,sans-serif",
+          fontFamily: "'DM Sans',sans-serif",
           padding: 24,
         }}
       >
@@ -197,7 +197,7 @@ export default function AuthScreen({ client = defaultClient, redirectTo = window
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontFamily: "Inter,sans-serif",
+        fontFamily: "'DM Sans',sans-serif",
         padding: 24,
       }}
     >
@@ -286,7 +286,7 @@ export default function AuthScreen({ client = defaultClient, redirectTo = window
                     color: T.text,
                     cursor: oauthLoading ? "default" : "pointer",
                     opacity: oauthLoading && oauthLoading !== key ? 0.5 : 1,
-                    fontFamily: "Inter,sans-serif",
+                    fontFamily: "'DM Sans',sans-serif",
                   }}
                 >
                   <Icon />
@@ -296,7 +296,7 @@ export default function AuthScreen({ client = defaultClient, redirectTo = window
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
               <div style={{ flex: 1, height: 1, background: T.border }} />
-              <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "Inter,sans-serif" }}>
+              <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "'DM Sans',sans-serif" }}>
                 or continue with email
               </span>
               <div style={{ flex: 1, height: 1, background: T.border }} />
@@ -345,7 +345,7 @@ export default function AuthScreen({ client = defaultClient, redirectTo = window
               fontWeight: 600,
               cursor: loading ? "default" : "pointer",
               opacity: loading ? 0.6 : 1,
-              fontFamily: "Inter,sans-serif",
+              fontFamily: "'DM Sans',sans-serif",
             }}
           >
             {loading
@@ -365,7 +365,7 @@ export default function AuthScreen({ client = defaultClient, redirectTo = window
             color: T.accent,
             display: "flex",
             justifyContent: "space-between",
-            fontFamily: "Inter,sans-serif",
+            fontFamily: "'DM Sans',sans-serif",
           }}
         >
           {mode === "signin" && (
