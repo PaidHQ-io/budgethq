@@ -4019,6 +4019,56 @@ function computePlatformFreshness(mergedNormRows){
   return map;
 }
 
+// Per-platform day-of-week spend index — e.g. index[3]===1.4 means Wednesdays for this platform run
+// ~40% above that platform's typical day, index[0]===0.3 means Sundays run ~70% below. Computed
+// from ALL of a workspace's spend history (not scoped to any one period, same as
+// computePlatformFreshness above), since a segment newly created this quarter won't have enough of
+// its own history yet to learn a weekly shape from.
+//
+// WHY THIS MATTERS (added 2026-07-25, per Mo): projectPlatformSegment's trailing-N-day models
+// (especially trailing1/trailing3) previously treated every day as interchangeable — a Sunday's
+// naturally-quieter $50 spend read as "the daily rate crashed to $50," not "this is a normal
+// Sunday." That's real noise in the projection, not signal. This index lets the projection
+// deseasonalize each known day (actual ÷ that weekday's index = a "typical-day-equivalent" amount)
+// before averaging, then reseasonalize when projecting forward (typical-day rate × each future
+// day's own index) — see projectPlatformSegment for the actual math. With every index at the
+// neutral default of 1 (below), this reduces to exactly the old flat-average behavior, so this is
+// a strict accuracy improvement, not a new mode to pick.
+//
+// Platform-level, not per-segment: most individual segments won't have enough history yet to
+// reliably learn their own weekly shape (a brand-new campaign has zero), while a platform's overall
+// shape (aggregated across every campaign on it) has much more data to work with sooner. A
+// reasonable simplification — revisit if a specific segment's real pattern turns out to diverge
+// meaningfully from its platform's overall shape (e.g. a B2B-only campaign on a platform whose
+// other campaigns skew consumer/weekend-heavy).
+const DOW_MIN_SAMPLES=3; // need at least this many distinct historical occurrences of a weekday
+                          // before trusting an index computed from it — otherwise neutral (1).
+const DOW_INDEX_CLAMP=[0.25,3]; // one outlier historical day can't swing the index past this range
+function computePlatformDayOfWeekIndex(mergedNormRows){
+  const sums={}; // {platform: [{total,days:Set<dateStr>} x7]}, index 0=Sunday..6=Saturday (Date#getDay)
+  (mergedNormRows||[]).forEach(row=>{
+    const d=parseSpendDate(row.date);
+    if(!d)return;
+    const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+    if(!sums[platform])sums[platform]=Array.from({length:7},()=>({total:0,days:new Set()}));
+    const bucket=sums[platform][d.getDay()];
+    bucket.total+=row.spend||0;
+    bucket.days.add(localISODate(d));
+  });
+  const index={};
+  Object.entries(sums).forEach(([platform,byDow])=>{
+    const dailyAvgs=byDow.map(b=>b.days.size?b.total/b.days.size:null);
+    const trustedAvgs=dailyAvgs.filter((v,i)=>v!=null&&byDow[i].days.size>=DOW_MIN_SAMPLES);
+    const overallAvg=trustedAvgs.length?trustedAvgs.reduce((s,v)=>s+v,0)/trustedAvgs.length:null;
+    index[platform]=dailyAvgs.map((v,i)=>{
+      if(v==null||byDow[i].days.size<DOW_MIN_SAMPLES||!overallAvg||overallAvg<=0)return 1;
+      return Math.min(DOW_INDEX_CLAMP[1],Math.max(DOW_INDEX_CLAMP[0],v/overallAvg));
+    });
+  });
+  return index; // {platform: [sunIdx,monIdx,tueIdx,wedIdx,thuIdx,friIdx,satIdx]}
+}
+const DEFAULT_DOW_INDEX=[1,1,1,1,1,1,1];
+
 // Full min/max date range of spend data actually present in BudgetHQ for each platform, regardless
 // of how it got there (live sync, Google Sheets pull, CSV/screenshot upload). Distinct from
 // computePlatformFreshness above, which is specifically "as of what date is this platform's
@@ -4064,15 +4114,26 @@ function computePlatformDateRange(mergedNormRows){
 //
 // forecastModel (optional, computePacing only — computeCustomGrouping never passes one, so it
 // always gets the full-period behavior below): any "trailingN" value (trailing1, trailing3,
-// trailing7, trailing14, trailing30 — see FORECAST_MODELS) switches the rate calculation from
-// "total spend to date ÷ days elapsed" to "spend over the last N days ÷ N", so a recent budget
-// change shows up in the projection right away instead of being diluted by weeks of prior history.
-// N is parsed straight out of the model string rather than hardcoded per value, so adding another
-// window to FORECAST_MODELS (e.g. a future trailing2) doesn't need a matching change here. requires
-// platformSpendMap's per-platform entries to carry a `byDate` breakdown (see computePacing's
-// aggregation loop) — computeCustomGrouping's entries have one too now for exactly this reason,
-// even though it never requests a trailing model itself.
-function projectPlatformSegment(platformSpendMap,platformFreshness,{start,end,today,totalDays,forecastModel}){
+// trailing7, trailing14, trailing30 — see FORECAST_MODELS) switches the rate-estimation window from
+// "every elapsed day" to "just the last N days", so a recent budget change shows up in the
+// projection right away instead of being diluted by weeks of prior history. N is parsed straight
+// out of the model string rather than hardcoded per value, so adding another window to
+// FORECAST_MODELS (e.g. a future trailing2) doesn't need a matching change here.
+//
+// platformDowIndex (optional — see computePlatformDayOfWeekIndex; omitted/missing entries fall
+// back to DEFAULT_DOW_INDEX, i.e. neutral/no adjustment) deseasonalizes every known day in the
+// estimation window before averaging (actual ÷ that weekday's index), then reseasonalizes when
+// projecting across the full period (typical-day rate × each individual day's own index, summed —
+// not a flat totalDays count, since a period ending on a weekend has a different weekday mix than
+// one ending mid-week). This is what fixes trailing1/trailing3's biggest weakness: without it, a
+// quiet Sunday reads as "spend crashed," not "this is a normal Sunday."
+//
+// Shared by both computePacing (budget segments) and computeCustomGrouping (arbitrary dimension
+// view) — the per-platform projection math doesn't care what a segment IS, only how much each
+// platform spent within it, how fresh that platform's data is, and (now) that platform's weekly
+// shape. requires platformSpendMap's per-platform entries to carry a `byDate` breakdown (see
+// computePacing's aggregation loop) — computeCustomGrouping's entries have one too for this reason.
+function projectPlatformSegment(platformSpendMap,platformFreshness,{start,end,today,totalDays,forecastModel,platformDowIndex}){
   let platformProjectedSum=0;
   // See PROJECTION NOTE above — platforms whose projection here was extrapolated from a single
   // day of data across a multi-day period get flagged so the UI can warn instead of silently
@@ -4081,27 +4142,29 @@ function projectPlatformSegment(platformSpendMap,platformFreshness,{start,end,to
   const trailingMatch=/^trailing(\d+)$/.exec(forecastModel||"");
   const trailingDays=trailingMatch?parseInt(trailingMatch[1],10):null;
   Object.entries(platformSpendMap||{}).forEach(([platform,pData])=>{
-    const pTotal=typeof pData==="number"?pData:(pData?.total||0);
     const byDate=pData?.byDate||{};
+    const dowIdx=platformDowIndex?.[platform]||DEFAULT_DOW_INDEX;
     const freshest=platformFreshness[platform];
     let asOf=freshest&&freshest<today?freshest:today;
     if(asOf>end)asOf=end;
     const pElapsedDays=asOf<start?0:Math.min(totalDays,Math.floor((asOf-start)/86400000)+1);
     if(pElapsedDays>0){
-      if(trailingDays){
-        // Window clamped to min(trailingDays,pElapsedDays) so a segment only a few days into its
-        // period ramps up gracefully on a "trailing30" model instead of needing a full 30 days of
-        // history before producing any number at all — same graceful-start behavior the
-        // full-period model already has via pElapsedDays.
-        const window=Math.min(trailingDays,pElapsedDays);
-        let windowSum=0;
-        for(let i=0;i<window;i++){
-          windowSum+=byDate[localISODate(new Date(asOf.getTime()-i*86400000))]||0;
-        }
-        platformProjectedSum+=(windowSum/window)*totalDays;
-      }else{
-        platformProjectedSum+=(pTotal/pElapsedDays)*totalDays;
+      // Window clamped to min(trailingDays,pElapsedDays) — or every elapsed day for the full-period
+      // default — so a segment only a few days into its period ramps up gracefully on e.g. a
+      // "trailing30" model instead of needing a full 30 days of history before producing any
+      // number at all.
+      const window=trailingDays?Math.min(trailingDays,pElapsedDays):pElapsedDays;
+      let deseasonSum=0;
+      for(let i=0;i<window;i++){
+        const d=new Date(asOf.getTime()-i*86400000);
+        deseasonSum+=(byDate[localISODate(d)]||0)/(dowIdx[d.getDay()]||1);
       }
+      const typicalDayRate=window?deseasonSum/window:0;
+      let periodDowSum=0;
+      for(let d=new Date(start);d<=end;d=new Date(d.getTime()+86400000)){
+        periodDowSum+=dowIdx[d.getDay()]||1;
+      }
+      platformProjectedSum+=typicalDayRate*periodDowSum;
     }
     if(pElapsedDays===1&&totalDays>1)lowConfidencePlatforms.push(platform);
   });
@@ -4126,6 +4189,7 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
   const daysRemaining=Math.max(0,totalDays-elapsedDays);
   const expectedPct=totalDays?elapsedDays/totalDays:0;
   const platformFreshness=computePlatformFreshness(mergedNormRows);
+  const platformDowIndex=computePlatformDayOfWeekIndex(mergedNormRows);
 
   const spendMap={};
   // {segKey: {platform: {total, byDate: {"YYYY-MM-DD": spend}}}} — feeds the per-platform
@@ -4195,7 +4259,7 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
     const committed=forecastModel==="committed";
 
     // Sum each platform's own projection rather than one blended rate — see PROJECTION NOTE.
-    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays,forecastModel});
+    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays,forecastModel,platformDowIndex});
     // Committed rows skip the run-rate extrapolation entirely — projected is just the committed
     // amount (budget), or actual spend if that's already higher (an overspend is still real even
     // on a committed line). Everything else (full-period or trailing-N) uses whatever daily rate
@@ -4256,6 +4320,7 @@ function computeCustomGrouping({mergedNormRows,tags,dims,year,periodType,month,q
   const daysRemaining=Math.max(0,totalDays-elapsedDays);
   const expectedPct=totalDays?elapsedDays/totalDays:0;
   const platformFreshness=computePlatformFreshness(mergedNormRows);
+  const platformDowIndex=computePlatformDayOfWeekIndex(mergedNormRows);
 
   const spendMap={};
   const platformSpendMap={};
@@ -4283,7 +4348,7 @@ function computeCustomGrouping({mergedNormRows,tags,dims,year,periodType,month,q
 
   const segments=Object.keys(spendMap).map(sk=>{
     const spend=spendMap[sk];
-    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays});
+    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays,platformDowIndex});
     const projected=elapsedDays>0?projectedSum:null;
     return{segKey:sk,dims:sk.split("|"),spend,dailyRate,projected,lowConfidencePlatforms,campaignCount:campaignSetMap[sk]?.size||0};
   }).sort((a,b)=>b.spend-a.spend);
