@@ -1851,7 +1851,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // Per Mo's request (2026-07-24): headers used to fade to T.textMuted (grey) until actively
   // sorted, and only turn T.text (dark) on the active sort column. Now always T.text — active sort
   // is still shown via the underline below, just no longer via color.
-  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
+  const SH=({col,label,center})=>(<span onClick={()=>doSort(col)} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3,...(center?{justifyContent:"center",width:"100%"}:{})}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   // White fill, same as the toolbar behind it — Vercel's filter pills are white-on-white with
   // just a border for separation, not a gray fill. paddingLeft is bumped separately on the three
   // primary "contains" fields to make room for the search icon from IconField.
@@ -2590,7 +2590,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   {!isMobile&&(
                     <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"7px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
                       {["Connector","Data source name","Credentials","Status","Sync","Connected","Import start","Import end",""].map(h=>(
-                        <SectionLabel key={h} T={T} style={{marginBottom:0,fontSize:14}}>{h}</SectionLabel>
+                        <SectionLabel key={h} T={T} style={{marginBottom:0,fontSize:13,textAlign:"center"}}>{h}</SectionLabel>
                       ))}
                     </div>
                   )}
@@ -2967,10 +2967,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     already call Campaign/Ad Set or Ad Group) — display labels only, the underlying
                     campaign_group_name/campaign_name fields and CSV import/export column names are
                     unchanged, since those stay platform-agnostic across Google/Meta/etc. imports. */}
-                {!isMobile&&<SH col="group" label="Campaign"/>}
-                <SH col="campaign" label="Ad Group/Ad Set"/>
-                <SH col="spend" label="Spend"/>
-                {!isMobile&&<SH col="platform" label="Platform"/>}
+                {!isMobile&&<SH col="group" label="Campaign" center/>}
+                <SH col="campaign" label="Ad Group/Ad Set" center/>
+                <SH col="spend" label="Spend" center/>
+                {!isMobile&&<SH col="platform" label="Platform" center/>}
                 {!isMobile&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                   <SH col="tags" label="Tags"/>
                   {tagsHistory.length>0&&<button onClick={undoTags} title="Undo last tag action (⌘Z)"

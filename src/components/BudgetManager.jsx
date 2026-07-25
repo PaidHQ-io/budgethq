@@ -896,7 +896,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
     <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
       style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:"#272727",padding:"4px 6px",fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",width:"100%",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif",textAlign:"right",outline:"none",display:"block"}}/>
   );
-  const TH={fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",textAlign:"right"};
+  const TH={fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",textAlign:"center"};
 
   return(
     <div style={{display:"flex",height:"100%",background:T.bg,overflow:"hidden"}}>
@@ -1089,8 +1089,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
               <th style={{...TH,width:32,padding:"15px 8px 9px 16px",position:"sticky",left:0,zIndex:4,background:T.bg}}>
                 <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title="Select all rows — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
-              {budgetDims.map((d,i)=><th key={d} style={{...TH,textAlign:"left",padding:"15px 14px 9px",minWidth:dcw,position:"sticky",left:32+i*dcw,zIndex:3,background:T.bg}}>{d}</th>)}
-              {budgetMetaDims.map(d=><th key={d} style={{...TH,textAlign:"left",padding:"15px 14px 9px",minWidth:110}}>{d}</th>)}
+              {budgetDims.map((d,i)=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:dcw,position:"sticky",left:32+i*dcw,zIndex:3,background:T.bg}}>{d}</th>)}
+              {budgetMetaDims.map(d=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:110}}>{d}</th>)}
               {MONTHS.map(m=><th key={m.key} style={{...TH,textAlign:"center",minWidth:76}}>{m.label}</th>)}
               {QUARTERS.map(q=><th key={"qt-"+q.key} style={{...TH,textAlign:"center",minWidth:90}}>{q.key}</th>)}
               <th style={{...TH,textAlign:"center",minWidth:100}}>Year Total</th>
