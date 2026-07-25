@@ -896,7 +896,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
     <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
       style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:"#272727",padding:"4px 6px",fontSize:14,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",width:"100%",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif",textAlign:"right",outline:"none",display:"block"}}/>
   );
-  const TH={fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",textAlign:"right"};
+  const TH={fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",textAlign:"right"};
 
   return(
     <div style={{display:"flex",height:"100%",background:T.bg,overflow:"hidden"}}>

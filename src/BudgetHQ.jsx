@@ -1945,7 +1945,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           <div style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
             <Icon name="bolt" size={17} color={T.text}/>
           </div>
-          {(statsOpen||isMobile)&&<div style={{fontSize:14,fontWeight:700,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
+          {(statsOpen||isMobile)&&<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
           {/* Bigger, easier-to-hit sidebar toggle living right next to the wordmark — the tiny 18px
               circle riding the sidebar's edge (below) is still there, but it's a fiddly target.
               This is the primary way to hide/show the column now. Doesn't apply to Dashboard, which
@@ -1989,7 +1989,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 if(item.key==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}
                 else if(item.key==="data"){setStep("upload");setView("data");}
                 else setView(item.key);
-              }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",boxSizing:"border-box",flexShrink:0,border:"none",borderBottom:`2px solid ${active?T.accent:"transparent"}`,background:"transparent",color:active?T.text:T.textSub,fontSize:14,fontWeight:active?600:500,cursor:"pointer",fontFamily:"Inter,sans-serif",whiteSpace:"nowrap",transition:"color 0.12s,border-color 0.12s"}}>
+              }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",boxSizing:"border-box",flexShrink:0,border:"none",borderBottom:`2px solid ${active?T.accent:"transparent"}`,background:"transparent",color:active?T.text:T.textSub,fontSize:14,fontWeight:active?600:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",transition:"color 0.12s,border-color 0.12s"}}>
               <Icon name={item.icon} size={15} color={active?T.accent:T.textSub}/>
               {!isMobile&&item.label}
             </button>;
