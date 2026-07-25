@@ -58,6 +58,18 @@ const THEME = {
 
 const MONTHS=[{key:"01",label:"Jan"},{key:"02",label:"Feb"},{key:"03",label:"Mar"},{key:"04",label:"Apr"},{key:"05",label:"May"},{key:"06",label:"Jun"},{key:"07",label:"Jul"},{key:"08",label:"Aug"},{key:"09",label:"Sep"},{key:"10",label:"Oct"},{key:"11",label:"Nov"},{key:"12",label:"Dec"}];
 const QUARTERS=[{key:"Q1",months:["01","02","03"],label:"Q1 Cap"},{key:"Q2",months:["04","05","06"],label:"Q2 Cap"},{key:"Q3",months:["07","08","09"],label:"Q3 Cap"},{key:"Q4",months:["10","11","12"],label:"Q4 Cap"}];
+// Forecast-model options for a budget segment (see budgetRowMeta[segKey]._forecastModel and
+// computePacing/projectPlatformSegment for the math each one drives). "full-period" is the
+// implicit default — never actually stored, an absent/unrecognized value falls back to it — so
+// it's listed first here purely for the picker UI's option order, not persisted when selected.
+const FORECAST_MODELS=[
+  {value:"full-period",label:"Full period (default)",hint:"Cumulative average of all spend to date, projected across the whole period — standard pacing."},
+  {value:"committed",label:"Committed spend",hint:"A known lump sum/prepaid amount — skips run-rate projection entirely."},
+  {value:"trailing7",label:"Trailing 7-day average",hint:"Projects from the last 7 days' rate instead of the whole period-to-date — reacts fast to recent budget changes."},
+  {value:"trailing14",label:"Trailing 14-day average",hint:"Projects from the last 14 days' rate."},
+  {value:"trailing30",label:"Trailing 30-day average",hint:"Projects from the last 30 days' rate — smoother than 7d, still recent-weighted."},
+];
+const FORECAST_MODEL_LABELS=Object.fromEntries(FORECAST_MODELS.map(m=>[m.value,m.label]));
 const MONTH_MAP={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12",january:"01",february:"02",march:"03",april:"04",june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
 // Two-level campaign hierarchy: "campaign_group_name" is the top level (LinkedIn's own
 // "Campaign Group"; what Meta/Google/Bing/Reddit simply call "Campaign"). "campaign_name" is
@@ -896,19 +908,23 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
       return nx;
     });
   };
-  // "Committed" (lump-sum/prepaid) spend — same underscore-prefixed budgetRowMeta storage as
-  // _notBudgeted above, but the opposite kind of flag: this segment DOES need a budget and money
-  // has genuinely been allocated to it, it just doesn't behave like a steady daily rate (a
-  // sponsorship or IO paid once but running the whole period). computePacing reads this to skip
-  // run-rate projection for the segment entirely — see its `committed` handling and item 45 in
-  // ROADMAP.md for the fuller problem this solves.
-  const isCommitted=segKey=>!!(budgetRowMeta[segKey]||{})._committed;
-  const toggleCommitted=segKey=>{
+  // Per-segment forecast model — same underscore-prefixed budgetRowMeta storage as _notBudgeted
+  // above, but describing HOW a segment that does need a budget should be projected: the default
+  // full-period cumulative average, a committed/lump-sum bypass, or a trailing-N-day average that
+  // reacts faster to recent budget changes. computePacing reads _forecastModel (falling back to
+  // the pre-multi-model `_committed` boolean for rows toggled on before this shipped) — see its
+  // handling and item 45 in ROADMAP.md for the fuller problem this solves.
+  const getForecastModel=segKey=>{
+    const m=budgetRowMeta[segKey]||{};
+    return m._forecastModel||(m._committed?"committed":"full-period");
+  };
+  const setForecastModel=(segKey,model)=>{
     if(!canEdit)return;
     setBudgetRowMeta(p=>{
       const nx={...p};
       const cur={...(nx[segKey]||{})};
-      if(cur._committed)delete cur._committed;else cur._committed=true;
+      delete cur._committed; // legacy key, fully superseded by _forecastModel going forward
+      if(model==="full-period")delete cur._forecastModel;else cur._forecastModel=model;
       nx[segKey]=cur;
       return nx;
     });
@@ -1724,7 +1740,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                   <span onClick={()=>{clearSegFilters();setHideNotBudgeted(false);}} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>{hideNotBudgeted&&!hasSegFilters?"Show them":"Clear filters"}</span>
                 </td></tr>
               )}
-              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);const cm=isCommitted(seg.key);return(
+              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);const fm=getForecastModel(seg.key);return(
                 <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:T.bg,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -1749,8 +1765,8 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                     {i===budgetDims.length-1&&nb&&(
                       <span style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textMuted,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"Inter,sans-serif"}}>Not budgeted</span>
                     )}
-                    {i===budgetDims.length-1&&cm&&(
-                      <span title="Committed spend — excluded from daily-pace projection, see the lock icon in this row's actions" style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textSub,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"Inter,sans-serif"}}>Committed</span>
+                    {i===budgetDims.length-1&&fm!=="full-period"&&(
+                      <span title={`Forecast model: ${FORECAST_MODEL_LABELS[fm]||fm} — see the model picker in this row's actions`} style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textSub,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:10,padding:"1px 7px",fontFamily:"Inter,sans-serif"}}>{FORECAST_MODEL_LABELS[fm]||fm}</span>
                     )}
                   </td>)}
                   {budgetMetaDims.map(d=>{
@@ -1783,12 +1799,11 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
                         onMouseLeave={e=>{e.currentTarget.style.opacity=nb?1:0.4;if(!nb){e.currentTarget.style.border="1px solid transparent";}}}>
                         <Icon name="ban" size={12} color={nb?T.accent:T.textMuted}/>
                       </button>
-                      <button onClick={()=>toggleCommitted(seg.key)} title={cm?"Unmark — this segment's spend will pace normally again":"Mark as committed spend — a lump sum/prepaid amount excluded from daily-pace projection"}
-                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:cm?T.accentBg:"transparent",border:`1px solid ${cm?T.accentBorder:"transparent"}`,borderRadius:5,color:cm?T.accent:T.textMuted,cursor:"pointer",fontSize:11,lineHeight:1,padding:0,opacity:cm?1:0.4,transition:"all 0.1s"}}
-                        onMouseEnter={e=>{e.currentTarget.style.opacity=1;if(!cm){e.currentTarget.style.border=`1px solid ${T.border}`;}}}
-                        onMouseLeave={e=>{e.currentTarget.style.opacity=cm?1:0.4;if(!cm){e.currentTarget.style.border="1px solid transparent";}}}>
-                        <Icon name="lock" size={12} color={cm?T.accent:T.textMuted}/>
-                      </button>
+                      <select value={fm} onChange={e=>setForecastModel(seg.key,e.target.value)} disabled={!canEdit}
+                        title="Forecast model — how this segment's spend is projected across the period"
+                        style={{height:20,maxWidth:88,fontSize:10,color:fm!=="full-period"?T.accent:T.textMuted,background:fm!=="full-period"?T.accentBg:"transparent",border:`1px solid ${fm!=="full-period"?T.accentBorder:T.border}`,borderRadius:5,padding:"0 2px",cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",outline:"none"}}>
+                        {FORECAST_MODELS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
+                      </select>
                       <button onClick={()=>deleteRow(seg.key,budgetDims.map(d=>seg[d]).join(" · "))} title="Delete row"
                         style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
@@ -3954,18 +3969,44 @@ function computePlatformDateRange(mergedNormRows){
 // Shared by both computePacing (budget segments) and computeCustomGrouping (arbitrary dimension
 // view) — the per-platform projection math doesn't care what a segment IS, only how much each
 // platform spent within it and how fresh that platform's data is.
-function projectPlatformSegment(platformSpendMap,platformFreshness,{start,end,today,totalDays}){
+//
+// forecastModel (optional, computePacing only — computeCustomGrouping never passes one, so it
+// always gets the full-period behavior below): "trailing7"/"trailing14"/"trailing30" switch the
+// rate calculation from "total spend to date ÷ days elapsed" to "spend over the last N days ÷ N",
+// so a recent budget change shows up in the projection right away instead of being diluted by
+// weeks of prior history. requires platformSpendMap's per-platform entries to carry a `byDate`
+// breakdown (see computePacing's aggregation loop) — computeCustomGrouping's entries have one too
+// now for exactly this reason, even though it never requests a trailing model itself.
+function projectPlatformSegment(platformSpendMap,platformFreshness,{start,end,today,totalDays,forecastModel}){
   let platformProjectedSum=0;
   // See PROJECTION NOTE above — platforms whose projection here was extrapolated from a single
   // day of data across a multi-day period get flagged so the UI can warn instead of silently
   // trusting a wildly inflated number.
   const lowConfidencePlatforms=[];
-  Object.entries(platformSpendMap||{}).forEach(([platform,pSpend])=>{
+  const trailingDays=forecastModel==="trailing7"?7:forecastModel==="trailing14"?14:forecastModel==="trailing30"?30:null;
+  Object.entries(platformSpendMap||{}).forEach(([platform,pData])=>{
+    const pTotal=typeof pData==="number"?pData:(pData?.total||0);
+    const byDate=pData?.byDate||{};
     const freshest=platformFreshness[platform];
     let asOf=freshest&&freshest<today?freshest:today;
     if(asOf>end)asOf=end;
     const pElapsedDays=asOf<start?0:Math.min(totalDays,Math.floor((asOf-start)/86400000)+1);
-    if(pElapsedDays>0)platformProjectedSum+=(pSpend/pElapsedDays)*totalDays;
+    if(pElapsedDays>0){
+      if(trailingDays){
+        // Window clamped to min(trailingDays,pElapsedDays) so a segment only a few days into its
+        // period ramps up gracefully on a "trailing30" model instead of needing a full 30 days of
+        // history before producing any number at all — same graceful-start behavior the
+        // full-period model already has via pElapsedDays.
+        const window=Math.min(trailingDays,pElapsedDays);
+        let windowSum=0;
+        for(let i=0;i<window;i++){
+          windowSum+=byDate[localISODate(new Date(asOf.getTime()-i*86400000))]||0;
+        }
+        platformProjectedSum+=(windowSum/window)*totalDays;
+      }else{
+        platformProjectedSum+=(pTotal/pElapsedDays)*totalDays;
+      }
+    }
     if(pElapsedDays===1&&totalDays>1)lowConfidencePlatforms.push(platform);
   });
   return{projectedSum:platformProjectedSum,dailyRate:totalDays?platformProjectedSum/totalDays:0,lowConfidencePlatforms};
@@ -3991,7 +4032,11 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
   const platformFreshness=computePlatformFreshness(mergedNormRows);
 
   const spendMap={};
-  const platformSpendMap={}; // {segKey: {platform: spend}} — feeds the per-platform projection
+  // {segKey: {platform: {total, byDate: {"YYYY-MM-DD": spend}}}} — feeds the per-platform
+  // projection. byDate exists so projectPlatformSegment can compute a trailing-window average
+  // (not just the full-period-to-date one) when a segment's forecastModel asks for it — see that
+  // function's doc comment.
+  const platformSpendMap={};
   // Independent of the period/date range — how many campaigns exist for each segment at all. If
   // this is 0 for a segment that has a budget, spend will NEVER show up for it no matter what
   // period you're looking at — it's a tagging/dimension mismatch, not "no spend yet".
@@ -4022,7 +4067,10 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
       spendMap[sk]=(spendMap[sk]||0)+row.spend;
       const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
       if(!platformSpendMap[sk])platformSpendMap[sk]={};
-      platformSpendMap[sk][platform]=(platformSpendMap[sk][platform]||0)+row.spend;
+      if(!platformSpendMap[sk][platform])platformSpendMap[sk][platform]={total:0,byDate:{}};
+      platformSpendMap[sk][platform].total+=row.spend;
+      const dateKey=localISODate(d);
+      platformSpendMap[sk][platform].byDate[dateKey]=(platformSpendMap[sk][platform].byDate[dateKey]||0)+row.spend;
     });
   }
 
@@ -4039,19 +4087,23 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
     // segment's actualPct computes as a real 0%, which then reads as a genuine "behind pace" delta.
     const hasData=!!platformSpendMap[sk];
     const actualPct=budget>0&&hasData?spend/budget:null;
-    // "Committed" spend (prepaid sponsorships, lump-sum IOs) doesn't behave like a daily rate at
-    // all — the money's already contracted for the period regardless of when/whether a platform's
-    // own reporting reflects it day by day. Flagged per budget line (same _-prefixed-key-in-
-    // budgetRowMeta pattern as _notBudgeted, set via BudgetManager's lock-icon toggle) rather than
-    // inferred from spend shape, since "this is a lump sum" is knowledge the user has that the data
-    // itself can't reveal. See item 45 in ROADMAP.md for the fuller problem this solves.
-    const committed=!!(budgetRowMeta?.[sk]?._committed);
+    // Per-segment forecast model (committed lump-sum, trailing-N-day average, or the full-period
+    // default) — flagged per budget line (same _-prefixed-key-in-budgetRowMeta pattern as
+    // _notBudgeted, set via BudgetManager's model picker) rather than inferred from spend shape,
+    // since "this is a lump sum" / "weight recent days" is knowledge the user has that the data
+    // itself can't reveal. Falls back to the pre-multi-model `_committed` boolean for segments
+    // toggled on before this shipped, so nothing already set on deployed data silently reverts.
+    // See item 45 in ROADMAP.md for the fuller problem this solves.
+    const rowMeta=budgetRowMeta?.[sk]||{};
+    const forecastModel=rowMeta._forecastModel||(rowMeta._committed?"committed":"full-period");
+    const committed=forecastModel==="committed";
 
     // Sum each platform's own projection rather than one blended rate — see PROJECTION NOTE.
-    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays});
+    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[sk],platformFreshness,{start,end,today,totalDays,forecastModel});
     // Committed rows skip the run-rate extrapolation entirely — projected is just the committed
     // amount (budget), or actual spend if that's already higher (an overspend is still real even
-    // on a committed line). Everything else still uses the daily-rate projection as before.
+    // on a committed line). Everything else (full-period or trailing-N) uses whatever daily rate
+    // projectPlatformSegment computed for that model.
     const projected=committed?Math.max(spend,budget):(elapsedDays>0&&hasData?projectedSum:null);
     const projectedVariance=budget>0&&projected!=null?projected-budget:null;
     let status="no-budget";
@@ -4066,7 +4118,7 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
         else status="on-track";
       }
     }
-    return{segKey:sk,dims,budget,spend,actualPct,dailyRate:hasData?dailyRate:null,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0,lowConfidencePlatforms,hasData,committed};
+    return{segKey:sk,dims,budget,spend,actualPct,dailyRate:hasData?dailyRate:null,projected,projectedVariance,status,matchCount:campaignCountMap[sk]||0,lowConfidencePlatforms,hasData,committed,forecastModel};
   }).filter(s=>s.budget>0||s.spend>0).sort((a,b)=>b.spend-a.spend);
 
   const totals=segments.reduce((acc,s)=>({budget:acc.budget+s.budget,spend:acc.spend+s.spend}),{budget:0,spend:0});
@@ -4124,7 +4176,10 @@ function computeCustomGrouping({mergedNormRows,tags,dims,year,periodType,month,q
       spendMap[sk]=(spendMap[sk]||0)+row.spend;
       const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
       if(!platformSpendMap[sk])platformSpendMap[sk]={};
-      platformSpendMap[sk][platform]=(platformSpendMap[sk][platform]||0)+row.spend;
+      if(!platformSpendMap[sk][platform])platformSpendMap[sk][platform]={total:0,byDate:{}};
+      platformSpendMap[sk][platform].total+=row.spend;
+      const dateKey=localISODate(d);
+      platformSpendMap[sk][platform].byDate[dateKey]=(platformSpendMap[sk][platform].byDate[dateKey]||0)+row.spend;
       if(!campaignSetMap[sk])campaignSetMap[sk]=new Set();
       campaignSetMap[sk].add(ck);
     });
