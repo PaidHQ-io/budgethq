@@ -51,6 +51,13 @@ create table if not exists budgethq.workspace_config (
 -- way per this file's idempotent-migration convention (see db/migrate.js's doc comment).
 alter table budgethq.workspace_config add column if not exists saved_views jsonb not null default '[]';
 
+-- Global default forecast model (item 45, 2026-07-25) — workspace-wide fallback for
+-- computePacing's per-segment forecastModel, used whenever a budget row has no explicit
+-- budget_row_meta[segKey]._forecastModel override. Plain text, not jsonb, since it's always one
+-- of FORECAST_MODELS' string values (see BudgetHQ.jsx) — 'full-period' matches computePacing's
+-- pre-existing implicit default, so an unconfigured workspace's pacing math is unchanged.
+alter table budgethq.workspace_config add column if not exists default_forecast_model text not null default 'full-period';
+
 create table if not exists budgethq.spend_rows (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references core.workspaces(id) on delete cascade,

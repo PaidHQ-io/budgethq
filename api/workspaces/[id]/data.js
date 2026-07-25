@@ -2,7 +2,7 @@
  * /api/workspaces/[id]/data
  *
  * GET — returns the budgethq.workspace_config JSONB blob: tags, tagDims, budgets, budgetDims,
- *       budgetRowMeta, budgetMetaDims, budgetImportMeta, savedViews. Field names match
+ *       budgetRowMeta, budgetMetaDims, budgetImportMeta, savedViews, defaultForecastModel. Field names match
  *       BudgetHQ.jsx's existing in-memory state variables exactly, so the frontend can drop this
  *       straight into useState() without any reshaping. Returns an empty default (not 404) if
  *       this workspace hasn't been touched yet — workspace creation now happens in paidhq-core,
@@ -24,7 +24,8 @@ export const config = { api: { bodyParser: false } };
 
 const EMPTY_CONFIG = {
   tags: {}, tagDims: [], budgets: {}, budgetDims: [],
-  budgetRowMeta: {}, budgetMetaDims: [], budgetImportMeta: {}, savedViews: [], updatedAt: null,
+  budgetRowMeta: {}, budgetMetaDims: [], budgetImportMeta: {}, savedViews: [],
+  defaultForecastModel: "full-period", updatedAt: null,
 };
 
 const toCamel = (row) => ({
@@ -36,6 +37,7 @@ const toCamel = (row) => ({
   budgetMetaDims: row.budget_meta_dims,
   budgetImportMeta: row.budget_import_meta,
   savedViews: row.saved_views,
+  defaultForecastModel: row.default_forecast_model,
   updatedAt: row.updated_at,
 });
 
@@ -56,12 +58,13 @@ export default withApi(async (req, res) => {
     const b = await readJsonBody(req);
     const [row] = await sql`
       insert into budgethq.workspace_config
-        (workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims, budget_import_meta, saved_views, updated_at)
+        (workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims, budget_import_meta, saved_views, default_forecast_model, updated_at)
       values
         (${workspaceId}, ${JSON.stringify(b.tags ?? {})}, ${JSON.stringify(b.tagDims ?? [])},
          ${JSON.stringify(b.budgets ?? {})}, ${JSON.stringify(b.budgetDims ?? [])},
          ${JSON.stringify(b.budgetRowMeta ?? {})}, ${JSON.stringify(b.budgetMetaDims ?? [])},
-         ${JSON.stringify(b.budgetImportMeta ?? {})}, ${JSON.stringify(b.savedViews ?? [])}, now())
+         ${JSON.stringify(b.budgetImportMeta ?? {})}, ${JSON.stringify(b.savedViews ?? [])},
+         ${b.defaultForecastModel || "full-period"}, now())
       on conflict (workspace_id) do update set
         tags = excluded.tags,
         tag_dims = excluded.tag_dims,
@@ -71,6 +74,7 @@ export default withApi(async (req, res) => {
         budget_meta_dims = excluded.budget_meta_dims,
         budget_import_meta = excluded.budget_import_meta,
         saved_views = excluded.saved_views,
+        default_forecast_model = excluded.default_forecast_model,
         updated_at = now()
       returning *
     `;

@@ -60,15 +60,16 @@ const MONTHS=[{key:"01",label:"Jan"},{key:"02",label:"Feb"},{key:"03",label:"Mar
 const QUARTERS=[{key:"Q1",months:["01","02","03"],label:"Q1 Cap"},{key:"Q2",months:["04","05","06"],label:"Q2 Cap"},{key:"Q3",months:["07","08","09"],label:"Q3 Cap"},{key:"Q4",months:["10","11","12"],label:"Q4 Cap"}];
 // Forecast-model options for a budget segment (see budgetRowMeta[segKey]._forecastModel and
 // computePacing/projectPlatformSegment for the math each one drives). "full-period" is the
-// implicit default — never actually stored, an absent/unrecognized value falls back to it — so
-// it's listed first here purely for the picker UI's option order, not persisted when selected.
-// trailing1/trailing3 added 2026-07-25 per Mo: even trailing7 dilutes a budget shift made 2 days
-// ago across 5+ days of the old rate before it moves the projection much — these two exist for
-// "I need this to react almost immediately," at the cost of being noisier (single-day spend swings
-// from weekday/weekend patterns, a platform's reporting lag, etc. move the projection directly,
-// with nothing to smooth them out).
+// hard-coded last-resort default (see computePacing's forecastModel fallback chain) if nothing
+// else is set anywhere — everyday users instead see whatever the workspace's global default is
+// (PacingDashboard's own selector, defaultForecastModel), since that's meant to be the thing
+// people actually tune. trailing1/trailing3 added 2026-07-25 per Mo: even trailing7 dilutes a
+// budget shift made 2 days ago across 5+ days of the old rate before it moves the projection
+// much — these two exist for "I need this to react almost immediately," at the cost of being
+// noisier (single-day spend swings from weekday/weekend patterns, a platform's reporting lag,
+// etc. move the projection directly, with nothing to smooth them out).
 const FORECAST_MODELS=[
-  {value:"full-period",label:"Full period (default)",hint:"Cumulative average of all spend to date, projected across the whole period — standard pacing."},
+  {value:"full-period",label:"Full period",hint:"Cumulative average of all spend to date, projected across the whole period — standard pacing."},
   {value:"committed",label:"Committed spend",hint:"A known lump sum/prepaid amount — skips run-rate projection entirely."},
   {value:"trailing1",label:"Trailing 1-day (yesterday)",hint:"Projects from only the most recent day's spend — reacts instantly to a budget change but is noisy (a single low-spend day, e.g. a weekend, swings the whole projection)."},
   {value:"trailing3",label:"Trailing 3-day average",hint:"Projects from the last 3 days' rate — reacts fast to a recent shift while smoothing out a single unusual day."},
@@ -76,6 +77,10 @@ const FORECAST_MODELS=[
   {value:"trailing14",label:"Trailing 14-day average",hint:"Projects from the last 14 days' rate."},
   {value:"trailing30",label:"Trailing 30-day average",hint:"Projects from the last 30 days' rate — smoother than 7d, still recent-weighted."},
 ];
+// Row-level picker sentinel — "inherit the workspace's global default" is stored as simply having
+// NO _forecastModel key at all (see setForecastModel below), same as before global defaults
+// existed. This constant is just the <select>'s value for that state; never itself persisted.
+const FORECAST_MODEL_INHERIT="";
 const MONTH_MAP={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12",january:"01",february:"02",march:"03",april:"04",june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
 // Two-level campaign hierarchy: "campaign_group_name" is the top level (LinkedIn's own
 // "Campaign Group"; what Meta/Google/Bing/Reddit simply call "Campaign"). "campaign_name" is
@@ -644,7 +649,7 @@ const WarnTip=({T,text,size=12,color})=>(
 );
 
 // ─── BUDGET MANAGER ───────────────────────────────────────────────────────────
-function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true}){
+function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
@@ -768,7 +773,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
   // the export-preview modal's granularity choice (which the AI suggestion pre-fills based on
   // whether the originally-imported file for this year had quarterly/annual total columns).
   const exportBudgets=({includeMonthly=false,includeQuarterly=false}={})=>{
-    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta});
+    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel});
     const pacingBySeg={};
     pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
     const actualsByMonth=(includeMonthly||includeQuarterly)?computeActualsByMonth({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,year}):{};
@@ -1632,7 +1637,7 @@ function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,bud
         ):(
           <>
           <div style={{padding:"14px 16px 0"}}>
-            <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} mode="budget"/>
+            <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} mode="budget"/>
           </div>
           {/* Rollups — budget totals by one Budget By dimension at a time, independent of the
               detail grid's row grain */}
@@ -2374,7 +2379,7 @@ function groupChatsByRecency(chats){
 // rather than the small header dropdown alone. The header History dropdown stays as-is
 // underneath — it's the only access point on mobile, where sidebarEl is never mounted (see the
 // `!isMobile` gate around the whole stats <aside> in BudgetHQ's render).
-function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl}){
+function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl}){
   const[input,setInput]=useState("");
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
@@ -2417,7 +2422,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,h
     setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:newMessages,updatedAt:Date.now()}:c));
     setLoading(true);
     try{
-      const{answer,messages:newHistory}=await askAIRun({question:q,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta}});
+      const{answer,messages:newHistory}=await askAIRun({question:q,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel}});
       const finalHistory=[...newHistory,{role:"assistant",content:answer}];
       const finalMessages=[...newMessages,{role:"assistant",text:answer}];
       setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
@@ -2426,7 +2431,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,h
     }finally{
       setLoading(false);
     }
-  },[input,loading,activeAskChatId,askChats,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,setAskChats,setActiveAskChatId]);
+  },[input,loading,activeAskChatId,askChats,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,setAskChats,setActiveAskChatId]);
 
   // ── Sidebar chat management: search, pinning, projects, labels, rename (2026-07-21) ──
   const[sidebarSearch,setSidebarSearch]=useState("");
@@ -2774,7 +2779,7 @@ function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,h
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,campaignTags,mergedNormRows,connectionDetails,exportTags}){
+function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,defaultForecastModel,campaignTags,mergedNormRows,connectionDetails,exportTags}){
   const cardBg=T.surface;
   const bc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent,T.accent];
   const cards=[
@@ -2833,8 +2838,8 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
   // computePacing degrades to an empty segments array rather than throwing.
   const pacing=useMemo(()=>{
     if(!isPopulated)return null;
-    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:dashPeriodType,month,quarter,today:now,budgetRowMeta});
-  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month,quarter,dashPeriodType,budgetRowMeta]); // eslint-disable-line react-hooks/exhaustive-deps
+    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:dashPeriodType,month,quarter,today:now,budgetRowMeta,defaultForecastModel});
+  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month,quarter,dashPeriodType,budgetRowMeta,defaultForecastModel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // pacing.daysRemaining is already computed for the projection math — surfacing it here too means
   // "62% spent, expected 58%" comes with the other half of the context (how much runway is left)
@@ -2849,8 +2854,8 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
   const prevPeriod=useMemo(()=>stepPeriodBack({periodType:dashPeriodType,year,month,quarter}),[dashPeriodType,year,month,quarter]);
   const prevPacing=useMemo(()=>{
     if(!isPopulated)return null;
-    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year:prevPeriod.year,periodType:dashPeriodType,month:prevPeriod.month,quarter:prevPeriod.quarter,today:now,budgetRowMeta});
-  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,prevPeriod,dashPeriodType,budgetRowMeta]); // eslint-disable-line react-hooks/exhaustive-deps
+    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year:prevPeriod.year,periodType:dashPeriodType,month:prevPeriod.month,quarter:prevPeriod.quarter,today:now,budgetRowMeta,defaultForecastModel});
+  },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,prevPeriod,dashPeriodType,budgetRowMeta,defaultForecastModel]); // eslint-disable-line react-hooks/exhaustive-deps
   const prevPeriodSpend=prevPacing?.totals?.spend||0;
   const spendDeltaPct=prevPeriodSpend>0&&hasData?Math.round(((pacing?.totals?.spend||0)-prevPeriodSpend)/prevPeriodSpend*100):null;
   const prevPeriodWord=dashPeriodType==="monthly"?"last month":dashPeriodType==="quarterly"?"last quarter":"last year";
@@ -3624,8 +3629,8 @@ function askAIQueryBudget({budgets,budgetDims,filters,year,periodType,month,quar
 // Pacing tab itself renders from) rather than re-deriving status/variance logic separately, so
 // Ask AI's "over budget"/"behind pace" answers can never drift from what that tab shows for the
 // same period.
-function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,filters,year,periodType,month,quarter,groupBy}){
-  const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:periodType||"annual",month,quarter,today:new Date(),budgetRowMeta});
+function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,filters,year,periodType,month,quarter,groupBy}){
+  const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:periodType||"annual",month,quarter,today:new Date(),budgetRowMeta,defaultForecastModel});
   const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
   const matched=pacing.segments.filter(seg=>filterEntries.every(([dim,val])=>{
     const idx=budgetDims.indexOf(dim);
@@ -3686,7 +3691,7 @@ function askAIExecuteTool(toolName,input,ctx){
   }
   if(toolName==="query_pacing"){
     if(!(ctx.budgetDims||[]).length)return{error:"No Budget By dimensions are set up yet in the Budget Panel — there's no budget data to compare spend against."};
-    return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,budgetRowMeta:ctx.budgetRowMeta,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by});
+    return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,budgetRowMeta:ctx.budgetRowMeta,defaultForecastModel:ctx.defaultForecastModel,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by});
   }
   return{error:`Unknown tool: ${toolName}`};
 }
@@ -3844,7 +3849,7 @@ function aiConfigToViewConfig(raw,{allDimOptions,budgetDims}){
 // the "same every time" complaint that prompted this change. The Budget Panel (mode==="budget")
 // doesn't have this per-view concept — it's a fixed monthly/quarterly/annual grid, not a tab you
 // reconfigure — so it keeps its original always-annual behavior via the `else` branch below.
-async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,mode,view}){
+async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view}){
   let payload,focus;
   if(mode==="pacing"&&view){
     const{viewMode,periodLabel,dims,segments,totals,expectedPct,daysRemaining,statusFilter,segFilters,trend,trendFilterDim,trendFilterValue,trendSeriesDim}=view;
@@ -3906,7 +3911,7 @@ async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,b
     }
   }else{
     const year=String(new Date().getFullYear());
-    const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta});
+    const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel});
     const withVariance=pacing.segments.map(s=>({...s,overBy:s.spend-s.budget}));
     const topOver=[...withVariance].filter(s=>s.status==="over").sort((a,b)=>b.overBy-a.overBy).slice(0,5)
       .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),overBy:Math.round(s.overBy)}));
@@ -3938,17 +3943,17 @@ async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,b
 // Self-contained "✨ AI Summary" trigger + result card, shared by the Budget Panel and Reporting &
 // Pacing tabs (see aiSummarizeBudgetPacing above). Owns its own idle/loading/done/error state so
 // each tab gets an independent summary rather than sharing one across navigation.
-function AISummaryCard({T,mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,mode,view}){
+function AISummaryCard({T,mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view}){
   const[state,setState]=useState({status:"idle",text:"",error:""});
   const run=useCallback(async()=>{
     setState({status:"loading",text:"",error:""});
     try{
-      const text=await aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,mode,view});
+      const text=await aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view});
       setState({status:"done",text,error:""});
     }catch(err){
       setState({status:"error",text:"",error:err.message||"Summary failed"});
     }
-  },[mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,mode,view]);
+  },[mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view]);
 
   // The Budget Panel has nothing to summarize until a budget structure exists. The Reporting &
   // Pacing tab's Custom/Trend views don't need budgetDims at all (they group by whatever dimensions
@@ -4228,7 +4233,14 @@ function detectCapacitySignal(dailyMap,{expectedPct,actualPct,budget,spend}){
   return(recentImpr-priorImpr)/priorImpr<CAPACITY_GROWTH_THRESHOLD?"constrained":"growing";
 }
 
-function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today,budgetRowMeta}){
+// defaultForecastModel (optional, 2026-07-25) — the workspace-wide fallback set via
+// PacingDashboard's global model selector (see BudgetHQ's own defaultForecastModel state/prop
+// threading). A row's own budgetRowMeta[sk]._forecastModel, when present, always wins over this —
+// see the fallback chain below, same priority order as the legacy _committed key. Every caller
+// that doesn't have this value handy (report builders, AI tools called from contexts that never
+// threaded it through) can simply omit it; it defaults to "full-period" exactly like before this
+// feature existed, so nothing regresses for callers that haven't been updated.
+function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today,budgetRowMeta,defaultForecastModel}){
   const{start,end,months}=getPeriodRange(periodType,year,month,quarter);
   const totalDays=Math.round((end-start)/86400000)+1;
   let elapsedDays;
@@ -4308,13 +4320,14 @@ function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,m
     const actualPct=budget>0&&hasData?spend/budget:null;
     // Per-segment forecast model (committed lump-sum, trailing-N-day average, or the full-period
     // default) — flagged per budget line (same _-prefixed-key-in-budgetRowMeta pattern as
-    // _notBudgeted, set via BudgetManager's model picker) rather than inferred from spend shape,
-    // since "this is a lump sum" / "weight recent days" is knowledge the user has that the data
-    // itself can't reveal. Falls back to the pre-multi-model `_committed` boolean for segments
-    // toggled on before this shipped, so nothing already set on deployed data silently reverts.
-    // See item 45 in ROADMAP.md for the fuller problem this solves.
+    // _notBudgeted, set via PacingDashboard's per-row model picker) rather than inferred from
+    // spend shape, since "this is a lump sum" / "weight recent days" is knowledge the user has
+    // that the data itself can't reveal. Priority: an explicit per-row override always wins, then
+    // the legacy `_committed` boolean (segments toggled on before multi-model shipped), then the
+    // workspace's global default (see defaultForecastModel above), then "full-period" as the
+    // last-resort default if nothing is set anywhere. See item 45 in ROADMAP.md.
     const rowMeta=budgetRowMeta?.[sk]||{};
-    const forecastModel=rowMeta._forecastModel||(rowMeta._committed?"committed":"full-period");
+    const forecastModel=rowMeta._forecastModel||(rowMeta._committed?"committed":(defaultForecastModel||"full-period"));
     const committed=forecastModel==="committed";
 
     // Sum each platform's own projection rather than one blended rate — see PROJECTION NOTE.
@@ -4507,7 +4520,7 @@ const fmtSigned=n=>n==null?"—":(n>0?"+":n<0?"−":"")+"$"+Math.round(Math.abs(
 // that shape, and "Email a copy" reuses the exact same generators (as a Blob instead of a download),
 // so a report never has to be built twice or risk drifting between the download and email paths.
 
-function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta}){
+function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,defaultForecastModel}){
   const campaignMap={};
   (mergedNormRows||[]).forEach(row=>{
     const name=row.campaign_name;if(!name)return;
@@ -4541,7 +4554,7 @@ function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims,bu
   const statusCounts={};
   if((budgetDims||[]).length){
     Object.keys(budgets||{}).forEach(year=>{
-      const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta});
+      const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel});
       pacing.segments.forEach(s=>{statusCounts[s.status]=(statusCounts[s.status]||0)+1;});
     });
   }
@@ -4581,11 +4594,11 @@ function buildTaggerReport({mergedNormRows,tags,tagDims}){
   };
 }
 
-function buildBudgetReport({budgets,budgetDims,budgetRowMeta,budgetMetaDims,mergedNormRows,tags}){
+function buildBudgetReport({budgets,budgetDims,budgetRowMeta,defaultForecastModel,budgetMetaDims,mergedNormRows,tags}){
   const years=Object.keys(budgets||{}).sort();
   const sections=years.map(year=>{
     const yearBudgets=budgets[year]||{};
-    const pacing=(budgetDims||[]).length?computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta}):{segments:[]};
+    const pacing=(budgetDims||[]).length?computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel}):{segments:[]};
     const pacingBySeg={};
     pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
     const headers=[...budgetDims,...(budgetMetaDims||[]),"Annual Budget","Actual Spend","% Used","Pacing Status"];
@@ -4612,13 +4625,13 @@ function buildBudgetReport({budgets,budgetDims,budgetRowMeta,budgetMetaDims,merg
   };
 }
 
-function buildPacingReport({budgets,budgetDims,mergedNormRows,tags,budgetRowMeta}){
+function buildPacingReport({budgets,budgetDims,mergedNormRows,tags,budgetRowMeta,defaultForecastModel}){
   const years=Object.keys(budgets||{}).sort();
   const headers=[...(budgetDims||[]),"Year","Budget","Actual Spend","% Used","Daily Run Rate","Projected Year-End","Variance","Status"];
   const rows=[];
   years.forEach(year=>{
     if(!(budgetDims||[]).length)return;
-    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta});
+    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel});
     pacing.segments.forEach(s=>{
       rows.push([...s.dims,year,
         `$${Math.round(s.budget).toLocaleString()}`,
@@ -4801,7 +4814,7 @@ const PacingBar=({actualPct,expectedPct,status,T})=>{
   );
 };
 
-function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true}){
+function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -4955,8 +4968,8 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   const breakdownOptions=allDimOptions.filter(d=>!activeDims.includes(d));
   const toggleExpand=key=>setExpandedRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
 
-  const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now,budgetRowMeta}),
-    [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter,budgetRowMeta]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now,budgetRowMeta,defaultForecastModel}),
+    [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter,budgetRowMeta,defaultForecastModel]); // eslint-disable-line react-hooks/exhaustive-deps
   const platformDateRange=useMemo(()=>computePlatformDateRange(mergedNormRows),[mergedNormRows]);
   const customPacing=useMemo(()=>viewMode==="custom"&&customDims.length?computeCustomGrouping({mergedNormRows,tags:campaignTags,dims:customDims,year,periodType,month,quarter,today:now}):null,
     [viewMode,mergedNormRows,campaignTags,customDims,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -5032,17 +5045,28 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
   // budgetRowMeta storage as everywhere else (_notBudgeted in BudgetManager, etc.) — this reads/
   // writes the exact same shared object, just from this tab instead. Falls back to the pre-multi-
   // model `_committed` boolean for rows toggled on before this shipped.
-  const getForecastModel=segKey=>{
+  //
+  // Global default (2026-07-25, per Mo: "there should be a global forecasting model selector
+  // instead of just individual rows. the individual row selector should override the global") —
+  // getForecastModelOverride returns "" (FORECAST_MODEL_INHERIT) when a row has no explicit
+  // override, which is what drives the <select>'s displayed value; getEffectiveForecastModel is
+  // the value actually used for computation (mirrors computePacing's own fallback chain exactly,
+  // so what's shown here can never drift from what's projected). setForecastModel's "" case is the
+  // row's "go back to inheriting the global default" action — same underlying storage as before
+  // (deleting the key), just reachable from an explicit menu item now instead of only implicitly
+  // via "full-period".
+  const getForecastModelOverride=segKey=>{
     const m=budgetRowMeta?.[segKey]||{};
-    return m._forecastModel||(m._committed?"committed":"full-period");
+    return m._forecastModel||(m._committed?"committed":FORECAST_MODEL_INHERIT);
   };
+  const getEffectiveForecastModel=segKey=>getForecastModelOverride(segKey)||defaultForecastModel||"full-period";
   const setForecastModel=(segKey,model)=>{
     if(!canEdit)return;
     setBudgetRowMeta?.(p=>{
       const nx={...p};
       const cur={...(nx[segKey]||{})};
       delete cur._committed; // legacy key, fully superseded by _forecastModel going forward
-      if(model==="full-period")delete cur._forecastModel;else cur._forecastModel=model;
+      if(model===FORECAST_MODEL_INHERIT)delete cur._forecastModel;else cur._forecastModel=model;
       nx[segKey]=cur;
       return nx;
     });
@@ -5160,7 +5184,7 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
 
       {/* Segment table */}
       <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
-        <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} mode="pacing"
+        <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} mode="pacing"
           view={{
             viewMode,
             periodLabel,
@@ -5315,6 +5339,21 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
             </Sel>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
+            {/* Global forecast model (item 45, 2026-07-25) — per Mo: "there should be a global
+                forecasting model selector instead of just individual rows. the individual row
+                selector should override the global." Sets defaultForecastModel, the workspace-wide
+                fallback computePacing uses for every segment that doesn't have its own explicit
+                per-row override (see getForecastModelOverride/getEffectiveForecastModel above and
+                each row's picker, which now defaults to "Use global default" instead of a fixed
+                "Full period"). Budget-mode only — Custom/Trend views group ad-hoc, not by budget
+                segment, so there's no per-row model to default for. */}
+            <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Default forecast model:</span>
+            <select value={defaultForecastModel} onChange={e=>setDefaultForecastModel?.(e.target.value)} disabled={!canEdit}
+              title="Workspace-wide default — any segment without its own row-level override uses this model."
+              style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",width:190}}>
+              {FORECAST_MODELS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+            <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
             <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Break down by:</span>
             <Sel value={breakdownDim} onChange={v=>{setBreakdownDim(v);setExpandedRows(new Set());}} T={T} style={{width:150}}>
               <option value="">None</option>
@@ -5412,10 +5451,14 @@ function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,
                       )}
                       {/* Forecast model (item 45) — lives here, not the Budget Panel, since it's a
                           pacing/projection choice, not a budget-setup one. Affects Daily Burn/
-                          Projected/Status above via computePacing reading budgetRowMeta. */}
-                      <select value={getForecastModel(seg.segKey)} onChange={e=>setForecastModel(seg.segKey,e.target.value)} disabled={!canEdit}
-                        title="Forecast model — how this segment's spend is projected across the period"
-                        style={{display:"block",marginTop:4,maxWidth:118,fontSize:10,color:getForecastModel(seg.segKey)!=="full-period"?T.accent:T.textMuted,background:getForecastModel(seg.segKey)!=="full-period"?T.accentBg:"transparent",border:`1px solid ${getForecastModel(seg.segKey)!=="full-period"?T.accentBorder:T.border}`,borderRadius:5,padding:"1px 3px",cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",outline:"none"}}>
+                          Projected/Status above via computePacing reading budgetRowMeta. Defaults
+                          to inheriting the tab's global model (set above the table) — picking
+                          anything else here is an explicit per-row override, highlighted so it's
+                          obvious which rows deviate from the workspace default. */}
+                      <select value={getForecastModelOverride(seg.segKey)} onChange={e=>setForecastModel(seg.segKey,e.target.value)} disabled={!canEdit}
+                        title={`Forecast model — how this segment's spend is projected across the period. Currently: ${FORECAST_MODELS.find(m=>m.value===getEffectiveForecastModel(seg.segKey))?.label||"Full period"}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
+                        style={{display:"block",marginTop:4,maxWidth:118,fontSize:10,color:getForecastModelOverride(seg.segKey)?T.accent:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.accentBg:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.accentBorder:T.border}`,borderRadius:5,padding:"1px 3px",cursor:canEdit?"pointer":"default",fontFamily:"Inter,sans-serif",outline:"none"}}>
+                        <option value={FORECAST_MODEL_INHERIT}>Use global default ({FORECAST_MODELS.find(m=>m.value===defaultForecastModel)?.label||"Full period"})</option>
                         {FORECAST_MODELS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
                       </select>
                     </td>
@@ -5868,6 +5911,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // top level only because it rides the same debounced workspace-config save/load as
   // budgetRowMeta etc. below, not because anything outside the Reporting & Pacing tab reads it.
   const[savedViews,setSavedViews]=useState([]);
+  // Global default forecast model (item 45, 2026-07-25) — the workspace-wide fallback used by
+  // computePacing whenever a segment has no per-row override (budgetRowMeta[sk]._forecastModel).
+  // Lives at this same top level, rides the same debounced save, for the same reason savedViews
+  // does above: a single value the whole workspace shares, not something scoped to one tab's UI
+  // state. Defaults to "full-period" — the same default computePacing already fell back to before
+  // this existed — so an unconfigured workspace behaves identically to today.
+  const[defaultForecastModel,setDefaultForecastModel]=useState("full-period");
 
   // Tag-value autocomplete sources: values already used in the Budget Panel for each dimension,
   // unioned with values already used on other campaigns' tags — either one matching exactly is
@@ -6323,6 +6373,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         setBudgetMetaDims(config.budgetMetaDims||[]);
         setBudgetImportMeta(config.budgetImportMeta||{});
         setSavedViews(config.savedViews||[]);
+        setDefaultForecastModel(config.defaultForecastModel||"full-period");
         const dedupedRows=mergeRows([],rows||[]);
         const rowsDeduped=dedupedRows.length!==(rows||[]).length;
         setMergedNormRows(dedupedRows);
@@ -6368,7 +6419,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const rowsDirtyRef=useRef(false);
   const latestConfigRef=useRef(null);
   const latestRowsRef=useRef(null);
-  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews};});
+  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel};});
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
   // ── Second, independent safety net (2026-07-20) ─────────────────────────────────────────────
@@ -6396,7 +6447,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews};
+      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel};
       if(isEmptyConfig(payload)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current){
         console.error("[workspace config save] BLOCKED — refusing to overwrite known real data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's data, use Settings → Clear data instead of whatever just triggered this.");
         return; // stays dirty — retries on the next change, or once real data is back
@@ -6407,7 +6458,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
-  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
   // replace-all (not incremental) is the sync model here.
@@ -7448,8 +7499,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const exportableView=EXPORTABLE_VIEWS[view]||null;
   const buildCurrentReport=useCallback(()=>{
     if(!exportableView)return null;
-    return exportableView.build({mergedNormRows:visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims});
-  },[exportableView,visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims]);
+    return exportableView.build({mergedNormRows:visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,defaultForecastModel});
+  },[exportableView,visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,defaultForecastModel]);
   const handleExportDownload=useCallback(format=>{
     const report=buildCurrentReport();
     if(!report||!exportableView)return;
@@ -8741,7 +8792,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       {/* Same fix as the top-nav Tagger tab above: route off mergedNormRows.length (is there
           actually data to show), not the transient step flag — see that button's doc comment for
           why branching on step left this dead-clicking whenever step had drifted off "tag". */}
-      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={visibleNormRows.length>0} budgets={budgets} budgetDims={budgetDims} budgetRowMeta={budgetRowMeta} campaignTags={tags} mergedNormRows={visibleNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
+      {view==="dashboard"&&<Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={visibleNormRows.length>0} budgets={budgets} budgetDims={budgetDims} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} campaignTags={tags} mergedNormRows={visibleNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/>}
       {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
           other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
           dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
@@ -8749,10 +8800,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           becomes null while hidden (its portal target only exists when view==="budget"), so the
           sidebar contents disappear correctly without any extra guard. */}
       <div style={{display:view==="budget"?"contents":"none"}}>
-        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
+        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
       </div>
-      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
-      {view==="ask"&&<AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl}/>}
+      {view==="pacing"&&<PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/>}
+      {view==="ask"&&<AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl}/>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
