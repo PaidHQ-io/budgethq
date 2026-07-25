@@ -902,10 +902,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
     <div style={{display:"flex",height:"100%",background:T.bg,overflow:"hidden"}}>
       {/* Sidebar content now renders via portal into the app-shell's stats sidebar (see sidebarEl) */}
       {sidebarEl&&createPortal(
-        <div style={{display:"flex",flexDirection:"column",gap:0}}>
+        <div style={{display:"flex",flexDirection:"column",gap:0,fontFamily:"'DM Sans',sans-serif"}}>
           <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:12}}>
-          <Btn onClick={()=>setImportOpen(true)} disabled={!canEdit} title={canEdit?undefined:"View-only access"} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import CSV / Excel</Btn>
-          <Btn onClick={openExportPreview} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export budgets + pacing</Btn>
+          <Btn onClick={()=>setImportOpen(true)} disabled={!canEdit} title={canEdit?undefined:"View-only access"} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}>↑ Import CSV / Excel</Btn>
+          <Btn onClick={openExportPreview} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}>↓ Export budgets + pacing</Btn>
 
           {/* Metadata dimensions */}
           <div style={{borderTop:`1px solid ${T.border}`,marginTop:10,paddingTop:12}}>
@@ -913,14 +913,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
             <div style={{fontSize:11,color:T.textMuted,marginBottom:8,lineHeight:1.5}}>Add Pillar, Region, Funnel etc. as columns to annotate budget rows.</div>
             {budgetMetaDims.map(d=>(
               <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 0"}}>
-                <span style={{fontSize:12,color:T.text,fontFamily:"Inter,sans-serif"}}>{d}</span>
+                <span style={{fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{d}</span>
                 <button onClick={()=>setBudgetMetaDims(p=>p.filter(x=>x!==d))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13,padding:0,lineHeight:1}}>×</button>
               </div>
             ))}
             <div style={{display:"flex",gap:4,marginTop:6}}>
               <input value={newMetaDim} onChange={e=>setNewMetaDim(e.target.value)} placeholder="e.g. Pillar, Region…" onKeyDown={e=>e.key==="Enter"&&addMetaDim()}
-                style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"Inter,sans-serif"}}/>
-              <Btn onClick={addMetaDim} disabled={!newMetaDim.trim()} variant="subtle" size="sm" T={T}>+ Add</Btn>
+                style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+              <Btn onClick={addMetaDim} disabled={!newMetaDim.trim()} variant="subtle" size="sm" T={T} style={{fontFamily:"'DM Sans',sans-serif"}}>+ Add</Btn>
             </div>
             {tagDimensions?.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).length>0&&(
               <div style={{marginTop:8}}>
@@ -928,7 +928,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                 <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                   {tagDimensions.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).map(d=>(
                     <button key={d} onClick={()=>{setBudgetMetaDims(p=>[...p,d]);showNotif(`Added ${d}`);}}
-                      style={{fontSize:11,padding:"2px 8px",borderRadius:14,background:T.surfaceEl,border:`1px solid ${T.border}`,color:T.text,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>+ {d}</button>
+                      style={{fontSize:11,padding:"2px 8px",borderRadius:14,background:T.surfaceEl,border:`1px solid ${T.border}`,color:T.text,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>+ {d}</button>
                   ))}
                 </div>
               </div>
@@ -938,7 +938,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget Year</SectionLabel>
-            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?700:400,fontFamily:"Inter,sans-serif"}}>{y}</button>)}</div>
+            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?700:400,fontFamily:"'DM Sans',sans-serif"}}>{y}</button>)}</div>
           </div>
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
@@ -946,8 +946,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
             {["Platform",...(tagDimensions||[])].map(d=>{const on=budgetDims.includes(d);return(
               <div key={d} className={on?undefined:"bhq-row"} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?T.accentBg:"transparent",border:on?`1px solid ${T.accentBorder}`:"1px solid transparent",marginBottom:2}}>
                 <Chk checked={on} onChange={()=>toggleDim(d)} T={T}/>
-                <span style={{fontSize:13,color:T.text,fontWeight:on?700:400}}>{d}</span>
-                <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontFamily:"Inter,sans-serif"}}>{dimCount(d)}</span>
+                <span style={{fontSize:13,color:T.text,fontWeight:on?700:400,fontFamily:"'DM Sans',sans-serif"}}>{d}</span>
+                <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontFamily:"'DM Sans',sans-serif"}}>{dimCount(d)}</span>
               </div>
             );})}
           </div>
@@ -971,9 +971,9 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Summary</SectionLabel>
-            <StatRow label="Segments" value={segs.length.toString()} T={T}/>
-            <StatRow label={`Total ${year}`} value={totalY>0?fmtFull(totalY):"$0"} T={T}/>
-            {segs.some(sg=>isNotBudgeted(sg.key))&&<StatRow label="Not budgeted" value={segs.filter(sg=>isNotBudgeted(sg.key)).length.toString()} T={T}/>}
+            <StatRow label="Segments" value={segs.length.toString()} T={T} valueStyle={{fontFamily:"'DM Sans',sans-serif"}}/>
+            <StatRow label={`Total ${year}`} value={totalY>0?fmtFull(totalY):"$0"} T={T} valueStyle={{fontFamily:"'DM Sans',sans-serif"}}/>
+            {segs.some(sg=>isNotBudgeted(sg.key))&&<StatRow label="Not budgeted" value={segs.filter(sg=>isNotBudgeted(sg.key)).length.toString()} T={T} valueStyle={{fontFamily:"'DM Sans',sans-serif"}}/>}
           </div>
         </div>,
         sidebarEl
