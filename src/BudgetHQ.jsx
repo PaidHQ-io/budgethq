@@ -1851,7 +1851,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // Per Mo's request (2026-07-24): headers used to fade to T.textMuted (grey) until actively
   // sorted, and only turn T.text (dark) on the active sort column. Now always T.text — active sort
   // is still shown via the underline below, just no longer via color.
-  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
+  const SH=({col,label})=>(<span onClick={()=>doSort(col)} style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   // White fill, same as the toolbar behind it — Vercel's filter pills are white-on-white with
   // just a border for separation, not a gray fill. paddingLeft is bumped separately on the three
   // primary "contains" fields to make room for the search icon from IconField.
@@ -2590,7 +2590,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   {!isMobile&&(
                     <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"7px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
                       {["Connector","Data source name","Credentials","Status","Sync","Connected","Import start","Import end",""].map(h=>(
-                        <SectionLabel key={h} T={T} style={{marginBottom:0}}>{h}</SectionLabel>
+                        <SectionLabel key={h} T={T} style={{marginBottom:0,fontSize:14}}>{h}</SectionLabel>
                       ))}
                     </div>
                   )}
@@ -2624,7 +2624,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     const menuOpen=connActionsMenuProvider===pl.key;
                     const syncing=(syncState[pl.key]||"idle")==="loading";
                     const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key||syncing;
-                    const cell=(content,extra)=><div style={{fontSize:12,color:T.textSub,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
+                    const cell=(content,extra)=><div style={{fontSize:13,color:T.textSub,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
                     const actionsMenu=menuOpen&&connActionsMenuAnchorRect&&createPortal(
                       <>
                         <div onClick={closeConnActionsMenu} style={{position:"fixed",inset:0,zIndex:999}}/>
@@ -2708,8 +2708,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                             </div>
                             {dotsButton}
                           </div>
-                          <div style={{fontSize:12,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>{summaryText}</div>
-                          <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginTop:3}}>
+                          <div style={{fontSize:13,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>{summaryText}</div>
+                          <div style={{fontSize:13,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginTop:3}}>
                             {connectedByEmail||"—"} · connected {fmtShort(conn.connectedAt)} · imported {fmtShort(importRange?.start)}–{fmtShort(importRange?.end)}
                           </div>
                         </div>
@@ -2719,7 +2719,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div key={pl.key} style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 10px",alignItems:"center",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                         <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
                           <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
-                          <span style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
+                          <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
                         </div>
                         {cell(summaryText,{color:T.text})}
                         {cell(connectedByEmail||"—")}
@@ -3035,33 +3035,33 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         of a muted-vs-bold pair — Vercel's row title and metadata fields read at the
                         same visual weight, just differing in which column they sit in. Weight
                         dropped to 400 (2026-07-24, per Mo) — no benefit to bolding row data. */}
-                    {!isMobile&&<div style={{fontSize:11,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
+                    {!isMobile&&<div style={{fontSize:13,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
                     {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
                         here it means tagged (accent) vs needs review (neutral grey), so the row list
                         reads at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
                       <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?T.accentSoft:"#A1A1AA",flexShrink:0}}/>
-                      <span style={{minWidth:0,fontSize:11,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                      <span style={{minWidth:0,fontSize:13,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
-                    <div style={{fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
+                    <div style={{fontSize:13,fontFamily:"'DM Sans',sans-serif",fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
                       {editingPlatform===c.key?(
                         <select autoFocus value={c.platform}
                           onChange={e=>{if(!canEdit)return;const plat=e.target.value;setMergedNormRows(prev=>prev.map(r=>campaignKey(r.campaign_group_name,r.campaign_name)===c.key?{...r,platform:plat}:r));setEditingPlatform(null);}}
                           onBlur={()=>setEditingPlatform(null)}
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:11,padding:"2px 6px",outline:"none",fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,padding:"2px 6px",outline:"none",fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
                           {PLATFORM_OPTIONS.filter(p=>p!=="auto").map(p=><option key={p} value={p}>{p}</option>)}
                         </select>
                       ):(
                         <span onClick={()=>canEdit&&setEditingPlatform(c.key)} title={canEdit?"Click to change platform":"View-only access"}
-                          style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:500,padding:"3px 8px",borderRadius:6,background:pc+"14",color:pc,border:`1px solid ${pc}55`,whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>
+                          style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:13,fontWeight:400,padding:"3px 8px",borderRadius:6,background:pc+"14",color:pc,border:`1px solid ${pc}55`,whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>
                           <span style={{width:5,height:5,borderRadius:"50%",background:pc,flexShrink:0}}/>
                           {c.platform}
                         </span>
                       )}
                     </div>}
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                      {tc===0?<Pill color={T.text} bg={T.surfaceEl} border={T.border} style={{borderRadius:6}}>needs review</Pill>:
+                      {tc===0?<Pill color={T.text} bg={T.surfaceEl} border={T.border} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,borderRadius:6}}>needs review</Pill>:
                         // Ordered by tagDims (the canonical dimension order), not Object.entries(ts) —
                         // a plain object's key order follows INSERTION order, which is whatever
                         // sequence that specific campaign happened to get tagged in (BU-then-Product
@@ -3073,15 +3073,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           const dimIdx=tagDims.indexOf(dim);
                           const dc=TAG_DIM_COLORS[(dimIdx>=0?dimIdx:0)%TAG_DIM_COLORS.length];
                           return(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 4px 2px 8px",borderRadius:6,background:dc+"14",color:dc,border:`1px solid ${dc}40`,gap:2,fontFamily:"'DM Sans',sans-serif"}}>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:13,fontWeight:400,padding:"2px 4px 2px 8px",borderRadius:6,background:dc+"14",color:dc,border:`1px solid ${dc}40`,gap:2,fontFamily:"'DM Sans',sans-serif"}}>
                             <span style={{opacity:0.75,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
                               <TagAutocompleteInput T={T} autoFocus value={editVal} onChange={setEditVal} suggestions={dimSuggestions(dim)}
                                 onEnter={saveEdit} onEscape={()=>{setEditingTag(null);setEditVal("");}} onBlur={saveEdit}
                                 style={{width:Math.max(60,editVal.length*7+20)+"px"}}
-                                inputStyle={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontWeight:600,width:"100%",fontFamily:"'DM Sans',sans-serif",padding:0}}/>
+                                inputStyle={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:400,width:"100%",fontFamily:"'DM Sans',sans-serif",padding:0}}/>
                             ):(
-                              <span onClick={e=>{e.stopPropagation();if(!canEdit)return;setEditingTag({campaign:c.key,dim});setEditVal(val);}} style={{cursor:canEdit?"text":"default",fontWeight:600}}>{val}</span>
+                              <span onClick={e=>{e.stopPropagation();if(!canEdit)return;setEditingTag({campaign:c.key,dim});setEditVal(val);}} style={{cursor:canEdit?"text":"default",fontWeight:400}}>{val}</span>
                             )}
                             {canEdit&&<span onClick={e=>{e.stopPropagation();removeTag(c.key,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13,lineHeight:1,marginLeft:1,padding:"0 2px"}}>×</span>}
                           </span>
@@ -3096,7 +3096,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   </div>
                 );
               })}
-              {filtered.length===0&&<div style={{padding:"52px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No campaigns match your filters.{hasF&&<span onClick={clearF} style={{color:T.text,cursor:"pointer",marginLeft:6,fontWeight:600,textDecoration:"underline"}}>Clear filters</span>}</div>}
+              {filtered.length===0&&<div style={{padding:"52px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No campaigns match your filters.{hasF&&<span onClick={clearF} style={{color:T.text,cursor:"pointer",marginLeft:6,fontWeight:400,textDecoration:"underline"}}>Clear filters</span>}</div>}
             </div>
           </div>
         </div>
