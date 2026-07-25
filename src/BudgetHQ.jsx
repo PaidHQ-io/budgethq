@@ -62,9 +62,16 @@ const QUARTERS=[{key:"Q1",months:["01","02","03"],label:"Q1 Cap"},{key:"Q2",mont
 // computePacing/projectPlatformSegment for the math each one drives). "full-period" is the
 // implicit default — never actually stored, an absent/unrecognized value falls back to it — so
 // it's listed first here purely for the picker UI's option order, not persisted when selected.
+// trailing1/trailing3 added 2026-07-25 per Mo: even trailing7 dilutes a budget shift made 2 days
+// ago across 5+ days of the old rate before it moves the projection much — these two exist for
+// "I need this to react almost immediately," at the cost of being noisier (single-day spend swings
+// from weekday/weekend patterns, a platform's reporting lag, etc. move the projection directly,
+// with nothing to smooth them out).
 const FORECAST_MODELS=[
   {value:"full-period",label:"Full period (default)",hint:"Cumulative average of all spend to date, projected across the whole period — standard pacing."},
   {value:"committed",label:"Committed spend",hint:"A known lump sum/prepaid amount — skips run-rate projection entirely."},
+  {value:"trailing1",label:"Trailing 1-day (yesterday)",hint:"Projects from only the most recent day's spend — reacts instantly to a budget change but is noisy (a single low-spend day, e.g. a weekend, swings the whole projection)."},
+  {value:"trailing3",label:"Trailing 3-day average",hint:"Projects from the last 3 days' rate — reacts fast to a recent shift while smoothing out a single unusual day."},
   {value:"trailing7",label:"Trailing 7-day average",hint:"Projects from the last 7 days' rate instead of the whole period-to-date — reacts fast to recent budget changes."},
   {value:"trailing14",label:"Trailing 14-day average",hint:"Projects from the last 14 days' rate."},
   {value:"trailing30",label:"Trailing 30-day average",hint:"Projects from the last 30 days' rate — smoother than 7d, still recent-weighted."},
@@ -4056,19 +4063,23 @@ function computePlatformDateRange(mergedNormRows){
 // platform spent within it and how fresh that platform's data is.
 //
 // forecastModel (optional, computePacing only — computeCustomGrouping never passes one, so it
-// always gets the full-period behavior below): "trailing7"/"trailing14"/"trailing30" switch the
-// rate calculation from "total spend to date ÷ days elapsed" to "spend over the last N days ÷ N",
-// so a recent budget change shows up in the projection right away instead of being diluted by
-// weeks of prior history. requires platformSpendMap's per-platform entries to carry a `byDate`
-// breakdown (see computePacing's aggregation loop) — computeCustomGrouping's entries have one too
-// now for exactly this reason, even though it never requests a trailing model itself.
+// always gets the full-period behavior below): any "trailingN" value (trailing1, trailing3,
+// trailing7, trailing14, trailing30 — see FORECAST_MODELS) switches the rate calculation from
+// "total spend to date ÷ days elapsed" to "spend over the last N days ÷ N", so a recent budget
+// change shows up in the projection right away instead of being diluted by weeks of prior history.
+// N is parsed straight out of the model string rather than hardcoded per value, so adding another
+// window to FORECAST_MODELS (e.g. a future trailing2) doesn't need a matching change here. requires
+// platformSpendMap's per-platform entries to carry a `byDate` breakdown (see computePacing's
+// aggregation loop) — computeCustomGrouping's entries have one too now for exactly this reason,
+// even though it never requests a trailing model itself.
 function projectPlatformSegment(platformSpendMap,platformFreshness,{start,end,today,totalDays,forecastModel}){
   let platformProjectedSum=0;
   // See PROJECTION NOTE above — platforms whose projection here was extrapolated from a single
   // day of data across a multi-day period get flagged so the UI can warn instead of silently
   // trusting a wildly inflated number.
   const lowConfidencePlatforms=[];
-  const trailingDays=forecastModel==="trailing7"?7:forecastModel==="trailing14"?14:forecastModel==="trailing30"?30:null;
+  const trailingMatch=/^trailing(\d+)$/.exec(forecastModel||"");
+  const trailingDays=trailingMatch?parseInt(trailingMatch[1],10):null;
   Object.entries(platformSpendMap||{}).forEach(([platform,pData])=>{
     const pTotal=typeof pData==="number"?pData:(pData?.total||0);
     const byDate=pData?.byDate||{};
