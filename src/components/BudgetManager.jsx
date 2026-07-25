@@ -894,7 +894,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
 
   const cellIn=(val,onChange,over=false,cap=false)=>(
     <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
-      style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:"#272727",padding:"4px 6px",fontSize:16,fontWeight:300,width:"100%",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif",textAlign:"right",outline:"none",display:"block"}}/>
+      style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:5,color:over?T.danger:cap?T.warning:"#3F00B3",padding:"4px 6px",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",width:"100%",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif",textAlign:"right",outline:"none",display:"block"}}/>
   );
   const TH={fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",textAlign:"right"};
 
@@ -1114,13 +1114,13 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                       // Derived, not stored — renaming here would only relabel the budget row
                       // while spend keeps resolving to the original channel name, silently
                       // breaking the match. Not editable.
-                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:300,borderRadius:6}} title="Derived from spend data — not editable">{seg[d]}</Pill>
+                      <Pill color="#3F00B3" bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",borderRadius:6}} title="Derived from spend data — not editable">{seg[d]}</Pill>
                     ):editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
                       <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                         onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
-                        style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:"#272727",padding:"3px 8px",fontSize:16,fontWeight:300,outline:"none",fontFamily:"'DM Sans',sans-serif",minWidth:80}}/>
+                        style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:"#3F00B3",padding:"3px 8px",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:"'DM Sans',sans-serif",minWidth:80}}/>
                     ):(
-                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:300,cursor:"text",borderRadius:6}}
+                      <Pill color="#3F00B3" bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",cursor:"text",borderRadius:6}}
                         onClick={()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
                     )}
                     {i===budgetDims.length-1&&!nb&&segMatchCount(seg.key)===0&&(
@@ -1138,9 +1138,9 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                         {isEditing?(
                           <input autoFocus value={editMetaVal} onChange={e=>setEditMetaVal(e.target.value)}
                             onBlur={saveMetaEdit} onKeyDown={e=>{if(e.key==="Enter")saveMetaEdit();if(e.key==="Escape"){setEditingMeta(null);setEditMetaVal("");}}}
-                            style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:5,color:"#272727",padding:"3px 7px",fontSize:16,fontWeight:300,outline:"none",fontFamily:"'DM Sans',sans-serif",width:"100%"}}/>
+                            style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:5,color:"#3F00B3",padding:"3px 7px",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:"'DM Sans',sans-serif",width:"100%"}}/>
                         ):(
-                          <span style={{fontSize:16,fontWeight:300,color:val?"#272727":T.textMuted,cursor:"text",padding:"3px 6px",display:"block",borderRadius:5,border:`1px solid transparent`,minHeight:22,fontFamily:"'DM Sans',sans-serif"}}>
+                          <span style={{fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:val?"#3F00B3":T.textMuted,cursor:"text",padding:"3px 6px",display:"block",borderRadius:5,border:`1px solid transparent`,minHeight:22,fontFamily:"'DM Sans',sans-serif"}}>
                             {val||<span style={{opacity:0.4}}>—</span>}
                           </span>
                         )}
@@ -1148,8 +1148,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                     );
                   })}
                   {MONTHS.map(m=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo)}</td>;})}
-                  {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:300,color:"#272727",background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
-                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:300,color:ao?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
+                  {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#3F00B3",background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
+                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:ao?T.danger:"#3F00B3",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
                   {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:"'DM Sans',sans-serif",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
                   {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:"'DM Sans',sans-serif",display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
                   <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
@@ -1171,9 +1171,9 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                 <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
                 {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals</SectionLabel>}</td>)}
                 {budgetMetaDims.map(d=><td key={d}/>)}
-                {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:300,color:"#272727"}}>{t>0?fmt$(t):"—"}</td>;})}
-                {QUARTERS.map(q=>{const qt=filteredSegs.reduce((s,sg)=>s+qTotal(sg.key,q),0);return <td key={"qt-"+q.key} style={{padding:"10px 10px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:300,color:"#272727"}}>{qt>0?fmt$(qt):"—"}</td>;})}
-                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:300,color:"#272727"}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
+                {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#3F00B3"}}>{t>0?fmt$(t):"—"}</td>;})}
+                {QUARTERS.map(q=>{const qt=filteredSegs.reduce((s,sg)=>s+qTotal(sg.key,q),0);return <td key={"qt-"+q.key} style={{padding:"10px 10px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#3F00B3"}}>{qt>0?fmt$(qt):"—"}</td>;})}
+                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#3F00B3"}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
                 {showQ&&QUARTERS.map(q=><td key={"qc-"+q.key}/>)}
                 {showA&&<td/>}
                 <td/>
