@@ -2,9 +2,8 @@
  * /api/workspaces/[id]/connections
  *
  * Per-workspace third-party connector credentials — Funnel.io/Supermetrics/Capterra API keys and
- * LinkedIn/Bing/Meta's OAuth tokens, as opposed to the single shared process.env credential the
- * google connector uses (one account for the whole app). This is what lets each workspace connect
- * ITS OWN account.
+ * LinkedIn/Bing/Meta/Google's OAuth tokens. This is what lets each workspace connect ITS OWN
+ * account, rather than the whole app sharing one shared process.env credential.
  *
  * GET    — list which providers this workspace has connected. Never returns the stored
  *          credential itself, just { provider, connectedAt } per row — the credential only ever
@@ -37,23 +36,27 @@ import { withApi } from "../../lib/http.js";
 import { needsReconnectSoon as linkedinNeedsReconnectSoon } from "../../lib/linkedinOAuth.js";
 import { needsReconnectSoon as bingNeedsReconnectSoon } from "../../lib/bingOAuth.js";
 import { needsReconnectSoon as metaNeedsReconnectSoon } from "../../lib/metaOAuth.js";
+import { needsReconnectSoon as googleNeedsReconnectSoon } from "../../lib/googleAdsOAuth.js";
 
 // Per-provider reconnect check — see each lib's needsReconnectSoon doc comment. LinkedIn's is
 // time-based (no refresh token available at all yet); Bing's is failure-based (refresh tokens are
 // undated, so a failed refresh attempt — tracked as credential.reconnectRequired — is the only
 // honest signal). Meta's is also failure-based (see metaOAuth.js — re-extending the long-lived
 // token is attempted well before its ~60-day expiry, so reconnectRequired only flips true if that
-// actually fails). Every other provider is a plain API key with no expiry, so always false.
+// actually fails). Google's is also failure-based, same shape as Bing's (see googleAdsOAuth.js —
+// standard refresh_token grant with no fixed calendar expiry to count down to). Every other
+// provider is a plain API key with no expiry, so always false.
 const RECONNECT_CHECKS = {
   linkedin: linkedinNeedsReconnectSoon,
   bing: bingNeedsReconnectSoon,
   meta: metaNeedsReconnectSoon,
+  google: googleNeedsReconnectSoon,
 };
 
 // Distinct from RECONNECT_CHECKS above: a token can be perfectly valid but still missing the ad
 // account it should sync from — e.g. the token exchange succeeded but the account-picker step
-// (api/oauth/{provider}/accounts.js) never got a selection saved. Both LinkedIn and Bing's
-// connectors hard-require credential.accountId to call getSpend at all; Bing additionally needs
+// (api/oauth/{provider}/accounts.js) never got a selection saved. LinkedIn, Bing, and Google's
+// connectors all hard-require credential.accountId to call getSpend at all; Bing additionally needs
 // credential.customerId (see api/connectors/bing.js). Surfacing this separately from
 // needsReconnect matters because the fix is different — reopen the account picker with the
 // EXISTING token (no need to redo the consent screen), not send the user through OAuth again.
@@ -61,9 +64,10 @@ const ACCOUNT_INCOMPLETE_CHECKS = {
   linkedin: (credential) => !!credential?.accessToken && !credential?.accountId,
   bing: (credential) => !!credential?.accessToken && (!credential?.accountId || !credential?.customerId),
   meta: (credential) => !!credential?.accessToken && !credential?.accountId,
+  google: (credential) => !!credential?.accessToken && !credential?.accountId,
 };
 
-const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing", "meta"];
+const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing", "meta", "google"];
 
 // Settings' connections-management table needs SOMETHING to show per provider beyond just
 // "connected" — but the credential itself must never reach the client (see GET's doc comment
@@ -75,6 +79,7 @@ const SAFE_SUMMARY = {
   linkedin: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null }),
   bing: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null, customerId: c?.customerId || null }),
   meta: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null }),
+  google: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null }),
   funnel: (c) => ({ accountId: c?.accountId || null, projectId: c?.projectId || null }),
   supermetrics: (c) => ({ dsId: c?.dsId || null, dsAccounts: c?.dsAccounts || null }),
   capterra: (c) => ({ products: c?.apiKeys ? Object.keys(c.apiKeys) : [] }),

@@ -821,7 +821,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const PLATFORMS=[
     {key:"linkedin",label:"LinkedIn",status:"live",perWorkspaceAuth:true,oauth:true,color:"#0A66C2",desc:"Ad account, OAuth-connected",domain:"linkedin.com"},
     {key:"bing",label:"Bing",status:"live",perWorkspaceAuth:true,oauth:true,color:"#00809D",desc:"Microsoft Advertising, OAuth-connected",domain:"bing.com",mark:BingMark},
-    {key:"google",label:"Google Ads",status:"csv",color:"#EA4335",desc:"No direct API yet — upload a CSV export",domain:"ads.google.com",mark:GoogleAdsMark},
+    {key:"google",label:"Google Ads",status:"live",perWorkspaceAuth:true,oauth:true,color:"#EA4335",desc:"Ad account, OAuth-connected",domain:"ads.google.com",mark:GoogleAdsMark},
     {key:"meta",label:"Meta Ads",status:"live",perWorkspaceAuth:true,oauth:true,color:"#1877F2",desc:"Ad account, OAuth-connected",domain:"meta.com"},
     {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",desc:"API key per product",domain:"capterra.com",
       connectFields:[
@@ -993,7 +993,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // clicking "connect" kicks off a real browser redirect instead of opening connectPanelKey's
   // generic field form. Shared across both providers via api/oauth/{provider}/{start,callback,
   // accounts}.js, which all follow the same shape.
-  const OAUTH_PROVIDER_LABELS={linkedin:"LinkedIn",bing:"Microsoft Advertising",meta:"Meta"};
+  const OAUTH_PROVIDER_LABELS={linkedin:"LinkedIn",bing:"Microsoft Advertising",meta:"Meta",google:"Google Ads"};
   const[oauthPicker,setOauthPicker]=useState(null); // {provider,accounts,selectedAccountId} | null
   const[oauthPickerSaving,setOauthPickerSaving]=useState(false);
   const startProviderOAuth=useCallback(async(provider)=>{
