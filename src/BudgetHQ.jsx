@@ -2590,7 +2590,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   {!isMobile&&(
                     <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"7px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
                       {["Connector","Data source name","Credentials","Status","Sync","Connected","Import start","Import end",""].map(h=>(
-                        <SectionLabel key={h} T={T} style={{marginBottom:0,fontSize:13,textAlign:"center"}}>{h}</SectionLabel>
+                        <SectionLabel key={h} T={T} style={{marginBottom:0,fontSize:13,fontWeight:700,color:T.text,textAlign:"center"}}>{h}</SectionLabel>
                       ))}
                     </div>
                   )}
@@ -2960,7 +2960,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   <Btn onClick={()=>{setStep("upload");setView("data");}} variant="ghost" size="sm" T={T}>← Back to Data Sources</Btn>
                 </div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"11px 16px 5px",alignItems:"end",gap:8}}>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"11px 16px 5px",alignItems:"end",gap:8,background:T.headerBg}}>
                 <input type="checkbox" checked={filtered.length>0&&selected.size===filtered.length} onChange={selAll} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                 {/* Relabeled 2026-07-24 to match current platform terminology (LinkedIn recently
                     renamed its own UI to "Campaign"/"Ad Set", matching what most other platforms
@@ -3035,13 +3035,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         of a muted-vs-bold pair — Vercel's row title and metadata fields read at the
                         same visual weight, just differing in which column they sit in. Weight
                         dropped to 400 (2026-07-24, per Mo) — no benefit to bolding row data. */}
-                    {!isMobile&&<div style={{fontSize:13,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
+                    {!isMobile&&<div title={c.groupName} style={{fontSize:13,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
                     {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
                         here it means tagged (accent) vs needs review (neutral grey), so the row list
                         reads at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
                       <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?T.accent:"#A1A1AA",flexShrink:0}}/>
-                      <span style={{minWidth:0,fontSize:13,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                      <span title={c.name} style={{minWidth:0,fontSize:13,fontWeight:400,fontFamily:"'DM Sans',sans-serif",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
                     <div style={{fontSize:13,fontFamily:"'DM Sans',sans-serif",fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
