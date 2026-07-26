@@ -20,7 +20,7 @@ import {
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
   SectionLabel, Pill, GoogleAdsMark, BingMark, PlatformLogo, Btn, Inp, Sel, StatRow,
-  MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip,
+  MatchModeToggle, IconField, TagAutocompleteInput, HatchDivider, Icon, PixelPanel, WarnTip,
 } from "./components/shared.jsx";
 import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
 
@@ -2248,7 +2248,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   </div>
                 );
               })()}
-              <Divider T={T}/>
+              <HatchDivider T={T}/>
               <div style={{padding:"12px 0"}}>
                 <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
                 <StatRow T={T} size={11} label="Live connectors" value={PLATFORMS.filter(p=>p.status==="live").length.toString()}/>
@@ -2256,7 +2256,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <StatRow T={T} size={11} label="Platforms with data" value={[...new Set(visibleNormRows.map(r=>r.platform))].filter(Boolean).length.toString()}/>
                 <StatRow T={T} size={11} label="Data rows" value={stats.totalRows.toLocaleString()}/>
               </div>
-              <Divider T={T}/>
+              <HatchDivider T={T}/>
               {/* Quick actions (2026-07-26, per Mo — left column had dead space below Overview).
                   "Sync all" fires the same syncPlatform() every per-row Sync button already uses,
                   just once per connected-and-not-paused provider instead of one at a time. */}
@@ -2278,7 +2278,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   );
                 })()}
               </div>
-              <Divider T={T}/>
+              <HatchDivider T={T}/>
               {/* Data freshness — one line per connected provider, worst-first (sync failures,
                   then most-recently-synced, then manual connectors that only show how current
                   their imported DATA is since a manual pull has no persisted "ran at" timestamp,
@@ -2339,7 +2339,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   );
                 })()}
               </div>
-              <Divider T={T}/>
+              <HatchDivider T={T}/>
               {/* Spend by platform — a quick "where's the money going" split using every imported
                   row (not date-filtered by the Range picker above, same scope as the Data rows
                   stat above it), same derivePlatform grouping Settings' own breakdown uses. */}
@@ -2404,7 +2404,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <Inp value={newDim} onChange={setNewDim} placeholder="New dimension…" T={T} onKeyDown={e=>e.key==="Enter"&&addDim()} style={{fontSize:12,padding:"5px 8px"}}/>
                 <Btn onClick={addDim} variant="subtle" size="sm" T={T}>+</Btn>
               </div>
-              <Divider T={T}/>
+              <HatchDivider T={T}/>
               <div style={{padding:"12px 0",flex:1}}>
                 <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
                 {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(visibleNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T} size={11}/>)}
@@ -2828,6 +2828,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:620,marginBottom:10}}>
                 Every ad account this workspace pulls live spend from — see who connected each one, when it last imported, and manage it from the ⋯ menu.
               </div>
+              {/* Full-width hatch band (2026-07-26, per Mo) — closest match to how zams.com actually
+                  uses this texture: a section-break banner between a page's header block and its
+                  main content grid, not tucked into a conditional empty state. Always renders here
+                  regardless of connection state. */}
+              <HatchDivider T={T} style={{margin:"0 0 14px"}}/>
               {Object.entries(syncState).filter(([,s])=>s.startsWith("error:")).map(([k,s])=>(
                 <div key={k} style={{marginBottom:6,fontSize:11,color:T.danger}}>{k}: {s.replace("error:","")}</div>
               ))}
