@@ -42,6 +42,15 @@ export const THEME = {
   rowHover:"#FAFAFA",rowSelected:"rgba(0,108,255,0.08)",
   inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#FAFAFA",topbarBg:"#FFFFFF",
   pill:"#F2F2F2",pillBorder:"#C9C3C7",
+  // Diagonal hatch texture (2026-07-26, per Mo — another zams.com element, the 45deg hairline
+  // hatch it fills empty/placeholder cells with, e.g. behind its dashed-outline "add more" grid
+  // slots). Measured the same way as border/borderStrong above: sampled a screenshot crop of it
+  // directly — stripes repeat every ~9-11px, in the same warm gray-mauve line color as
+  // borderStrong (rgb 165,159,167) but much lower opacity so it reads as a subtle woven texture,
+  // not a solid tint. Meant to be layered as backgroundImage over a plain backgroundColor (usually
+  // T.surfaceEl), same way zams uses it — a CSS background-image value, not a color, so it needs
+  // to be paired with one rather than dropped straight into a `background` shorthand alone.
+  hatchBg:"repeating-linear-gradient(45deg, rgba(165,159,167,0.28) 0px, rgba(165,159,167,0.28) 1.5px, transparent 1.5px, transparent 9px)",
   badgeColors:["#36565F","#5F8190","#141414","#4A7080","#23414A","#7A9CAA","#0A2226"],
   shadow:"none",
   shadowMd:"0 8px 24px rgba(0,0,0,0.08),0 2px 6px rgba(0,0,0,0.04)",

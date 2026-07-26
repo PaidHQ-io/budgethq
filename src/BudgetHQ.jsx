@@ -2305,7 +2305,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     }
                     return{key:c.provider,label:pl.label,domain:pl.domain,platColor:pl.color,mark:pl.mark,text,color,bucket,sortTime};
                   }).filter(Boolean).sort((a,b)=>a.bucket-b.bucket||b.sortTime-a.sortTime);
-                  if(rows.length===0)return<div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>Nothing connected yet.</div>;
+                  if(rows.length===0)return<div style={{border:`1px dashed ${T.border}`,borderRadius:6,padding:"8px 10px",backgroundColor:T.surfaceEl,backgroundImage:T.hatchBg,fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>Nothing connected yet.</div>;
                   return(
                     <div style={{display:"flex",flexDirection:"column",gap:7}}>
                       {rows.map(r=>(
@@ -2334,7 +2334,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     map[p]=(map[p]||0)+(r.spend||0);
                   });
                   const arr=Object.entries(map).map(([platform,spend])=>({platform,spend})).sort((a,b)=>b.spend-a.spend);
-                  if(arr.length===0)return<div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>No spend data yet.</div>;
+                  if(arr.length===0)return<div style={{border:`1px dashed ${T.border}`,borderRadius:6,padding:"8px 10px",backgroundColor:T.surfaceEl,backgroundImage:T.hatchBg,fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>No spend data yet.</div>;
                   const max=arr[0].spend||1;
                   return(
                     <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -2792,7 +2792,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 const connectedPlatforms=PLATFORMS.filter(pl=>pl.perWorkspaceAuth&&connectionDetails.find(c=>c.provider===pl.key));
                 if(connectedPlatforms.length===0){
                   return(
-                    <div style={{border:`1px dashed ${T.borderStrong}`,borderRadius:10,padding:"28px 20px",textAlign:"center"}}>
+                    <div style={{border:`1px dashed ${T.borderStrong}`,borderRadius:10,padding:"28px 20px",textAlign:"center",backgroundColor:T.surfaceEl,backgroundImage:T.hatchBg}}>
                       <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",marginBottom:4}}>No data sources connected yet</div>
                       <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginBottom:14}}>Connect LinkedIn, Bing, Funnel.io and more — or upload a CSV/screenshot directly.</div>
                       <Btn onClick={()=>setDataSourcesSubView("add")} variant="primary" size="sm" T={T}>+ Add data source</Btn>
