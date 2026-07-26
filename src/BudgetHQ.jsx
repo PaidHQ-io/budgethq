@@ -2794,7 +2794,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         <div key={pl.key} style={{padding:"11px 10px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
                             <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
-                              <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
+                              <PlatformLogo domain={pl.domain} color={pl.color} mark={pl.mark} size={18}/>
                               <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{pl.label}</span>
                               <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
                               <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10}} title={syncTitle}>{syncLabel}</Pill>
@@ -2814,7 +2814,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     return(
                       <div key={pl.key} style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 10px",alignItems:"center",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                         <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
-                          <span style={{width:7,height:7,borderRadius:"50%",background:pl.color,flexShrink:0}}/>
+                          <PlatformLogo domain={pl.domain} color={pl.color} mark={pl.mark} size={18}/>
                           <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
                         </div>
                         {cell(summaryText,{color:T.text})}
