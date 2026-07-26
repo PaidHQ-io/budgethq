@@ -996,6 +996,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const OAUTH_PROVIDER_LABELS={linkedin:"LinkedIn",bing:"Microsoft Advertising",meta:"Meta",google:"Google Ads"};
   const[oauthPicker,setOauthPicker]=useState(null); // {provider,accounts,selectedAccountId} | null
   const[oauthPickerSaving,setOauthPickerSaving]=useState(false);
+  // Manual account-entry fallback (2026-07-26, per Mo) — Google Ads' listAccessibleCustomers only
+  // ever returns accounts DIRECTLY on the authenticated Google user (see googleAdsOAuth.js's
+  // KNOWN LIMITATION note); anyone whose access is only via a manager/MCC account gets a
+  // correctly-empty list back, not an error. Rather than block on building full MCC-hierarchy
+  // traversal, let the account picker fall back to typing in the numeric Customer ID directly
+  // (visible top-right in the Google Ads UI) whenever the auto-discovered list comes back empty —
+  // works for any provider's picker, not just Google's, in case another one ever hits this too.
+  const[oauthManualId,setOauthManualId]=useState("");
+  const[oauthManualName,setOauthManualName]=useState("");
   const startProviderOAuth=useCallback(async(provider)=>{
     if(!canEdit)return;
     if(!workspace?.id||!session?.access_token){showNotif("No active session — try reloading.");return;}
@@ -2597,10 +2606,32 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                     <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
-                    <span onClick={()=>setOauthPicker(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                    <span onClick={()=>{setOauthPicker(null);setOauthManualId("");setOauthManualName("");}} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                   </div>
                   {oauthPicker.accounts.length===0?(
-                    <div style={{fontSize:11,color:T.textMuted}}>Connected, but couldn't load your accounts. Try Sync — if it fails, reconnect.</div>
+                    <div>
+                      <div style={{fontSize:11,color:T.textMuted,marginBottom:10,lineHeight:1.5}}>
+                        {oauthPicker.provider==="google"
+                          ?"Couldn't auto-discover accounts — this happens when your Google login only has access via a manager (MCC) account rather than directly on the ad account itself. Paste the Customer ID instead (top-right corner of the Google Ads UI, format 123-456-7890)."
+                          :"Connected, but couldn't load your accounts. Try Sync — if it fails, reconnect."}
+                      </div>
+                      {oauthPicker.provider==="google"&&(
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          <input value={oauthManualId} onChange={e=>setOauthManualId(e.target.value)} placeholder="Customer ID, e.g. 123-456-7890"
+                            style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
+                          <input value={oauthManualName} onChange={e=>setOauthManualName(e.target.value)} placeholder="Account name (optional, for display only)"
+                            style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                          <Btn T={T} variant="primary" size="sm"
+                            disabled={oauthPickerSaving||!oauthManualId.replace(/[^0-9]/g,"").trim()}
+                            onClick={()=>{
+                              const digitsOnly=oauthManualId.replace(/[^0-9]/g,"");
+                              finalizeOAuthAccount("google",digitsOnly,null,oauthManualName.trim()||null);
+                              setOauthManualId("");setOauthManualName("");
+                            }}
+                            style={{width:"100%"}}>{oauthPickerSaving?"Saving…":"Use this account"}</Btn>
+                        </div>
+                      )}
+                    </div>
                   ):(
                     <div style={{display:"flex",flexDirection:"column",gap:6}}>
                       {oauthPicker.accounts.map(a=>(
