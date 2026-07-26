@@ -4,17 +4,21 @@ import { supabase as defaultClient, supabaseConfigured } from "./lib/supabaseCli
 // Small standalone subset of BudgetHQ's Vercel-matched theme tokens — kept local rather than
 // imported from BudgetHQ.jsx since this screen renders before any workspace/session data exists
 // and shouldn't depend on that file's internals.
+// border/textMuted retuned 2026-07-26 (per Mo, matching BudgetHQ.jsx's core.js THEME — see its
+// doc comment for where these values came from). accent/onAccent fixed in the same pass — this
+// standalone copy had been missed by the app-wide orange-to-blue rebrand since it doesn't import
+// the shared THEME object.
 const T = {
   bg: "#FAFAFA",
   surface: "#FFFFFF",
   surfaceEl: "#FAFAFA",
-  border: "#EAEAEA",
+  border: "#C9C3C7",
   text: "#171717",
   textSub: "#666666",
-  textMuted: "#8F8F8F",
-  accent: "#FF7A59",
-  accentHover: "#E85C3A",
-  onAccent: "#171717",
+  textMuted: "#96909A",
+  accent: "#006CFF",
+  accentHover: "#0052CC",
+  onAccent: "#F9FAFF",
   danger: "#E5484D",
   dangerBg: "rgba(229,72,77,0.08)",
   dangerBorder: "rgba(229,72,77,0.24)",

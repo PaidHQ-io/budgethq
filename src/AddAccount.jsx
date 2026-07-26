@@ -5,14 +5,18 @@ import AuthScreen from "./Auth";
 
 // Standalone subset of the shared theme tokens — same convention Auth.jsx/WorkspaceGate.jsx
 // already use for screens that render before the main product's theme context exists.
+// border retuned 2026-07-26 (per Mo, matching BudgetHQ.jsx's core.js THEME — see its doc comment
+// for where this came from). accent/onAccent fixed in the same pass — this standalone copy had
+// been missed by the app-wide orange-to-blue rebrand since it doesn't import the shared THEME
+// object.
 const T = {
   bg: "#FAFAFA",
   surface: "#FFFFFF",
-  border: "#EAEAEA",
+  border: "#C9C3C7",
   text: "#171717",
   textSub: "#666666",
-  accent: "#FF7A59",
-  onAccent: "#171717",
+  accent: "#006CFF",
+  onAccent: "#F9FAFF",
 };
 
 function CenteredScreen({ children }) {

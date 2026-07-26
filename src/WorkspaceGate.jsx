@@ -6,18 +6,22 @@ import BudgetHQ from "./BudgetHQ";
 
 // Standalone subset of BudgetHQ's theme tokens — see Auth.jsx for why this isn't imported from
 // BudgetHQ.jsx directly.
+// border/textMuted retuned 2026-07-26 (per Mo, matching BudgetHQ.jsx's core.js THEME — see its
+// doc comment for where these values came from). accent/onAccent/accentBg/accentBorder fixed in
+// the same pass — this standalone copy had been missed by the app-wide orange-to-blue rebrand
+// since it doesn't import the shared THEME object.
 const T = {
   bg: "#FAFAFA",
   surface: "#FFFFFF",
   surfaceEl: "#FAFAFA",
-  border: "#EAEAEA",
+  border: "#C9C3C7",
   text: "#171717",
   textSub: "#666666",
-  textMuted: "#8F8F8F",
-  accent: "#FF7A59",
-  onAccent: "#171717",
-  accentBg: "rgba(255,122,89,0.1)",
-  accentBorder: "rgba(255,122,89,0.3)",
+  textMuted: "#96909A",
+  accent: "#006CFF",
+  onAccent: "#F9FAFF",
+  accentBg: "#E6F0FF",
+  accentBorder: "rgba(0,108,255,0.3)",
   danger: "#E5484D",
   dangerBg: "rgba(229,72,77,0.08)",
   dangerBorder: "rgba(229,72,77,0.24)",

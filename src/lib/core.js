@@ -14,10 +14,25 @@ import * as XLSX from "xlsx";
 // Vercel dashboard, with a black primary accent instead of a colored one. Lives here (not
 // components/shared.jsx) so lib/reports.js can use it directly too — report builders run outside
 // the React render tree and need a fixed T to pass into pacingStatusMeta, not a live prop.
+//
+// Line/background retune (2026-07-26, per Mo — modeled on zams.com's grid/table sections, e.g.
+// its "[03] Integrations" grid). bg/surface were already an exact match for zams' own #FAFAFA
+// page background + #FFFFFF card fill (measured by sampling their screenshot's pixels directly —
+// pure coincidence, not tuned for this). What was actually different, and what reads as
+// "Vercel-flat" vs zams' "structured graph-paper grid", is border/borderStrong: Vercel's hairlines
+// (#EAEAEA/#D4D4D4) are barely-there by design, while zams' cell dividers are a real, deliberate
+// warm gray-mauve line — confirmed via the same pixel sample: a 1px solid rgb(165,159,167). Kept
+// exactly that value for borderStrong (used for the more emphatic dividers/table frames) and a
+// lighter tint of the same hue for the everyday border token, since BudgetHQ has far more
+// bordered elements per screen (every input/table cell/card) than zams' generously-spaced promo
+// grid — using the full-strength line everywhere would read as busy rather than structured.
+// textMuted nudged toward the same warm-gray hue too, since SectionLabel (fontSize 10, bold,
+// uppercase, 0.08em tracking) already IS BudgetHQ's version of zams' "[0X] SECTION NAME" eyebrow
+// label — same role, just needed the color to actually match. Accent blue is untouched, per Mo.
 export const THEME = {
   bg:"#FAFAFA",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
-  border:"#EAEAEA",borderStrong:"#D4D4D4",
-  text:"#171717",textSub:"#666666",textMuted:"#8F8F8F",textDim:"#E5E5E5",
+  border:"#C9C3C7",borderStrong:"#A59FA7",
+  text:"#171717",textSub:"#666666",textMuted:"#96909A",textDim:"#E5E5E5",
   accent:"#006CFF",accentHover:"#0052CC",onAccent:"#F9FAFF",
   accentBg:"#E6F0FF",accentBorder:"rgba(0,108,255,0.3)",accentText:"#006CFF",
   accentSoft:"#4D94FF",
@@ -26,7 +41,7 @@ export const THEME = {
   danger:"#E5484D",dangerBg:"rgba(229,72,77,0.08)",dangerBorder:"rgba(229,72,77,0.24)",
   rowHover:"#FAFAFA",rowSelected:"rgba(0,108,255,0.08)",
   inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#FAFAFA",topbarBg:"#FFFFFF",
-  pill:"#F2F2F2",pillBorder:"#EAEAEA",
+  pill:"#F2F2F2",pillBorder:"#C9C3C7",
   badgeColors:["#36565F","#5F8190","#141414","#4A7080","#23414A","#7A9CAA","#0A2226"],
   shadow:"none",
   shadowMd:"0 8px 24px rgba(0,0,0,0.08),0 2px 6px rgba(0,0,0,0.04)",
