@@ -101,9 +101,13 @@ export function buildAuthorizeUrl({ workspaceId, userId }) {
     redirect_uri: getRedirectUri(),
     scope: SCOPES.join(" "),
     state,
-    // Both required to actually get a refresh_token back — see this file's TOKEN MODEL note.
+    // access_type=offline+prompt=consent required to actually get a refresh_token back — see this
+    // file's TOKEN MODEL note. select_account added 2026-07-26 per Mo — without it, Google skips
+    // straight to consent using whichever Google account is already signed into the browser,
+    // with no way to pick a different one; this forces the account-chooser screen to show first
+    // every time, same as clicking "Use another account" manually.
     access_type: "offline",
-    prompt: "consent",
+    prompt: "select_account consent",
   });
   return `${AUTH_URL}?${params.toString()}`;
 }
