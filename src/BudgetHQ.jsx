@@ -2238,6 +2238,124 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <StatRow T={T} size={11} label="Platforms with data" value={[...new Set(visibleNormRows.map(r=>r.platform))].filter(Boolean).length.toString()}/>
                 <StatRow T={T} size={11} label="Data rows" value={stats.totalRows.toLocaleString()}/>
               </div>
+              <Divider T={T}/>
+              {/* Quick actions (2026-07-26, per Mo — left column had dead space below Overview).
+                  "Sync all" fires the same syncPlatform() every per-row Sync button already uses,
+                  just once per connected-and-not-paused provider instead of one at a time. */}
+              <div style={{padding:"12px 0"}}>
+                <SectionLabel T={T} style={{fontSize:11}}>Quick actions</SectionLabel>
+                {(()=>{
+                  const syncablePlatforms=connectionDetails.filter(c=>!c.paused&&PLATFORMS.some(p=>p.key===c.provider));
+                  const anySyncing=Object.values(syncState).some(s=>s==="loading");
+                  return(
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      <Btn T={T} variant="subtle" size="sm"
+                        disabled={!canEdit||anySyncing||syncablePlatforms.length===0}
+                        onClick={()=>syncablePlatforms.forEach(c=>syncPlatform(c.provider))}
+                        style={{width:"100%"}}>
+                        {anySyncing?"Syncing…":`⟳ Sync all${syncablePlatforms.length?` (${syncablePlatforms.length})`:""}`}
+                      </Btn>
+                      <Btn T={T} variant="ghost" size="sm" onClick={()=>setDataSourcesSubView("add")} style={{width:"100%"}}>+ Add data source</Btn>
+                    </div>
+                  );
+                })()}
+              </div>
+              <Divider T={T}/>
+              {/* Data freshness — one line per connected provider, worst-first (sync failures,
+                  then most-recently-synced, then manual connectors that only show how current
+                  their imported DATA is since a manual pull has no persisted "ran at" timestamp,
+                  then never-synced-yet last). Reuses lastAutoSyncAt/Status (rolling sync) and
+                  importDateRangeByProvider (manual) — both already computed for the Connections
+                  table below, no new state needed. */}
+              <div style={{padding:"12px 0"}}>
+                <SectionLabel T={T} style={{fontSize:11}}>Data freshness</SectionLabel>
+                {(()=>{
+                  const relTime=iso=>{
+                    const mins=Math.round((Date.now()-new Date(iso).getTime())/60000);
+                    if(mins<1)return"just now";
+                    if(mins<60)return`${mins}m ago`;
+                    const hrs=Math.round(mins/60);
+                    if(hrs<24)return`${hrs}h ago`;
+                    const days=Math.round(hrs/24);
+                    if(days<7)return`${days}d ago`;
+                    return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});
+                  };
+                  const rows=connectionDetails.map(c=>{
+                    const pl=PLATFORMS.find(p=>p.key===c.provider);
+                    if(!pl)return null;
+                    const rolling=c.syncMode==="rolling";
+                    const importEnd=importDateRangeByProvider[c.provider]?.end;
+                    let text,color,bucket,sortTime;
+                    if(rolling&&c.lastAutoSyncAt){
+                      const failed=c.lastAutoSyncStatus==="error";
+                      text=(failed?"Sync failed ":"Synced ")+relTime(c.lastAutoSyncAt);
+                      color=failed?T.danger:T.success;
+                      bucket=failed?0:1;
+                      sortTime=new Date(c.lastAutoSyncAt).getTime();
+                    }else if(importEnd){
+                      text=`Data through ${new Date(importEnd).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`;
+                      color=T.textMuted;
+                      bucket=2;
+                      sortTime=new Date(importEnd).getTime();
+                    }else{
+                      text="Not synced yet";
+                      color=T.textMuted;
+                      bucket=3;
+                      sortTime=0;
+                    }
+                    return{key:c.provider,label:pl.label,domain:pl.domain,platColor:pl.color,mark:pl.mark,text,color,bucket,sortTime};
+                  }).filter(Boolean).sort((a,b)=>a.bucket-b.bucket||b.sortTime-a.sortTime);
+                  if(rows.length===0)return<div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>Nothing connected yet.</div>;
+                  return(
+                    <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                      {rows.map(r=>(
+                        <div key={r.key} style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                          <PlatformLogo domain={r.domain} color={r.platColor} mark={r.mark} size={16}/>
+                          <div style={{minWidth:0,flex:1}}>
+                            <div style={{fontSize:11,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</div>
+                            <div style={{fontSize:11,color:r.color,fontFamily:"'DM Sans',sans-serif"}}>{r.text}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+              <Divider T={T}/>
+              {/* Spend by platform — a quick "where's the money going" split using every imported
+                  row (not date-filtered by the Range picker above, same scope as the Data rows
+                  stat above it), same derivePlatform grouping Settings' own breakdown uses. */}
+              <div style={{padding:"12px 0"}}>
+                <SectionLabel T={T} style={{fontSize:11}}>Spend by platform</SectionLabel>
+                {(()=>{
+                  const map={};
+                  visibleNormRows.forEach(r=>{
+                    const p=derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type);
+                    map[p]=(map[p]||0)+(r.spend||0);
+                  });
+                  const arr=Object.entries(map).map(([platform,spend])=>({platform,spend})).sort((a,b)=>b.spend-a.spend);
+                  if(arr.length===0)return<div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>No spend data yet.</div>;
+                  const max=arr[0].spend||1;
+                  return(
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      {arr.slice(0,5).map(p=>(
+                        <div key={p.platform}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,marginBottom:3,gap:6}}>
+                            <span style={{display:"flex",alignItems:"center",gap:5,minWidth:0,overflow:"hidden"}}>
+                              <span style={{width:6,height:6,borderRadius:"50%",background:PLATFORM_COLORS[p.platform]||T.textMuted,flexShrink:0}}/>
+                              <span style={{color:T.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.platform}</span>
+                            </span>
+                            <span style={{color:T.textMuted,flexShrink:0,fontFamily:"'DM Sans',sans-serif"}}>{fmt$(p.spend)}</span>
+                          </div>
+                          <div style={{height:4,borderRadius:2,background:T.surfaceEl,overflow:"hidden"}}>
+                            <div style={{height:"100%",width:`${Math.max(3,Math.round(p.spend/max*100))}%`,background:PLATFORM_COLORS[p.platform]||T.accent,borderRadius:2}}/>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           ):view==="tagger"?(
             // Lives directly in this component (unlike Budget/Pacing, the Tagger flow isn't a
