@@ -7,10 +7,16 @@
  * finish the connection. Mirrors api/oauth/meta/accounts.js exactly.
  *
  * GET  — list the Google Ads accounts the workspace's stored token can see.
- * POST Body: { accountId, accountName } — save which one to actually sync spend from. accountId is
- *      the bare numeric Google Ads customer ID (see lib/googleAdsOAuth.js's listAccessibleAccounts)
- *      — stored and later passed straight through to connectors/google.js's search calls as-is.
- *      accountName is stored purely for display (Settings' connections table).
+ * POST Body: { accountId, accountName, loginCustomerId } — save which one to actually sync spend
+ *      from. accountId is the bare numeric Google Ads customer ID (see lib/googleAdsOAuth.js's
+ *      listAccessibleAccounts) — stored and later passed straight through to connectors/google.js's
+ *      search calls as-is. accountName is stored purely for display (Settings' connections table).
+ *      loginCustomerId (2026-07-26, per Mo — hit this live) is optional and only needed when the
+ *      authenticated Google user reaches this ad account through a manager/MCC account rather than
+ *      being a direct user on it: Google Ads API rejects the search call with PERMISSION_DENIED
+ *      for the child account unless the manager's own customer ID is sent as the login-customer-id
+ *      header (see lib/googleAdsOAuth.js's adsApiSearch) — same requirement Google's own docs
+ *      describe for exactly this manager-account access pattern.
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
@@ -46,10 +52,15 @@ export default withApi(async (req, res) => {
 
   if (req.method === "POST") {
     requireEditAccess(role);
-    const { accountId, accountName } = req.body || {};
+    const { accountId, accountName, loginCustomerId } = req.body || {};
     if (!accountId) return res.status(400).json({ error: "accountId is required" });
     const credential = await getStoredCredential(workspaceId);
-    const updated = { ...credential, accountId: String(accountId), accountName: accountName ? String(accountName) : credential.accountName || null };
+    const updated = {
+      ...credential,
+      accountId: String(accountId),
+      accountName: accountName ? String(accountName) : credential.accountName || null,
+      loginCustomerId: loginCustomerId ? String(loginCustomerId) : credential.loginCustomerId || null,
+    };
     await sql`
       update budgethq.connector_credentials
       set credential = ${JSON.stringify(updated)}

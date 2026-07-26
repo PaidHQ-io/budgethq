@@ -49,9 +49,11 @@ export async function getSpend({ startDate, endDate, credential }) {
   const query = buildQuery(startDate, endDate);
   const raw = await adsApiSearchAll(credential.accountId, query, {
     accessToken: credential.accessToken,
-    // See lib/googleAdsOAuth.js's listAccessibleAccounts KNOWN LIMITATION note — not populated for
-    // any credential saved by the current OAuth flow, only here so a future manager-account fix
-    // only needs to start storing this on the credential, not touch this call site too.
+    // Only set when the connected Google user reaches this account through a manager (MCC) account
+    // rather than being a direct user on it — see api/oauth/google/accounts.js's doc comment for
+    // when/why this gets populated (the manual Customer ID fallback's optional second field).
+    // Google Ads API returns PERMISSION_DENIED for the child account without it in that case, even
+    // though the user genuinely can see the account inside the Google Ads UI itself.
     loginCustomerId: credential.loginCustomerId || undefined,
   });
 

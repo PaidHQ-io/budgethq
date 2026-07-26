@@ -1005,6 +1005,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // works for any provider's picker, not just Google's, in case another one ever hits this too.
   const[oauthManualId,setOauthManualId]=useState("");
   const[oauthManualName,setOauthManualName]=useState("");
+  // Optional — only needed when the connected Google user reaches the ad account through a
+  // manager (MCC) account rather than being a direct user on it. Discovered live (2026-07-26, per
+  // Mo): even with the right Customer ID entered above, Google Ads API returns PERMISSION_DENIED
+  // for the account unless the manager's OWN customer ID is also sent as login-customer-id — see
+  // api/oauth/google/accounts.js's doc comment. Same top-right corner of the Google Ads UI shows
+  // it (switch into the manager account first).
+  const[oauthManualLoginCustomerId,setOauthManualLoginCustomerId]=useState("");
   const startProviderOAuth=useCallback(async(provider)=>{
     if(!canEdit)return;
     if(!workspace?.id||!session?.access_token){showNotif("No active session — try reloading.");return;}
@@ -1019,14 +1026,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       showNotif(`Couldn't connect ${OAUTH_PROVIDER_LABELS[provider]||provider}: ${e.message}`);
     }
   },[workspace?.id,session?.access_token,canEdit]); // eslint-disable-line react-hooks/exhaustive-deps
-  const finalizeOAuthAccount=useCallback(async(provider,accountId,customerId,accountName)=>{
+  const finalizeOAuthAccount=useCallback(async(provider,accountId,customerId,accountName,loginCustomerId)=>{
     if(!workspace?.id||!session?.access_token)return;
     setOauthPickerSaving(true);
     try{
       const res=await fetch(`/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(workspace.id)}`,{
         method:"POST",
         headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
-        body:JSON.stringify({accountId,customerId,accountName}),
+        // loginCustomerId is Google-specific (see api/oauth/google/accounts.js's doc comment) —
+        // harmless extra field for every other provider's accounts.js, which just ignores it.
+        body:JSON.stringify({accountId,customerId,accountName,loginCustomerId}),
       });
       if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that account");}
       setOauthPicker(null);
@@ -2606,7 +2615,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                     <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
-                    <span onClick={()=>{setOauthPicker(null);setOauthManualId("");setOauthManualName("");}} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                    <span onClick={()=>{setOauthPicker(null);setOauthManualId("");setOauthManualName("");setOauthManualLoginCustomerId("");}} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                   </div>
                   {oauthPicker.accounts.length===0?(
                     <div>
@@ -2619,14 +2628,18 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         <div style={{display:"flex",flexDirection:"column",gap:6}}>
                           <input value={oauthManualId} onChange={e=>setOauthManualId(e.target.value)} placeholder="Customer ID, e.g. 123-456-7890"
                             style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
+                          <input value={oauthManualLoginCustomerId} onChange={e=>setOauthManualLoginCustomerId(e.target.value)} placeholder="Manager account ID (only if accessed via an MCC — leave blank otherwise)"
+                            style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
                           <input value={oauthManualName} onChange={e=>setOauthManualName(e.target.value)} placeholder="Account name (optional, for display only)"
                             style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                          <div style={{fontSize:10,color:T.textMuted,lineHeight:1.4}}>Getting "PERMISSION_DENIED" on sync after entering just the Customer ID above? You're almost certainly reaching this account through a manager account — switch into that manager account in the Google Ads UI, copy ITS Customer ID (top-right corner), and paste it here too.</div>
                           <Btn T={T} variant="primary" size="sm"
                             disabled={oauthPickerSaving||!oauthManualId.replace(/[^0-9]/g,"").trim()}
                             onClick={()=>{
                               const digitsOnly=oauthManualId.replace(/[^0-9]/g,"");
-                              finalizeOAuthAccount("google",digitsOnly,null,oauthManualName.trim()||null);
-                              setOauthManualId("");setOauthManualName("");
+                              const managerDigitsOnly=oauthManualLoginCustomerId.replace(/[^0-9]/g,"");
+                              finalizeOAuthAccount("google",digitsOnly,null,oauthManualName.trim()||null,managerDigitsOnly||null);
+                              setOauthManualId("");setOauthManualName("");setOauthManualLoginCustomerId("");
                             }}
                             style={{width:"100%"}}>{oauthPickerSaving?"Saving…":"Use this account"}</Btn>
                         </div>
