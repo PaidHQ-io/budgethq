@@ -262,13 +262,6 @@ export function TagAutocompleteInput({T,value,onChange,suggestions,onEnter,onEsc
   );
 }
 export const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
-// Thicker "section break" band carrying the zams.com diagonal hatch texture (2026-07-26, per Mo).
-// Deliberately NOT used as a drop-in Divider replacement everywhere — it's a real visual accent,
-// not a hairline, so it's reserved for spots that are ALWAYS rendered regardless of data state
-// (sidebar section breaks) rather than the conditional empty-state boxes THEME.hatchBg first went
-// onto, which only show up for a workspace with nothing connected yet and so were never visible
-// once real connectors/data existed.
-export const HatchDivider=({T,style={}})=><div style={{height:10,margin:"14px 0",borderRadius:4,border:`1px solid ${T.border}`,backgroundColor:T.surfaceEl,backgroundImage:T.hatchBg,...style}}/>;
 // Pixel-block icon set (retro redesign, July 2026) — replaces the flat line-icon set.
 // Every glyph is built from a handful of solid squares, no curves/strokes, matching the
 // notched-panel / hard-shadow "8-bit" surface language used everywhere a soft rounded
