@@ -75,6 +75,29 @@ const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing
 // IDs, data-source IDs) and leaves out anything that's actually a secret (API tokens/keys, OAuth
 // access/refresh tokens). Capterra's apiKeys is a {productName: key} map — only the product names
 // (the object's keys) are safe to show, never the values.
+// Capterra's apiKeys credential is saved as the raw JSON STRING the user pasted into the connect
+// panel's textarea (see BudgetHQ.jsx) — it's never parsed/re-shaped before being written to the
+// DB. SAFE_SUMMARY's capterra extractor below used to do `Object.keys(c.apiKeys)` directly on
+// that string, which doesn't throw — it just returns the string's character INDICES ("0","1",
+// "2",...) since Object.keys() on a string treats it array-like. That's what was rendering as
+// "0, 1, 2, 3, ..." in the Data Sources table instead of the actual product names. This mirrors
+// the same lenient fallback as api/connectors/capterra.js's getSpend() (tolerates smart quotes /
+// trailing commas from a Notes/Word/Slack paste) so the summary and the actual sync always agree
+// on what's valid.
+function parseCapterraApiKeys(raw) {
+  if (!raw) return {};
+  if (typeof raw !== "string") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    try {
+      return JSON.parse(raw.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/,(\s*[}\]])/g, "$1").trim());
+    } catch {
+      return {};
+    }
+  }
+}
+
 const SAFE_SUMMARY = {
   linkedin: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null }),
   bing: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null, customerId: c?.customerId || null }),
@@ -82,7 +105,7 @@ const SAFE_SUMMARY = {
   google: (c) => ({ accountId: c?.accountId || null, accountName: c?.accountName || null }),
   funnel: (c) => ({ accountId: c?.accountId || null, projectId: c?.projectId || null }),
   supermetrics: (c) => ({ dsId: c?.dsId || null, dsAccounts: c?.dsAccounts || null }),
-  capterra: (c) => ({ products: c?.apiKeys ? Object.keys(c.apiKeys) : [] }),
+  capterra: (c) => ({ products: Object.keys(parseCapterraApiKeys(c?.apiKeys)) }),
 };
 
 export default withApi(async (req, res) => {
