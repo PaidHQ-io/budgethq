@@ -825,7 +825,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     {key:"meta",label:"Meta Ads",status:"live",perWorkspaceAuth:true,oauth:true,color:"#1877F2",desc:"Ad account, OAuth-connected",domain:"meta.com"},
     {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",desc:"API key per product",domain:"capterra.com",
       connectFields:[
-        {key:"apiKeys",label:"API keys (JSON)",type:"json",placeholder:'{"Product A":"key1","Product B":"key2"}'},
+        {key:"apiKeys",label:"Product API keys",type:"keyvaluelist",pairLabelName:"Product name",pairValueName:"API key",pairLabelPlaceholder:"e.g. Financial Reporting",pairValuePlaceholder:"Paste the key Capterra emailed you"},
       ]},
     {key:"funnel",label:"Funnel.io",status:"live",perWorkspaceAuth:true,color:"#6C5CE7",desc:"Blended multi-channel data via Funnel's API",domain:"funnel.io",
       connectFields:[
@@ -1071,21 +1071,80 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
 
   const[connectPanelKey,setConnectPanelKey]=useState(null); // which platform's connect form is open, or null
   const[connectValues,setConnectValues]=useState({});
+  // connectPairs holds the guided-form state for "keyvaluelist" fields (currently just Capterra's
+  // apiKeys — one Product name + API key row per product) — {fieldKey: [{label,value},...]}.
+  // Kept separate from connectValues (which holds a single string per field for every other
+  // connector) because a field's whole point here is "list of pairs", not one value.
+  const[connectPairs,setConnectPairs]=useState({});
   const[connectSaving,setConnectSaving]=useState(false);
   const[connectError,setConnectError]=useState("");
 
   const openConnectPanel=platformKey=>{
-    setConnectPanelKey(platformKey);setConnectValues({});setConnectError("");
+    setConnectPanelKey(platformKey);setConnectValues({});setConnectPairs({});setConnectError("");
+  };
+  // Always returns at least one (possibly empty) row so there's always something to render/type
+  // into, even right after the panel opens or after the last row gets removed.
+  const pairRowsFor=fieldKey=>(connectPairs[fieldKey]?.length?connectPairs[fieldKey]:[{label:"",value:""}]);
+  const setPairRow=(fieldKey,idx,patch)=>setConnectPairs(p=>{
+    const rows=[...pairRowsFor(fieldKey)];
+    rows[idx]={...rows[idx],...patch};
+    return {...p,[fieldKey]:rows};
+  });
+  const addPairRow=fieldKey=>setConnectPairs(p=>({...p,[fieldKey]:[...pairRowsFor(fieldKey),{label:"",value:""}]}));
+  const removePairRow=(fieldKey,idx)=>setConnectPairs(p=>{
+    const rows=pairRowsFor(fieldKey).filter((_,i)=>i!==idx);
+    return {...p,[fieldKey]:rows.length?rows:[{label:"",value:""}]};
+  });
+  // Recognizes the #1 real-world shape these keys actually arrive in: a list emailed by
+  // Capterra's account manager team (or copied out of the Vendor Portal), one
+  // "Product name: key" per line. Lets someone paste that whole list directly into a Product
+  // name box and get one row per product back, instead of having to split it apart and
+  // hand-type each pair — or worse, hand-build a JSON blob, which is what this replaces. Bails
+  // out (returns null, so the paste behaves normally) unless EVERY non-empty line matches —
+  // partial matches are more likely a coincidence than an actual key list.
+  const parseMultilineKeyPaste=text=>{
+    const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+    if(lines.length<2)return null;
+    const rows=[];
+    for(const line of lines){
+      const m=line.match(/^(.+):\s*(\S+)$/)||line.match(/^(.+?)\t+(\S+)$/);
+      if(!m)return null;
+      const label=m[1].replace(/^["']|["']$/g,"").trim();
+      const value=m[2].replace(/^["']|["']$/g,"").trim();
+      if(!label||!value)return null;
+      rows.push({label,value});
+    }
+    return rows;
+  };
+  const handlePairPaste=(fieldKey,e)=>{
+    const text=e.clipboardData?.getData("text")||"";
+    const rows=parseMultilineKeyPaste(text);
+    if(!rows)return; // not a multi-line key list — let the normal single-field paste happen
+    e.preventDefault();
+    setConnectPairs(p=>({...p,[fieldKey]:rows}));
+    showNotif(`Parsed ${rows.length} key${rows.length===1?"":"s"} from pasted text.`);
   };
   const saveConnection=useCallback(async(platformKey)=>{
     if(!canEdit)return;
     if(!workspace?.id||!session?.access_token){setConnectError("No active session — try reloading.");return;}
     setConnectSaving(true);setConnectError("");
     try{
+      const pl=PLATFORMS.find(p=>p.key===platformKey);
+      // Fields typed "keyvaluelist" build their bit of the credential from connectPairs' rows
+      // (dropping any half-filled row) instead of connectValues — everything else is unchanged.
+      const credential={...connectValues};
+      (pl?.connectFields||[]).forEach(f=>{
+        if(f.type!=="keyvaluelist")return;
+        const obj={};
+        pairRowsFor(f.key).forEach(({label,value})=>{
+          if(label.trim()&&value.trim())obj[label.trim()]=value.trim();
+        });
+        credential[f.key]=obj;
+      });
       const res=await fetch(`/api/workspaces/${workspace.id}/connections`,{
         method:"POST",
         headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
-        body:JSON.stringify({provider:platformKey,credential:connectValues}),
+        body:JSON.stringify({provider:platformKey,credential}),
       });
       if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that connection");}
       setConnectedProviders(p=>({...p,[platformKey]:true}));
@@ -1096,7 +1155,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }finally{
       setConnectSaving(false);
     }
-  },[workspace?.id,session?.access_token,connectValues]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[workspace?.id,session?.access_token,connectValues,connectPairs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncPlatform=useCallback(async(platformKey)=>{
     if(!canEdit)return;
@@ -2359,50 +2418,59 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               {connectPanelKey&&(()=>{
                 const pl=PLATFORMS.find(p=>p.key===connectPanelKey);
                 if(!pl)return null;
-                // Tolerates the same copy-paste mistakes the server's parser does (curly "smart"
-                // quotes from Notes/Word/Slack, a trailing comma) — kept lenient here too so a
-                // value that WOULD sync fine isn't blocked from ever being saved. Real JSON.parse
-                // failures still show an inline error immediately, instead of only surfacing as a
-                // cryptic sync error later.
-                const isValidJsonField=(f,val)=>{
-                  if(f.type!=="json")return true;
-                  const s=(val||"").trim();
-                  if(!s)return true; // emptiness is caught by the separate required-field check below
-                  try{JSON.parse(s);return true;}catch{/* fall through to lenient retry */}
-                  try{
-                    const normalized=s.replace(/[‘’]/g,"'").replace(/[“”]/g,'"').replace(/,(\s*[}\]])/g,"$1");
-                    JSON.parse(normalized);return true;
-                  }catch{return false;}
-                };
+                // "keyvaluelist" fields (Capterra's one-key-per-product list) render two inputs
+                // per row side by side, so they need more breathing room than the standard
+                // single-input connect panels — widen it just for those.
+                const hasPairField=(pl.connectFields||[]).some(f=>f.type==="keyvaluelist");
                 return(
-                  <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:420}}>
+                  <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:hasPairField?560:420}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                       <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Connect {pl.label}</div>
                       <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                     </div>
                     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                       {(pl.connectFields||[]).map(f=>{
+                        if(f.type==="keyvaluelist"){
+                          const rows=pairRowsFor(f.key);
+                          return(
+                            <div key={f.key}>
+                              {f.label&&<div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>{f.label}</div>}
+                              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                                {rows.map((row,idx)=>(
+                                  <div key={idx} style={{display:"flex",gap:5,alignItems:"center"}}>
+                                    <input value={row.label} placeholder={f.pairLabelPlaceholder}
+                                      onChange={e=>setPairRow(f.key,idx,{label:e.target.value})}
+                                      onPaste={e=>handlePairPaste(f.key,e)}
+                                      style={{flex:"1 1 45%",minWidth:0,boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                                    <input value={row.value} placeholder={f.pairValuePlaceholder}
+                                      onChange={e=>setPairRow(f.key,idx,{value:e.target.value})}
+                                      onPaste={e=>handlePairPaste(f.key,e)}
+                                      style={{flex:"1 1 45%",minWidth:0,boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
+                                    <span onClick={()=>removePairRow(f.key,idx)} title="Remove this row" style={{fontSize:13,color:T.textMuted,cursor:"pointer",padding:"0 2px",flexShrink:0}}>✕</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <span onClick={()=>addPairRow(f.key)} style={{display:"inline-block",marginTop:6,fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>+ Add another {f.pairLabelName?.toLowerCase()||"row"}</span>
+                              <div style={{fontSize:11,color:T.textMuted,marginTop:5,fontFamily:"'DM Sans',sans-serif"}}>Tip: paste a whole "{f.pairLabelName||"name"}: {f.pairValueName||"key"}" list into any {f.pairLabelName?.toLowerCase()||"name"} box to fill every row at once.</div>
+                            </div>
+                          );
+                        }
                         const val=connectValues[f.key]||"";
-                        const jsonOk=isValidJsonField(f,val);
                         return(
                           <div key={f.key}>
-                            {f.type==="json"?(
-                              <textarea value={val} placeholder={f.placeholder} rows={3}
-                                onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
-                                style={{width:"100%",boxSizing:"border-box",resize:"vertical",background:T.surface,border:`1px solid ${jsonOk?T.border:T.danger}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
-                            ):(
-                              <input value={val} placeholder={f.placeholder}
-                                onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
-                                style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
-                            )}
-                            {!jsonOk&&<div style={{fontSize:11,color:T.danger,marginTop:3,fontFamily:"'DM Sans',sans-serif"}}>Not valid JSON — check for curly “smart” quotes (common when pasting from Notes/Word/Slack) or a trailing comma.</div>}
+                            <input value={val} placeholder={f.placeholder}
+                              onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
+                              style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                           </div>
                         );
                       })}
                     </div>
                     {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
                     <Btn onClick={()=>saveConnection(pl.key)}
-                      disabled={connectSaving||(pl.connectFields||[]).some(f=>!f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim())||(pl.connectFields||[]).some(f=>!isValidJsonField(f,connectValues[f.key]))}
+                      disabled={connectSaving||(pl.connectFields||[]).some(f=>{
+                        if(f.type==="keyvaluelist")return !pairRowsFor(f.key).some(r=>r.label.trim()&&r.value.trim());
+                        return !f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim();
+                      })}
                       variant="primary" size="sm" T={T}>{connectSaving?"Connecting…":"Connect"}</Btn>
                   </div>
                 );
