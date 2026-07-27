@@ -19,7 +19,7 @@ import {
 } from "./lib/core.js";
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
-  SectionLabel, Pill, GoogleAdsMark, BingMark, PlatformLogo, Btn, Inp, Sel, StatRow,
+  SectionLabel, Pill, GoogleAdsMark, BingMark, CsvMark, ScreenshotMark, BudgetFileMark, PlatformLogo, Btn, Inp, Sel, StatRow,
   MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip,
 } from "./components/shared.jsx";
 import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
@@ -2732,9 +2732,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     else{actionLabel="Connect now";onAction=()=>openConnectPanel(pl.key);}
                     return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,domain:pl.domain,mark:pl.mark,isConnected,warn,actionLabel,onAction};
                   }),
-                  {key:"_csv",label:"Spend Data CSV",desc:"Any spend CSV — Google Ads, LinkedIn, Meta, Bing, Capterra exports all work",color:T.textMuted,actionLabel:"Upload CSV",onAction:()=>fileRef.current?.click()},
-                  {key:"_screenshot",label:"Screenshot",desc:"Share a screenshot of a spend report — AI reads it into data",color:T.textMuted,actionLabel:"Upload image",onAction:()=>!screenshotProcessing&&screenshotRef.current?.click()},
-                  {key:"_budget",label:"Budget file",desc:"Excel or CSV budget spreadsheet — AI maps your columns",color:T.textMuted,actionLabel:"Go to Budgets →",onAction:()=>setView("budget")},
+                  {key:"_csv",label:"Spend Data CSV",desc:"Any spend CSV — Google Ads, LinkedIn, Meta, Bing, Capterra exports all work",color:T.textMuted,mark:CsvMark,actionLabel:"Upload CSV",onAction:()=>fileRef.current?.click()},
+                  {key:"_screenshot",label:"Screenshot",desc:"Share a screenshot of a spend report — AI reads it into data",color:T.textMuted,mark:ScreenshotMark,actionLabel:"Upload image",onAction:()=>!screenshotProcessing&&screenshotRef.current?.click()},
+                  {key:"_budget",label:"Budget file",desc:"Excel or CSV budget spreadsheet — AI maps your columns",color:T.textMuted,mark:BudgetFileMark,actionLabel:"Go to Budgets →",onAction:()=>setView("budget")},
                 ].filter(c=>c.label.toLowerCase().includes(dataSourceSearch.trim().toLowerCase()));
                 return(
                   <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(230px,1fr))",gap:14}}>

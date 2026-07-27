@@ -54,6 +54,31 @@ export const BingMark=({size=18,color="#00809D"})=>(
     <path d="M10 38.642V3.5L0 0v44.4L10 50l25-14.382V24.25z" fill={color}/>
   </svg>
 );
+// Generic (non-branded) marks for the manual-import cards on the "Add data source" grid — CSV,
+// Screenshot, Budget file. These don't have a real company/domain to pull a favicon from, so
+// PlatformLogo was falling back to a plain solid-color square for them. Outline style matches the
+// rest of the app's Icon() set (24x24 viewBox, 1.8 stroke) rather than the flat brand-color fills
+// used by GoogleAdsMark/BingMark above, since these represent a file type/action, not a company.
+export const CsvMark=({size=18,color="#0F9D58"})=>(
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="16" rx="1.5"/>
+    <path d="M3 9h18M3 15h18M9 4v16M15 4v16"/>
+  </svg>
+);
+export const ScreenshotMark=({size=18,color="#6366F1"})=>(
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 8V6a2 2 0 0 1 2-2h2M4 16v2a2 2 0 0 0 2 2h2M20 8V6a2 2 0 0 0-2-2h-2M20 16v2a2 2 0 0 1-2 2h-2"/>
+    <circle cx="12" cy="12" r="3.2"/>
+  </svg>
+);
+export const BudgetFileMark=({size=18,color="#F59E0B"})=>(
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/>
+    <path d="M14 3v5h5"/>
+    <path d="M9 13.5c0-.9.9-1.5 2-1.5h1c1.1 0 2 .6 2 1.5S13.1 15 12 15h0c-1.1 0-2 .6-2 1.5s.9 1.5 2 1.5h1c1.1 0 2-.6 2-1.5"/>
+    <path d="M12 11v1M12 17v1"/>
+  </svg>
+);
 export const PlatformLogo=({domain,color,mark:Mark,size=28})=>{
   const[failed,setFailed]=useState(false);
   if(Mark){
