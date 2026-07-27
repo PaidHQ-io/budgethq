@@ -143,7 +143,11 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
                 <div style={{width:48,height:48,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  <Icon name="bolt" size={32} color={T.text}/>
+                  {/* Space-station mark (2026-07-26, per Mo) replaces the house/bolt line icon —
+                      "HQ" is literally headquarters, and a station is exactly that: a home base
+                      other things connect to. Reuses the same asset as the hero image below on
+                      purpose, reinforcing rather than duplicating. */}
+                  <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:44,height:"auto"}}/>
                 </div>
                 <div>
                   <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"'DM Sans',sans-serif"}}>BudgetHQ</h1>
@@ -207,7 +211,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
         {/* Compact header — not onboarding anymore, so it doesn't need to sell the product */}
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:26}}>
           <div style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Icon name="bolt" size={24} color={T.text}/>
+            <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:32,height:"auto"}}/>
           </div>
           <div>
             <div style={{fontSize:20,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:"'DM Sans',sans-serif"}}>Dashboard</div>
