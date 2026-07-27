@@ -4,6 +4,7 @@ import {
   stepPeriodBack, pacingStatusMeta, fmtFull, fmtSigned, MONTHS,
 } from "../lib/core.js";
 import { Icon, Pill, StatRow, DashStatTile, SpendVsBudgetBar, PlatformSpendBars, DashQuickAction, PixelPanel } from "./shared.jsx";
+import spaceStationIcon from "../assets/icons/space-station.png";
 
 // src/components/Dashboard.jsx — Dashboard tab (2026-07-25 split, per Mo).
 
@@ -133,23 +134,30 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
     return(
       <div style={{flex:1,overflow:"auto",background:T.bg}}>
         <div style={{maxWidth:960,margin:"0 auto",padding:"48px 32px"}}>
-          {/* Hero */}
-          <div style={{marginBottom:40,position:"relative"}}>
-            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
-              <div style={{width:48,height:48,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                <Icon name="bolt" size={32} color={T.text}/>
+          {/* Hero — space-station illustration (2026-07-26, per Mo, from the licensed "Geometric
+              Space Collection" set) sits opposite the welcome copy on this first-run screen only;
+              it's a hub connecting modules, which is the same job this onboarding moment is doing
+              (get every data source/budget file plugged into one command center). Hidden below
+              ~860px so it never crowds the actual "start here" cards on a narrow window. */}
+          <div style={{marginBottom:40,position:"relative",display:"flex",alignItems:"center",justifyContent:"space-between",gap:24}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
+                <div style={{width:48,height:48,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <Icon name="bolt" size={32} color={T.text}/>
+                </div>
+                <div>
+                  <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"'DM Sans',sans-serif"}}>BudgetHQ</h1>
+                  <div style={{fontSize:12,fontWeight:600,color:T.textSub,letterSpacing:"0.02em",fontFamily:"'DM Sans',sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
+                </div>
               </div>
-              <div>
-                <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"'DM Sans',sans-serif"}}>BudgetHQ</h1>
-                <div style={{fontSize:12,fontWeight:600,color:T.textSub,letterSpacing:"0.02em",fontFamily:"'DM Sans',sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
+              <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"'DM Sans',sans-serif",position:"relative"}}>
+                Set budgets by custom segment, track pacing against actuals, and manage spend across every ad platform — without breaking a spreadsheet.
+              </p>
+              <div style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:8,background:T.accentBg,border:`1px solid ${T.accentBorder}`,position:"relative"}}>
+                <span style={{fontSize:13,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
               </div>
             </div>
-            <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"'DM Sans',sans-serif",position:"relative"}}>
-              Set budgets by custom segment, track pacing against actuals, and manage spend across every ad platform — without breaking a spreadsheet.
-            </p>
-            <div style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:8,background:T.accentBg,border:`1px solid ${T.accentBorder}`,position:"relative"}}>
-              <span style={{fontSize:13,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
-            </div>
+            <img src={spaceStationIcon} alt="" aria-hidden="true" className="bhq-hero-illustration" style={{width:150,height:"auto",flexShrink:0}}/>
           </div>
 
           {/* Cards */}

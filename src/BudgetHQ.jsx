@@ -23,6 +23,9 @@ import {
   MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip,
 } from "./components/shared.jsx";
 import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
+import lunarRoverIcon from "./assets/icons/lunar-rover.png";
+import explorationRoverIcon from "./assets/icons/exploration-rover.png";
+import maintenanceRobotIcon from "./assets/icons/maintenance-robot.png";
 
 // Lazy-loaded tab components (2026-07-25 split, per Mo — "there should be a global forecasting
 // model selector" conversation led into a broader ask to split the four tab components out of
@@ -2236,6 +2239,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 if(issues.length===0)return<div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",marginBottom:14}}>All {connectionDetails.length} connected source{connectionDetails.length===1?"":"s"} healthy.</div>;
                 return(
                   <div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:14}}>
+                    {/* Maintenance-robot illustration (2026-07-26, per Mo, licensed set) — only
+                        shown when something actually needs fixing, same logic as the pills below it. */}
+                    <img src={maintenanceRobotIcon} alt="" aria-hidden="true" style={{width:64,height:"auto",alignSelf:"center",marginBottom:6}}/>
                     {issues.map(c=>{
                       const reason=c.needsReconnect?"Reconnect":c.needsAccountSelection?"Pick account":"Sync failed";
                       return(
@@ -2836,7 +2842,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 const connectedPlatforms=PLATFORMS.filter(pl=>pl.perWorkspaceAuth&&connectionDetails.find(c=>c.provider===pl.key));
                 if(connectedPlatforms.length===0){
                   return(
-                    <div style={{border:`1px dashed ${T.borderStrong}`,borderRadius:10,padding:"28px 20px",textAlign:"center",backgroundColor:T.surfaceEl,backgroundImage:T.hatchBg}}>
+                    <div style={{border:`1px dashed ${T.borderStrong}`,borderRadius:10,padding:"28px 20px",textAlign:"center",backgroundColor:T.surfaceEl}}>
+                      {/* Lunar-rover illustration (2026-07-26, per Mo, licensed "Geometric Space
+                          Collection" set, background stripped) — a rover goes out and gathers data,
+                          same job this empty state is asking the user to do for the first time. */}
+                      <img src={lunarRoverIcon} alt="" aria-hidden="true" style={{width:120,height:"auto",marginBottom:10}}/>
                       <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif",marginBottom:4}}>No data sources connected yet</div>
                       <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginBottom:14}}>Connect LinkedIn, Bing, Funnel.io and more — or upload a CSV/screenshot directly.</div>
                       <Btn onClick={()=>setDataSourcesSubView("add")} variant="primary" size="sm" T={T}>+ Add data source</Btn>
@@ -3354,7 +3364,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   </div>
                 );
               })}
-              {filtered.length===0&&<div style={{padding:"52px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No campaigns match your filters.{hasF&&<span onClick={clearF} style={{color:T.text,cursor:"pointer",marginLeft:6,fontWeight:400,textDecoration:"underline"}}>Clear filters</span>}</div>}
+              {filtered.length===0&&<div style={{padding:"40px 20px 52px",textAlign:"center",color:T.textMuted,fontSize:13}}>
+                {/* Exploration-rover illustration (2026-07-26, per Mo, licensed set) — a rover
+                    searching empty terrain reads as "nothing found," the exact state of a filtered-
+                    to-zero campaign list. */}
+                <img src={explorationRoverIcon} alt="" aria-hidden="true" style={{width:110,height:"auto",marginBottom:10}}/>
+                <div>No campaigns match your filters.{hasF&&<span onClick={clearF} style={{color:T.text,cursor:"pointer",marginLeft:6,fontWeight:400,textDecoration:"underline"}}>Clear filters</span>}</div>
+              </div>}
             </div>
           </div>
         </div>
@@ -3944,6 +3960,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         .bhq-scroll:hover::-webkit-scrollbar-thumb{background:${T.borderStrong};}
         @keyframes spin{to{transform:rotate(360deg);}}
         @media(max-width:768px){input,select{font-size:16px!important;}}
+        /* Dashboard onboarding hero's space-station illustration (2026-07-26, per Mo) — decorative
+           only (aria-hidden), so it's fine to just drop it on narrow windows rather than reflow
+           around it. */
+        @media(max-width:860px){.bhq-hero-illustration{display:none!important;}}
         /* Hover feedback — the app is styled almost entirely with inline styles (each element's
            own background is set inline per its state), so a plain CSS class can't win the
            cascade against that without !important. These are intentionally scoped to elements

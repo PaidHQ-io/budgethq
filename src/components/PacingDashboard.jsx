@@ -9,6 +9,7 @@ import {
 } from "../lib/core.js";
 import { askAIBuildView, aiConfigToViewConfig } from "../lib/askAI.js";
 import { Icon, Btn, SectionLabel, Sel, Divider, PixelPanel, AISummaryCard, Pill, WarnTip, InfoTip } from "./shared.jsx";
+import lifeSupportBackpackIcon from "../assets/icons/life-support-backpack.png";
 
 // Forecast-model "mode" — the 3 user-facing choices (Auto/Committed/Manual) — vs. the raw stored
 // string (see FORECAST_MODELS in lib/core.js): Manual doesn't have one fixed stored value, it's
@@ -401,7 +402,10 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   if(!budgetDims.length&&!mergedNormRows.length){
     return(
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40,background:T.bg}}>
-        <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="chart" size={24} color={T.onAccent}/></div>
+        {/* Life-support-backpack illustration (2026-07-26, per Mo, licensed "Geometric Space
+            Collection" set) replaces the plain chart-icon tile — a PLSS keeps a person alive and
+            monitored, the same job this tab does for a budget's pacing/health once it has data. */}
+        <img src={lifeSupportBackpackIcon} alt="" aria-hidden="true" style={{width:130,height:"auto",marginBottom:18}}/>
         <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>No data yet</div>
         <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>Import spend data and set up budget segments to see pacing and spend breakdowns here.</div>
         <Btn onClick={()=>onNavigate?.("tagger")} variant="success" T={T} size="md">Go to Campaign Tagger →</Btn>
