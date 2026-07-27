@@ -9,7 +9,7 @@ import {
   copyFileToWorkspace,
 } from "./lib/workspaceApi";
 import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount } from "./lib/coreApi";
-import { exportReportToGoogleSheets, preloadGoogleSheetsApi } from "./lib/googleSheets";
+import { exportReportToGoogleSheets, preloadGoogleSheetsApi, preloadGoogleSheetsPicker } from "./lib/googleSheets";
 import {
   THEME, REQUIRED_COLS, OPTIONAL_COLS, COL_LABELS, campaignKey, isEmptyConfig, splitFilterTerms,
   matchesTerms, getBudgetDimValues, DEFAULT_DIMS, LEGACY_LOCAL_KEYS, PLATFORM_COLORS,
@@ -56,10 +56,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[width,setWidth]=useState(typeof window!=="undefined"?window.innerWidth:1200);
   useEffect(()=>{const h=()=>setWidth(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const isMobile=width<768;
-  // Fetch Google's Identity Services script as soon as the app loads rather than waiting for the
-  // first Sheets export/connect click — see preloadGoogleSheetsApi's doc comment for why the
-  // async gap otherwise risks the consent popup getting silently blocked by the browser.
-  useEffect(()=>{preloadGoogleSheetsApi();},[]);
+  // Fetch Google's Identity Services script (+ the Picker widget's script) as soon as the app
+  // loads rather than waiting for the first Sheets export/connect click — see
+  // preloadGoogleSheetsApi's doc comment for why the async gap otherwise risks the consent popup
+  // getting silently blocked by the browser.
+  useEffect(()=>{preloadGoogleSheetsApi();preloadGoogleSheetsPicker();},[]);
 
   const[step,setStep]=useState("upload");
   // Which tab was open persists across a refresh/reopen (2026-07-20 — previously always forced
@@ -2440,12 +2441,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           <Btn onClick={gsTags.cancelTabs} variant="ghost" size="sm" T={T}>Cancel</Btn>
                         </div>
                       ):(
-                        <>
-                          <input value={gsTags.url} onChange={e=>gsTags.setUrl(e.target.value)} placeholder="Google Sheets URL…"
-                            onKeyDown={e=>e.key==="Enter"&&!gsTags.fetching&&gsTags.url.trim()&&gsTags.connect()}
-                            style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 8px",fontSize:11,outline:"none",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}/>
-                          <Btn onClick={gsTags.connect} disabled={gsTags.fetching||!gsTags.url.trim()} variant="primary" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{gsTags.fetching?"Connecting…":"Connect"}</Btn>
-                        </>
+                        <Btn onClick={gsTags.openPicker} disabled={gsTags.fetching} variant="primary" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{gsTags.fetching?"Connecting…":"Choose from Google Drive"}</Btn>
                       )}
                       {gsTags.error&&(
                         <div style={{marginTop:6,fontSize:11,color:T.danger}}>
@@ -2684,12 +2680,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       </div>
                     </div>
                   ):(
-                    <>
-                      <input value={gsSpend.url} onChange={e=>gsSpend.setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
-                        onKeyDown={e=>e.key==="Enter"&&!gsSpend.fetching&&gsSpend.url.trim()&&gsSpend.connect()}
-                        style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",marginBottom:8}}/>
-                      <Btn onClick={gsSpend.connect} disabled={gsSpend.fetching||!gsSpend.url.trim()} variant="primary" size="sm" T={T}>{gsSpend.fetching?"Connecting…":"Connect"}</Btn>
-                    </>
+                    <Btn onClick={gsSpend.openPicker} disabled={gsSpend.fetching} variant="primary" size="sm" T={T}>{gsSpend.fetching?"Connecting…":"Choose from Google Drive"}</Btn>
                   )}
                   {gsSpend.error&&(
                     <div style={{marginTop:8,fontSize:11,color:T.danger}}>

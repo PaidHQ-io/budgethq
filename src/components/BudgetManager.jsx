@@ -1294,7 +1294,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                   </div>
                   <div style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:10,padding:"16px",background:T.surfaceEl}}>
                     <div style={{fontSize:13,fontWeight:600,color:T.accent,marginBottom:4}}>Or connect a Google Sheet</div>
-                    <div style={{fontSize:12,color:T.textMuted,marginBottom:10}}>Paste the sheet's URL — this pulls a one-time snapshot, same review steps as a file upload. Live auto-refresh is coming later; for now, reconnect and re-import whenever you want the latest numbers.</div>
+                    <div style={{fontSize:12,color:T.textMuted,marginBottom:10}}>Pick a sheet from your Drive — this pulls a one-time snapshot, same review steps as a file upload. Live auto-refresh is coming later; for now, reconnect and re-import whenever you want the latest numbers.</div>
                     {gsBudget.tabs?.length>1?(
                       <div>
                         <div style={{fontSize:12,color:T.textSub,marginBottom:8}}>This spreadsheet has multiple tabs — which one has the budget?</div>
@@ -1307,12 +1307,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                         <Btn onClick={gsBudget.cancelTabs} variant="ghost" size="sm" T={T}>Cancel</Btn>
                       </div>
                     ):(
-                      <div style={{display:"flex",gap:8}}>
-                        <input value={gsBudget.url} onChange={e=>gsBudget.setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…"
-                          onKeyDown={e=>e.key==="Enter"&&!gsBudget.fetching&&gsBudget.url.trim()&&gsBudget.connect()}
-                          style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
-                        <Btn onClick={gsBudget.connect} disabled={gsBudget.fetching||!gsBudget.url.trim()} variant="primary" size="sm" T={T}>{gsBudget.fetching?"Connecting…":"Connect"}</Btn>
-                      </div>
+                      <Btn onClick={gsBudget.openPicker} disabled={gsBudget.fetching} variant="primary" size="sm" T={T}>{gsBudget.fetching?"Connecting…":"Choose from Google Drive"}</Btn>
                     )}
                     {gsBudget.error&&(
                       <div style={{marginTop:8,fontSize:11,color:T.danger}}>

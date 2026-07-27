@@ -1,25 +1,40 @@
 /**
- * "Export to Google Sheets" — client-side only, no server-side OAuth/token storage. Exporting is
- * a one-shot action (create a new spreadsheet, write the data, done), not an ongoing sync, so
- * there's no need to persist a refresh token anywhere: Google Identity Services' token client
- * gets a short-lived access token in the browser, it's used once, and it's discarded.
+ * "Export to / connect from Google Sheets" — client-side only, no server-side OAuth/token
+ * storage. Both are one-shot actions (create a new spreadsheet and write to it, or pick an
+ * existing one and read it), not an ongoing sync, so there's no need to persist a refresh token
+ * anywhere: Google Identity Services' token client gets a short-lived access token in the
+ * browser, it's used for the one action, and it's discarded.
  *
  * Reuses the SAME Google OAuth Client ID already created for "Sign in with Google"
  * (VITE_GOOGLE_CLIENT_ID) — Client IDs aren't secret (Google documents them as safe to ship in
  * frontend code); only that OAuth client's Client Secret is sensitive, and it's never used here
  * (it lives solely in Supabase's server-side login flow).
  *
- * Requires two one-time setup steps in the Google Cloud project this Client ID belongs to:
- *   1. Enable the "Google Sheets API" (APIs & Services -> Library).
- *   2. Add the https://www.googleapis.com/auth/spreadsheets scope on the OAuth consent screen
+ * Scope: https://www.googleapis.com/auth/drive.file — deliberately NOT the full
+ * .../auth/spreadsheets scope. drive.file is per-file: it only grants access to (a) files this
+ * app creates itself (export — always allowed) and (b) files the user explicitly selects through
+ * Google's own Picker widget (connect — see pickSpreadsheet() below). It can never see or touch
+ * any other file in the user's Drive. That's what keeps this out of Google's "sensitive scope"
+ * bucket, which is what avoids needing a scope justification + demo video for OAuth verification.
+ * A "paste any spreadsheet URL" flow would NOT work under drive.file (Google has no way to know
+ * the user consented to that specific file) — that's why the connect flow below always routes
+ * through the Picker rather than accepting a typed-in link.
+ *
+ * Requires three one-time setup steps in the Google Cloud project this Client ID belongs to:
+ *   1. Enable the "Google Sheets API" AND the "Google Picker API" (APIs & Services -> Library).
+ *   2. Add the https://www.googleapis.com/auth/drive.file scope on the OAuth consent screen
  *      (Google Auth Platform -> Audience/Data Access -> Add or remove scopes).
+ *   3. Create an API key (APIs & Services -> Credentials -> Create Credentials -> API key),
+ *      restrict it to the Google Picker API, and set it as VITE_GOOGLE_PICKER_API_KEY. The
+ *      Picker widget needs this in addition to the OAuth access token to render.
  * While that consent screen is in "Testing" mode, only test users explicitly added in Google
  * Cloud Console can use this — publishing it for arbitrary users requires Google's verification
- * review, since spreadsheets access is a "sensitive" scope. Same caveat as the Facebook login
- * provider: fine for you today, needs a review pass before opening up to real customers.
+ * review, though drive.file being non-sensitive makes that review much lighter than a sensitive
+ * scope like full spreadsheets access would.
  */
 const GIS_SRC = "https://accounts.google.com/gsi/client";
-const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+const PICKER_SRC = "https://apis.google.com/js/api.js";
+const SHEETS_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
 let gisLoadPromise = null;
 function loadGis() {
@@ -47,6 +62,35 @@ function loadGis() {
 // proper error if the script truly can't load.
 export function preloadGoogleSheetsApi() {
   loadGis().catch(() => {});
+}
+
+let pickerLoadPromise = null;
+function loadPicker() {
+  if (window.google?.picker) return Promise.resolve();
+  if (pickerLoadPromise) return pickerLoadPromise;
+  pickerLoadPromise = new Promise((resolve, reject) => {
+    const finish = () => {
+      window.gapi.load("picker", {
+        callback: resolve,
+        onerror: () => reject(new Error("Couldn't load Google's file picker.")),
+      });
+    };
+    if (window.gapi?.load) { finish(); return; }
+    const script = document.createElement("script");
+    script.src = PICKER_SRC;
+    script.async = true;
+    script.defer = true;
+    script.onload = finish;
+    script.onerror = () => reject(new Error("Couldn't load Google's file picker."));
+    document.head.appendChild(script);
+  });
+  return pickerLoadPromise;
+}
+
+// Same rationale as preloadGoogleSheetsApi() above — warms the Picker's script + gapi module
+// ahead of the user's first click so opening the picker doesn't stall on a cold network fetch.
+export function preloadGoogleSheetsPicker() {
+  loadPicker().catch(() => {});
 }
 
 let tokenClient = null;
@@ -194,21 +238,46 @@ export async function exportReportToGoogleSheets(report) {
 /**
  * "Connect a Google Sheet" — manual pull, same client-only pattern as export above (reuses the
  * same access token/scope, so there's no second consent prompt and no extra Google Cloud setup).
- * This is deliberately the lightweight half of the live-connection feature: the user pastes a
- * link, clicks a button, and the sheet's raw grid is fetched once and fed into the same
+ * This is deliberately the lightweight half of the live-connection feature: the user picks a
+ * sheet through Google's Picker widget, and its raw grid is fetched once and fed into the same
  * header-row-picker / column-mapping pipeline a CSV upload or screenshot import already goes
  * through. Nothing is stored — no refresh token, no server round-trip — so this can't run in the
  * background or auto-refresh on its own; that's the separate, heavier piece (server-side OAuth
  * authorization-code flow + stored refresh token + a sync schedule) planned as a follow-up.
  */
 
-// Accepts either a full Sheets URL or a bare spreadsheet ID typed/pasted directly.
-export function parseSpreadsheetId(input) {
-  const s = (input || "").trim();
-  const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (m) return m[1];
-  if (/^[a-zA-Z0-9-_]{20,}$/.test(s)) return s; // looks like a bare ID
-  return null;
+// Opens Google's Picker UI filtered to Spreadsheets, and resolves with the chosen file's
+// {id, name} — or null if the user closed the picker without selecting anything. Selecting a
+// file here is what grants this drive.file-scoped token access to read it; there is no other way
+// to hand an existing spreadsheet ID to this app (see the scope note at the top of this file).
+export async function pickSpreadsheet() {
+  const apiKey = import.meta.env.VITE_GOOGLE_PICKER_API_KEY;
+  if (!apiKey) {
+    throw new Error("Google Sheets picker isn't configured yet — VITE_GOOGLE_PICKER_API_KEY is missing.");
+  }
+  const [accessToken] = await Promise.all([getAccessToken(), loadPicker()]);
+  return new Promise((resolve, reject) => {
+    try {
+      const view = new window.google.picker.DocsView(window.google.picker.ViewId.SPREADSHEETS)
+        .setMode(window.google.picker.DocsViewMode.LIST);
+      const picker = new window.google.picker.PickerBuilder()
+        .addView(view)
+        .setOAuthToken(accessToken)
+        .setDeveloperKey(apiKey)
+        .setCallback((data) => {
+          if (data.action === window.google.picker.Action.PICKED) {
+            const doc = data.docs[0];
+            resolve({ id: doc.id, name: doc.name });
+          } else if (data.action === window.google.picker.Action.CANCEL) {
+            resolve(null);
+          }
+        })
+        .build();
+      picker.setVisible(true);
+    } catch (err) {
+      reject(err);
+    }
+  });
 }
 
 // Returns [{ sheetId, title }] for every tab in the spreadsheet, so the caller can ask the user
