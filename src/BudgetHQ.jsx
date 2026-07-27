@@ -26,6 +26,7 @@ import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
 import lunarRoverIcon from "./assets/icons/lunar-rover.png";
 import explorationRoverIcon from "./assets/icons/exploration-rover.png";
 import maintenanceRobotIcon from "./assets/icons/maintenance-robot.png";
+import geologicalSampleBoxIcon from "./assets/icons/geological-sample-collection-box.png";
 
 // Lazy-loaded tab components (2026-07-25 split, per Mo — "there should be a global forecasting
 // model selector" conversation led into a broader ask to split the four tab components out of
@@ -3555,7 +3556,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   {fileStoreLoading?(
                     <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",padding:"12px 0"}}>Loading…</div>
                   ):fileStoreList.length===0?(
-                    <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",padding:"12px 0"}}>No files saved yet.</div>
+                    <div style={{textAlign:"center",padding:"12px 0"}}>
+                      {/* Geological-sample-collection-box illustration (2026-07-26, per Mo,
+                          licensed "Geometric Space Collection 2.0" set) — a sample case is a
+                          storage/archive metaphor, same job File Store does for uploaded files. */}
+                      <img src={geologicalSampleBoxIcon} alt="" aria-hidden="true" style={{width:56,height:"auto",marginBottom:6}}/>
+                      <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>No files saved yet.</div>
+                    </div>
                   ):(
                     <div style={{maxHeight:320,overflow:"auto"}}>
                       {fileStoreList.map((f,i)=>(

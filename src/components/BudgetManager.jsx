@@ -11,6 +11,7 @@ import {
   PixelPanel, WarnTip, AISummaryCard,
 } from "./shared.jsx";
 import { useGoogleSheetConnect } from "../hooks/useGoogleSheetConnect.js";
+import surfaceBaseHabitatIcon from "../assets/icons/surface-base-habitat.png";
 
 // src/components/BudgetManager.jsx — Budget Panel tab (2026-07-25 split, per Mo: split the
 // four tab components out of the BudgetHQ.jsx monolith into their own files so each tab's code
@@ -983,7 +984,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
       <div style={{flex:1,overflow:"auto",minWidth:0}}>
         {!budgetDims.length?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
-            <div style={{width:52,height:52,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22}}><Icon name="wallet" size={24} color={T.onAccent}/></div>
+            {/* Surface-base-habitat illustration (2026-07-26, per Mo, licensed "Geometric Space
+                Collection 2.0" set) replaces the plain wallet-icon tile — a habitat is the
+                foundation everything else gets built on, same as a budget structure is for
+                this workspace. */}
+            <img src={surfaceBaseHabitatIcon} alt="" aria-hidden="true" style={{width:130,height:"auto",marginBottom:18}}/>
             <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up your budget structure</div>
             <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>{canEdit?"Select dimensions to budget by, or import an existing budget file.":"This workspace doesn't have a budget structure yet — ask an owner or admin to set one up."}</div>
             {canEdit&&<Btn onClick={()=>setImportOpen(true)} variant="success" T={T} size="md">↑ Import CSV / Excel</Btn>}

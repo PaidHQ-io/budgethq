@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { askAIRun } from "../lib/askAI.js";
 import { Inp, Btn, Icon, SectionLabel } from "./shared.jsx";
+import aiScienceDroneIcon from "../assets/icons/ai-science-drone.png";
 
 // src/components/AskAI.jsx — Ask AI tab (2026-07-25 split, per Mo). Includes the example-
 // prompt pool and chat-sidebar grouping helper, since both are only ever used here.
@@ -414,6 +415,9 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
         <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
           <div style={{width:"100%",maxWidth:640}}>
             <div style={{textAlign:"center",marginBottom:24}}>
+              {/* AI-science-drone illustration (2026-07-26, per Mo, licensed "Geometric Space
+                  Collection 2.0" set) — a literal AI-themed bot for the AI-themed empty state. */}
+              <img src={aiScienceDroneIcon} alt="" aria-hidden="true" style={{width:110,height:"auto",marginBottom:14}}/>
               <div style={{fontSize:22,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>Ask AI about your spend data</div>
               <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>Ask in plain language — answers are pulled from your actual tagged campaigns, not guessed.</div>
             </div>
