@@ -21,6 +21,18 @@
  * (campaign_group_name / campaign_name) maps Campaign -> campaign_group_name and Ad Group ->
  * campaign_name — same correspondence LinkedIn (Campaign Group -> Campaign) and Bing (Campaign ->
  * Ad Group) use, see connectors/linkedin.js's doc comment for that taxonomy note.
+ *
+ * PERFORMANCE MAX (2026-07-27, per Mo — building PMax-specific tests): Performance Max campaigns
+ * are asset-based, not ad-group-based — they have NO ad_group rows at all, so the ad_group query
+ * below silently returns zero spend for them (no error, they just never show up). Fixed by running
+ * a SECOND query against the asset_group resource, which is PMax's structural equivalent of an ad
+ * group, explicitly filtered to campaign.advertising_channel_type = 'PERFORMANCE_MAX' so it can't
+ * double-count anything the ad_group query already covers for other channel types. Together the two
+ * queries now cover Search, Display, Video, Shopping, Demand Gen (all ad_group-based) and
+ * Performance Max (asset_group-based). Still NOT covered: App, Local, and Smart campaigns — those
+ * are fully automated/closed campaign types with no per-ad-group or per-asset-group cost breakdown
+ * resource in the Google Ads API at all, so there's no query that would surface them short of
+ * campaign-level-only totals (a different, coarser resource than either query here).
  */
 import { adsApiSearchAll } from "../lib/googleAdsOAuth.js";
 
@@ -42,12 +54,48 @@ function buildQuery(startDate, endDate) {
   `.trim();
 }
 
+// Performance Max's equivalent of the query above — same shape, but asset_group instead of
+// ad_group (see PERFORMANCE MAX doc note up top). The advertising_channel_type filter is what
+// keeps this from ever overlapping with buildQuery()'s results.
+function buildAssetGroupQuery(startDate, endDate) {
+  return `
+    SELECT
+      campaign.id, campaign.name,
+      asset_group.id, asset_group.name,
+      segments.date,
+      metrics.cost_micros, metrics.impressions, metrics.clicks
+    FROM asset_group
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+      AND campaign.advertising_channel_type = 'PERFORMANCE_MAX'
+  `.trim();
+}
+
+// costMicros comes back as a string (Google's REST JSON encodes int64 fields as strings to avoid
+// JS/other clients' float precision loss) — divide by 1,000,000 per Google's documented "micros"
+// convention (same unit Search Ads 360/other Google Ads-adjacent APIs use). `child` is whichever of
+// r.adGroup/r.assetGroup this row came from — the thing that plays Ad Group's role as BudgetHQ's
+// second grouping level (see the two-level-model doc note up top).
+function mapRow(r, child) {
+  const spend = Math.round((parseInt(r.metrics?.costMicros || "0", 10) / 1e6) * 100) / 100;
+  const date = r.segments?.date || null;
+  if (!date || spend <= 0) return null;
+  return {
+    campaign_group_name: r.campaign?.name || `Campaign ${r.campaign?.id || ""}`.trim(),
+    campaign_name: child?.name || `Ad Group ${child?.id || ""}`.trim(),
+    campaign_id: String(child?.id || r.campaign?.id || ""),
+    platform: "Google",
+    date,
+    spend,
+    impressions: parseInt(r.metrics?.impressions || "0", 10) || 0,
+    clicks: parseInt(r.metrics?.clicks || "0", 10) || 0,
+  };
+}
+
 export async function getSpend({ startDate, endDate, credential }) {
   if (!credential?.accessToken) throw new Error("This workspace hasn't connected Google Ads yet.");
   if (!credential?.accountId) throw new Error("No Google Ads account selected yet for this workspace — pick one to finish connecting.");
 
-  const query = buildQuery(startDate, endDate);
-  const raw = await adsApiSearchAll(credential.accountId, query, {
+  const auth = {
     accessToken: credential.accessToken,
     // Only set when the connected Google user reaches this account through a manager (MCC) account
     // rather than being a direct user on it — see api/oauth/google/accounts.js's doc comment for
@@ -55,28 +103,17 @@ export async function getSpend({ startDate, endDate, credential }) {
     // Google Ads API returns PERMISSION_DENIED for the child account without it in that case, even
     // though the user genuinely can see the account inside the Google Ads UI itself.
     loginCustomerId: credential.loginCustomerId || undefined,
-  });
+  };
 
-  // costMicros comes back as a string (Google's REST JSON encodes int64 fields as strings to avoid
-  // JS/other clients' float precision loss) — divide by 1,000,000 per Google's documented "micros"
-  // convention (same unit Search Ads 360/other Google Ads-adjacent APIs use).
-  return raw
-    .map((r) => {
-      const spend = Math.round((parseInt(r.metrics?.costMicros || "0", 10) / 1e6) * 100) / 100;
-      const date = r.segments?.date || null;
-      if (!date || spend <= 0) return null;
-      return {
-        campaign_group_name: r.campaign?.name || `Campaign ${r.campaign?.id || ""}`.trim(),
-        campaign_name: r.adGroup?.name || `Ad Group ${r.adGroup?.id || ""}`.trim(),
-        campaign_id: String(r.adGroup?.id || r.campaign?.id || ""),
-        platform: "Google",
-        date,
-        spend,
-        impressions: parseInt(r.metrics?.impressions || "0", 10) || 0,
-        clicks: parseInt(r.metrics?.clicks || "0", 10) || 0,
-      };
-    })
-    .filter(Boolean);
+  const [adGroupRows, assetGroupRows] = await Promise.all([
+    adsApiSearchAll(credential.accountId, buildQuery(startDate, endDate), auth),
+    adsApiSearchAll(credential.accountId, buildAssetGroupQuery(startDate, endDate), auth),
+  ]);
+
+  return [
+    ...adGroupRows.map((r) => mapRow(r, r.adGroup)),
+    ...assetGroupRows.map((r) => mapRow(r, r.assetGroup)),
+  ].filter(Boolean);
 }
 
 export const meta = {
