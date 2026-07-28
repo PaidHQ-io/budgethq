@@ -121,3 +121,61 @@ export function acceptInvite(session, token) {
     body: JSON.stringify({ token }),
   });
 }
+
+// ─── Connector credentials / OAuth connect flow ─────────────────────────────
+// Moved to paidhq-core 2026-07-28, per Mo (full OAuth connect flow, not just the cron sync engine)
+// — connection management and every provider's consent-screen round-trip are shared across every
+// PaidHQ product now, not BudgetHQ-specific. See paidhq-core's api/workspaces/[id]/connections.js
+// and api/oauth/*/{start,callback,accounts}.js doc comments for the full story, including why
+// requireEntitlement was dropped and how resolveAllowedReturnUrl gets the browser back to the
+// right product after the redirect. BudgetHQ's own local copies of these same routes still exist
+// as a rollback safety net (not yet removed — see ROADMAP) but the frontend calls paidhq-core's
+// from here on.
+//
+// Same response shapes as the old local /api/workspaces/[id]/connections and /api/oauth/* routes
+// (paidhq-core's versions are a straight move, not a redesign), so every existing caller in
+// BudgetHQ.jsx keeps working unchanged apart from swapping which function it calls.
+
+export function listConnections(session, workspaceId) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/connections`).then((d) => d.connections || []);
+}
+
+export function saveConnectionCredential(session, workspaceId, provider, credential) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/connections`, {
+    method: "POST",
+    body: JSON.stringify({ provider, credential }),
+  });
+}
+
+export function patchConnection(session, workspaceId, provider, body) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/connections?provider=${encodeURIComponent(provider)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteConnection(session, workspaceId, provider) {
+  return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/connections?provider=${encodeURIComponent(provider)}`, {
+    method: "DELETE",
+  });
+}
+
+// Returns { url } — the caller does window.location.href = url to send the browser into the
+// provider's own consent screen (see startOAuth's caller in BudgetHQ.jsx). Not a redirect itself;
+// this call just asks paidhq-core to sign the state param and hand back where to go.
+export function startOAuth(session, workspaceId, provider) {
+  return coreFetch(session, `/api/oauth/${provider}/start?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+export function getOAuthAccounts(session, workspaceId, provider) {
+  return coreFetch(session, `/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+// body is { accountId, accountName, customerId?, loginCustomerId? } — see paidhq-core's
+// api/oauth/*/accounts.js POST doc comments for which of the optional fields each provider reads.
+export function saveOAuthAccount(session, workspaceId, provider, body) {
+  return coreFetch(session, `/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(workspaceId)}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}

@@ -8,7 +8,7 @@ import {
   listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64,
   copyFileToWorkspace,
 } from "./lib/workspaceApi";
-import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount } from "./lib/coreApi";
+import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount } from "./lib/coreApi";
 import { exportReportToGoogleSheets, preloadGoogleSheetsApi, preloadGoogleSheetsPicker } from "./lib/googleSheets";
 import {
   THEME, REQUIRED_COLS, OPTIONAL_COLS, COL_LABELS, campaignKey, isEmptyConfig, splitFilterTerms,
@@ -905,14 +905,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[connectionDetails,setConnectionDetails]=useState([]);
   const refreshConnectedProviders=useCallback(()=>{
     if(!workspace?.id||!session?.access_token)return;
-    fetch(`/api/workspaces/${workspace.id}/connections`,{headers:{Authorization:`Bearer ${session.access_token}`}})
-      .then(r=>r.ok?r.json():{connections:[]})
-      .then(({connections})=>{
+    listConnections(session,workspace.id)
+      .then(connections=>{
         setConnectedProviders(Object.fromEntries((connections||[]).map(c=>[c.provider,true])));
         setConnectionDetails(connections||[]);
       })
       .catch(()=>{}); // non-fatal — worst case the button just offers to (re)connect
-  },[workspace?.id,session?.access_token]);
+  },[workspace?.id,session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{refreshConnectedProviders();},[refreshConnectedProviders]);
   // Settings → Connections "Disconnect" — removes the stored credential entirely (existing DELETE
   // endpoint, previously built but never wired to any button). Confirmed inline rather than a
@@ -924,11 +923,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     const label=PLATFORMS.find(p=>p.key===provider)?.label||provider;
     if(!window.confirm(`Disconnect ${label}? Already-synced spend data stays put — you'll just need to reconnect before syncing again.`))return;
     setDisconnectingProvider(provider);
-    fetch(`/api/workspaces/${workspace.id}/connections?provider=${encodeURIComponent(provider)}`,{
-      method:"DELETE",
-      headers:{Authorization:`Bearer ${session.access_token}`},
-    })
-      .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||"Couldn't disconnect");}))
+    deleteConnection(session,workspace.id,provider)
       .then(()=>{refreshConnectedProviders();showNotif(`Disconnected ${label}.`);})
       .catch(e=>showNotif(`Couldn't disconnect: ${e.message}`))
       .finally(()=>setDisconnectingProvider(null));
@@ -943,16 +938,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const updateSyncSchedule=useCallback((provider,{syncMode,rollingWindowDays,syncFrequency})=>{
     if(!workspace?.id||!session?.access_token)return;
     setSavingSchedule(provider);
-    fetch(`/api/workspaces/${workspace.id}/connections?provider=${encodeURIComponent(provider)}`,{
-      method:"PATCH",
-      headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
-      body:JSON.stringify({syncMode,rollingWindowDays,syncFrequency}),
-    })
-      .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||"Couldn't save that schedule");}))
+    patchConnection(session,workspace.id,provider,{syncMode,rollingWindowDays,syncFrequency})
       .then(()=>{refreshConnectedProviders();showNotif(syncMode==="rolling"?"Rolling sync enabled — runs once daily and checks if this connection is due.":"Switched back to manual sync.");})
       .catch(e=>showNotif(`Couldn't save schedule: ${e.message}`))
       .finally(()=>setSavingSchedule(null));
-  },[workspace?.id,session?.access_token,refreshConnectedProviders]);
+  },[workspace?.id,session?.access_token,refreshConnectedProviders]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data Sources connector table's "Pause import" / "Don't use data in BudgetHQ" actions (2026-07-24)
   // — same instant-save PATCH pattern as the schedule dropdown above, just toggling one boolean at
@@ -963,12 +953,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const updateConnectionFlags=useCallback((provider,flags)=>{
     if(!workspace?.id||!session?.access_token)return;
     setSavingConnectionFlag(provider);
-    fetch(`/api/workspaces/${workspace.id}/connections?provider=${encodeURIComponent(provider)}`,{
-      method:"PATCH",
-      headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
-      body:JSON.stringify(flags),
-    })
-      .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||"Couldn't save that");}))
+    patchConnection(session,workspace.id,provider,flags)
       .then(()=>{
         refreshConnectedProviders();
         const label=PLATFORMS.find(p=>p.key===provider)?.label||provider;
@@ -1026,11 +1011,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(!canEdit)return;
     if(!workspace?.id||!session?.access_token){showNotif("No active session — try reloading.");return;}
     try{
-      const res=await fetch(`/api/oauth/${provider}/start?workspaceId=${encodeURIComponent(workspace.id)}`,{
-        headers:{Authorization:`Bearer ${session.access_token}`},
-      });
-      if(!res.ok){const err=await res.json();throw new Error(err.error||`Couldn't start ${OAUTH_PROVIDER_LABELS[provider]||provider} connect`);}
-      const{url}=await res.json();
+      const{url}=await startOAuth(session,workspace.id,provider);
       window.location.href=url;
     }catch(e){
       showNotif(`Couldn't connect ${OAUTH_PROVIDER_LABELS[provider]||provider}: ${e.message}`);
@@ -1040,14 +1021,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(!workspace?.id||!session?.access_token)return;
     setOauthPickerSaving(true);
     try{
-      const res=await fetch(`/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(workspace.id)}`,{
-        method:"POST",
-        headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
-        // loginCustomerId is Google-specific (see api/oauth/google/accounts.js's doc comment) —
-        // harmless extra field for every other provider's accounts.js, which just ignores it.
-        body:JSON.stringify({accountId,customerId,accountName,loginCustomerId}),
-      });
-      if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that account");}
+      // loginCustomerId is Google-specific (see paidhq-core's api/oauth/google/accounts.js doc
+      // comment) — harmless extra field for every other provider's accounts.js, which just ignores it.
+      await saveOAuthAccount(session,workspace.id,provider,{accountId,customerId,accountName,loginCustomerId});
       setOauthPicker(null);
       refreshConnectedProviders(); // clears needsAccountSelection so the pill flips back to a normal sync button
       showNotif(`${OAUTH_PROVIDER_LABELS[provider]||provider} account set — click Sync to pull spend.`);
@@ -1062,8 +1038,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // instead of restarting the OAuth consent screen, since the token itself is fine.
   const openAccountPicker=useCallback((provider)=>{
     if(!workspace?.id||!session?.access_token)return;
-    fetch(`/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(workspace.id)}`,{headers:{Authorization:`Bearer ${session.access_token}`}})
-      .then(r=>r.json())
+    getOAuthAccounts(session,workspace.id,provider)
       .then(({accounts,selectedAccountId})=>{setOauthPicker({provider,accounts:accounts||[],selectedAccountId});})
       .catch(()=>showNotif(`Couldn't load ${OAUTH_PROVIDER_LABELS[provider]||provider} accounts — try reconnecting instead.`));
   },[workspace?.id,session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1085,8 +1060,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       if(status==="error"){showNotif(`${label} connect failed: ${message||"unknown error"}`);return;}
       if(status==="success"){showNotif(`Connected ${label} — click Sync to pull spend.`);refreshConnectedProviders();return;}
       if(status==="select_account"&&wsId&&session?.access_token){
-        fetch(`/api/oauth/${provider}/accounts?workspaceId=${encodeURIComponent(wsId)}`,{headers:{Authorization:`Bearer ${session.access_token}`}})
-          .then(r=>r.json())
+        getOAuthAccounts(session,wsId,provider)
           .then(({accounts,selectedAccountId})=>{
             setOauthPicker({provider,accounts:accounts||[],selectedAccountId});
             refreshConnectedProviders();
@@ -1169,12 +1143,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         });
         credential[f.key]=obj;
       });
-      const res=await fetch(`/api/workspaces/${workspace.id}/connections`,{
-        method:"POST",
-        headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},
-        body:JSON.stringify({provider:platformKey,credential}),
-      });
-      if(!res.ok){const err=await res.json();throw new Error(err.error||"Couldn't save that connection");}
+      await saveConnectionCredential(session,workspace.id,platformKey,credential);
       setConnectedProviders(p=>({...p,[platformKey]:true}));
       setConnectPanelKey(null);
       showNotif(`Connected ${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} — click Sync to pull spend.`);
