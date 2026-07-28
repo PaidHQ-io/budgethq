@@ -68,7 +68,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // out of whatever you were doing). Device-local, same as sidebar width below — not workspace
   // data, so it doesn't follow you to a different browser/device, which is fine since "what tab
   // was I on" is a per-device habit, not something a team needs to share.
-  const VALID_VIEWS=["dashboard","tagger","budget","pacing","ask","settings"];
+  // "data" (Data Sources) was missing here even though setView("data") is a real, persisted state
+  // (see the useEffect below) — meant a real top-level navigation away and back, like the OAuth
+  // connect round-trip every provider's callback.js does, always got rejected by this check and
+  // fell back to "dashboard" instead of staying on Data Sources where the account picker needs to
+  // open. Fixed 2026-07-28, per Mo.
+  const VALID_VIEWS=["dashboard","tagger","budget","pacing","ask","settings","data"];
   const[view,setView]=useState(()=>{
     try{const v=localStorage.getItem("paidhq_last_view");return VALID_VIEWS.includes(v)?v:"dashboard";}catch(e){return "dashboard";}
   });
