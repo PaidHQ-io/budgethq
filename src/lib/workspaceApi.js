@@ -74,18 +74,67 @@ export function getSpendRows(session, workspaceId) {
   );
 }
 
+// Leaves real headroom below Vercel's hard 4.5MB Serverless Function request body limit — not
+// pushed right up against it, since compression ratio can vary a little chunk to chunk and this
+// needs to stay safely under the cap even in the worst case, not just on average.
+const MAX_SPEND_ROWS_BODY_BYTES = 3.5 * 1024 * 1024;
+
+function bodyByteLength(body) {
+  return typeof body === "string" ? new TextEncoder().encode(body).length : body.byteLength;
+}
+
 // Whole-dataset replace — see spend-rows.js's PUT handler doc comment for why this is the
 // migration's chosen sync model instead of trying to move mergeRows()'s dedupe logic server-side.
 // See putWorkspaceConfig above for what fetchOpts/keepalive is for, and compressJson above for why
 // this is gzipped (this is the endpoint that actually hit the 4.5MB limit in practice).
+//
+// CHUNKING (2026-07-27, per Mo — a large, active workspace's whole-history payload started 413'ing
+// again even gzip-compressed, once its row count grew past what compression alone could keep under
+// Vercel's request-size ceiling): compresses the full payload once to see if it fits in one
+// request — true for the overwhelming majority of workspaces, so nothing changes for them. Only
+// when it doesn't fit does this fall back to splitting `rows` into several smaller requests, sent
+// SEQUENTIALLY (not in parallel — see spend-rows.js's `append` doc comment for why order matters):
+// the first chunk goes through as a normal replace (clears the table, same as a single-request
+// save always did), every chunk after that sets append:true so it adds to what the earlier chunks
+// in this same save just wrote instead of wiping them out. A failure partway through a chunked save
+// leaves SOME of the new data persisted rather than none — worse than full atomicity, but strictly
+// better than the previous behavior (the whole save silently failing and nothing reaching the
+// server at all). The row array itself is only ever compressed in whichever pieces actually get
+// sent — the single upfront "does it fit" compress on the full array is the only unavoidable extra
+// work for a workspace big enough to need chunking at all.
 export async function putSpendRows(session, workspaceId, rows, fetchOpts = {}) {
-  const { body, gzip } = await compressJson({ rows });
-  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/spend-rows`, {
-    method: "PUT",
-    body,
-    headers: gzip ? { "Content-Encoding": "gzip" } : undefined,
-    ...fetchOpts,
-  });
+  const path = `/api/workspaces/${encodeURIComponent(workspaceId)}/spend-rows`;
+  const full = await compressJson({ rows });
+  if (bodyByteLength(full.body) <= MAX_SPEND_ROWS_BODY_BYTES) {
+    return apiFetch(session, path, {
+      method: "PUT",
+      body: full.body,
+      headers: full.gzip ? { "Content-Encoding": "gzip" } : undefined,
+      ...fetchOpts,
+    });
+  }
+
+  // Doesn't fit in one request — estimate a chunk count from the compression ratio just measured
+  // (this data compresses very uniformly given how repetitive spend rows are — same field names/
+  // structure every row — so the whole array's ratio is a reliable stand-in for any slice of it),
+  // then split rows into that many roughly-equal pieces and send them one at a time.
+  const chunkCount = Math.max(2, Math.ceil(bodyByteLength(full.body) / MAX_SPEND_ROWS_BODY_BYTES));
+  const chunkSize = Math.ceil(rows.length / chunkCount);
+  let replaced = 0;
+  let skipped = 0;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    const { body, gzip } = await compressJson({ rows: chunk, append: i > 0 });
+    const result = await apiFetch(session, path, {
+      method: "PUT",
+      body,
+      headers: gzip ? { "Content-Encoding": "gzip" } : undefined,
+      ...fetchOpts,
+    });
+    replaced += result.replaced || 0;
+    skipped += result.skipped || 0;
+  }
+  return { replaced, skipped };
 }
 
 // Ask AI chat history — scoped to the CALLER's own account within this workspace (see

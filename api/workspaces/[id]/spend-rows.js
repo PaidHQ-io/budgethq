@@ -5,16 +5,25 @@
  *        No filters returns everything for the workspace (fine at current data volumes; add
  *        pagination if a workspace's history grows large enough for this to matter).
  * POST   Body: { rows: [...] } — bulk insert. Pure append, no merge/de-dupe server-side.
- * PUT    Body: { rows: [...] } — whole-dataset replace (delete everything for this workspace,
- *        then bulk insert the given array), run as one transaction so a mid-insert failure can't
- *        leave the workspace with zero rows. This is what the data-layer migration decided:
- *        mergeRows() (matching on campaign identity + date, preferring the most complete row)
- *        stays the client-side source of truth for what "duplicate" means — the frontend already
- *        holds the fully-merged mergedNormRows array in memory after every upload/sync, so
+ * PUT    Body: { rows: [...], append? } — whole-dataset replace (delete everything for this
+ *        workspace, then bulk insert the given array), run as one transaction so a mid-insert
+ *        failure can't leave the workspace with zero rows. This is what the data-layer migration
+ *        decided: mergeRows() (matching on campaign identity + date, preferring the most complete
+ *        row) stays the client-side source of truth for what "duplicate" means — the frontend
+ *        already holds the fully-merged mergedNormRows array in memory after every upload/sync, so
  *        treating spend_rows as a mirror of that (replace-all) avoids needing to reimplement the
- *        same merge/dedupe logic server-side. Fine at current data volumes; would need to become
- *        incremental if a workspace's row count grows large enough for whole-table replace on
- *        every change to matter.
+ *        same merge/dedupe logic server-side.
+ *
+ *        `append` (2026-07-27, per Mo — a large workspace's whole-history payload started 413'ing
+ *        even gzip-compressed, past Vercel's hard 4.5MB request body limit): when true, skips the
+ *        delete step and only inserts. Exists so workspaceApi.js's putSpendRows can split one huge
+ *        save into several requests that stay under that limit — the FIRST chunk goes through as a
+ *        normal replace (append omitted/false, clears the table), every chunk AFTER that sets
+ *        append:true so it doesn't wipe out what the earlier chunks in the same save just wrote.
+ *        Not a full incremental-sync redesign (each chunked save still resends the whole dataset,
+ *        just split across requests) — the simplest fix that keeps "replace-all" semantics intact
+ *        while removing the hard size ceiling. Revisit if a workspace's history grows large enough
+ *        that even chunked whole-dataset sends become slow.
  * DELETE ?platform=Google&start=...&end=... — mirrors the existing "Clear Tagger data by
  *        channel" / "by date range" Settings panels. At least one filter is required; DELETE with
  *        no filters at all is rejected to avoid an accidental full wipe via a malformed request.
@@ -96,7 +105,7 @@ export default withApi(async (req, res) => {
 
   if (req.method === "PUT") {
     requireEditAccess(myRole);
-    const inputRows = (await readJsonBody(req)).rows;
+    const { rows: inputRows, append } = await readJsonBody(req);
     if (!Array.isArray(inputRows)) {
       return res.status(400).json({ error: "rows must be an array" });
     }
@@ -113,8 +122,14 @@ export default withApi(async (req, res) => {
     // near-instant.
     const c = toColumns(inputRows);
     const replacedCount = c.date.length;
+    // append+empty (a zero-row chunk) would leave nothing to run — sql.transaction needs at least
+    // one statement. Shouldn't happen in practice (workspaceApi.js's chunker never produces an
+    // empty append chunk), but skip the transaction entirely rather than risk erroring on it.
+    if (append && replacedCount === 0) {
+      return res.status(200).json({ replaced: 0, skipped: c.skipped });
+    }
     await sql.transaction((tx) => [
-      tx`delete from budgethq.spend_rows where workspace_id = ${workspaceId}`,
+      ...(append ? [] : [tx`delete from budgethq.spend_rows where workspace_id = ${workspaceId}`]),
       ...(replacedCount > 0
         ? [tx`
             insert into budgethq.spend_rows
