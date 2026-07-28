@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   buildCampaignPlatformIndex, countSegmentCampaigns, untagSegmentCampaigns, renameDimensionValue,
+  resolveBudgetDimValue, DERIVED_DIMS,
   campaignKey, parseMoney, fmtFull, fmt$, isMonthHdr, getMonthKey,
   parsePeriod, findFlatMonthlyCol, parseFileToRows, forwardFillGroups, downloadCSV,
   computeActualsByMonth, computePacing, pacingStatusMeta, MONTHS, QUARTERS,
@@ -120,6 +121,15 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
   // "Platform", since that value is never actually stored in campaignTags.
   const platformIndex=useMemo(()=>buildCampaignPlatformIndex(mergedNormRows),[mergedNormRows]);
   const platformValues=useMemo(()=>[...new Set(Object.values(platformIndex))].sort((a,b)=>a.localeCompare(b)),[platformIndex]);
+  // Constrained value lists for the "Campaign"/"Ad Group" pseudo-dimensions — same reasoning as
+  // platformValues above (used to populate a real dropdown for the "add segment manually" flow,
+  // instead of a free-typed value that could silently never match real spend data).
+  const campaignGroupValues=useMemo(()=>[...new Set((mergedNormRows||[]).map(r=>r.campaign_group_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b)),[mergedNormRows]);
+  const campaignNameValues=useMemo(()=>[...new Set((mergedNormRows||[]).map(r=>r.campaign_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b)),[mergedNormRows]);
+  // Which of the CURRENTLY selected budgetDims are derived vs. real manual tags — drives the
+  // "Platform/Campaign/Ad Group is detected automatically" empty-state copy below.
+  const derivedActiveDims=useMemo(()=>budgetDims.filter(d=>DERIVED_DIMS.includes(d)),[budgetDims]);
+  const manualActiveDims=useMemo(()=>budgetDims.filter(d=>!DERIVED_DIMS.includes(d)),[budgetDims]);
 
   const segMatchCount=useCallback(segKey=>countSegmentCampaigns(campaignTags,budgetDims,segKey,platformIndex),[budgetDims,campaignTags,platformIndex]);
 
@@ -321,7 +331,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
       if(seenCampaigns.has(ck))return;
       seenCampaigns.add(ck);
       const t=campaignTags[ck]||{};
-      const vals=budgetDims.map(d=>d==="Platform"?(platformIndex[ck]||""):t[d]);
+      const vals=budgetDims.map(d=>resolveBudgetDimValue(d,ck,t,platformIndex));
       if(vals.some(v=>!v))return;
       const key=vals.join("|");
       if(!seen.has(key)){seen.add(key);const c={key};budgetDims.forEach((d,i)=>{c[d]=vals[i];});out.push(c);}
@@ -369,7 +379,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
   const qOver=useCallback((sk,q)=>{const c=parseMoney(getQC(sk,q.key));return c!==null&&qTotal(sk,q)>c;},[getQC,qTotal]);
   const aOver=useCallback(sk=>{const c=parseMoney(getAC(sk));return c!==null&&rowTotal(sk)>c;},[getAC,rowTotal]);
   const totalY=useMemo(()=>segs.reduce((s,sg)=>s+rowTotal(sg.key),0),[segs,rowTotal]);
-  const dimCount=d=>d==="Platform"?platformValues.length:[...new Set(Object.values(campaignTags||{}).map(t=>t[d]).filter(Boolean))].length;
+  const dimCount=d=>d==="Platform"?platformValues.length:d==="Campaign"?campaignGroupValues.length:d==="Ad Group"?campaignNameValues.length:[...new Set(Object.values(campaignTags||{}).map(t=>t[d]).filter(Boolean))].length;
   const toggleDim=d=>{if(!canEdit)return;setBudgetDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);};
   const dcw=130;
 
@@ -944,7 +954,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget By</SectionLabel>
-            {["Platform",...(tagDimensions||[])].map(d=>{const on=budgetDims.includes(d);return(
+            {["Platform","Campaign","Ad Group",...(tagDimensions||[])].map(d=>{const on=budgetDims.includes(d);return(
               <div key={d} className={on?undefined:"bhq-row"} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:on?T.accentBg:"transparent",border:on?`1px solid ${T.accentBorder}`:"1px solid transparent",marginBottom:2}}>
                 <Chk checked={on} onChange={()=>toggleDim(d)} T={T}/>
                 <span style={{fontSize:13,color:T.text,fontWeight:on?700:400,fontFamily:"'DM Sans',sans-serif"}}>{d}</span>
@@ -997,10 +1007,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
             <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>No segments found</div>
             <div style={{fontSize:13,color:T.textSub,maxWidth:320,lineHeight:1.65}}>
-              {budgetDims.includes("Platform")?(
-                budgetDims.length>1?
-                  <>Import spend data and tag campaigns with <strong style={{color:T.text}}>{budgetDims.filter(d=>d!=="Platform").join(" + ")}</strong> in the Tagger — Platform is detected automatically, no tagging needed for it.</>
-                  :<>Import spend data in the Tagger — Platform is detected automatically, no manual tagging needed.</>
+              {derivedActiveDims.length?(
+                manualActiveDims.length?
+                  <>Import spend data and tag campaigns with <strong style={{color:T.text}}>{manualActiveDims.join(" + ")}</strong> in the Tagger — {derivedActiveDims.join(", ")} {derivedActiveDims.length>1?"are":"is"} detected automatically, no tagging needed for {derivedActiveDims.length>1?"them":"it"}.</>
+                  :<>Import spend data in the Tagger — {derivedActiveDims.join(", ")} {derivedActiveDims.length>1?"are":"is"} detected automatically, no manual tagging needed.</>
               ):(
                 <>Tag campaigns with <strong style={{color:T.text}}>{budgetDims.join(" + ")}</strong> in the Tagger first.</>
               )}
@@ -1115,7 +1125,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   </td>
                   {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:rbb,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:T.bg,zIndex:1,whiteSpace:"nowrap"}}>
-                    {d==="Platform"?(
+                    {DERIVED_DIMS.includes(d)?(
                       // Derived, not stored — renaming here would only relabel the budget row
                       // while spend keeps resolving to the original channel name, silently
                       // breaking the match. Not editable.
@@ -1207,14 +1217,15 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                 <Btn onClick={()=>setShowAddRow(true)} variant="ghost" size="sm" T={T} style={{alignSelf:"flex-start"}}>+ Add segment manually</Btn>
               ):(
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                  {budgetDims.map(d=>d==="Platform"?(
-                    // Constrained to channels actually present in spend data — a free-typed value
-                    // here ("google" vs the canonical "Google Search") would silently create a
-                    // segment that never matches real spend, unlike ordinary tag dimensions where
-                    // that risk is more visible/correctable in the Tagger itself.
+                  {budgetDims.map(d=>DERIVED_DIMS.includes(d)?(
+                    // Constrained to values actually present in spend data — a free-typed value
+                    // here ("google" vs the canonical "Google Search", or a mistyped campaign/ad
+                    // group name) would silently create a segment that never matches real spend,
+                    // unlike ordinary tag dimensions where that risk is more visible/correctable
+                    // in the Tagger itself.
                     <Sel key={d} value={newRowVals[d]||""} onChange={v=>setNewRowVals(p=>({...p,[d]:v}))} T={T} style={{width:150}}>
-                      <option value="">Platform…</option>
-                      {platformValues.map(p=><option key={p} value={p}>{p}</option>)}
+                      <option value="">{d}…</option>
+                      {(d==="Platform"?platformValues:d==="Campaign"?campaignGroupValues:campaignNameValues).map(p=><option key={p} value={p}>{p}</option>)}
                     </Sel>
                   ):(
                     <input key={d} value={newRowVals[d]||""} onChange={e=>setNewRowVals(p=>({...p,[d]:e.target.value}))} placeholder={d}

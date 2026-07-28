@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   computePacing, computePlatformDateRange, computeCustomGrouping, computeCustomBreakdown,
   computeMonthlyTrend, computeSpendBreakdown, renameDimensionValue, countSegmentCampaigns,
-  untagSegmentCampaigns, buildCampaignPlatformIndex, pacingStatusMeta, fmtFull, fmtSigned,
+  untagSegmentCampaigns, buildCampaignPlatformIndex, DERIVED_DIMS, pacingStatusMeta, fmtFull, fmtSigned,
   FORECAST_MODELS, FORECAST_MODEL_INHERIT, DEFAULT_MANUAL_TRAILING_DAYS, forecastModelLabel,
   AUTO_SHORT_WINDOW, AUTO_DIVERGENCE_LOW, AUTO_DIVERGENCE_HIGH, CAPACITY_WINDOW, MONTHS, QUARTERS,
 } from "../lib/core.js";
@@ -128,7 +128,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   // state.
   const[viewMode,setViewMode]=useState(()=>budgetDims.length?"budget":"custom"); // "budget" | "custom" | "trend"
   const[customDims,setCustomDims]=useState(()=>budgetDims.length?[]:["Platform"]);
-  const allDimOptions=["Platform",...(tagDimensions||[])];
+  const allDimOptions=["Platform","Campaign","Ad Group",...(tagDimensions||[])];
   const activeDims=viewMode==="custom"?customDims:budgetDims;
   const changeViewMode=v=>{setViewMode(v);setSelRows(new Set());setExpandedRows(new Set());setBreakdownDim("");setSegFilters({});};
   const toggleCustomDim=d=>{setCustomDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);setExpandedRows(new Set());setBreakdownDim("");setSegFilters({});};
@@ -735,7 +735,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     </td>
                     {seg.dims.map((v,i)=>{const dimMaxW=budgetDims[i]==="Product"?110:budgetDims[i]==="Module"?140:undefined;return(
                     <td key={i} style={{padding:"8px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
-                      {budgetDims[i]==="Platform"?(
+                      {DERIVED_DIMS.includes(budgetDims[i])?(
                         // Derived, not stored — see the same guard in the Budget Panel's table.
                         <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,borderRadius:6}} title="Derived from spend data — not editable">{v}</Pill>
                       ):editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(

@@ -149,6 +149,18 @@ export const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
 // combine both levels, not just the leaf name alone.
 export const campaignKey=(groupName,name)=>`${groupName||name||""}||${name||groupName||""}`;
+// Splits a campaignKey string back into its two source values — powers the "Campaign"/"Ad Group"
+// pseudo-dimensions (added 2026-07-28, per Mo: native campaign/ad-group-level reporting and
+// budgeting with zero manual tagging, same idea as "Platform" below but simpler — Platform has to
+// be derived from a full spend row via derivePlatform() and indexed per campaign
+// (buildCampaignPlatformIndex), but Campaign ("campaign_group_name") and Ad Group
+// ("campaign_name") are already losslessly encoded in the key itself, so no row-scan or index is
+// needed — just decode the key.
+export const campaignKeyParts=key=>{const i=(key||"").indexOf("||");return i===-1?{group:key||"",name:key||""}:{group:key.slice(0,i),name:key.slice(i+2)};};
+// Every pseudo-dimension that's derived from spend data rather than a real manual tag — shared by
+// every UI list that needs to render these as non-editable/auto-detected (Budget By / View by /
+// Break down by pickers, the "not a real tag, don't let someone rename it" guards, etc.).
+export const DERIVED_DIMS=["Platform","Campaign","Ad Group"];
 // Used by the debounced-save empty-write guard (see the big comment near hadRealConfigRef in the
 // main BudgetHQ component) — "empty" means nothing worth protecting, i.e. no tags, no budgets, and
 // no budget dimension setup either (tagDims/budgetRowMeta/budgetImportMeta are metadata that only
@@ -268,6 +280,17 @@ export function buildCampaignPlatformIndex(mergedNormRows){
     if(!idx[key])idx[key]=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
   });
   return idx;
+}
+// Resolves ONE budgetDim's value for a campaign, given only its campaignKey + tag object — the
+// shared shape untagSegmentCampaigns/countSegmentCampaigns (and BudgetManager's segment builder)
+// all match/count campaigns against a segment with. "Platform" needs the row-scan-built
+// platformIndex; "Campaign"/"Ad Group" decode straight off the key (see campaignKeyParts); any
+// other dim is a real manual tag, read off `t` exactly as before.
+export function resolveBudgetDimValue(dim,key,t,platformIndex){
+  if(dim==="Platform")return platformIndex?.[key]||"";
+  if(dim==="Campaign")return campaignKeyParts(key).group;
+  if(dim==="Ad Group")return campaignKeyParts(key).name;
+  return t[dim];
 }
 // Formats a Date's LOCAL calendar day as YYYY-MM-DD — deliberately NOT d.toISOString().slice(0,10),
 // which reads UTC fields. That distinction only bites when a Date was built from local y/m/d
@@ -611,10 +634,10 @@ export function untagSegmentCampaigns(tags,budgetDims,segKey,platformIndex){
   if(vals.length!==budgetDims.length)return tags;
   const newTags={...(tags||{})};
   Object.entries(tags||{}).forEach(([campaign,t])=>{
-    const matches=budgetDims.every((d,i)=>(d==="Platform"?(platformIndex?.[campaign]||""):t[d])===vals[i]);
+    const matches=budgetDims.every((d,i)=>resolveBudgetDimValue(d,campaign,t,platformIndex)===vals[i]);
     if(!matches)return;
     const nt={...t};
-    budgetDims.forEach(d=>{if(d!=="Platform")delete nt[d];});
+    budgetDims.forEach(d=>{if(!DERIVED_DIMS.includes(d))delete nt[d];});
     newTags[campaign]=nt;
   });
   return newTags;
@@ -631,7 +654,7 @@ export function countSegmentCampaigns(tags,budgetDims,segKey,platformIndex){
   let count=0;
   allKeys.forEach(key=>{
     const t=(tags||{})[key]||{};
-    const matches=budgetDims.every((d,i)=>(d==="Platform"?(platformIndex?.[key]||""):t[d])===vals[i]);
+    const matches=budgetDims.every((d,i)=>resolveBudgetDimValue(d,key,t,platformIndex)===vals[i]);
     if(matches)count++;
   });
   return count;
@@ -649,7 +672,7 @@ export function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,bre
     if(!d||d<start||d>end)return;
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
     if(!budgetDims.every((dim,i)=>resolveDimValue(row,rowTags,dim)===vals[i]))return;
-    const bval=breakdownDim==="Platform"?derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type):(rowTags[breakdownDim]||"Untagged");
+    const bval=resolveDimValue(row,rowTags,breakdownDim)||"Untagged";
     map[bval]=(map[bval]||0)+row.spend;
   });
   const total=Object.values(map).reduce((s,v)=>s+v,0);
@@ -914,12 +937,17 @@ export function projectPlatformSegment(platformSpendMap,platformFreshness,{start
   return{projectedSum:platformProjectedSum,dailyRate:totalDays?platformProjectedSum/totalDays:0,lowConfidencePlatforms};
 }
 
-// Resolves a single dimension's value for a spend row — "Platform" is derived per row (not a
-// manual tag), everything else comes from that campaign's tags. Shared by computePacing,
-// computeCustomGrouping, and their breakdown counterparts so "Platform" behaves identically
-// wherever it's used as a grouping or breakdown dimension.
+// Resolves a single dimension's value for a spend row — "Platform"/"Campaign"/"Ad Group" (see
+// DERIVED_DIMS) are all derived straight from the row itself (not a manual tag): Platform via
+// derivePlatform(), Campaign from campaign_group_name, Ad Group from campaign_name — everything
+// else comes from that campaign's tags. Shared by computePacing, computeCustomGrouping,
+// computeSpendBreakdown, and their breakdown counterparts so these pseudo-dimensions behave
+// identically wherever they're used as a grouping or breakdown dimension.
 export function resolveDimValue(row,rowTags,dim){
-  return dim==="Platform"?derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type):(rowTags[dim]||"");
+  if(dim==="Platform")return derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+  if(dim==="Campaign")return row.campaign_group_name||"";
+  if(dim==="Ad Group")return row.campaign_name||"";
+  return rowTags[dim]||"";
 }
 
 // Capacity-vs-budget signal (added 2026-07-25, per Mo — the other half of "why is this segment
