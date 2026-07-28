@@ -1,5 +1,20 @@
 import { campaignKey, derivePlatform, parseSpendDate, getPeriodRange, computePacing } from "./core.js";
 
+// Resolves one dimension's value for a spend row inside Ask AI's tool layer — the same three
+// derived pseudo-dimensions core.js's resolveDimValue knows about (Platform, Campaign, Ad Group;
+// see DERIVED_DIMS), but matched by dimension NAME case-insensitively, since the model doesn't
+// always echo back the exact casing it saw from list_tag_dimensions/list_dimension_values. Callers
+// pick their own "no value" fallback: filter-matching wants "" (an empty actual value can never
+// equal a real filter value, so the filter cleanly fails), a groupBy bucket wants "Untagged" (same
+// convention askAIQuerySpend's group_by already used for real tags before this existed).
+function askAIDimValue(row,rowTags,dim,fallback=""){
+  const d=(dim||"").toLowerCase();
+  if(d==="platform")return derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+  if(d==="campaign")return row.campaign_group_name||fallback;
+  if(d==="ad group"||d==="adgroup"||d==="ad set"||d==="adset")return row.campaign_name||fallback;
+  return rowTags[dim]||fallback;
+}
+
 // src/lib/askAI.js — Ask AI's grounded tool-use engine (2026-07-25 split, per Mo). Every
 // function here either answers one grounded tool call against real local data
 // (askAIQuerySpend/Budget/Pacing, askAIListDimensionValues) or drives one of the two
@@ -11,22 +26,22 @@ import { campaignKey, derivePlatform, parseSpendDate, getPeriodRange, computePac
 export const ASK_AI_TOOLS=[
   {
     name:"list_tag_dimensions",
-    description:"List the tag dimension names available for filtering/grouping (e.g. Product, Region, Funnel, Pillar, plus any custom ones the user has added), which of those are actually used as Budget By dimensions (only budget_dimensions can be filtered/grouped on in query_budget or query_pacing — the rest only apply to query_spend), and which budget years have any budget data at all. \"Platform\" is always also available as a synthetic dimension for query_spend even though it isn't a tag dimension.",
+    description:"List the tag dimension names available for filtering/grouping (e.g. Product, Region, Funnel, Pillar, plus any custom ones the user has added), which of those are actually used as Budget By dimensions (only budget_dimensions can be filtered/grouped on in query_budget or query_pacing — the rest only apply to query_spend), and which budget years have any budget data at all. \"Platform\", \"Campaign\", and \"Ad Group\" are always also available as synthetic dimensions for query_spend even though none of the three is a tag — Platform is derived from the platform/traffic-source data, Campaign is the campaign/campaign-group name, and Ad Group is the ad set/ad group name.",
     input_schema:{type:"object",properties:{},required:[]},
   },
   {
     name:"list_dimension_values",
-    description:"List the exact distinct values actually present for one dimension (a tag dimension, or \"Platform\"). ALWAYS call this before filtering on a dimension value from a user's question, since tag values are free text and spelling/capitalization must match exactly (e.g. the user might say \"emea\" but the real tag value is \"EMEA\").",
-    input_schema:{type:"object",properties:{dimension:{type:"string",description:"A dimension name from list_tag_dimensions, or \"Platform\"."}},required:["dimension"]},
+    description:"List the exact distinct values actually present for one dimension (a tag dimension, or \"Platform\"/\"Campaign\"/\"Ad Group\"). ALWAYS call this before filtering on a dimension value from a user's question, since tag values are free text and spelling/capitalization must match exactly (e.g. the user might say \"emea\" but the real tag value is \"EMEA\").",
+    input_schema:{type:"object",properties:{dimension:{type:"string",description:"A dimension name from list_tag_dimensions, or \"Platform\"/\"Campaign\"/\"Ad Group\"."}},required:["dimension"]},
   },
   {
     name:"query_spend",
     description:"Get total ACTUAL spend/clicks/impressions for campaigns matching a set of dimension filters within a date range, optionally broken down by one more dimension, optionally restricted to only fully-tagged or only untagged campaigns. This has no concept of budget — use query_budget or query_pacing for anything about allocated/planned amounts. This is the only source of truth for spend numbers — never estimate or recall a figure without calling this.",
     input_schema:{type:"object",properties:{
-      filters:{type:"object",description:"Map of dimension name -> exact value to filter to (use \"Platform\" as a key for platform filtering). Omit a dimension entirely to not filter on it.",additionalProperties:{type:"string"}},
+      filters:{type:"object",description:"Map of dimension name -> exact value to filter to (use \"Platform\", \"Campaign\", or \"Ad Group\" as a key to filter on those). Omit a dimension entirely to not filter on it.",additionalProperties:{type:"string"}},
       start_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no lower bound."},
       end_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no upper bound."},
-      group_by:{type:"string",description:"Optional dimension name (or \"Platform\") to break the total down by."},
+      group_by:{type:"string",description:"Optional dimension name (or \"Platform\", \"Campaign\", \"Ad Group\") to break the total down by."},
       tagged_status:{type:"string",enum:["any","tagged","untagged"],description:"\"tagged\" = only campaigns that have a value set for EVERY tag dimension (fully tagged, matching the Tagger's own definition). \"untagged\" = campaigns missing at least one. Defaults to \"any\" (no restriction). Use this for questions like \"how much spend is untagged\" or \"what's tagged vs. not\"."},
     },required:[]},
   },
@@ -58,15 +73,11 @@ export const ASK_AI_TOOLS=[
 
 export function askAIListDimensionValues({mergedNormRows,tags,dimension}){
   const vals=new Set();
-  const isPlatform=dimension.toLowerCase()==="platform";
   mergedNormRows.forEach(row=>{
-    if(isPlatform){
-      vals.add(derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type));
-    }else{
-      const key=campaignKey(row.campaign_group_name,row.campaign_name);
-      const v=(tags[key]||{})[dimension];
-      if(v)vals.add(v);
-    }
+    const key=campaignKey(row.campaign_group_name,row.campaign_name);
+    const rowTags=tags[key]||{};
+    const v=askAIDimValue(row,rowTags,dimension);
+    if(v)vals.add(v);
   });
   return Array.from(vals).sort();
 }
@@ -97,16 +108,12 @@ export function askAIQuerySpend({mergedNormRows,tags,tagDims,filters,startDate,e
       if(taggedStatus==="tagged"&&!tagged)return;
       if(taggedStatus==="untagged"&&tagged)return;
     }
-    const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
-    const matches=filterEntries.every(([dim,val])=>{
-      const actual=dim.toLowerCase()==="platform"?platform:(rowTags[dim]||"");
-      return actual.toLowerCase()===String(val).toLowerCase();
-    });
+    const matches=filterEntries.every(([dim,val])=>askAIDimValue(row,rowTags,dim).toLowerCase()===String(val).toLowerCase());
     if(!matches)return;
     totalSpend+=row.spend||0;totalClicks+=row.clicks||0;totalImpr+=row.impressions||0;
     seenCampaigns.add(key);
     if(groupBy){
-      const gv=groupBy.toLowerCase()==="platform"?platform:(rowTags[groupBy]||"Untagged");
+      const gv=askAIDimValue(row,rowTags,groupBy,"Untagged");
       groupMap[gv]=(groupMap[gv]||0)+(row.spend||0);
     }
   });
@@ -233,7 +240,7 @@ export const ASK_AI_MAX_ROUNDS=6;
 export async function askAIRun({question,history,ctx}){
   const today=new Date().toISOString().slice(0,10);
   const hasBudgets=(ctx.budgetDims||[]).length>0;
-  const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform" is always available for query_spend). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two or asks about pace/over-under-budget. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. Answer conversationally and concisely, citing the actual numbers returned.`;
+  const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two or asks about pace/over-under-budget. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. Answer conversationally and concisely, citing the actual numbers returned.`;
   const messages=[...history,{role:"user",content:question}];
   for(let round=0;round<ASK_AI_MAX_ROUNDS;round++){
     const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200})});
@@ -269,7 +276,7 @@ export const APPLY_VIEW_TOOL={
     type:"object",
     properties:{
       mode:{type:"string",enum:["budget","custom","trend"],description:"\"budget\": group by the workspace's existing Budget By segments — the only mode with $ Budget/Pacing/Status columns, and filters/status_filter can ONLY use Budget By dimensions in this mode. \"custom\": group spend by any combination of dimensions (no budget column) — filters can only apply to a dimension that's also included in dims, since there's no way to filter without grouping by it too (include the dimension in dims even if the user didn't ask to see it broken out as a column). \"trend\": a month-over-month line per series value for at most ONE filter dimension, not a single-period table."},
-      dims:{type:"array",items:{type:"string"},description:"mode=\"custom\" only: which dimension(s) (tag dimensions, or \"Platform\") to group rows by. Include every dimension you're also filtering on. Ignored for other modes."},
+      dims:{type:"array",items:{type:"string"},description:"mode=\"custom\" only: which dimension(s) (tag dimensions, or \"Platform\"/\"Campaign\"/\"Ad Group\") to group rows by. Include every dimension you're also filtering on. Ignored for other modes."},
       filters:{type:"object",additionalProperties:{type:"string"},description:"Map of dimension name -> exact stored value. mode=\"budget\": keys must be Budget By dimensions. mode=\"custom\": keys must also appear in dims. mode=\"trend\": only the first entry is used, as the single filter dim/value."},
       status_filter:{type:"string",enum:["all","on-track","ahead","behind","over","committed","no-budget","no-data"],description:"mode=\"budget\" only: restrict to one pacing status. Defaults to \"all\"."},
       breakdown_dim:{type:"string",description:"mode=\"budget\" or \"custom\": an optional dimension to drill each row down by. Omit for none."},
@@ -290,7 +297,7 @@ export const APPLY_VIEW_TOOL={
 export const ASK_AI_VIEW_MAX_ROUNDS=4;
 export async function askAIBuildView({question,ctx}){
   const hasBudgets=(ctx.budgetDims||[]).length>0;
-  const system=`You configure the Reporting & Pacing tab's "View by" table from a plain-English request. Tag dimensions: ${ctx.tagDims.join(", ")} (plus "Platform" is always available too). ${hasBudgets?`Budget By dimensions (the ONLY ones usable for mode="budget" grouping/filters/status): ${ctx.budgetDims.join(", ")}. If the user wants to filter or group by something outside that list, use mode="custom" instead (include the dimension in dims).`:"No Budget By dimensions are set up yet, so mode=\"budget\" has nothing to group by — use mode=\"custom\" for anything about spend by dimension."} When the user names a value casually (e.g. "meta" or "emea"), call list_dimension_values first to confirm the exact stored spelling before filtering — filters must match exactly, not a substring. Call apply_view exactly once, as your final action.`;
+  const system=`You configure the Reporting & Pacing tab's "View by" table from a plain-English request. Tag dimensions: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available too — derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the ONLY ones usable for mode="budget" grouping/filters/status): ${ctx.budgetDims.join(", ")}. If the user wants to filter or group by something outside that list, use mode="custom" instead (include the dimension in dims).`:"No Budget By dimensions are set up yet, so mode=\"budget\" has nothing to group by — use mode=\"custom\" for anything about spend by dimension."} When the user names a value casually (e.g. "meta" or "emea"), call list_dimension_values first to confirm the exact stored spelling before filtering — filters must match exactly, not a substring. Call apply_view exactly once, as your final action.`;
   const tools=[ASK_AI_TOOLS[0],ASK_AI_TOOLS[1],APPLY_VIEW_TOOL]; // list_tag_dimensions, list_dimension_values, apply_view
   const messages=[{role:"user",content:question}];
   for(let round=0;round<ASK_AI_VIEW_MAX_ROUNDS;round++){
