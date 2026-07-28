@@ -126,7 +126,14 @@ export const OPTIONAL_COLS=["campaign_name","platform","campaign_type","impressi
 // impressions matches "Impr."/"Imp." (Google/Bing's actual abbreviated header) in addition to the
 // full word "impression" — anchored so it doesn't also grab "Impr. (Top) %" or similar columns
 // that start the same way but aren't the impressions count itself.
-export const COL_PATTERNS={campaign_group_name:/^(?!.*status)campaign.?group/i,campaign_name:/^(?!.*status)(ad.?set|ad.?group)/i,spend:/cost|spend|amount/i,date:/^date$|^day$|^month$/i,platform:/platform|traffic.source|channel|source/i,campaign_type:/campaign.?type/i,impressions:/^impr?\.?$|impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
+// spend excludes any header containing "per" (2026-07-28, per Mo — hit this live on a Meta ad-set
+// export): "cost|spend|amount" alone also matches "Cost per results", "Cost per link click",
+// "Cost per 1,000 impressions (CPM)", etc. — per-unit efficiency metrics, not total spend — and
+// since autoDetect() below takes the FIRST header that matches in file order, whichever "cost per
+// X" column Meta happens to export first was silently winning the Spend/Cost slot over the real
+// "Amount spent" column, with no visible error (the dropdown just showed something, so it looked
+// mapped) even though every downstream report would then be built on the wrong number entirely.
+export const COL_PATTERNS={campaign_group_name:/^(?!.*status)campaign.?group/i,campaign_name:/^(?!.*status)(ad.?set|ad.?group)/i,spend:/(?!.*\bper\b)(cost|spend|amount)/i,date:/^date$|^day$|^month$/i,platform:/platform|traffic.source|channel|source/i,campaign_type:/campaign.?type/i,impressions:/^impr?\.?$|impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
 export const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campaign Name (Ad Set / Ad Group)",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",campaign_type:"Campaign Type (Search/Display/Demand Gen)",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
 // Composite identity key — ad set / ad group names often repeat across different campaigns
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
@@ -188,7 +195,10 @@ export function autoDetect(h){
   // our leaf-level campaign_name — not the group.
   if(!m.campaign_name){const c=h.find(c=>/^campaign$/i.test(c.trim()));if(c&&m.campaign_group_name)m.campaign_name=c;}
   if(!m.campaign_group_name){const c=h.find(c=>/campaign/i.test(c)&&!/id|group|type/i.test(c));if(c)m.campaign_group_name=c;}
-  if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c));if(c)m.spend=c;}
+  // Same "per" exclusion as COL_PATTERNS.spend above — this fallback only runs when nothing
+  // matched there, so without it a file with only "cost per X" columns and no true spend column
+  // would fall right back into the same silent-wrong-number trap.
+  if(!m.spend){const c=h.find(c=>/cost|spend/i.test(c)&&!/\bper\b/i.test(c));if(c)m.spend=c;}
   if(!m.date){const c=h.find(c=>/date|day|month/i.test(c));if(c)m.date=c;}
   return m;
 }
