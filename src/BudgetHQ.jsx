@@ -2519,6 +2519,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
 
       {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"'DM Sans',sans-serif"}}>{notif}</div>}
 
+      {/* TEMP DEBUG — 2026-07-28, remove once the blank Data Sources bug is diagnosed */}
+      <div style={{position:"fixed",top:4,left:4,zIndex:9999,background:"#ff0000",color:"#fff",padding:"6px 10px",fontSize:12,fontFamily:"monospace",whiteSpace:"pre"}}>
+        {`DEBUG step=${step} view=${view} dataSourcesSubView=${dataSourcesSubView} canEdit=${String(canEdit)} workspaceId=${workspace?.id||"none"} mergedRows=${mergedNormRows?.length??"n/a"}`}
+      </div>
+
       {/* ── UPLOAD ── (moved 2026-07-24 from view==="tagger" to its own view==="data" — see NAV) */}
       {step==="upload"&&view==="data"&&(
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"auto"}}>
