@@ -123,6 +123,12 @@ export const OPTIONAL_COLS=["campaign_name","platform","campaign_type","impressi
 // "status" column earlier in the file silently wins and the real name column never gets mapped.
 // date matches "Month" too — Google/Bing's manual exports report one row per ad group PER MONTH,
 // with a column literally named "Month" (not "Date"/"Day"), which the old pattern never caught.
+// date also matches "reporting start" (2026-07-28, per Mo — hit this live on the same Meta ad-set
+// export as the spend fix below): Meta's own per-ad-set export names its date column "Reporting
+// starts"/"Reporting ends", not "Date"/"Day"/"Month" — the old anchored-exact pattern never matched
+// either one, so Date (a required field) came back unmapped on every Meta export of this shape.
+// Matches "start" specifically rather than "end" since that's the more standard anchor date across
+// platforms, and Meta's own two columns are equal for a daily-grain file anyway.
 // impressions matches "Impr."/"Imp." (Google/Bing's actual abbreviated header) in addition to the
 // full word "impression" — anchored so it doesn't also grab "Impr. (Top) %" or similar columns
 // that start the same way but aren't the impressions count itself.
@@ -133,7 +139,11 @@ export const OPTIONAL_COLS=["campaign_name","platform","campaign_type","impressi
 // X" column Meta happens to export first was silently winning the Spend/Cost slot over the real
 // "Amount spent" column, with no visible error (the dropdown just showed something, so it looked
 // mapped) even though every downstream report would then be built on the wrong number entirely.
-export const COL_PATTERNS={campaign_group_name:/^(?!.*status)campaign.?group/i,campaign_name:/^(?!.*status)(ad.?set|ad.?group)/i,spend:/(?!.*\bper\b)(cost|spend|amount)/i,date:/^date$|^day$|^month$/i,platform:/platform|traffic.source|channel|source/i,campaign_type:/campaign.?type/i,impressions:/^impr?\.?$|impression/i,clicks:/^clicks?$/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
+// clicks now also matches "Link clicks" (Meta's own name for this column — the old exact-match
+// /^clicks?$/i never caught it), plus any other "___ clicks" variant (e.g. "Unique clicks"), while
+// still excluding "per"/"rate" so "Cost per link click" and "Click-through rate (CTR)" — a cost
+// metric and a percentage, not a click count — can never win this slot.
+export const COL_PATTERNS={campaign_group_name:/^(?!.*status)campaign.?group/i,campaign_name:/^(?!.*status)(ad.?set|ad.?group)/i,spend:/(?!.*\bper\b)(cost|spend|amount)/i,date:/^date$|^day$|^month$|reporting\s*start/i,platform:/platform|traffic.source|channel|source/i,campaign_type:/campaign.?type/i,impressions:/^impr?\.?$|impression/i,clicks:/(?!.*\bper\b)(?!.*\brate\b)\bclicks?\b/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
 export const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campaign Name (Ad Set / Ad Group)",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",campaign_type:"Campaign Type (Search/Display/Demand Gen)",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
 // Composite identity key — ad set / ad group names often repeat across different campaigns
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
