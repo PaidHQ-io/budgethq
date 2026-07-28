@@ -649,6 +649,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // those effects make so auth still works correctly long after an effect last re-ran.
   const sessionRef=useRef(session);
   useEffect(()=>{sessionRef.current=session;});
+  // Same "want the latest value without retriggering this effect" reasoning as sessionRef above —
+  // used by the setStep("tag") default a few lines down, which needs to know which tab was active
+  // at the moment this data finished loading WITHOUT re-running the entire workspace-data fetch
+  // every time the user switches tabs (view changes far more often than workspace/session do).
+  const viewRef=useRef(view);
+  useEffect(()=>{viewRef.current=view;});
 
   useEffect(()=>{
     if(!workspace?.id||!session){setWorkspaceDataLoading(false);return;}
@@ -672,7 +678,19 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         const dedupedRows=mergeRows([],rows||[]);
         const rowsDeduped=dedupedRows.length!==(rows||[]).length;
         setMergedNormRows(dedupedRows);
-        if(dedupedRows.length)setStep("tag");
+        // Defaults straight to the Tagger's "tag" step when data already exists, so a fresh load
+        // doesn't dump you on an empty-looking upload screen — EXCEPT when Data Sources (view==="data")
+        // is the tab actually active at that moment. Data Sources has its own "upload" step meaning
+        // (its connector table/add-source grid, gated by step==="upload"&&view==="data" further down)
+        // — unconditionally overwriting it here meant ANY full-page reload while parked on Data
+        // Sources with existing data (any hard refresh, or the OAuth connect round-trip's real
+        // top-level navigation back — see VALID_VIEWS's fix above for the sibling half of this same
+        // bug class) silently forced step to "tag" and left Data Sources permanently blank, since
+        // the one thing that normally resets step back to "upload" is the nav bar's own Data Sources
+        // click handler, which a full reload never fires. Reproduced live 2026-07-28 (per Mo) via a
+        // debug overlay showing step="tag" while view="data" — an in-app tab switch was never
+        // involved. Fixed by leaving step alone whenever Data Sources is the active tab at load time.
+        if(dedupedRows.length&&viewRef.current!=="data")setStep("tag");
         configLoadedRef.current=true;rowsLoadedRef.current=true;
         const configEmpty=isEmptyConfig(config);
         const rowsEmpty=!dedupedRows.length;
@@ -2518,11 +2536,6 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
 
       {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"'DM Sans',sans-serif"}}>{notif}</div>}
-
-      {/* TEMP DEBUG — 2026-07-28, remove once the blank Data Sources bug is diagnosed */}
-      <div style={{position:"fixed",top:4,left:4,zIndex:9999,background:"#ff0000",color:"#fff",padding:"6px 10px",fontSize:12,fontFamily:"monospace",whiteSpace:"pre"}}>
-        {`DEBUG step=${step} view=${view} dataSourcesSubView=${dataSourcesSubView} canEdit=${String(canEdit)} workspaceId=${workspace?.id||"none"} mergedRows=${mergedNormRows?.length??"n/a"}`}
-      </div>
 
       {/* ── UPLOAD ── (moved 2026-07-24 from view==="tagger" to its own view==="data" — see NAV) */}
       {step==="upload"&&view==="data"&&(
