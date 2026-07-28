@@ -904,6 +904,11 @@ export function projectPlatformSegment(platformSpendMap,platformFreshness,{start
     let asOf=freshest&&freshest<today?freshest:today;
     if(asOf>end)asOf=end;
     const pElapsedDays=asOf<start?0:Math.min(totalDays,Math.floor((asOf-start)/86400000)+1);
+    // Actual dollars this platform has already spent within the period, straight off the segment
+    // aggregation this got built from (computePacing/computeCustomGrouping's platformSpendMap
+    // loop) — see the REMAINING-DAYS fix below for why the projection adds to this instead of
+    // trying to re-derive it.
+    const periodTotal=pData?.total||0;
     if(pElapsedDays>0){
       let typicalDayRate;
       if(isAuto){
@@ -926,11 +931,23 @@ export function projectPlatformSegment(platformSpendMap,platformFreshness,{start
         const window=trailingDays?Math.min(trailingDays,pElapsedDays):pElapsedDays;
         typicalDayRate=deseasonalizedRate(byDate,dowIdx,asOf,window);
       }
+      // REMAINING-DAYS FIX (2026-07-28, per Mo — projected was coming back LOWER than actual
+      // period-to-date spend whenever the recent rate diverged from the rate earlier in the
+      // period, e.g. a segment that spent heavily in week 1 then slowed down in week 4). The old
+      // math threw away the platform's real accumulated spend and re-derived a total for the
+      // ENTIRE period — elapsed days included — from whichever rate it just computed, so a lower
+      // recent rate could project a full-period total smaller than what had already actually
+      // landed. Fixed by adding the real period-to-date total directly, then only extrapolating
+      // the REMAINING days (the day after asOf through end) at the computed rate — a projection
+      // can now never fall below money that's already been spent, and the rate only has to
+      // explain what happens next, not re-explain what already happened.
       let periodDowSum=0;
-      for(let d=new Date(start);d<=end;d=new Date(d.getTime()+86400000)){
+      for(let d=new Date(asOf.getTime()+86400000);d<=end;d=new Date(d.getTime()+86400000)){
         periodDowSum+=dowIdx[d.getDay()]||1;
       }
-      platformProjectedSum+=typicalDayRate*periodDowSum;
+      platformProjectedSum+=periodTotal+typicalDayRate*periodDowSum;
+    }else{
+      platformProjectedSum+=periodTotal;
     }
     if(pElapsedDays===1&&totalDays>1)lowConfidencePlatforms.push(platform);
   });
