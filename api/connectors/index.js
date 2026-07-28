@@ -26,7 +26,7 @@ export const CONNECTORS = {
   bing:     { getSpend: bingSpend,     ...bingMeta     },
   capterra: { getSpend: capterraSpend, ...capterraMeta },
   // funnel/supermetrics differ from every connector above: `perWorkspaceAuth: true` (see their
-  // meta exports) means /api/spend.js looks up a credential from budgethq.connector_credentials
+  // meta exports) means /api/spend.js looks up a credential from core.connector_credentials
   // for the calling workspace instead of reading a shared process.env var — see spend.js.
   funnel:       { getSpend: funnelSpend,       ...funnelMeta       },
   supermetrics: { getSpend: supermetricsSpend, ...supermetricsMeta },

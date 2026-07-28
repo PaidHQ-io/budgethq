@@ -123,6 +123,11 @@ create table if not exists budgethq.versions (
 );
 create index if not exists idx_budgethq_versions_workspace on budgethq.versions(workspace_id, created_at desc);
 
+-- DEPRECATED (2026-07-27) — superseded by core.connector_credentials, see the migration note a
+-- little further down this file and paidhq-core's db/schema.sql. No BudgetHQ code writes to this
+-- table anymore as of that date; kept only as an unused rollback safety net, not touched by the
+-- app. Original doc comment preserved below for history.
+--
 -- Per-workspace third-party connector credentials — e.g. a Funnel.io or Supermetrics API key the
 -- workspace owner pastes in once, rather than the single shared process.env credential the
 -- linkedin/bing/capterra/google/meta connectors use today (those pull from one account for the
@@ -192,6 +197,32 @@ alter table budgethq.connector_credentials add column if not exists last_auto_sy
 --     un-excluding brings everything back immediately with no re-sync needed.
 alter table budgethq.connector_credentials add column if not exists paused boolean not null default false;
 alter table budgethq.connector_credentials add column if not exists excluded_from_data boolean not null default false;
+
+-- MOVED TO core.connector_credentials (2026-07-27, per Mo — building ReportingHQ on the same
+-- Google/Meta/LinkedIn/Bing connections BudgetHQ already has, without a second OAuth flow). Every
+-- BudgetHQ route now reads/writes core.connector_credentials instead of the table above — see
+-- paidhq-core's db/schema.sql for the (identical-shape) table definition and its own doc comment
+-- for the reasoning. This one-time copy carries over whatever's already connected in production so
+-- existing users don't have to reconnect anything; safe to re-run on every deploy (ON CONFLICT DO
+-- NOTHING — a workspace+provider pair core already has is left untouched, never overwritten by a
+-- possibly-stale copy from this old table).
+--
+-- IMPORTANT: this INSERT will silently do nothing until paidhq-core has been deployed with its own
+-- schema.sql change FIRST (core.connector_credentials has to exist before this can insert into
+-- it) — same "core migrates first" ordering this file's own header comment already documents for
+-- core.workspaces.
+--
+-- budgethq.connector_credentials itself is deliberately left in place below, not dropped — a
+-- rollback safety net until the switch to core.connector_credentials has run in production for a
+-- while with no issues. Drop it in a later cleanup pass once that's confirmed, not in this change.
+insert into core.connector_credentials
+  (workspace_id, provider, credential, connected_by, connected_at, sync_mode, rolling_window_days,
+   sync_frequency, last_auto_sync_at, last_auto_sync_status, last_auto_sync_error, paused, excluded_from_data)
+select
+  workspace_id, provider, credential, connected_by, connected_at, sync_mode, rolling_window_days,
+  sync_frequency, last_auto_sync_at, last_auto_sync_status, last_auto_sync_error, paused, excluded_from_data
+from budgethq.connector_credentials
+on conflict (workspace_id, provider) do nothing;
 
 -- Phase 3 (alerts) — table laid out now so the schema doesn't need another migration when that
 -- phase starts, but nothing reads/writes this yet.

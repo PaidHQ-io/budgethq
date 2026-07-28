@@ -39,7 +39,7 @@ export async function refreshCredentialIfStale(workspaceId, provider, credential
     const refreshed = await oauth.refreshAccessToken(credential);
     const updated = { ...credential, ...refreshed };
     await sql`
-      update budgethq.connector_credentials set credential = ${JSON.stringify(updated)}
+      update core.connector_credentials set credential = ${JSON.stringify(updated)}
       where workspace_id = ${workspaceId} and provider = ${provider}
     `;
     return updated;
@@ -49,7 +49,7 @@ export async function refreshCredentialIfStale(workspaceId, provider, credential
     // still let the original error propagate to the caller.
     const updated = { ...credential, reconnectRequired: true };
     await sql`
-      update budgethq.connector_credentials set credential = ${JSON.stringify(updated)}
+      update core.connector_credentials set credential = ${JSON.stringify(updated)}
       where workspace_id = ${workspaceId} and provider = ${provider}
     `;
     throw refreshErr;

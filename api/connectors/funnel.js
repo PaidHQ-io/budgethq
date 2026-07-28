@@ -10,7 +10,7 @@
  * group_by=campaign_day is the most granular grouping Funnel offers (channel + campaign + day),
  * which is what BudgetHQ's per-campaign, per-day row shape needs.
  *
- * Credential shape (stored in budgethq.connector_credentials.credential):
+ * Credential shape (stored in core.connector_credentials.credential):
  *   { apiToken, accountId, projectId }
  * All three come from the customer's own Funnel.io account — Account Settings -> API for the
  * token, and the account/project IDs are visible in the Funnel app URL when a project is open
@@ -66,7 +66,7 @@ export const meta = {
   platform: "Funnel.io",
   label: "Funnel.io",
   status: "live",
-  perWorkspaceAuth: true, // needs a stored budgethq.connector_credentials row, not a shared env var
+  perWorkspaceAuth: true, // needs a stored core.connector_credentials row, not a shared env var
   connectFields: [
     { key: "apiToken", label: "API token", placeholder: "Account Settings → API in Funnel.io" },
     { key: "accountId", label: "Account ID", placeholder: "From your Funnel.io app URL" },

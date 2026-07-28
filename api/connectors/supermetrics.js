@@ -17,7 +17,7 @@
  * most likely to need a tweak once tested against a real ds_id, if a given data source doesn't
  * support the common schema.
  *
- * Credential shape (stored in budgethq.connector_credentials.credential):
+ * Credential shape (stored in core.connector_credentials.credential):
  *   { apiKey, dsId, dsAccounts }
  * apiKey and dsId are required; dsAccounts is optional (a specific account/profile ID within that
  * data source — omit to query every account the key has access to for that ds_id).

@@ -65,7 +65,7 @@ export default async function handler(req, res) {
     };
 
     await sql`
-      insert into budgethq.connector_credentials (workspace_id, provider, credential, connected_by)
+      insert into core.connector_credentials (workspace_id, provider, credential, connected_by)
       values (${payload.workspaceId}, 'bing', ${JSON.stringify(credential)}, ${payload.userId})
       on conflict (workspace_id, provider)
       do update set credential = excluded.credential, connected_by = excluded.connected_by, connected_at = now()

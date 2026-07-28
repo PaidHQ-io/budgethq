@@ -126,7 +126,7 @@ export default withApi(async (req, res) => {
              sync_mode, rolling_window_days, sync_frequency,
              last_auto_sync_at, last_auto_sync_status, last_auto_sync_error,
              paused, excluded_from_data
-      from budgethq.connector_credentials
+      from core.connector_credentials
       where workspace_id = ${workspaceId}
     `;
     return res.status(200).json({
@@ -159,7 +159,7 @@ export default withApi(async (req, res) => {
       return res.status(400).json({ error: "credential must be a non-empty object" });
     }
     await sql`
-      insert into budgethq.connector_credentials (workspace_id, provider, credential, connected_by)
+      insert into core.connector_credentials (workspace_id, provider, credential, connected_by)
       values (${workspaceId}, ${provider}, ${JSON.stringify(credential)}, ${userId})
       on conflict (workspace_id, provider)
       do update set credential = excluded.credential, connected_by = excluded.connected_by, connected_at = now()
@@ -174,7 +174,7 @@ export default withApi(async (req, res) => {
       return res.status(400).json({ error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}` });
     }
     const existing = await sql`
-      select 1 from budgethq.connector_credentials where workspace_id = ${workspaceId} and provider = ${provider}
+      select 1 from core.connector_credentials where workspace_id = ${workspaceId} and provider = ${provider}
     `;
     if (!existing.length) {
       return res.status(400).json({ error: `This workspace hasn't connected ${provider} yet.`, code: "not_connected" });
@@ -202,7 +202,7 @@ export default withApi(async (req, res) => {
       // otherwise switching rolling -> manual -> rolling later could silently resurrect an old
       // window/frequency the user never re-confirmed.
       await sql`
-        update budgethq.connector_credentials
+        update core.connector_credentials
         set sync_mode = ${syncMode},
             rolling_window_days = ${syncMode === "rolling" ? Number(rollingWindowDays) : null},
             sync_frequency = ${syncMode === "rolling" ? syncFrequency : null}
@@ -214,7 +214,7 @@ export default withApi(async (req, res) => {
         return res.status(400).json({ error: "paused must be a boolean" });
       }
       await sql`
-        update budgethq.connector_credentials set paused = ${body.paused}
+        update core.connector_credentials set paused = ${body.paused}
         where workspace_id = ${workspaceId} and provider = ${provider}
       `;
     }
@@ -223,14 +223,14 @@ export default withApi(async (req, res) => {
         return res.status(400).json({ error: "excludedFromData must be a boolean" });
       }
       await sql`
-        update budgethq.connector_credentials set excluded_from_data = ${body.excludedFromData}
+        update core.connector_credentials set excluded_from_data = ${body.excludedFromData}
         where workspace_id = ${workspaceId} and provider = ${provider}
       `;
     }
 
     const [row] = await sql`
       select sync_mode, rolling_window_days, sync_frequency, paused, excluded_from_data
-      from budgethq.connector_credentials
+      from core.connector_credentials
       where workspace_id = ${workspaceId} and provider = ${provider}
     `;
     return res.status(200).json({
@@ -250,7 +250,7 @@ export default withApi(async (req, res) => {
       return res.status(400).json({ error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}` });
     }
     const result = await sql`
-      delete from budgethq.connector_credentials
+      delete from core.connector_credentials
       where workspace_id = ${workspaceId} and provider = ${provider}
       returning provider
     `;

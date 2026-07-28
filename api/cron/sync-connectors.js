@@ -50,7 +50,7 @@ export default async function handler(req, res) {
   // need the schedule re-entered) but is simply never selected here while paused is true.
   const due = await sql`
     select workspace_id, provider, credential, rolling_window_days
-    from budgethq.connector_credentials
+    from core.connector_credentials
     where sync_mode = 'rolling'
       and paused = false
       and (
@@ -75,7 +75,7 @@ export default async function handler(req, res) {
       const { rows } = await runConnectorSync({ workspaceId, provider, startDate, endDate: todayStr, credential: row.credential });
       const { inserted, skipped } = await replaceWindow(workspaceId, provider, startDate, todayStr, rows);
       await sql`
-        update budgethq.connector_credentials
+        update core.connector_credentials
         set last_auto_sync_at = now(), last_auto_sync_status = 'success', last_auto_sync_error = null
         where workspace_id = ${workspaceId} and provider = ${provider}
       `;
@@ -83,7 +83,7 @@ export default async function handler(req, res) {
     } catch (err) {
       console.error(`[cron/sync-connectors] ${provider} failed for workspace ${workspaceId}:`, err);
       await sql`
-        update budgethq.connector_credentials
+        update core.connector_credentials
         set last_auto_sync_at = now(), last_auto_sync_status = 'error', last_auto_sync_error = ${String(err?.message || err).slice(0, 500)}
         where workspace_id = ${workspaceId} and provider = ${provider}
       `;

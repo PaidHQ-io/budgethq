@@ -11,7 +11,7 @@
  *   workspaceId + a valid Authorization header are only required for connectors flagged
  *   `perWorkspaceAuth: true` in their meta export (funnel, supermetrics, capterra, linkedin, bing,
  *   meta) — those pull the calling workspace's OWN stored credential from
- *   budgethq.connector_credentials rather than a shared process.env var, so this route needs to
+ *   core.connector_credentials rather than a shared process.env var, so this route needs to
  *   know which workspace is asking and confirm the caller actually belongs to it before handing
  *   back that workspace's data. google is unaffected — it keeps working exactly as before, no auth
  *   required, since it's still one shared account for the whole app.
@@ -49,7 +49,7 @@ async function getWorkspaceCredential(req, workspaceId, provider, { optional = f
   await requireWorkspaceMember(sql, workspaceId, userId);
   await requireEntitlement(sql, workspaceId);
   const rows = await sql`
-    select credential from budgethq.connector_credentials
+    select credential from core.connector_credentials
     where workspace_id = ${workspaceId} and provider = ${provider}
   `;
   if (!rows.length) {

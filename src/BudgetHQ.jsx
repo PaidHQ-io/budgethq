@@ -818,7 +818,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // ── Platform sync ──────────────────────────────────────────────────────────
   const[syncState,setSyncState]=useState({}); // {platform: "idle"|"loading"|"done"|"error"}
   // perWorkspaceAuth: true marks a platform whose credential is connected per-workspace (stored
-  // in budgethq.connector_credentials, see connections.js) rather than the single shared
+  // in core.connector_credentials, see connections.js) rather than the single shared
   // process.env credential linkedin/bing/capterra use for the whole app. isSheets is a third,
   // different shape again — no stored credential at all, just a client-side Google OAuth token
   // used once per pull (see lib/googleSheets.js), so it's excluded from both the sync-button flow

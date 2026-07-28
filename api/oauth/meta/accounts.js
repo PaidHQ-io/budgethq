@@ -20,7 +20,7 @@ import { listAdAccounts } from "../../lib/metaOAuth.js";
 
 async function getStoredCredential(workspaceId) {
   const rows = await sql`
-    select credential from budgethq.connector_credentials
+    select credential from core.connector_credentials
     where workspace_id = ${workspaceId} and provider = 'meta'
   `;
   if (!rows.length) {
@@ -52,7 +52,7 @@ export default withApi(async (req, res) => {
     const credential = await getStoredCredential(workspaceId);
     const updated = { ...credential, accountId: String(accountId), accountName: accountName ? String(accountName) : credential.accountName || null };
     await sql`
-      update budgethq.connector_credentials
+      update core.connector_credentials
       set credential = ${JSON.stringify(updated)}
       where workspace_id = ${workspaceId} and provider = 'meta'
     `;

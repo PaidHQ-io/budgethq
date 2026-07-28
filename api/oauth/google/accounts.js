@@ -25,7 +25,7 @@ import { listAccessibleAccounts } from "../../lib/googleAdsOAuth.js";
 
 async function getStoredCredential(workspaceId) {
   const rows = await sql`
-    select credential from budgethq.connector_credentials
+    select credential from core.connector_credentials
     where workspace_id = ${workspaceId} and provider = 'google'
   `;
   if (!rows.length) {
@@ -62,7 +62,7 @@ export default withApi(async (req, res) => {
       loginCustomerId: loginCustomerId ? String(loginCustomerId) : credential.loginCustomerId || null,
     };
     await sql`
-      update budgethq.connector_credentials
+      update core.connector_credentials
       set credential = ${JSON.stringify(updated)}
       where workspace_id = ${workspaceId} and provider = 'google'
     `;
