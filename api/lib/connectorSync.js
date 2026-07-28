@@ -56,7 +56,7 @@ export async function refreshCredentialIfStale(workspaceId, provider, credential
   }
 }
 
-// Refreshes (if needed) then calls the connector's getSpend. Does NOT touch budgethq.spend_rows —
+// Refreshes (if needed) then calls the connector's getSpend. Does NOT touch core.spend_rows —
 // callers decide how to persist: spend.js hands rows straight back to the requesting browser tab;
 // the cron job DELETE+POSTs them into spend_rows for the synced window (see that file).
 export async function runConnectorSync({ workspaceId, provider, startDate, endDate, credential }) {

@@ -30,7 +30,7 @@ export default withApi(async (req, res) => {
 
   if (req.method === "GET") {
     const rows = await sql`
-      select * from budgethq.versions where workspace_id = ${workspaceId} order by created_at desc
+      select * from core.versions where workspace_id = ${workspaceId} order by created_at desc
     `;
     return res.status(200).json({ versions: rows.map(toCamel) });
   }
@@ -40,7 +40,7 @@ export default withApi(async (req, res) => {
     const { label, trigger, snapshot } = req.body || {};
     if (!snapshot) return res.status(400).json({ error: "snapshot is required" });
     const [row] = await sql`
-      insert into budgethq.versions (workspace_id, label, trigger, snapshot)
+      insert into core.versions (workspace_id, label, trigger, snapshot)
       values (${workspaceId}, ${label || null}, ${trigger || "auto"}, ${JSON.stringify(snapshot)})
       returning *
     `;
@@ -52,7 +52,7 @@ export default withApi(async (req, res) => {
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: "id is required" });
     const result = await sql`
-      delete from budgethq.versions where id = ${id} and workspace_id = ${workspaceId} returning id
+      delete from core.versions where id = ${id} and workspace_id = ${workspaceId} returning id
     `;
     if (!result.length) return res.status(404).json({ error: "Version not found" });
     return res.status(200).json({ deleted: true });

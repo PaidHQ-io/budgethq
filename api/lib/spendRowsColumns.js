@@ -1,5 +1,5 @@
 /**
- * Date-normalization + row->column transposition for budgethq.spend_rows bulk writes — factored out
+ * Date-normalization + row->column transposition for core.spend_rows bulk writes — factored out
  * of api/workspaces/[id]/spend-rows.js (2026-07-23) so api/cron/sync-connectors.js's rolling-sync
  * writes go through the EXACT same date handling as a manual save, instead of a second, easily
  * drifting reimplementation. See spend-rows.js's own top-of-file doc comment for the full history of

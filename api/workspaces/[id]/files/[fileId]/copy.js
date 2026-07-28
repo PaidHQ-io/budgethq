@@ -40,13 +40,13 @@ export default withApi(async (req, res) => {
   await requireEntitlement(sql, targetWorkspaceId);
 
   const [source] = await sql`
-    select name, category, mime_type, size_bytes, data from budgethq.files
+    select name, category, mime_type, size_bytes, data from core.files
     where id = ${fileId} and workspace_id = ${sourceWorkspaceId}
   `;
   if (!source) return res.status(404).json({ error: "File not found" });
 
   const [copy] = await sql`
-    insert into budgethq.files (workspace_id, name, category, mime_type, size_bytes, data)
+    insert into core.files (workspace_id, name, category, mime_type, size_bytes, data)
     values (${targetWorkspaceId}, ${source.name}, ${source.category}, ${source.mime_type}, ${source.size_bytes}, ${source.data})
     returning id, name, category, mime_type, size_bytes, created_at
   `;

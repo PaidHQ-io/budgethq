@@ -1,7 +1,7 @@
 /**
  * /api/workspaces/[id]/data
  *
- * GET — returns the budgethq.workspace_config JSONB blob: tags, tagDims, budgets, budgetDims,
+ * GET — returns the core.workspace_config JSONB blob: tags, tagDims, budgets, budgetDims,
  *       budgetRowMeta, budgetMetaDims, budgetImportMeta, savedViews, defaultForecastModel. Field names match
  *       BudgetHQ.jsx's existing in-memory state variables exactly, so the frontend can drop this
  *       straight into useState() without any reshaping. Returns an empty default (not 404) if
@@ -48,7 +48,7 @@ export default withApi(async (req, res) => {
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
-    const rows = await sql`select * from budgethq.workspace_config where workspace_id = ${workspaceId}`;
+    const rows = await sql`select * from core.workspace_config where workspace_id = ${workspaceId}`;
     if (!rows.length) return res.status(200).json(EMPTY_CONFIG);
     return res.status(200).json(toCamel(rows[0]));
   }
@@ -57,7 +57,7 @@ export default withApi(async (req, res) => {
     requireEditAccess(myRole);
     const b = await readJsonBody(req);
     const [row] = await sql`
-      insert into budgethq.workspace_config
+      insert into core.workspace_config
         (workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims, budget_import_meta, saved_views, default_forecast_model, updated_at)
       values
         (${workspaceId}, ${JSON.stringify(b.tags ?? {})}, ${JSON.stringify(b.tagDims ?? [])},

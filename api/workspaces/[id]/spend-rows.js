@@ -68,7 +68,7 @@ export default withApi(async (req, res) => {
   if (req.method === "GET") {
     const { start, end, platform } = req.query;
     const rows = await sql`
-      select * from budgethq.spend_rows
+      select * from core.spend_rows
       where workspace_id = ${workspaceId}
         and (${start || null}::date is null or date >= ${start || null}::date)
         and (${end || null}::date is null or date <= ${end || null}::date)
@@ -90,7 +90,7 @@ export default withApi(async (req, res) => {
     const insertedCount = c.date.length;
     if (insertedCount > 0) {
       await sql`
-        insert into budgethq.spend_rows
+        insert into core.spend_rows
           (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
            date, as_of_date, spend, impressions, clicks, source)
         select ${workspaceId}, * from unnest(
@@ -129,10 +129,10 @@ export default withApi(async (req, res) => {
       return res.status(200).json({ replaced: 0, skipped: c.skipped });
     }
     await sql.transaction((tx) => [
-      ...(append ? [] : [tx`delete from budgethq.spend_rows where workspace_id = ${workspaceId}`]),
+      ...(append ? [] : [tx`delete from core.spend_rows where workspace_id = ${workspaceId}`]),
       ...(replacedCount > 0
         ? [tx`
-            insert into budgethq.spend_rows
+            insert into core.spend_rows
               (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
                date, as_of_date, spend, impressions, clicks, source)
             select ${workspaceId}, * from unnest(
@@ -153,7 +153,7 @@ export default withApi(async (req, res) => {
       return res.status(400).json({ error: "At least one of platform/start/end is required" });
     }
     const result = await sql`
-      delete from budgethq.spend_rows
+      delete from core.spend_rows
       where workspace_id = ${workspaceId}
         and (${platform || null}::text is null or platform = ${platform || null})
         and (${start || null}::date is null or date >= ${start || null}::date)

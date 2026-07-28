@@ -27,6 +27,21 @@ create extension if not exists "pgcrypto";
 
 create schema if not exists budgethq;
 
+-- ALL SIX TABLES BELOW ARE DEPRECATED (2026-07-27) — superseded by their identically-shaped
+-- core.* counterparts in paidhq-core/db/schema.sql (core.workspace_config, core.spend_rows,
+-- core.ai_chats, core.files, core.versions, core.alert_rules). Per Mo: not just connector
+-- credentials, but ALL workspace data — uploads, screenshots, CSV/Excel data, budget data
+-- (including tags/budgets/dimensions), spend data, attachments/resources, AI chats, context,
+-- conversations — is universal across every module (BudgetHQ, VaultHQ, ReportingHQ, FocusHQ,
+-- AuditHQ) and node (smaller point-solution tools), not siloed to whichever product built the
+-- feature first. No BudgetHQ code writes to the budgethq.* tables below anymore as of this date —
+-- every route now reads/writes core.* instead (see the 9 backend files updated alongside this
+-- migration). Left in place below, not dropped, as a rollback safety net until the switch has run
+-- in production for a while with no issues — same pattern already used for
+-- budgethq.connector_credentials a little further down this file. Drop in a later cleanup pass.
+--
+-- Original doc comments on each table preserved below for history.
+
 -- One row per workspace holding everything that isn't spend rows: tags, tag dimensions, budgets,
 -- budget dimensions, and their associated metadata. Mirrors the shape already used client-side in
 -- BudgetHQ.jsx (tags, tagDims, budgets, budgetDims, budgetRowMeta, budgetMetaDims,
@@ -239,3 +254,49 @@ create table if not exists budgethq.alert_rules (
   created_at timestamptz not null default now()
 );
 create index if not exists idx_budgethq_alert_rules_workspace on budgethq.alert_rules(workspace_id);
+
+-- MOVED TO core.* (2026-07-27, per Mo — see the deprecation banner right after `create schema
+-- budgethq` above for the full reasoning). One-time copy of whatever's already in production for
+-- each table, same ON CONFLICT DO NOTHING safety as the connector_credentials copy above: a row
+-- core already has is left untouched, never overwritten by a possibly-stale copy from here. Safe
+-- to re-run on every deploy. Requires paidhq-core to have deployed its own schema.sql change FIRST
+-- (the core.* tables have to exist before these can insert into them).
+insert into core.workspace_config
+  (workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims,
+   budget_import_meta, saved_views, default_forecast_model, updated_at)
+select
+  workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims,
+  budget_import_meta, saved_views, default_forecast_model, updated_at
+from budgethq.workspace_config
+on conflict (workspace_id) do nothing;
+
+insert into core.spend_rows
+  (id, workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
+   date, as_of_date, spend, impressions, clicks, source, created_at)
+select
+  id, workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
+  date, as_of_date, spend, impressions, clicks, source, created_at
+from budgethq.spend_rows
+on conflict (id) do nothing;
+
+insert into core.ai_chats (workspace_id, user_id, chats, updated_at)
+select workspace_id, user_id, chats, updated_at
+from budgethq.ai_chats
+on conflict (workspace_id, user_id) do nothing;
+
+insert into core.files (id, workspace_id, name, category, mime_type, size_bytes, data, created_at)
+select id, workspace_id, name, category, mime_type, size_bytes, data, created_at
+from budgethq.files
+on conflict (id) do nothing;
+
+insert into core.versions (id, workspace_id, label, trigger, snapshot, created_at)
+select id, workspace_id, label, trigger, snapshot, created_at
+from budgethq.versions
+on conflict (id) do nothing;
+
+insert into core.alert_rules
+  (id, workspace_id, type, scope, threshold_pct, stale_days, channels, enabled, created_by, created_at)
+select
+  id, workspace_id, type, scope, threshold_pct, stale_days, channels, enabled, created_by, created_at
+from budgethq.alert_rules
+on conflict (id) do nothing;

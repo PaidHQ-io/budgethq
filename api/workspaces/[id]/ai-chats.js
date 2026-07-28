@@ -33,7 +33,7 @@ export default withApi(async (req, res) => {
 
   if (req.method === "GET") {
     const rows = await sql`
-      select chats from budgethq.ai_chats where workspace_id = ${workspaceId} and user_id = ${userId}
+      select chats from core.ai_chats where workspace_id = ${workspaceId} and user_id = ${userId}
     `;
     const stored = rows.length ? rows[0].chats : null;
     if (!stored) return res.status(200).json({ chats: [], projects: [] });
@@ -46,7 +46,7 @@ export default withApi(async (req, res) => {
     const { chats, projects } = req.body || {};
     const value = { chats: chats ?? [], projects: projects ?? [] };
     await sql`
-      insert into budgethq.ai_chats (workspace_id, user_id, chats, updated_at)
+      insert into core.ai_chats (workspace_id, user_id, chats, updated_at)
       values (${workspaceId}, ${userId}, ${JSON.stringify(value)}, now())
       on conflict (workspace_id, user_id) do update set
         chats = excluded.chats,

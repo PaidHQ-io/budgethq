@@ -28,7 +28,7 @@ export default withApi(async (req, res) => {
 
   if (req.method === "GET" && download) {
     const rows = await sql`
-      select name, mime_type, data from budgethq.files
+      select name, mime_type, data from core.files
       where id = ${download} and workspace_id = ${workspaceId}
     `;
     if (!rows.length) return res.status(404).json({ error: "File not found" });
@@ -40,7 +40,7 @@ export default withApi(async (req, res) => {
 
   if (req.method === "GET") {
     const rows = await sql`
-      select id, name, category, mime_type, size_bytes, created_at from budgethq.files
+      select id, name, category, mime_type, size_bytes, created_at from core.files
       where workspace_id = ${workspaceId}
       order by created_at desc
     `;
@@ -60,7 +60,7 @@ export default withApi(async (req, res) => {
     }
     const buf = Buffer.from(dataBase64, "base64");
     const [row] = await sql`
-      insert into budgethq.files (workspace_id, name, category, mime_type, size_bytes, data)
+      insert into core.files (workspace_id, name, category, mime_type, size_bytes, data)
       values (${workspaceId}, ${name}, ${category || "Manual upload"}, ${mimeType || null}, ${buf.length}, ${buf})
       returning id, name, category, mime_type, size_bytes, created_at
     `;
@@ -80,7 +80,7 @@ export default withApi(async (req, res) => {
     const { fileId } = req.query;
     if (!fileId) return res.status(400).json({ error: "fileId is required" });
     const result = await sql`
-      delete from budgethq.files where id = ${fileId} and workspace_id = ${workspaceId} returning id
+      delete from core.files where id = ${fileId} and workspace_id = ${workspaceId} returning id
     `;
     if (!result.length) return res.status(404).json({ error: "File not found" });
     return res.status(200).json({ deleted: true });

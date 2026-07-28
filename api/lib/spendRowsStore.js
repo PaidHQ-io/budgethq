@@ -19,13 +19,13 @@ export async function replaceWindow(workspaceId, platform, startDate, endDate, r
   const insertedCount = c.date.length;
   await sql.transaction((tx) => [
     tx`
-      delete from budgethq.spend_rows
+      delete from core.spend_rows
       where workspace_id = ${workspaceId} and platform = ${platform}
         and date >= ${startDate}::date and date <= ${endDate}::date
     `,
     ...(insertedCount > 0
       ? [tx`
-          insert into budgethq.spend_rows
+          insert into core.spend_rows
             (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
              date, as_of_date, spend, impressions, clicks, source)
           select ${workspaceId}, * from unnest(
