@@ -679,6 +679,51 @@ export function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,bre
   return Object.entries(map).map(([value,spend])=>({value,spend,pct:total>0?spend/total:0})).sort((a,b)=>b.spend-a.spend);
 }
 
+// ─── NUMERIC THRESHOLD FILTERS (2026-07-28, per Mo) ────────────────────────────
+// Shared {field,operator,value} filter shape — powers Reporting & Pacing's numeric filter chips
+// (PacingDashboard's numericFilters state) AND Ask AI's query_pacing/query_spend/query_budget
+// "having" param and apply_view's numeric_filters param, so a filter built by a person clicking
+// through the UI and a filter the model constructs from a plain-English question behave
+// identically (both end up calling matchesNumericFilters against the exact same segment/breakdown
+// objects). `field` is the raw property name on a computePacing/computeCustomGrouping segment (or
+// a query_spend/query_budget breakdown entry) — see NUMERIC_FIELDS below for the full list and
+// their user-facing labels/units, not raw property names, which is what a UI dropdown or a tool
+// description should show instead of these.
+//
+// "actualPct" (Pacing %) is stored as a plain fraction (1===100%, matching how the rest of the app
+// already computes/displays it — see computePacing), so a value of "50" typed for a 50% threshold
+// must be divided by 100 BEFORE it reaches matchesNumericFilter — every caller that accepts a
+// human-typed percent value is responsible for that conversion (see PacingDashboard's filter-chip
+// form and askAI.js's having-filter handling), not this function, since by the time a filter object
+// exists here it should already be apples-to-apples with the field it's being compared against.
+export const NUMERIC_OPERATORS=[">","<",">=","<=","="];
+export const NUMERIC_FIELDS={
+  spend:{label:"Spend PTD",unit:"$",modes:["budget","custom"]},
+  budget:{label:"Budget",unit:"$",modes:["budget"]},
+  actualPct:{label:"Pacing",unit:"%",modes:["budget"],isPct:true},
+  dailyRate:{label:"Daily Burn",unit:"$",modes:["budget","custom"]},
+  projected:{label:"Projected",unit:"$",modes:["budget","custom"]},
+  projectedVariance:{label:"Variance",unit:"$",modes:["budget"]},
+};
+export function matchesNumericFilter(actual,operator,value){
+  if(actual==null||typeof actual!=="number"||Number.isNaN(actual))return false;
+  switch(operator){
+    case ">":return actual>value;
+    case "<":return actual<value;
+    case ">=":return actual>=value;
+    case "<=":return actual<=value;
+    case "=":return Math.abs(actual-value)<0.005; // cent-level tolerance — these are $ and % comparisons, not exact integers
+    default:return false;
+  }
+}
+// obj is whatever the filter's `field` should be read off — a full computePacing/
+// computeCustomGrouping segment, or a lighter aggregate object (e.g. an Ask AI breakdown group)
+// that only has some of NUMERIC_FIELDS' keys. A filter naming a field the object doesn't have
+// simply never matches (matchesNumericFilter's typeof guard), rather than throwing.
+export function matchesNumericFilters(obj,filters){
+  return (filters||[]).every(f=>matchesNumericFilter(obj?.[f.field],f.operator,f.value));
+}
+
 // ─── ASK AI ───────────────────────────────────────────────────────────────────
 // Grounded query tools + tool-use loop backing the "Ask AI" chat. Rather than dumping raw
 // spend rows into a prompt and hoping the model's arithmetic is right, Claude is given a small

@@ -1,4 +1,38 @@
-import { campaignKey, derivePlatform, parseSpendDate, getPeriodRange, computePacing } from "./core.js";
+import { campaignKey, derivePlatform, parseSpendDate, getPeriodRange, computePacing, NUMERIC_FIELDS, NUMERIC_OPERATORS, matchesNumericFilters } from "./core.js";
+
+// How many individual segments a having-filtered or small unfiltered result includes in
+// matching_segments (see askAIQueryPacing) before falling back to just the count — keeps a
+// "list everything over $X" question answerable in one tool call without risking an unbounded
+// response for a workspace with hundreds of segments.
+const ASK_AI_MAX_LISTED_SEGMENTS=50;
+
+// Shared validation for a raw `having`/`numeric_filters` array coming from the model — drops any
+// entry with an unrecognized field, operator, or non-finite value rather than trusting it blindly
+// (same defensive posture as aiConfigToViewConfig's dim/filter validation below), and restricts to
+// whichever fields make sense for the calling tool (allowedFields).
+function sanitizeNumericFilters(raw,allowedFields){
+  if(!Array.isArray(raw))return[];
+  return raw.filter(f=>f&&allowedFields.includes(f.field)&&NUMERIC_OPERATORS.includes(f.operator)&&typeof f.value==="number"&&Number.isFinite(f.value));
+}
+
+// Builds the `having` property definition for a query_* tool's input_schema — same {field,
+// operator,value} shape everywhere, but the two families of caller filter at different grains:
+// query_spend/query_budget have no natural per-row unit besides a group_by bucket, so `having`
+// there filters GROUPS after aggregation (SQL HAVING — requires group_by). query_pacing already
+// has a natural per-row unit (a budget segment), so its `having` filters SEGMENTS directly (SQL
+// WHERE on an already-computed column) — group_by is optional there, applied AFTER having narrows
+// the segment set.
+function havingSchema(fields,{requiresGroupBy}={requiresGroupBy:true}){
+  const pctNote=fields.includes("actualPct")?` actualPct is a FRACTION where 1.0 = 100% pacing — e.g. use value:1.0 for "over 100% pacing", value:0.5 for "under 50%".`:"";
+  const scopeNote=requiresGroupBy
+    ?`Optional post-aggregation numeric threshold filter(s) on the group_by breakdown — REQUIRES group_by to be set, since this filters which breakdown GROUPS appear (like SQL's HAVING), not individual rows.`
+    :`Optional numeric threshold filter(s) applied directly to each matching SEGMENT (group_by is independent and optional — if set, it aggregates whichever segments already passed having).`;
+  return{
+    type:"array",
+    description:`${scopeNote} Each entry: {field, operator, value}. field must be one of: ${fields.join(", ")}. operator is one of ${NUMERIC_OPERATORS.join(", ")}. Multiple entries are ANDed together. Use this for "X over $Y" / "X below Z%" style questions — e.g. to answer "which campaigns spent more than $10,000", call query_spend with group_by="Campaign" and having=[{"field":"spend","operator":">","value":10000}].${pctNote}`,
+    items:{type:"object",properties:{field:{type:"string"},operator:{type:"string",enum:NUMERIC_OPERATORS},value:{type:"number"}},required:["field","operator","value"]},
+  };
+}
 
 // Resolves one dimension's value for a spend row inside Ask AI's tool layer — the same three
 // derived pseudo-dimensions core.js's resolveDimValue knows about (Platform, Campaign, Ad Group;
@@ -43,6 +77,7 @@ export const ASK_AI_TOOLS=[
       end_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no upper bound."},
       group_by:{type:"string",description:"Optional dimension name (or \"Platform\", \"Campaign\", \"Ad Group\") to break the total down by."},
       tagged_status:{type:"string",enum:["any","tagged","untagged"],description:"\"tagged\" = only campaigns that have a value set for EVERY tag dimension (fully tagged, matching the Tagger's own definition). \"untagged\" = campaigns missing at least one. Defaults to \"any\" (no restriction). Use this for questions like \"how much spend is untagged\" or \"what's tagged vs. not\"."},
+      having:havingSchema(["spend"]),
     },required:[]},
   },
   {
@@ -55,11 +90,12 @@ export const ASK_AI_TOOLS=[
       month:{type:"string",description:"\"01\"-\"12\" — required if period_type is \"monthly\"."},
       quarter:{type:"string",description:"\"Q1\"-\"Q4\" — required if period_type is \"quarterly\"."},
       group_by:{type:"string",description:"Optional Budget By dimension name to break the total down by."},
+      having:havingSchema(["budget"]),
     },required:["year"]},
   },
   {
     name:"query_pacing",
-    description:"Get ALLOCATED BUDGET, ACTUAL SPEND, and pacing status TOGETHER for segments matching dimension filters, for one year/period — the combined view, mirroring exactly what the Reporting & Pacing tab itself computes (same status/variance logic), so use this whenever a question compares budget to spend, asks about being over/under/on pace, or asks \"how are we doing\" for a segment or the whole workspace.",
+    description:"Get ALLOCATED BUDGET, ACTUAL SPEND, PACING %, DAILY BURN RATE, and PROJECTED full-period spend TOGETHER for segments matching dimension filters, for one year/period — the combined view, mirroring exactly what the Reporting & Pacing tab itself computes (same status/variance/projection logic), so use this whenever a question compares budget to spend, asks about being over/under/on pace, asks about daily burn or projected spend, or asks \"how are we doing\" for a segment or the whole workspace. When `having` narrows the result (or the match is small — 25 segments or fewer — even without having), the response includes a `matching_segments` list with each individual segment's budget/spend/actual_pct/daily_burn/projected/variance/status, not just aggregate totals — use this to answer \"which segments...\" / \"list...\" style questions without a second tool call.",
     input_schema:{type:"object",properties:{
       filters:{type:"object",description:"Map of Budget By dimension name -> exact value. Omit a dimension entirely to not filter on it.",additionalProperties:{type:"string"}},
       year:{type:"string",description:"e.g. \"2026\". Required."},
@@ -67,6 +103,7 @@ export const ASK_AI_TOOLS=[
       month:{type:"string",description:"\"01\"-\"12\" — required if period_type is \"monthly\"."},
       quarter:{type:"string",description:"\"Q1\"-\"Q4\" — required if period_type is \"quarterly\"."},
       group_by:{type:"string",description:"Optional Budget By dimension name to break the total down by."},
+      having:havingSchema(["budget","spend","actualPct","dailyRate","projected","projectedVariance"],{requiresGroupBy:false}),
     },required:["year"]},
   },
 ];
@@ -90,7 +127,7 @@ export function isFullyTagged(rowTags,tagDims){
   return (tagDims||[]).every(d=>rowTags[d]);
 }
 
-export function askAIQuerySpend({mergedNormRows,tags,tagDims,filters,startDate,endDate,groupBy,taggedStatus}){
+export function askAIQuerySpend({mergedNormRows,tags,tagDims,filters,startDate,endDate,groupBy,taggedStatus,having}){
   const start=startDate?parseSpendDate(startDate):null;
   const end=endDate?parseSpendDate(endDate):null;
   const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
@@ -124,7 +161,10 @@ export function askAIQuerySpend({mergedNormRows,tags,tagDims,filters,startDate,e
     campaign_count:seenCampaigns.size,
   };
   if(groupBy){
-    result.breakdown=Object.entries(groupMap).sort((a,b)=>b[1]-a[1]).map(([value,spend])=>({value,spend:Math.round(spend*100)/100}));
+    const havingFilters=sanitizeNumericFilters(having,["spend"]);
+    result.breakdown=Object.entries(groupMap)
+      .filter(([,spend])=>matchesNumericFilters({spend},havingFilters))
+      .sort((a,b)=>b[1]-a[1]).map(([value,spend])=>({value,spend:Math.round(spend*100)/100}));
   }
   return result;
 }
@@ -134,7 +174,7 @@ export function askAIQuerySpend({mergedNormRows,tags,tagDims,filters,startDate,e
 // actual spend synced yet. Reads budgets[year] directly rather than routing through
 // computePacing(), which unions in spend-derived segKeys too — budget allocation shouldn't
 // silently disappear from this view just because computePacing's segment set is spend-shaped.
-export function askAIQueryBudget({budgets,budgetDims,filters,year,periodType,month,quarter,groupBy}){
+export function askAIQueryBudget({budgets,budgetDims,filters,year,periodType,month,quarter,groupBy,having}){
   const yearBudgets=(budgets||{})[year]||{};
   const{months}=getPeriodRange(periodType||"annual",year,month,quarter);
   const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
@@ -157,7 +197,10 @@ export function askAIQueryBudget({budgets,budgetDims,filters,year,periodType,mon
   });
   const result={total_budget:Math.round(total*100)/100,segment_count:segCount};
   if(groupBy){
-    result.breakdown=Object.entries(groupMap).sort((a,b)=>b[1]-a[1]).map(([value,budget])=>({value,budget:Math.round(budget*100)/100}));
+    const havingFilters=sanitizeNumericFilters(having,["budget"]);
+    result.breakdown=Object.entries(groupMap)
+      .filter(([,budget])=>matchesNumericFilters({budget},havingFilters))
+      .sort((a,b)=>b[1]-a[1]).map(([value,budget])=>({value,budget:Math.round(budget*100)/100}));
   }
   return result;
 }
@@ -166,14 +209,19 @@ export function askAIQueryBudget({budgets,budgetDims,filters,year,periodType,mon
 // Pacing tab itself renders from) rather than re-deriving status/variance logic separately, so
 // Ask AI's "over budget"/"behind pace" answers can never drift from what that tab shows for the
 // same period.
-export function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,filters,year,periodType,month,quarter,groupBy}){
+export function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,filters,year,periodType,month,quarter,groupBy,having}){
   const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:periodType||"annual",month,quarter,today:new Date(),budgetRowMeta,defaultForecastModel});
   const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
-  const matched=pacing.segments.filter(seg=>filterEntries.every(([dim,val])=>{
+  let matched=pacing.segments.filter(seg=>filterEntries.every(([dim,val])=>{
     const idx=budgetDims.indexOf(dim);
     if(idx===-1)return false; // not a Budget By dimension — nothing to match against here
     return (seg.dims[idx]||"").toLowerCase()===String(val).toLowerCase();
   }));
+  // having filters SEGMENTS directly (unlike query_spend/query_budget's group-level having — see
+  // havingSchema's doc comment) — applied here, before group_by, so a grouped breakdown below only
+  // ever aggregates segments that already passed the threshold.
+  const havingFilters=sanitizeNumericFilters(having,["budget","spend","actualPct","dailyRate","projected","projectedVariance"]);
+  if(havingFilters.length)matched=matched.filter(seg=>matchesNumericFilters(seg,havingFilters));
   const totalBudget=matched.reduce((s,x)=>s+x.budget,0);
   const totalSpend=matched.reduce((s,x)=>s+x.spend,0);
   const result={
@@ -200,12 +248,42 @@ export function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetR
     matched.forEach(seg=>{
       const idx=budgetDims.indexOf(groupBy);
       const gv=idx>=0?(seg.dims[idx]||"Unknown"):"Unknown";
-      if(!groupMap[gv])groupMap[gv]={budget:0,spend:0};
-      groupMap[gv].budget+=seg.budget;groupMap[gv].spend+=seg.spend;
+      if(!groupMap[gv])groupMap[gv]={budget:0,spend:0,dailyRate:0,projected:0,capacityConstrained:0};
+      const g=groupMap[gv];
+      g.budget+=seg.budget;g.spend+=seg.spend;g.dailyRate+=seg.dailyRate||0;g.projected+=seg.projected||0;
+      if(seg.capacitySignal==="constrained")g.capacityConstrained++;
     });
     result.breakdown=Object.entries(groupMap)
-      .map(([value,v])=>({value,budget:Math.round(v.budget*100)/100,spend:Math.round(v.spend*100)/100,variance:Math.round((v.spend-v.budget)*100)/100}))
+      .map(([value,v])=>({
+        value,
+        budget:Math.round(v.budget*100)/100,
+        spend:Math.round(v.spend*100)/100,
+        variance:Math.round((v.spend-v.budget)*100)/100,
+        actual_pct:v.budget>0?Math.round((v.spend/v.budget)*1000)/10:null,
+        daily_burn:Math.round(v.dailyRate*100)/100,
+        projected:Math.round(v.projected*100)/100,
+        segments_capacity_constrained:v.capacityConstrained,
+      }))
       .sort((a,b)=>b.spend-a.spend);
+  }
+  // Individual segment detail — always included when having narrowed the result (the whole point
+  // of a threshold query is usually "list them," not just "how many"), and also for a small
+  // unfiltered result (cheap enough to include, and often what's actually wanted for "how's X
+  // doing" questions about a handful of segments) — see ASK_AI_MAX_LISTED_SEGMENTS.
+  if(havingFilters.length||matched.length<=ASK_AI_MAX_LISTED_SEGMENTS){
+    const listed=matched.slice(0,ASK_AI_MAX_LISTED_SEGMENTS);
+    result.matching_segments=listed.map(seg=>({
+      segment:seg.dims.join(" / "),
+      budget:Math.round(seg.budget*100)/100,
+      spend:Math.round(seg.spend*100)/100,
+      actual_pct:seg.actualPct==null?null:Math.round(seg.actualPct*1000)/10,
+      daily_burn:seg.dailyRate==null?null:Math.round(seg.dailyRate*100)/100,
+      projected:seg.projected==null?null:Math.round(seg.projected*100)/100,
+      variance:seg.projectedVariance==null?null:Math.round(seg.projectedVariance*100)/100,
+      status:seg.status,
+      capacity_signal:seg.capacitySignal||null,
+    }));
+    if(matched.length>ASK_AI_MAX_LISTED_SEGMENTS)result.matching_segments_truncated=matched.length-ASK_AI_MAX_LISTED_SEGMENTS;
   }
   return result;
 }
@@ -221,14 +299,14 @@ export function askAIExecuteTool(toolName,input,ctx){
     };
   }
   if(toolName==="list_dimension_values")return{values:askAIListDimensionValues({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,dimension:input.dimension})};
-  if(toolName==="query_spend")return askAIQuerySpend({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,tagDims:ctx.tagDims,filters:input.filters,startDate:input.start_date,endDate:input.end_date,groupBy:input.group_by,taggedStatus:input.tagged_status});
+  if(toolName==="query_spend")return askAIQuerySpend({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,tagDims:ctx.tagDims,filters:input.filters,startDate:input.start_date,endDate:input.end_date,groupBy:input.group_by,taggedStatus:input.tagged_status,having:input.having});
   if(toolName==="query_budget"){
     if(!(ctx.budgetDims||[]).length)return{error:"No Budget By dimensions are set up yet in the Budget Panel — there's no budget data to query."};
-    return askAIQueryBudget({budgets:ctx.budgets,budgetDims:ctx.budgetDims,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by});
+    return askAIQueryBudget({budgets:ctx.budgets,budgetDims:ctx.budgetDims,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by,having:input.having});
   }
   if(toolName==="query_pacing"){
     if(!(ctx.budgetDims||[]).length)return{error:"No Budget By dimensions are set up yet in the Budget Panel — there's no budget data to compare spend against."};
-    return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,budgetRowMeta:ctx.budgetRowMeta,defaultForecastModel:ctx.defaultForecastModel,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by});
+    return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,budgetRowMeta:ctx.budgetRowMeta,defaultForecastModel:ctx.defaultForecastModel,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by,having:input.having});
   }
   return{error:`Unknown tool: ${toolName}`};
 }
@@ -240,7 +318,7 @@ export const ASK_AI_MAX_ROUNDS=6;
 export async function askAIRun({question,history,ctx}){
   const today=new Date().toISOString().slice(0,10);
   const hasBudgets=(ctx.budgetDims||[]).length>0;
-  const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two or asks about pace/over-under-budget. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. Answer conversationally and concisely, citing the actual numbers returned.`;
+  const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures). For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. Answer conversationally and concisely, citing the actual numbers returned.`;
   const messages=[...history,{role:"user",content:question}];
   for(let round=0;round<ASK_AI_MAX_ROUNDS;round++){
     const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200})});
@@ -280,6 +358,11 @@ export const APPLY_VIEW_TOOL={
       filters:{type:"object",additionalProperties:{type:"string"},description:"Map of dimension name -> exact stored value. mode=\"budget\": keys must be Budget By dimensions. mode=\"custom\": keys must also appear in dims. mode=\"trend\": only the first entry is used, as the single filter dim/value."},
       status_filter:{type:"string",enum:["all","on-track","ahead","behind","over","committed","no-budget","no-data"],description:"mode=\"budget\" only: restrict to one pacing status. Defaults to \"all\"."},
       breakdown_dim:{type:"string",description:"mode=\"budget\" or \"custom\": an optional dimension to drill each row down by. Omit for none."},
+      numeric_filters:{
+        type:"array",
+        description:`Optional numeric threshold filter(s) applied to each row/segment — e.g. "daily burn over $500" or "pacing under 50%". Each entry: {field, operator, value}. field must be one of: ${Object.keys(NUMERIC_FIELDS).join(", ")}. mode="budget" segments have all of these; mode="custom" segments only have spend/dailyRate/projected (no budget/actualPct/projectedVariance — custom mode has no budget concept). Ignored in mode="trend". operator is one of ${NUMERIC_OPERATORS.join(", ")}. actualPct is a FRACTION where 1.0 = 100% (e.g. value:1.0 for "over 100% pacing", value:0.5 for "under 50%"). Multiple entries are ANDed together.`,
+        items:{type:"object",properties:{field:{type:"string"},operator:{type:"string",enum:NUMERIC_OPERATORS},value:{type:"number"}},required:["field","operator","value"]},
+      },
       trend_series_dim:{type:"string",description:"mode=\"trend\" only: dimension that splits the trend into separate lines, e.g. \"Platform\". Omit for a single unsplit line."},
       trend_months:{type:"number",description:"mode=\"trend\" only: how many trailing months to show, ending this month. Defaults to 6."},
       name:{type:"string",description:"Short human-readable name for this view, e.g. \"Meta segments behind pace\" — used to pre-fill the \"Save this view\" prompt after the view is applied."},
@@ -297,7 +380,7 @@ export const APPLY_VIEW_TOOL={
 export const ASK_AI_VIEW_MAX_ROUNDS=4;
 export async function askAIBuildView({question,ctx}){
   const hasBudgets=(ctx.budgetDims||[]).length>0;
-  const system=`You configure the Reporting & Pacing tab's "View by" table from a plain-English request. Tag dimensions: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available too — derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the ONLY ones usable for mode="budget" grouping/filters/status): ${ctx.budgetDims.join(", ")}. If the user wants to filter or group by something outside that list, use mode="custom" instead (include the dimension in dims).`:"No Budget By dimensions are set up yet, so mode=\"budget\" has nothing to group by — use mode=\"custom\" for anything about spend by dimension."} When the user names a value casually (e.g. "meta" or "emea"), call list_dimension_values first to confirm the exact stored spelling before filtering — filters must match exactly, not a substring. Call apply_view exactly once, as your final action.`;
+  const system=`You configure the Reporting & Pacing tab's "View by" table from a plain-English request. Tag dimensions: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available too — derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the ONLY ones usable for mode="budget" grouping/filters/status): ${ctx.budgetDims.join(", ")}. If the user wants to filter or group by something outside that list, use mode="custom" instead (include the dimension in dims).`:"No Budget By dimensions are set up yet, so mode=\"budget\" has nothing to group by — use mode=\"custom\" for anything about spend by dimension."} When the user names a value casually (e.g. "meta" or "emea"), call list_dimension_values first to confirm the exact stored spelling before filtering — filters must match exactly, not a substring. For requests with a numeric condition ("daily burn over $500", "pacing above 100%", "spend under $10,000", "projected to blow past budget"), use apply_view's numeric_filters param — do NOT try to express a numeric condition via the plain-text filters map, which only does exact string equality. Call apply_view exactly once, as your final action.`;
   const tools=[ASK_AI_TOOLS[0],ASK_AI_TOOLS[1],APPLY_VIEW_TOOL]; // list_tag_dimensions, list_dimension_values, apply_view
   const messages=[{role:"user",content:question}];
   for(let round=0;round<ASK_AI_VIEW_MAX_ROUNDS;round++){
@@ -333,11 +416,16 @@ export function aiConfigToViewConfig(raw,{allDimOptions,budgetDims}){
   const allDims=allDimOptions||["Platform"];
   const mode=["budget","custom","trend"].includes(raw.mode)&&(raw.mode!=="budget"||(budgetDims||[]).length)?raw.mode:"custom";
   const rawFilters=raw.filters&&typeof raw.filters==="object"?raw.filters:{};
+  // Same {field,operator,value} shape PacingDashboard's own numeric filter chips build and store
+  // (see its numericFilters state) — restricted to whichever NUMERIC_FIELDS entries are valid for
+  // the resolved mode, so a model-proposed filter can never reference a field the mode's segments
+  // don't actually have (e.g. "budget" in custom mode, which has no budget concept).
+  const numericFilters=mode==="trend"?[]:sanitizeNumericFilters(raw.numeric_filters,Object.keys(NUMERIC_FIELDS).filter(f=>NUMERIC_FIELDS[f].modes.includes(mode)));
   if(mode==="trend"){
     const[fDim,fVal]=Object.entries(rawFilters).find(([d])=>allDims.includes(d))||[];
     const seriesDim=allDims.includes(raw.trend_series_dim)?raw.trend_series_dim:"Platform";
     return{
-      viewMode:"trend",customDims:[],segFilters:{},statusFilter:"all",breakdownDim:"",
+      viewMode:"trend",customDims:[],segFilters:{},statusFilter:"all",breakdownDim:"",numericFilters:[],
       trendFilterDim:fDim&&fDim!==seriesDim?fDim:"",
       trendFilterValue:fDim&&fDim!==seriesDim?(fVal||""):"",
       trendSeriesDim:seriesDim,
@@ -352,6 +440,7 @@ export function aiConfigToViewConfig(raw,{allDimOptions,budgetDims}){
       viewMode:"budget",customDims:[],segFilters:filters,
       statusFilter:statuses.includes(raw.status_filter)?raw.status_filter:"all",
       breakdownDim:allDims.includes(raw.breakdown_dim)?raw.breakdown_dim:"",
+      numericFilters,
       trendFilterDim:"",trendFilterValue:"",trendSeriesDim:"Platform",trendMonthSpan:6,
     };
   }
@@ -367,6 +456,7 @@ export function aiConfigToViewConfig(raw,{allDimOptions,budgetDims}){
   return{
     viewMode:"custom",customDims:dims,segFilters:filters,statusFilter:"all",
     breakdownDim:allDims.includes(raw.breakdown_dim)&&!dims.includes(raw.breakdown_dim)?raw.breakdown_dim:"",
+    numericFilters,
     trendFilterDim:"",trendFilterValue:"",trendSeriesDim:"Platform",trendMonthSpan:6,
   };
 }
@@ -389,10 +479,20 @@ export function aiConfigToViewConfig(raw,{allDimOptions,budgetDims}){
 export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view}){
   let payload,focus;
   if(mode==="pacing"&&view){
-    const{viewMode,periodLabel,dims,segments,totals,expectedPct,daysRemaining,statusFilter,segFilters,trend,trendFilterDim,trendFilterValue,trendSeriesDim}=view;
+    const{viewMode,periodLabel,dims,segments,totals,expectedPct,daysRemaining,statusFilter,segFilters,numericFilters,trend,trendFilterDim,trendFilterValue,trendSeriesDim}=view;
+    // Numeric filter chips (see NumericFilterChips/NUMERIC_FIELDS in PacingDashboard) formatted
+    // the same way a person reads them off the chip itself — actualPct back to a whole percent,
+    // everything else through fmtFull's $ formatting — so the summary's activeFilters mention
+    // matches what's literally on screen, not raw internal units.
+    const fmtFilterVal=f=>{
+      const meta=NUMERIC_FIELDS[f.field];
+      if(!meta)return String(f.value);
+      return meta.isPct?`${Math.round(f.value*1000)/10}%`:`$${f.value.toLocaleString()}`;
+    };
     const activeFilters=[
       ...(statusFilter&&statusFilter!=="all"?[`status = ${statusFilter}`]:[]),
       ...Object.entries(segFilters||{}).filter(([,v])=>(v||"").trim()).map(([d,v])=>`${d} contains "${v.trim()}"`),
+      ...(numericFilters||[]).map(f=>`${NUMERIC_FIELDS[f.field]?.label||f.field} ${f.operator} ${fmtFilterVal(f)}`),
     ];
     if(viewMode==="trend"){
       const{months,series,monthTotals,grandTotal}=trend||{months:[],series:[],monthTotals:[],grandTotal:0};
@@ -430,6 +530,7 @@ export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,bu
         .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),actualPct:s.actualPct==null?null:Math.round(s.actualPct*100)}));
       const noDataCount=segments.filter(s=>s.budget>0&&!s.hasData).length;
       const committedCount=segments.filter(s=>s.status==="committed").length;
+      const capacityConstrainedCount=segments.filter(s=>s.capacitySignal==="constrained").length;
       payload={
         viewType:"budget-pacing",
         periodLabel,
@@ -442,9 +543,10 @@ export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,bu
         segmentsBehindPace:topBehind,
         segmentsWithBudgetButNoSpendDataYet:noDataCount,
         segmentsCommitted:committedCount,
+        segmentsCapacityConstrained:capacityConstrainedCount,
         activeFilters,
       };
-      focus=`This is the Reporting & Pacing tab, scoped to ${periodLabel} — use exactly this period, not the full year. Focus on pacing performance: overall pace vs the expected pace for this point in ${periodLabel}, which segments are most over budget, which are furthest behind pace, and what's worth a closer look. segmentsCommitted are lump-sum/prepaid budget lines deliberately excluded from pace comparisons — mention them only if the count is non-zero, and don't call them "behind" or "ahead."${activeFilters.length?` The user has filtered this view (${activeFilters.join("; ")}) — every figure above already reflects only that filtered subset, so base the summary on it and mention that it's filtered.`:""}`;
+      focus=`This is the Reporting & Pacing tab, scoped to ${periodLabel} — use exactly this period, not the full year. Focus on pacing performance: overall pace vs the expected pace for this point in ${periodLabel}, which segments are most over budget, which are furthest behind pace, and what's worth a closer look. segmentsCommitted are lump-sum/prepaid budget lines deliberately excluded from pace comparisons — mention them only if the count is non-zero, and don't call them "behind" or "ahead." segmentsCapacityConstrained are behind-pace segments with real budget headroom left whose impressions haven't grown recently — a signal that raising the budget likely won't fix them; mention this only if the count is non-zero, and frame it as "worth investigating (creative/audience/frequency), not just a budget problem."${activeFilters.length?` The user has filtered this view (${activeFilters.join("; ")}) — every figure above already reflects only that filtered subset, so base the summary on it and mention that it's filtered.`:""}`;
     }
   }else{
     const year=String(new Date().getFullYear());
@@ -456,6 +558,7 @@ export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,bu
       .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),actualPct:s.actualPct==null?null:Math.round(s.actualPct*100)}));
     const noDataCount=pacing.segments.filter(s=>s.budget>0&&!s.hasData).length;
     const committedCount=pacing.segments.filter(s=>s.status==="committed").length;
+    const capacityConstrainedCount=pacing.segments.filter(s=>s.capacitySignal==="constrained").length;
     payload={
       year,
       totalBudgetYTD:Math.round(pacing.totals.budget),
@@ -467,8 +570,9 @@ export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,bu
       segmentsBehindPace:topBehind,
       segmentsWithBudgetButNoSpendDataYet:noDataCount,
       segmentsCommitted:committedCount,
+      segmentsCapacityConstrained:capacityConstrainedCount,
     };
-    focus="This is for the Budget Panel (where budgets are set up), so focus on budget SETUP and coverage: how many segments are budgeted, the total budgeted amount, and flag segmentsWithBudgetButNoSpendDataYet as a likely tagging gap worth checking (a segment has a budget but no matching spend rows yet).";
+    focus="This is for the Budget Panel (where budgets are set up), so focus on budget SETUP and coverage: how many segments are budgeted, the total budgeted amount, and flag segmentsWithBudgetButNoSpendDataYet as a likely tagging gap worth checking (a segment has a budget but no matching spend rows yet). segmentsCapacityConstrained are behind-pace segments whose impressions haven't grown recently despite budget headroom — a signal more budget likely won't fix them; mention only if non-zero.";
   }
   const system=`You are writing a short summary for a paid-media budget dashboard called BudgetHQ. Below is pre-computed JSON data — it is already correct, do not recompute or second-guess any numbers, just narrate them. Write 3-5 sentences of plain prose (no markdown headers, no bullet lists), citing the real figures. If a list is empty, don't dwell on it. ${focus}`;
   const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:[{role:"user",content:JSON.stringify(payload)}],system,maxTokens:400})});

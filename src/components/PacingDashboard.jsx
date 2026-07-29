@@ -6,6 +6,7 @@ import {
   untagSegmentCampaigns, buildCampaignPlatformIndex, DERIVED_DIMS, pacingStatusMeta, fmtFull, fmtSigned,
   FORECAST_MODELS, FORECAST_MODEL_INHERIT, DEFAULT_MANUAL_TRAILING_DAYS, forecastModelLabel,
   AUTO_SHORT_WINDOW, AUTO_DIVERGENCE_LOW, AUTO_DIVERGENCE_HIGH, CAPACITY_WINDOW, MONTHS, QUARTERS,
+  NUMERIC_FIELDS, NUMERIC_OPERATORS, matchesNumericFilters,
 } from "../lib/core.js";
 import { askAIBuildView, aiConfigToViewConfig } from "../lib/askAI.js";
 import { Icon, Btn, SectionLabel, Sel, Divider, PixelPanel, AISummaryCard, Pill, WarnTip, InfoTip } from "./shared.jsx";
@@ -93,6 +94,65 @@ const PacingBar=({actualPct,expectedPct,status,T})=>{
   );
 };
 
+// Numeric threshold filter chips (2026-07-28, per Mo — "daily burn > $500", "pacing over 100%",
+// etc., alongside the existing per-dimension text filters). Shared by both the budget-mode and
+// custom-mode filter bars below — `mode` picks which NUMERIC_FIELDS entries are offered, since
+// custom-mode segments have no budget/actualPct/projectedVariance (see core.js's NUMERIC_FIELDS
+// doc comment). Renders existing filters as removable pills plus a "+ Add filter" control that
+// expands into a field/operator/value picker. Percent fields (currently just Pacing/actualPct)
+// are typed as a human percent (e.g. "50") and converted to the internal fraction (0.5) — see
+// NUMERIC_FIELDS[field].isPct — right when the filter is added, so everything stored in
+// numericFilters is already apples-to-apples with the segment property it'll be compared against.
+const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
+  const[open,setOpen]=useState(false);
+  const[field,setField]=useState("");
+  const[operator,setOperator]=useState(">");
+  const[value,setValue]=useState("");
+  const fields=Object.entries(NUMERIC_FIELDS).filter(([,meta])=>meta.modes.includes(mode));
+  if(!fields.length)return null;
+  const addFilter=()=>{
+    const n=parseFloat(value);
+    if(!field||Number.isNaN(n))return;
+    const meta=NUMERIC_FIELDS[field];
+    setNumericFilters(p=>[...p,{field,operator,value:meta.isPct?n/100:n}]);
+    setField("");setOperator(">");setValue("");setOpen(false);
+  };
+  const fmtChipValue=f=>{
+    const meta=NUMERIC_FIELDS[f.field];
+    if(!meta)return String(f.value);
+    return meta.isPct?`${Math.round(f.value*1000)/10}%`:fmtFull(f.value);
+  };
+  return(
+    <>
+      {numericFilters.map((f,i)=>(
+        <Pill key={i} color={T.text} bg={T.pill} border={T.pillBorder} style={{fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+          {(NUMERIC_FIELDS[f.field]?.label||f.field)} {f.operator} {fmtChipValue(f)}
+          <span onClick={()=>setNumericFilters(p=>p.filter((_,idx)=>idx!==i))} title="Remove filter" style={{cursor:"pointer",color:T.textMuted,lineHeight:1}}>✕</span>
+        </Pill>
+      ))}
+      {open?(
+        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+          <Sel value={field} onChange={setField} T={T} style={{width:112}}>
+            <option value="">Field…</option>
+            {fields.map(([k,meta])=><option key={k} value={k}>{meta.label}</option>)}
+          </Sel>
+          <Sel value={operator} onChange={setOperator} T={T} style={{width:52}}>
+            {NUMERIC_OPERATORS.map(op=><option key={op} value={op}>{op}</option>)}
+          </Sel>
+          <input value={value} onChange={e=>setValue(e.target.value)} type="number"
+            placeholder={field&&NUMERIC_FIELDS[field]?.isPct?"%":"$"}
+            onKeyDown={e=>{if(e.key==="Enter")addFilter();if(e.key==="Escape")setOpen(false);}}
+            style={{width:76,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+          <Btn onClick={addFilter} disabled={!field||value===""} variant="primary" size="sm" T={T}>Add</Btn>
+          <Btn onClick={()=>{setOpen(false);setField("");setOperator(">");setValue("");}} variant="ghost" size="sm" T={T}>✕</Btn>
+        </div>
+      ):(
+        <Btn onClick={()=>setOpen(true)} variant="ghost" size="sm" T={T}>+ Add filter</Btn>
+      )}
+    </>
+  );
+};
+
 export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true}){
   const now=new Date();
   const yr=now.getFullYear();
@@ -104,6 +164,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
 
   const[selRows,setSelRows]=useState(new Set());
   const[segFilters,setSegFilters]=useState({}); // {dim: filterText} — substring match, ANDed across dims
+  const[numericFilters,setNumericFilters]=useState([]); // [{field,operator,value}] — see NumericFilterChips/NUMERIC_FIELDS; ANDed with each other and with segFilters/statusFilter
   const[statusFilter,setStatusFilter]=useState("all");
   const[notif,setNotif]=useState(null);
   const[editingSegVal,setEditingSegVal]=useState(null); // {segKey, dim}
@@ -177,6 +238,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     segFilters:viewMode!=="trend"?segFilters:{},
     statusFilter:viewMode==="budget"?statusFilter:"all",
     breakdownDim:viewMode!=="trend"?breakdownDim:"",
+    numericFilters:viewMode!=="trend"?numericFilters:[],
     trendFilterDim:viewMode==="trend"?trendFilterDim:"",
     trendFilterValue:viewMode==="trend"?trendFilterValue:"",
     trendSeriesDim:viewMode==="trend"?trendSeriesDim:"Platform",
@@ -195,11 +257,12 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       setTrendFilterDim(cfg.trendFilterDim||"");
       setTrendFilterValue(cfg.trendFilterValue||"");
       setTrendSeriesDim(cfg.trendSeriesDim||"Platform");
-      setSegFilters({});setStatusFilter("all");setBreakdownDim("");
+      setSegFilters({});setStatusFilter("all");setBreakdownDim("");setNumericFilters([]);
     }else{
       setSegFilters(cfg.segFilters||{});
       setStatusFilter(cfg.viewMode==="budget"?(cfg.statusFilter||"all"):"all");
       setBreakdownDim(cfg.breakdownDim||"");
+      setNumericFilters(cfg.numericFilters||[]);
     }
   };
   const openSaveViewModal=prefillName=>{setSavedViewNameDraft(prefillName||"");setSavedViewModalOpen(true);};
@@ -264,22 +327,23 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
 
   const filteredSegments=useMemo(()=>pacing.segments.filter(seg=>{
     if(statusFilter!=="all"&&seg.status!==statusFilter)return false;
+    if(!matchesNumericFilters(seg,numericFilters))return false;
     return budgetDims.every((d,i)=>{
       const f=(segFilters[d]||"").trim().toLowerCase();
       return!f||(seg.dims[i]||"").toLowerCase().includes(f);
     });
-  }),[pacing.segments,budgetDims,segFilters,statusFilter]);
+  }),[pacing.segments,budgetDims,segFilters,statusFilter,numericFilters]);
   // Same filtering, parametrized on customDims — kept separate from filteredSegments above rather
   // than merging the two into one generalized function, so the existing budget-segment table (and
   // everything wired to it — edit/delete/rename/bulk-actions) stays completely untouched.
   const filteredCustomSegments=useMemo(()=>(customPacing?.segments||[]).filter(seg=>
-    customDims.every((d,i)=>{
+    matchesNumericFilters(seg,numericFilters)&&customDims.every((d,i)=>{
       const f=(segFilters[d]||"").trim().toLowerCase();
       return!f||(seg.dims[i]||"").toLowerCase().includes(f);
     })
-  ),[customPacing,customDims,segFilters]);
-  const hasSegFilters=statusFilter!=="all"||Object.values(segFilters).some(v=>(v||"").trim());
-  const clearSegFilters=()=>{setSegFilters({});setStatusFilter("all");};
+  ),[customPacing,customDims,segFilters,numericFilters]);
+  const hasSegFilters=statusFilter!=="all"||numericFilters.length>0||Object.values(segFilters).some(v=>(v||"").trim());
+  const clearSegFilters=()=>{setSegFilters({});setStatusFilter("all");setNumericFilters([]);};
   const toggleRowSel=key=>setSelRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
   const selAllRows=()=>setSelRows(selRows.size===filteredSegments.length?new Set():new Set(filteredSegments.map(s=>s.segKey)));
 
@@ -503,6 +567,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             daysRemaining:viewMode==="custom"?(customPacing?.daysRemaining||0):pacing.daysRemaining,
             statusFilter,
             segFilters,
+            numericFilters,
             trend:viewMode==="trend"?trendData:null,
             trendFilterDim,trendFilterValue,trendSeriesDim,
           }}/>
@@ -645,6 +710,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <option value="committed">Committed spend</option>
               <option value="no-budget">No budget set</option>
             </Sel>
+            <NumericFilterChips numericFilters={numericFilters} setNumericFilters={setNumericFilters} mode="budget" T={T}/>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
             {/* Global forecast model (item 45, 2026-07-25; redesigned same day from a 7-option
@@ -891,6 +957,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",width:120}}/>
             ))}
+            <NumericFilterChips numericFilters={numericFilters} setNumericFilters={setNumericFilters} mode="custom" T={T}/>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
             <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Break down by:</span>
