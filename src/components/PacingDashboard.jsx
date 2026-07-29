@@ -153,7 +153,7 @@ const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
   );
 };
 
-export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true}){
+export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true,onAskAboutView}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -344,6 +344,47 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   ),[customPacing,customDims,segFilters,numericFilters]);
   const hasSegFilters=statusFilter!=="all"||numericFilters.length>0||Object.values(segFilters).some(v=>(v||"").trim());
   const clearSegFilters=()=>{setSegFilters({});setStatusFilter("all");setNumericFilters([]);};
+
+  // "Ask AI about this view →" (2026-07-28, per Mo's scope-awareness ask) — templates the
+  // currently active View-by mode + filters into a plain-English question and hands it to
+  // onAskAboutView (wired up in BudgetHQ.jsx to stash it and switch to the Ask AI tab). This is
+  // the fix for a real gap: Ask AI's chat always queries the full unfiltered dataset from
+  // scratch, with zero awareness of whatever's on screen here unless the question restates it —
+  // this button restates it for you instead of leaving Ask AI blind to your filters.
+  const fmtNumFilterVal=f=>{
+    const meta=NUMERIC_FIELDS[f.field];
+    if(!meta)return String(f.value);
+    return meta.isPct?`${Math.round(f.value*1000)/10}%`:fmtFull(f.value);
+  };
+  const buildAskAboutViewText=()=>{
+    if(viewMode==="trend"){
+      const bits=[`from ${trendStartMonth} to ${trendEndMonth}`,`split by ${trendSeriesDim}`];
+      if(trendFilterDim&&trendFilterValue)bits.push(`filtered to ${trendFilterDim} = "${trendFilterValue}"`);
+      return `Looking at the Reporting & Pacing Trend view, ${bits.join(", ")}. What's the trend telling us, and is anything worth flagging?`;
+    }
+    const segBits=Object.entries(segFilters).filter(([,v])=>(v||"").trim()).map(([d,v])=>`${d} contains "${v.trim()}"`);
+    const numBits=numericFilters.map(f=>`${NUMERIC_FIELDS[f.field]?.label||f.field} ${f.operator} ${fmtNumFilterVal(f)}`);
+    if(viewMode==="custom"){
+      const bits=[`grouped by ${customDims.join(" + ")||"(no dimension selected)"}`,...segBits,...numBits];
+      if(breakdownDim)bits.push(`broken down by ${breakdownDim}`);
+      return `Looking at the Reporting & Pacing Custom view for ${periodLabel}, ${bits.join(", ")}. What should I know about this?`;
+    }
+    const bits=[];
+    if(statusFilter!=="all")bits.push(`status = ${statusFilter}`);
+    bits.push(...segBits,...numBits);
+    if(breakdownDim)bits.push(`broken down by ${breakdownDim}`);
+    const filterText=bits.length?`filtered to ${bits.join(", ")}`:"with no filters applied (the full set of budget segments)";
+    return `Looking at the Reporting & Pacing Budget Segments view for ${periodLabel}, ${filterText}. What should I know about this?`;
+  };
+  // A plain helper function returning JSX, called directly at each use site (NOT a capitalized
+  // component invoked as a JSX tag) — an inline component defined inside another component's body
+  // gets torn down and recreated every render, which react-hooks' static-components rule flags
+  // (and rightly so: it'd reset any state/identity on every keystroke elsewhere in the tab).
+  const renderAskAboutViewBtn=style=>onAskAboutView&&(
+    <Btn onClick={()=>onAskAboutView(buildAskAboutViewText())} variant="ghost" size="sm" T={T} style={{gap:5,...style}} title="Send this view's current filters to Ask AI as a starting question">
+      <Icon name="sparkle" size={12} color={T.accent}/> Ask AI about this view
+    </Btn>
+  );
   const toggleRowSel=key=>setSelRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
   const selAllRows=()=>setSelRows(selRows.size===filteredSegments.length?new Set():new Set(filteredSegments.map(s=>s.segKey)));
 
@@ -630,6 +671,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   {trendSeriesOptions.map(d=><option key={d} value={d}>{d}</option>)}
                 </Sel>
               </div>
+              {renderAskAboutViewBtn()}
             </div>
           )}
         </div>
@@ -753,7 +795,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <option value="">None</option>
               {breakdownOptions.map(d=><option key={d} value={d}>{d}</option>)}
             </Sel>
-            <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegments.length} of {pacing.segments.length} segments</span>
+            {renderAskAboutViewBtn({marginLeft:"auto"})}
+            <span style={{fontSize:11,color:T.textMuted}}>{filteredSegments.length} of {pacing.segments.length} segments</span>
           </div>
           {/* Bulk action bar */}
           {selRows.size>0&&(
@@ -968,7 +1011,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <option value="">None</option>
               {breakdownOptions.map(d=><option key={d} value={d}>{d}</option>)}
             </Sel>
-            <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredCustomSegments.length} of {customPacing.segments.length} groups</span>
+            {renderAskAboutViewBtn({marginLeft:"auto"})}
+            <span style={{fontSize:11,color:T.textMuted}}>{filteredCustomSegments.length} of {customPacing.segments.length} groups</span>
           </div>
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13,background:T.surface}}>
             <thead><tr>

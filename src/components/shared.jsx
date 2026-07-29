@@ -113,7 +113,7 @@ export const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={
   return <button className="bhq-btn" disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:6,cursor:disabled?"not-allowed":"pointer",fontWeight:500,transition:"background 0.1s",fontFamily:"'DM Sans',sans-serif",boxShadow:"none",opacity:disabled?0.5:1,...s[size],...v[variant],...style}}>{children}</button>;
 };
 export const Inp=({value,onChange,placeholder,T,style={},mono=false,onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:mono?"'DM Sans',sans-serif":"'DM Sans',sans-serif",width:"100%",transition:"border-color 0.12s",...style}}/>);
-export const Sel=({value,onChange,children,T,style={}})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",width:"100%",...style}}>{children}</select>);
+export const Sel=({value,onChange,children,T,style={},...rest})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",width:"100%",...style}} {...rest}>{children}</select>);
 // stopPropagation on both: several call sites wrap these in a parent <div> that has its own
 // onClick doing the same toggle (for a bigger click target). Without stopping propagation here,
 // clicking directly on the switch/checkbox fires both handlers and the toggle cancels itself out.
@@ -287,14 +287,91 @@ export function TagAutocompleteInput({T,value,onChange,suggestions,onEnter,onEsc
   );
 }
 export const Divider=({T})=><div style={{height:1,background:T.border,margin:"12px 0"}}/>;
+
+// Minimal hand-rolled markdown renderer for Ask AI chat responses (2026-07-28, per Mo's "start
+// building" on chat UX polish). Deliberately NOT a dependency (react-markdown etc.) — the app has
+// zero markdown/component-library deps anywhere else, and the model's output for this use case is
+// narrow enough (bold, bullet/numbered lists, simple pipe tables, plain paragraphs) that a small
+// self-contained parser covers it without adding a new package. Not a general CommonMark
+// implementation — headers, links, nested lists, and blockquotes are intentionally unsupported
+// since Ask AI's system prompt never asks the model to produce them.
+function mdInline(s,T,keyPrefix){
+  const parts=[];
+  let rest=s;
+  let key=0;
+  const re=/(\*\*([^*]+)\*\*|`([^`]+)`)/;
+  while(rest.length){
+    const m=re.exec(rest);
+    if(!m){parts.push(rest);break;}
+    if(m.index>0)parts.push(rest.slice(0,m.index));
+    if(m[2]!==undefined)parts.push(<strong key={`${keyPrefix}-${key++}`}>{m[2]}</strong>);
+    else parts.push(<code key={`${keyPrefix}-${key++}`} style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:4,padding:"1px 5px",fontSize:"0.92em",fontFamily:"monospace"}}>{m[3]}</code>);
+    rest=rest.slice(m.index+m[0].length);
+  }
+  return parts;
+}
+const MD_BULLET_RE=/^\s*[-*]\s+(.*)$/;
+const MD_NUM_RE=/^\s*(\d+)\.\s+(.*)$/;
+const MD_TABLE_SEP_RE=/^\s*\|?[\s:|-]+\|?\s*$/;
+function mdTableCells(line){
+  let s=line.trim();
+  if(s.startsWith("|"))s=s.slice(1);
+  if(s.endsWith("|"))s=s.slice(0,-1);
+  return s.split("|").map(c=>c.trim());
+}
+export function MarkdownLite({text,T,style}){
+  if(!text)return null;
+  const lines=text.split("\n");
+  const blocks=[];
+  let i=0;
+  while(i<lines.length){
+    const line=lines[i];
+    if(!line.trim()){i++;continue;}
+    // Pipe table: a row containing "|" immediately followed by a ---/:--/etc. separator row.
+    if(line.includes("|")&&lines[i+1]&&MD_TABLE_SEP_RE.test(lines[i+1])&&lines[i+1].includes("-")){
+      const header=mdTableCells(line);
+      let j=i+2;
+      const rows=[];
+      while(j<lines.length&&lines[j].includes("|")){rows.push(mdTableCells(lines[j]));j++;}
+      blocks.push(
+        <table key={blocks.length} style={{borderCollapse:"collapse",width:"100%",margin:"6px 0",fontSize:"0.95em"}}>
+          <thead><tr>{header.map((c,ci)=><th key={ci} style={{textAlign:"left",padding:"4px 10px 4px 0",borderBottom:`1.5px solid ${T.border}`,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{mdInline(c,T,`th${blocks.length}-${ci}`)}</th>)}</tr></thead>
+          <tbody>{rows.map((r,ri)=><tr key={ri}>{r.map((c,ci)=><td key={ci} style={{padding:"4px 10px 4px 0",borderBottom:`1px solid ${T.border}`,color:T.text}}>{mdInline(c,T,`td${blocks.length}-${ri}-${ci}`)}</td>)}</tr>)}</tbody>
+        </table>
+      );
+      i=j;continue;
+    }
+    // Bullet/numbered list — consecutive matching lines become one <ul>/<ol>.
+    if(MD_BULLET_RE.test(line)||MD_NUM_RE.test(line)){
+      const ordered=MD_NUM_RE.test(line);
+      const items=[];
+      while(i<lines.length&&(ordered?MD_NUM_RE.test(lines[i]):MD_BULLET_RE.test(lines[i]))){
+        const m=ordered?MD_NUM_RE.exec(lines[i]):MD_BULLET_RE.exec(lines[i]);
+        items.push(m[ordered?2:1]);
+        i++;
+      }
+      const ListTag=ordered?"ol":"ul";
+      blocks.push(<ListTag key={blocks.length} style={{margin:"4px 0",paddingLeft:20}}>{items.map((it,ii)=><li key={ii} style={{margin:"2px 0"}}>{mdInline(it,T,`li${blocks.length}-${ii}`)}</li>)}</ListTag>);
+      continue;
+    }
+    // Paragraph — gather consecutive plain lines, preserving single line breaks within it.
+    const para=[line];
+    i++;
+    while(i<lines.length&&lines[i].trim()&&!MD_BULLET_RE.test(lines[i])&&!MD_NUM_RE.test(lines[i])&&!(lines[i].includes("|")&&lines[i+1]&&lines[i+1].includes("|")&&MD_TABLE_SEP_RE.test(lines[i+1]))){
+      para.push(lines[i]);i++;
+    }
+    blocks.push(<p key={blocks.length} style={{margin:blocks.length?"6px 0 0":0}}>{para.map((l,li)=><span key={li}>{li>0&&<br/>}{mdInline(l,T,`p${blocks.length}-${li}`)}</span>)}</p>);
+  }
+  return <div style={style}>{blocks}</div>;
+}
 // Pixel-block icon set (retro redesign, July 2026) — replaces the flat line-icon set.
 // Every glyph is built from a handful of solid squares, no curves/strokes, matching the
 // notched-panel / hard-shadow "8-bit" surface language used everywhere a soft rounded
 // shadow card used to be.
 // Flat lined icons (Obsidian-style) — thin strokes, no fill, replacing the earlier
 // pixel-block rect icons as part of moving the whole app back to a softer, conventional look.
-export const Icon=({name,size=18,color="currentColor"})=>{
-  const p={width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:color,strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round"};
+export const Icon=({name,size=18,color="currentColor",style})=>{
+  const p={width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:color,strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round",...(style?{style}:{})};
   switch(name){
     case"bolt":return<svg {...p}><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H10v-5a2 2 0 0 1 4 0v5h3.5a1 1 0 0 0 1-1v-9"/></svg>; // home — Dashboard
     case"tag":return<svg {...p}><path d="M3 11.5V5a1 1 0 0 1 1-1h6.5L21 13.5a1 1 0 0 1 0 1.4l-6.1 6.1a1 1 0 0 1-1.4 0L3 11.5Z"/><circle cx="8" cy="8" r="1.3" fill={color} stroke="none"/></svg>;
@@ -324,6 +401,13 @@ export const Icon=({name,size=18,color="currentColor"})=>{
     case"ban":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5l13 13"/></svg>;
     case"filter":return<svg {...p}><path d="M3 4.5h18L14 12.5v6l-4 2v-8Z"/></svg>;
     case"info":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M12 8h.01"/><path d="M11.25 11.5h1v5.5h1"/></svg>;
+    // Ask AI improvements (2026-07-28, per Mo — "start building" on the model picker/voice/
+    // image-upload/copy/stop set) — four new glyphs matching the same flat-line 24x24 language
+    // as everything above.
+    case"mic":return<svg {...p}><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/></svg>;
+    case"stop":return<svg {...p}><rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill={color} stroke="none"/></svg>;
+    case"copy":return<svg {...p}><rect x="8.5" y="8.5" width="11.5" height="11.5" rx="1.5"/><path d="M15.5 8.5V5.5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1V15a1 1 0 0 0 1 1h3"/></svg>;
+    case"paperclip":return<svg {...p}><path d="M20 11.5 12.5 19a4 4 0 0 1-5.7-5.7L14.6 5.6a2.7 2.7 0 0 1 3.8 3.8l-7.9 7.9a1.4 1.4 0 0 1-2-2l6.9-6.9"/></svg>;
     default:return null;
   }
 };

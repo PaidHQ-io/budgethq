@@ -193,6 +193,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[askChats,setAskChats]=useState([]);
   const[askProjects,setAskProjects]=useState([]);
   const[activeAskChatId,setActiveAskChatId]=useState(null);
+  // "Ask AI about this view →" (2026-07-28, per Mo's scope-awareness ask) — Reporting & Pacing
+  // has no way to hand its live filter state straight to AskAI (they're two separately-lazy-
+  // loaded tab components, not parent/child), so this is a one-shot relay sitting at the level
+  // that already owns both: PacingDashboard calls onAskAboutView(text) to stash a templated
+  // question here and switch tabs, AskAI reads it as initialQuestion and immediately clears it
+  // via onConsumeInitialQuestion so it doesn't keep re-filling the box on a later visit.
+  const[pendingAskQuestion,setPendingAskQuestion]=useState(null);
 
   const[budgets,setBudgets]=useState({});
   const[budgetDims,setBudgetDims]=useState([]);
@@ -3384,8 +3391,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
         </Suspense>
       </div>
-      {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl}/></Suspense>}
-      {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl}/></Suspense>}
+      {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}}/></Suspense>}
+      {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)}/></Suspense>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
@@ -3949,6 +3956,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         .bhq-scroll::-webkit-scrollbar-thumb{background:transparent;}
         .bhq-scroll:hover::-webkit-scrollbar-thumb{background:${T.borderStrong};}
         @keyframes spin{to{transform:rotate(360deg);}}
+        /* Ask AI's mic button while recording (2026-07-28, per Mo's voice-input request) — a
+           simple opacity pulse rather than a scale/glow effect, consistent with how understated
+           the rest of the app's motion is (spin above is the only other animation anywhere). */
+        @keyframes bhqPulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
         @media(max-width:768px){input,select{font-size:16px!important;}}
         /* Dashboard onboarding hero's space-station illustration (2026-07-26, per Mo) — decorative
            only (aria-hidden), so it's fine to just drop it on narrow windows rather than reflow

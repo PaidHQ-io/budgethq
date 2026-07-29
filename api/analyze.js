@@ -32,6 +32,16 @@
  *   ANTHROPIC_API_KEY
  */
 
+// Model picker (2026-07-28, per Mo — "can we allow users to switch models from Sonnet to
+// Opus, etc.") — allow-listed and validated server-side rather than trusting whatever string
+// the client sends, same defensive posture as everything else this proxy exists to protect
+// (never let client input reach the Anthropic API unchecked). Mirrored in src/lib/askAI.js'
+// ASK_AI_MODELS for the dropdown's labels/hints — the two lists can't literally share a module
+// (one runs in the browser bundle, one in this serverless function), so keep them in sync by
+// hand if a model is ever added/removed here.
+const ALLOWED_MODELS = ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5-20251001"];
+const DEFAULT_MODEL = "claude-sonnet-5";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", process.env.ALLOWED_ORIGIN || "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -43,12 +53,12 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
 
-  const { prompt, messages, system, tools, maxTokens } = req.body || {};
+  const { prompt, messages, system, tools, maxTokens, model } = req.body || {};
   if (!prompt && !messages) return res.status(400).json({ error: "prompt or messages is required" });
 
   try {
     const body = {
-      model: "claude-sonnet-5",
+      model: ALLOWED_MODELS.includes(model) ? model : DEFAULT_MODEL,
       max_tokens: maxTokens || 2000,
       messages: messages || [{ role: "user", content: prompt }],
     };

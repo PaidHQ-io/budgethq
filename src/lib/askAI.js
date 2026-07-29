@@ -6,6 +6,17 @@ import { campaignKey, derivePlatform, parseSpendDate, getPeriodRange, computePac
 // response for a workspace with hundreds of segments.
 const ASK_AI_MAX_LISTED_SEGMENTS=50;
 
+// Model picker options (2026-07-28, per Mo). Values must match api/analyze.js's ALLOWED_MODELS
+// allow-list exactly — that file validates server-side and silently falls back to the default if
+// a value here ever drifts out of sync with it, so a stale/renamed model just quietly downgrades
+// to Sonnet rather than erroring, but keep them matched by hand regardless.
+export const ASK_AI_MODELS=[
+  {value:"claude-sonnet-5",label:"Sonnet",hint:"Balanced default — fast and capable for almost every question."},
+  {value:"claude-opus-5",label:"Opus",hint:"Most capable — worth it for a gnarly multi-step analysis question, slower and more expensive per message."},
+  {value:"claude-haiku-4-5-20251001",label:"Haiku",hint:"Fastest and cheapest — good for a quick lookup, less reliable on anything requiring several tool calls chained together."},
+];
+export const ASK_AI_DEFAULT_MODEL="claude-sonnet-5";
+
 // Shared validation for a raw `having`/`numeric_filters` array coming from the model — drops any
 // entry with an unrecognized field, operator, or non-finite value rather than trusting it blindly
 // (same defensive posture as aiConfigToViewConfig's dim/filter validation below), and restricts to
@@ -315,17 +326,27 @@ export function askAIExecuteTool(toolName,input,ctx){
 // calls the model makes against real local data, send the results back, repeat until the model
 // gives a final text answer. Capped at MAX_TOOL_ROUNDS as a runaway guard.
 export const ASK_AI_MAX_ROUNDS=6;
-export async function askAIRun({question,history,ctx}){
+// question can be a plain string OR an Anthropic content-blocks array (used when images are
+// attached — see AskAI.jsx's send(), which builds [{type:"image",...},...,{type:"text",...}]
+// itself so this function stays a dumb pass-through rather than knowing about File/canvas
+// handling). model/signal are both optional passthroughs (2026-07-28, per Mo): model picks which
+// Claude model answers this chat (see ASK_AI_MODELS; api/analyze.js validates/defaults it
+// server-side regardless of what's sent), signal is an AbortController's signal so the caller's
+// Stop button can cancel an in-flight request. steps is returned alongside the answer — one entry
+// per tool call actually executed (name/input/output) — so the UI can show a "what I checked"
+// trace under the response instead of the tool loop being entirely invisible.
+export async function askAIRun({question,history,ctx,model,signal}){
   const today=new Date().toISOString().slice(0,10);
   const hasBudgets=(ctx.budgetDims||[]).length>0;
-  const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures). For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. Answer conversationally and concisely, citing the actual numbers returned.`;
+  const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures). For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
   const messages=[...history,{role:"user",content:question}];
+  const steps=[];
   for(let round=0;round<ASK_AI_MAX_ROUNDS;round++){
-    const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200})});
+    const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200,model}),signal});
     const data=await res.json();
     if(!res.ok)throw new Error(data?.error||"Ask AI request failed");
     if(data.stop_reason!=="tool_use"){
-      return{answer:data.text||"(no response)",messages};
+      return{answer:data.text||"(no response)",messages,steps};
     }
     messages.push({role:"assistant",content:data.content});
     const toolResults=[];
@@ -334,6 +355,7 @@ export async function askAIRun({question,history,ctx}){
       let output;
       try{output=askAIExecuteTool(block.name,block.input||{},ctx);}
       catch(err){output={error:err.message};}
+      steps.push({tool:block.name,input:block.input||{},output});
       toolResults.push({type:"tool_result",tool_use_id:block.id,content:JSON.stringify(output)});
     }
     messages.push({role:"user",content:toolResults});
