@@ -200,6 +200,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // question here and switch tabs, AskAI reads it as initialQuestion and immediately clears it
   // via onConsumeInitialQuestion so it doesn't keep re-filling the box on a later visit.
   const[pendingAskQuestion,setPendingAskQuestion]=useState(null);
+  // "Save as view" (2026-07-29, per Mo's "build them all" follow-up) — the exact same one-shot
+  // relay pattern as pendingAskQuestion above, just running the other direction: AskAI resolves a
+  // chat answer's originating question into a canonical view-config (via askAIBuildView +
+  // aiConfigToViewConfig — see AskAI.jsx's handleSaveAsView) and hands it here, then this switches
+  // to the Reporting & Pacing tab where PacingDashboard applies it via its own applyViewConfig and
+  // immediately clears it via onConsumeInitialViewConfig so a later visit doesn't re-apply it.
+  const[pendingViewConfig,setPendingViewConfig]=useState(null);
 
   const[budgets,setBudgets]=useState({});
   const[budgetDims,setBudgetDims]=useState([]);
@@ -3391,8 +3398,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
         </Suspense>
       </div>
-      {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}}/></Suspense>}
-      {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)}/></Suspense>}
+      {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)}/></Suspense>}
+      {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}}/></Suspense>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);

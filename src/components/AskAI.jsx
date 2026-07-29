@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { askAIRun, ASK_AI_MODELS, ASK_AI_DEFAULT_MODEL } from "../lib/askAI.js";
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
+import { askAIRun, askAIBuildView, aiConfigToViewConfig, ASK_AI_MODELS, ASK_AI_DEFAULT_MODEL } from "../lib/askAI.js";
 import { Inp, Btn, Sel, Icon, SectionLabel, MarkdownLite } from "./shared.jsx";
 import aiScienceDroneIcon from "../assets/icons/ai-science-drone.png";
 
@@ -48,6 +50,51 @@ function resizeImageFile(file){
       img.src=e.target.result;
     };
     reader.readAsDataURL(file);
+  });
+}
+
+// CSV/XLSX-as-context attach (2026-07-29, per Mo — "build them all" follow-up). Deliberately
+// separate and lighter-weight than the app's real import pipeline (Campaign Tagger's CSV/XLSX
+// import, Budget Manager's budget-file import): this is for "here's a one-off file, tell me about
+// it" questions, not for getting the data into the workspace's actual budget/spend records — no
+// tag mapping, no dedup, no header-row picker. The parsed rows become a capped plain-text preview
+// sent as extra context alongside the question (see askAIRun's system prompt, which explicitly
+// tells the model this text is NOT the workspace's real imported data). Reuses the same
+// Papa.parse/XLSX.read option shapes core.js's parseFileToRows already uses elsewhere in the app,
+// for consistency, not because the parsed shape needs to match anything downstream here.
+const ASK_AI_MAX_DOCS=3;
+const ASK_AI_DOC_MAX_ROWS=200; // capped independently of char count so a huge-column-count file doesn't blow up the stringify step before the char cap even applies
+const ASK_AI_DOC_MAX_CHARS=20000;
+const ASK_AI_DOC_MAX_SOURCE_BYTES=8*1024*1024;
+function parseDataFile(file){
+  return new Promise((resolve,reject)=>{
+    if(file.size>ASK_AI_DOC_MAX_SOURCE_BYTES){reject(new Error(`${file.name||"File"} is too large (max 8MB)`));return;}
+    const isExcel=/\.(xlsx|xls)$/i.test(file.name||"");
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error(`Couldn't read ${file.name||"that file"}`));
+    reader.onload=e=>{
+      try{
+        let rows;
+        if(isExcel){
+          const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+          const ws=wb.Sheets[wb.SheetNames[0]];
+          rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:false});
+        }else{
+          rows=Papa.parse(String(e.target.result),{header:false,skipEmptyLines:true}).data;
+        }
+        rows=(rows||[]).map(row=>(row||[]).map(v=>String(v??"")));
+        const totalRows=rows.length;
+        let preview=rows.slice(0,ASK_AI_DOC_MAX_ROWS);
+        let text=preview.map(r=>r.join(",")).join("\n");
+        let truncated=totalRows>preview.length;
+        if(text.length>ASK_AI_DOC_MAX_CHARS){text=text.slice(0,ASK_AI_DOC_MAX_CHARS);truncated=true;}
+        resolve({name:file.name,text:`${totalRows} row${totalRows===1?"":"s"} total${truncated?" (showing a truncated preview below)":""}:\n${text}`});
+      }catch{
+        reject(new Error(`Couldn't parse ${file.name||"that file"} — is it a valid CSV or Excel file?`));
+      }
+    };
+    if(isExcel)reader.readAsArrayBuffer(file);
+    else reader.readAsText(file);
   });
 }
 
@@ -108,7 +155,7 @@ function groupChatsByRecency(chats){
 // rather than the small header dropdown alone. The header History dropdown stays as-is
 // underneath — it's the only access point on mobile, where sidebarEl is never mounted (see the
 // `!isMobile` gate around the whole stats <aside> in BudgetHQ's render).
-export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion}){
+export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView}){
   // initialQuestion seeds input via a lazy initializer rather than an effect — correct here (not
   // just convenient) because this component and PacingDashboard's "Ask AI about this view" button
   // are mutually exclusive: the button only exists on view==="pacing", AskAI only renders on
@@ -122,10 +169,16 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
   const[examples,setExamples]=useState(pickAskAIExamples);
   const[model,setModel]=useState(loadStoredModel);
   const[attachedImages,setAttachedImages]=useState([]); // [{mediaType,dataUrl}] — pending, not yet sent
+  const[attachedDocs,setAttachedDocs]=useState([]); // [{name,text}] — pending CSV/XLSX context, not yet sent
   const[attachError,setAttachError]=useState("");
   const[recording,setRecording]=useState(false);
   const[copiedIdx,setCopiedIdx]=useState(null);
   const[openStepsIdx,setOpenStepsIdx]=useState(null);
+  const[streamingText,setStreamingText]=useState(""); // live partial answer text while loading — see runTurn's onTextDelta
+  const[editingUserIdx,setEditingUserIdx]=useState(null); // index into messages of the user turn currently being edited, or null
+  const[editDraft,setEditDraft]=useState("");
+  const[buildingViewIdx,setBuildingViewIdx]=useState(null); // index of the assistant message whose "Save as view" is in flight
+  const[viewBuildError,setViewBuildError]=useState("");
   const scrollRef=useRef(null);
   const taRef=useRef(null);
   const fileInputRef=useRef(null);
@@ -156,19 +209,30 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
   },[initialQuestion,onConsumeInitialQuestion]);
 
   const addFiles=useCallback(async(fileList)=>{
-    const files=Array.from(fileList||[]).filter(f=>f.type?.startsWith("image/"));
+    const files=Array.from(fileList||[]);
     if(!files.length)return;
     setAttachError("");
-    const room=ASK_AI_MAX_IMAGES-attachedImages.length;
-    if(room<=0){setAttachError(`Up to ${ASK_AI_MAX_IMAGES} images per message`);return;}
-    for(const file of files.slice(0,room)){
+    const imageFiles=files.filter(f=>f.type?.startsWith("image/"));
+    const docFiles=files.filter(f=>!f.type?.startsWith("image/")&&/\.(csv|xlsx|xls)$/i.test(f.name||""));
+    const imgRoom=ASK_AI_MAX_IMAGES-attachedImages.length;
+    if(imageFiles.length&&imgRoom<=0)setAttachError(`Up to ${ASK_AI_MAX_IMAGES} images per message`);
+    for(const file of imageFiles.slice(0,Math.max(0,imgRoom))){
       try{
         const img=await resizeImageFile(file);
         setAttachedImages(prev=>[...prev,img]);
       }catch(err){setAttachError(err.message);}
     }
-  },[attachedImages.length]);
+    const docRoom=ASK_AI_MAX_DOCS-attachedDocs.length;
+    if(docFiles.length&&docRoom<=0)setAttachError(`Up to ${ASK_AI_MAX_DOCS} files per message`);
+    for(const file of docFiles.slice(0,Math.max(0,docRoom))){
+      try{
+        const doc=await parseDataFile(file);
+        setAttachedDocs(prev=>[...prev,doc]);
+      }catch(err){setAttachError(err.message);}
+    }
+  },[attachedImages.length,attachedDocs.length]);
   const removeAttachedImage=useCallback(i=>{setAttachedImages(prev=>prev.filter((_,idx)=>idx!==i));},[]);
+  const removeAttachedDoc=useCallback(i=>{setAttachedDocs(prev=>prev.filter((_,idx)=>idx!==i));},[]);
   const handlePaste=useCallback(e=>{
     const items=Array.from(e.clipboardData?.items||[]);
     const imageItems=items.filter(it=>it.type?.startsWith("image/"));
@@ -215,11 +279,54 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
     if(activeAskChatId===id)setActiveAskChatId(null);
   },[activeAskChatId,setAskChats,setActiveAskChatId]);
 
+  // Shared core of every turn (2026-07-29, per Mo's "build them all" follow-up) — extracted out of
+  // the old single-purpose `send` so regenerate/edit-and-resend can replay it against a truncated
+  // prior history instead of duplicating the askAIRun-calling/state-updating logic. Every message
+  // this writes (both the user turn and the assistant reply) records a `historyMark`: for the user
+  // message it's priorHistory.length (the resume point BEFORE this turn — what resendFrom slices
+  // back to when regenerating/editing this exact turn), for the assistant message it's
+  // finalHistory.length (the resume point AFTER this turn — what a later edit of a LATER message
+  // slices back to). Docs are folded into the question text as clearly-marked extra context per
+  // askAIRun's system prompt, rather than becoming their own content blocks like images — there's
+  // no "document" block type in the images/text vision shape this already uses.
+  const runTurn=useCallback(async({chatId,priorMessages,priorHistory,questionText,imgs,docs})=>{
+    const docsText=(docs||[]).map(d=>`\n\n[Attached file: ${d.name}]\n${d.text}`).join("");
+    const newMessages=[...priorMessages,{role:"user",text:questionText,...(imgs?.length?{images:imgs}:{}),...(docs?.length?{docs}:{}),historyMark:priorHistory.length}];
+    setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:newMessages,updatedAt:Date.now()}:c));
+    setLoading(true);
+    setStreamingText("");
+    // Images attach as their own content blocks ahead of the text block, per Anthropic's vision
+    // message shape — askAIRun passes this straight through to /api/analyze untouched (see its own
+    // doc comment: it stays a dumb pass-through for anything content-block-shaped) rather than
+    // needing to know anything about File objects or canvas resizing itself.
+    const questionContent=imgs?.length
+      ?[...imgs.map(img=>({type:"image",source:{type:"base64",media_type:img.mediaType,data:img.dataUrl.split(",")[1]}})),{type:"text",text:(questionText||"What's in this image?")+docsText}]
+      :(questionText||"")+docsText;
+    const controller=new AbortController();
+    abortRef.current=controller;
+    try{
+      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel},model,signal:controller.signal,onTextDelta:setStreamingText});
+      const finalHistory=[...newHistory,{role:"assistant",content:answer}];
+      const finalMessages=[...newMessages,{role:"assistant",text:answer,steps,usage,historyMark:finalHistory.length}];
+      setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
+    }catch(err){
+      // A user-initiated Stop shows up as an AbortError — that's not a failure worth an error
+      // banner, just quietly stop (the question the user sent stays visible in the thread so
+      // they can see what went out, they just won't get a reply for it).
+      if(err.name!=="AbortError")setError(err.message);
+    }finally{
+      setLoading(false);
+      setStreamingText("");
+      abortRef.current=null;
+    }
+  },[mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,model,setAskChats]);
+
   const send=useCallback(async(question)=>{
     const q=(question||input).trim();
     const imgs=attachedImages;
+    const docs=attachedDocs;
     if((!q&&!imgs.length)||loading)return;
-    setInput("");setError("");setAttachedImages([]);setAttachError("");
+    setInput("");setError("");setAttachedImages([]);setAttachedDocs([]);setAttachError("");
     let chatId=activeAskChatId;
     let priorMessages=[];
     let priorHistory=[];
@@ -233,33 +340,56 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
       setAskChats(prev=>[{id:chatId,title,messages:[],history:[],updatedAt:Date.now(),pinned:false,projectId:null,labels:[]},...prev]);
       setActiveAskChatId(chatId);
     }
-    const newMessages=[...priorMessages,{role:"user",text:q,...(imgs.length?{images:imgs}:{})}];
-    setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:newMessages,updatedAt:Date.now()}:c));
-    setLoading(true);
-    // Images attach as their own content blocks ahead of the text block, per Anthropic's vision
-    // message shape — askAIRun passes this straight through to /api/analyze untouched (see its own
-    // doc comment: it stays a dumb pass-through for anything content-block-shaped) rather than
-    // needing to know anything about File objects or canvas resizing itself.
-    const questionContent=imgs.length
-      ?[...imgs.map(img=>({type:"image",source:{type:"base64",media_type:img.mediaType,data:img.dataUrl.split(",")[1]}})),{type:"text",text:q||"What's in this image?"}]
-      :q;
-    const controller=new AbortController();
-    abortRef.current=controller;
+    await runTurn({chatId,priorMessages,priorHistory,questionText:q,imgs,docs});
+  },[input,attachedImages,attachedDocs,loading,activeAskChatId,askChats,setAskChats,setActiveAskChatId,runTurn]);
+
+  // Regenerate (same question, fresh answer) and edit-and-resend (changed question, fresh answer)
+  // share this one function — both mean "throw away everything from this user turn onward and
+  // replay it" — reached from a user message's Edit button (newText=the edited draft) or an
+  // assistant message's Regenerate button (newText=null, meaning "keep the original text/
+  // images/docs unchanged"). Slices both the visible messages array and the Anthropic-format
+  // history array back to userMsg's own historyMark (recorded when that turn originally ran — see
+  // runTurn), so the resend is indistinguishable from that turn never having happened.
+  const resendFrom=useCallback((userIdx,newText)=>{
+    if(loading)return;
+    const chatId=activeAskChatId;
+    if(!chatId)return;
+    const existing=askChats.find(c=>c.id===chatId);
+    if(!existing)return;
+    const userMsg=existing.messages[userIdx];
+    if(!userMsg||userMsg.role!=="user")return;
+    const priorMessages=existing.messages.slice(0,userIdx);
+    const priorHistory=(existing.history||[]).slice(0,userMsg.historyMark||0);
+    const questionText=newText!=null?newText:(userMsg.text||"");
+    runTurn({chatId,priorMessages,priorHistory,questionText,imgs:userMsg.images,docs:userMsg.docs});
+  },[loading,activeAskChatId,askChats,runTurn]);
+
+  // "Save as view" (2026-07-29, per Mo — reuses the exact askAIBuildView/aiConfigToViewConfig
+  // pipeline PacingDashboard's own "✨ Ask AI to build a view" box already drives, so a chat answer
+  // and that box can never resolve the same plain-English request into different configs). Re-asks
+  // the ORIGINAL question that produced this answer (the preceding user turn) through the
+  // view-building tool loop rather than trying to parse a View-by config out of the chat's prose
+  // answer, then hands the resolved config up to the parent via onSaveAsView — same one-shot relay
+  // pattern as the pendingAskQuestion flow already uses, just in the opposite direction (AskAI ->
+  // PacingDashboard instead of PacingDashboard -> AskAI).
+  const handleSaveAsView=useCallback(async assistantIdx=>{
+    if(!onSaveAsView)return;
+    const existing=askChats.find(c=>c.id===activeAskChatId);
+    const userMsg=existing?.messages?.[assistantIdx-1];
+    const q=(userMsg?.text||"").trim();
+    if(!q){setViewBuildError("Couldn't find a question to build a view from.");return;}
+    setBuildingViewIdx(assistantIdx);setViewBuildError("");
     try{
-      const{answer,messages:newHistory,steps}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel},model,signal:controller.signal});
-      const finalHistory=[...newHistory,{role:"assistant",content:answer}];
-      const finalMessages=[...newMessages,{role:"assistant",text:answer,steps}];
-      setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
+      const allDimOptions=["Platform","Campaign","Ad Group",...tagDims];
+      const raw=await askAIBuildView({question:q,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta}});
+      const canonical=aiConfigToViewConfig(raw,{allDimOptions,budgetDims});
+      onSaveAsView(canonical);
     }catch(err){
-      // A user-initiated Stop shows up as an AbortError — that's not a failure worth an error
-      // banner, just quietly stop (the question the user sent stays visible in the thread so
-      // they can see what went out, they just won't get a reply for it).
-      if(err.name!=="AbortError")setError(err.message);
+      setViewBuildError(err.message||"Couldn't build a view from this.");
     }finally{
-      setLoading(false);
-      abortRef.current=null;
+      setBuildingViewIdx(null);
     }
-  },[input,attachedImages,loading,activeAskChatId,askChats,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,model,setAskChats,setActiveAskChatId]);
+  },[askChats,activeAskChatId,tagDims,mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,onSaveAsView]);
 
   // ── Sidebar chat management: search, pinning, projects, labels, rename (2026-07-21) ──
   const[sidebarSearch,setSidebarSearch]=useState("");
@@ -514,23 +644,30 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
   const canSend=(input.trim()||attachedImages.length>0)&&!loading;
   const composer=(
     <div style={{display:"flex",flexDirection:"column",gap:0,background:T.surface,border:`1px solid ${T.borderStrong}`,borderRadius:22,padding:"8px 8px 8px 12px",boxShadow:T.shadowMd}}>
-      {attachedImages.length>0&&(
+      {(attachedImages.length>0||attachedDocs.length>0)&&(
         <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"4px 8px 8px"}}>
           {attachedImages.map((img,i)=>(
-            <div key={i} style={{position:"relative",width:52,height:52,borderRadius:8,overflow:"hidden",border:`1px solid ${T.border}`,flexShrink:0}}>
+            <div key={`img_${i}`} style={{position:"relative",width:52,height:52,borderRadius:8,overflow:"hidden",border:`1px solid ${T.border}`,flexShrink:0}}>
               <img src={img.dataUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
               <button onClick={()=>removeAttachedImage(i)} title="Remove"
                 style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:"50%",background:"rgba(0,0,0,0.65)",border:"none",color:"#fff",fontSize:10,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>✕</button>
+            </div>
+          ))}
+          {attachedDocs.map((doc,i)=>(
+            <div key={`doc_${i}`} title={doc.name} style={{display:"flex",alignItems:"center",gap:5,height:30,padding:"0 8px",borderRadius:8,border:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0,maxWidth:160}}>
+              <span style={{fontSize:11,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif"}}>{doc.name}</span>
+              <button onClick={()=>removeAttachedDoc(i)} title="Remove"
+                style={{width:14,height:14,borderRadius:"50%",background:"transparent",border:"none",color:T.textMuted,fontSize:10,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>✕</button>
             </div>
           ))}
         </div>
       )}
       {attachError&&<div style={{padding:"0 8px 6px",fontSize:11,color:T.danger}}>{attachError}</div>}
       <div style={{display:"flex",alignItems:"flex-end",gap:6}}>
-        <input ref={fileInputRef} type="file" accept="image/*" multiple style={{display:"none"}}
+        <input ref={fileInputRef} type="file" accept="image/*,.csv,.xlsx,.xls" multiple style={{display:"none"}}
           onChange={e=>{addFiles(e.target.files);e.target.value="";}}/>
-        <button onClick={()=>fileInputRef.current?.click()} disabled={loading||attachedImages.length>=ASK_AI_MAX_IMAGES} title="Attach an image (screenshot, chart)"
-          style={{width:32,height:32,borderRadius:"50%",background:"transparent",border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:loading?"default":"pointer",flexShrink:0,opacity:loading||attachedImages.length>=ASK_AI_MAX_IMAGES?0.35:1}}>
+        <button onClick={()=>fileInputRef.current?.click()} disabled={loading||(attachedImages.length>=ASK_AI_MAX_IMAGES&&attachedDocs.length>=ASK_AI_MAX_DOCS)} title="Attach an image or a CSV/Excel file for context"
+          style={{width:32,height:32,borderRadius:"50%",background:"transparent",border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:loading?"default":"pointer",flexShrink:0,opacity:loading||(attachedImages.length>=ASK_AI_MAX_IMAGES&&attachedDocs.length>=ASK_AI_MAX_DOCS)?0.35:1}}>
           <Icon name="paperclip" size={17} color={T.textMuted}/>
         </button>
         {speechSupported&&(
@@ -629,25 +766,69 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
                 const isUser=m.role==="user";
                 const hasSteps=!isUser&&m.steps?.length>0;
                 const stepsOpen=openStepsIdx===i;
+                const isEditingThis=isUser&&editingUserIdx===i;
+                const totalTokens=!isUser&&m.usage?(m.usage.inputTokens||0)+(m.usage.outputTokens||0):0;
                 return(
                 <div key={i} style={{display:"flex",flexDirection:"column",alignItems:isUser?"flex-end":"flex-start",marginBottom:14}}>
-                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:isUser?T.accent:T.surface,border:isUser?"none":`1px solid ${T.border}`,color:isUser?"#FFFFFF":T.text,fontSize:13,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>
-                    {m.images?.length>0&&(
-                      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:m.text?8:0}}>
-                        {m.images.map((img,ii)=><img key={ii} src={img.dataUrl} alt="" style={{width:120,height:120,objectFit:"cover",borderRadius:8,display:"block"}}/>)}
+                  {isEditingThis?(
+                    <div style={{maxWidth:"80%",width:"100%",display:"flex",flexDirection:"column",gap:6,alignItems:"flex-end"}}>
+                      <textarea autoFocus value={editDraft} onChange={e=>setEditDraft(e.target.value)}
+                        rows={Math.min(8,Math.max(2,(editDraft.match(/\n/g)||[]).length+1))}
+                        style={{width:"100%",resize:"vertical",padding:"10px 14px",borderRadius:12,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,fontSize:13,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"}}/>
+                      <div style={{display:"flex",gap:6}}>
+                        <Btn onClick={()=>setEditingUserIdx(null)} variant="ghost" size="sm" T={T}>Cancel</Btn>
+                        <Btn onClick={()=>{const t=editDraft.trim();setEditingUserIdx(null);if(t)resendFrom(i,t);}} variant="primary" size="sm" T={T}>Save &amp; submit</Btn>
                       </div>
-                    )}
-                    {isUser?<div style={{whiteSpace:"pre-wrap"}}>{m.text}</div>:<MarkdownLite text={m.text} T={T}/>}
-                  </div>
-                  {/* Copy + "what I checked" trace (2026-07-28, per Mo — trust/transparency ask).
-                      Sits just under the bubble rather than inside it, same convention as
-                      Claude's own desktop app, so it doesn't compete with the answer text. */}
+                    </div>
+                  ):(
+                    <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:isUser?T.accent:T.surface,border:isUser?"none":`1px solid ${T.border}`,color:isUser?"#FFFFFF":T.text,fontSize:13,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>
+                      {m.images?.length>0&&(
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:(m.text||m.docs?.length)?8:0}}>
+                          {m.images.map((img,ii)=><img key={ii} src={img.dataUrl} alt="" style={{width:120,height:120,objectFit:"cover",borderRadius:8,display:"block"}}/>)}
+                        </div>
+                      )}
+                      {m.docs?.length>0&&(
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:m.text?8:0}}>
+                          {m.docs.map((doc,ii)=>(
+                            <div key={ii} title={doc.name} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",borderRadius:8,background:isUser?"rgba(255,255,255,0.18)":T.surfaceEl,border:isUser?"none":`1px solid ${T.border}`,maxWidth:180}}>
+                              <Icon name="paperclip" size={11} color={isUser?"#FFFFFF":T.textMuted}/>
+                              <span style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {isUser?<div style={{whiteSpace:"pre-wrap"}}>{m.text}</div>:<MarkdownLite text={m.text} T={T}/>}
+                    </div>
+                  )}
+                  {/* Edit-and-resend (user turns) / Copy + regenerate + save-as-view + "what I
+                      checked" trace + usage (assistant turns) — 2026-07-29, per Mo's "build them
+                      all" follow-up. Sits just under the bubble rather than inside it, same
+                      convention as Claude's own desktop app, so it doesn't compete with the
+                      answer text. */}
+                  {isUser&&!isEditingThis&&!loading&&(
+                    <button onClick={()=>{setEditingUserIdx(i);setEditDraft(m.text||"");}} title="Edit & resend"
+                      style={{display:"flex",alignItems:"center",gap:4,marginTop:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:"2px 4px",fontFamily:"'DM Sans',sans-serif"}}>
+                      <Icon name="pencil" size={11} color={T.textMuted}/> Edit
+                    </button>
+                  )}
                   {!isUser&&m.text&&(
-                    <div style={{display:"flex",alignItems:"center",gap:10,marginTop:4,paddingLeft:2}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginTop:4,paddingLeft:2,flexWrap:"wrap"}}>
                       <button onClick={()=>copyMessage(m.text,i)} title="Copy"
                         style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:"2px 4px",fontFamily:"'DM Sans',sans-serif"}}>
                         <Icon name={copiedIdx===i?"check":"copy"} size={12} color={T.textMuted}/> {copiedIdx===i?"Copied":"Copy"}
                       </button>
+                      {!loading&&(
+                        <button onClick={()=>resendFrom(i-1)} title="Regenerate response"
+                          style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:"2px 4px",fontFamily:"'DM Sans',sans-serif"}}>
+                          <Icon name="refresh" size={11} color={T.textMuted}/> Regenerate
+                        </button>
+                      )}
+                      {onSaveAsView&&(
+                        <button onClick={()=>handleSaveAsView(i)} disabled={buildingViewIdx===i} title="Turn this question into a Reporting & Pacing view"
+                          style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:buildingViewIdx===i?T.textMuted:T.accent,cursor:buildingViewIdx===i?"default":"pointer",fontSize:11,padding:"2px 4px",fontFamily:"'DM Sans',sans-serif"}}>
+                          <Icon name="sparkle" size={11} color={buildingViewIdx===i?T.textMuted:T.accent}/> {buildingViewIdx===i?"Building view…":"Save as view"}
+                        </button>
+                      )}
                       {hasSteps&&(
                         <button onClick={()=>setOpenStepsIdx(stepsOpen?null:i)}
                           style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:"2px 4px",fontFamily:"'DM Sans',sans-serif"}}>
@@ -655,7 +836,16 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
                           What I checked ({m.steps.length})
                         </button>
                       )}
+                      {totalTokens>0&&(
+                        <span title={`${(m.usage.inputTokens||0).toLocaleString()} in / ${(m.usage.outputTokens||0).toLocaleString()} out`}
+                          style={{fontSize:10.5,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>
+                          {totalTokens.toLocaleString()} tokens
+                        </span>
+                      )}
                     </div>
+                  )}
+                  {!isUser&&i===messages.length-1&&viewBuildError&&(
+                    <div style={{maxWidth:"80%",marginTop:6,fontSize:11,color:T.danger,fontFamily:"'DM Sans',sans-serif"}}>{viewBuildError}</div>
                   )}
                   {hasSteps&&stepsOpen&&(
                     <div style={{maxWidth:"80%",marginTop:6,display:"flex",flexDirection:"column",gap:6}}>
@@ -671,7 +861,9 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
               );})}
               {loading&&(
                 <div style={{display:"flex",justifyContent:"flex-start",marginBottom:14}}>
-                  <div style={{padding:"10px 14px",borderRadius:12,background:T.surface,border:`1px solid ${T.border}`,color:T.textMuted,fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>Thinking…</div>
+                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:12,background:T.surface,border:`1px solid ${T.border}`,color:T.text,fontSize:13,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>
+                    {streamingText?<MarkdownLite text={streamingText} T={T}/>:<span style={{color:T.textMuted}}>Thinking…</span>}
+                  </div>
                 </div>
               )}
               {error&&<div style={{padding:"10px 14px",borderRadius:10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,marginBottom:14,fontFamily:"'DM Sans',sans-serif"}}>{error}</div>}

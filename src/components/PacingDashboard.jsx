@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   computePacing, computePlatformDateRange, computeCustomGrouping, computeCustomBreakdown,
@@ -153,7 +153,7 @@ const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
   );
 };
 
-export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true,onAskAboutView}){
+export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true,onAskAboutView,initialViewConfig,onConsumeInitialViewConfig}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -265,6 +265,29 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       setNumericFilters(cfg.numericFilters||[]);
     }
   };
+  // Consumes AskAI's "Save as view" relay (2026-07-29, per Mo — see BudgetHQ.jsx's
+  // pendingViewConfig doc comment) — initialViewConfig arrives already in the canonical shape
+  // (built by AskAI.jsx's handleSaveAsView via the same aiConfigToViewConfig this component's own
+  // "Ask AI to build a view" box uses below), so this just applies it and clears the relay. Unlike
+  // AskAI.jsx's single-field initialQuestion (a lazy useState initializer), applyViewConfig fans
+  // out into ~9 separate state setters depending on cfg.viewMode, so there's no single-field lazy
+  // initializer to convert this into — this genuinely is "apply an external handoff on arrival,"
+  // not "sync a prop into state" in the sense react-hooks/set-state-in-effect warns about (this
+  // component gets a fresh mount every time the handoff arrives — see the pendingViewConfig doc
+  // comment — so this effect body runs at most once per mount, exactly like a constructor would).
+  /* eslint-disable react-hooks/set-state-in-effect -- one-shot external handoff consumed on
+     arrival (applyViewConfig fans out into several setState calls internally), not a prop-into-
+     state sync; see the doc comment above this effect for why that distinction holds here. */
+  useEffect(()=>{
+    if(initialViewConfig){
+      applyViewConfig(initialViewConfig);
+      onConsumeInitialViewConfig?.();
+      showNotif("Applied view from Ask AI");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[initialViewConfig,onConsumeInitialViewConfig]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const openSaveViewModal=prefillName=>{setSavedViewNameDraft(prefillName||"");setSavedViewModalOpen(true);};
   const saveCurrentView=()=>{
     const name=savedViewNameDraft.trim();

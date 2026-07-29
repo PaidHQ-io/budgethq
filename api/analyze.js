@@ -6,7 +6,7 @@
  * which cannot work — there's no way to attach a secret key to client-side code and have it
  * stay secret, and the request would be rejected/blocked before ever reaching a model).
  *
- * Two calling shapes, both supported:
+ * Three calling shapes:
  *
  * LEGACY (single free-form text turn) — used by three existing AI-assisted features:
  *   - Budget import column mapping ("Analyze with AI" in BudgetManager's import wizard)
@@ -14,19 +14,37 @@
  *   - Budget-dimension merge-review matching
  *   POST /api/analyze  Body: { prompt: string, maxTokens?: number }
  *
- * FULL (multi-turn, tool-use, vision) — used by the Ask AI chat and screenshot-to-data import:
+ * FULL (multi-turn, tool-use, vision) — used by Ask AI's view-builder and AI Summary (and the
+ * chat's regular, non-streaming fallback shape if ever needed):
  *   POST /api/analyze  Body: { messages: Array, system?: string, tools?: Array, maxTokens?: number }
  *   `messages` follows the Anthropic Messages API shape directly (role + content, where content
  *   can be a plain string OR an array of blocks — text / image / tool_use / tool_result) so the
  *   caller can run a full tool-use loop or send an image without this proxy needing to know
  *   anything about what's being asked — it's a dumb pass-through that only exists to hide the key.
  *
- * Response (both shapes): { text, content, stop_reason }
+ * STREAMING (2026-07-28, per Mo — live token-by-token Ask AI chat) — same body shape as FULL,
+ * plus `stream: true`. Response becomes a raw `text/event-stream` pass-through of Anthropic's own
+ * SSE stream (message_start/content_block_start/content_block_delta/content_block_stop/
+ * message_delta/message_stop events) — this endpoint does zero re-shaping of a streamed response,
+ * the caller (src/lib/askAI.js's streamAnalyze) does its own SSE parsing and content-block
+ * reconstruction client-side. Kept as a raw byte pass-through rather than parsed-and-re-emitted
+ * here for the same "dumb pipe" reason the non-streaming shape is a dumb pass-through — this
+ * function doesn't need to understand Anthropic's event format to forward it correctly.
+ * NOT YET LIVE-VERIFIED end-to-end on Vercel — the reader/write-chunk-forwarding approach below is
+ * the standard pattern for streaming through a Vercel Node serverless function, but this hasn't
+ * been smoke-tested against a real deploy yet (same "verify before fully trusting" discipline as
+ * this codebase's other unverified-until-proven integrations) — worth confirming chunks actually
+ * arrive progressively (not all-at-once when the full response finishes) after this ships.
+ *
+ * Response (non-streaming shapes): { text, content, stop_reason, usage }
  *   - text: first text block's content (what legacy callers already read data.text from)
  *   - content: the full raw content blocks array (text + tool_use blocks) — new callers need
  *     this to detect and execute tool_use blocks
  *   - stop_reason: "tool_use" means the model wants a tool result before it can continue;
  *     anything else (typically "end_turn") means `text` is the final answer
+ *   - usage: Anthropic's own {input_tokens, output_tokens} for this one call — added 2026-07-28
+ *     alongside the streaming work so per-message token counts can be shown in the chat regardless
+ *     of whether that particular call streamed or not
  *
  * Env vars required:
  *   ANTHROPIC_API_KEY
@@ -53,7 +71,7 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
 
-  const { prompt, messages, system, tools, maxTokens, model } = req.body || {};
+  const { prompt, messages, system, tools, maxTokens, model, stream } = req.body || {};
   if (!prompt && !messages) return res.status(400).json({ error: "prompt or messages is required" });
 
   try {
@@ -64,6 +82,7 @@ export default async function handler(req, res) {
     };
     if (system) body.system = system;
     if (tools && tools.length) body.tools = tools;
+    if (stream) body.stream = true;
 
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -74,13 +93,45 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify(body),
     });
-    const data = await r.json();
+
     if (!r.ok) {
+      // Anthropic returns a normal (non-SSE) JSON error body for request-level rejections (bad
+      // key, bad params, rate limit) even when stream:true was requested — this branch handles
+      // both calling shapes identically, only successful streaming responses fork below.
+      const data = await r.json().catch(() => ({}));
       return res.status(r.status).json({ error: data?.error?.message || "Anthropic API error" });
     }
+
+    if (stream) {
+      // Raw byte pass-through — see the doc comment atop this file. No res.json() here since we
+      // never buffer/parse the body; the reader loop below writes each chunk to the client as it
+      // arrives from Anthropic.
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders?.();
+      const reader = r.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+      } catch (streamErr) {
+        console.error("[analyze:stream]", streamErr);
+        // Headers are already sent by this point — can't switch to a JSON error response, best
+        // effort is just to end the connection so the client's reader loop exits (and its own
+        // try/catch surfaces a "stream ended unexpectedly"-type error rather than hanging).
+      } finally {
+        res.end();
+      }
+      return;
+    }
+
+    const data = await r.json();
     const content = data.content || [];
     const text = content.find((b) => b.type === "text")?.text || "";
-    return res.status(200).json({ text, content, stop_reason: data.stop_reason });
+    return res.status(200).json({ text, content, stop_reason: data.stop_reason, usage: data.usage });
   } catch (err) {
     console.error("[analyze]", err);
     return res.status(500).json({ error: err.message });

@@ -322,31 +322,117 @@ export function askAIExecuteTool(toolName,input,ctx){
   return{error:`Unknown tool: ${toolName}`};
 }
 
+// Streams one /api/analyze call and reconstructs it into the exact same {content, stop_reason,
+// usage} shape the non-streaming JSON response returns — so askAIRun's round loop below doesn't
+// need two code paths, only one (streaming) that happens to also report progress as it goes.
+// Parses Anthropic's raw SSE event stream directly (api/analyze.js is a byte-for-byte pass-through
+// when stream:true — see its doc comment) rather than depending on any SDK: buffers incoming
+// chunks, splits on blank-line-delimited SSE records, and handles the event types Anthropic's
+// Messages API actually emits — message_start (initial input token count), content_block_start/
+// delta/stop (text streams in piece by piece via text_delta; tool_use input streams in as
+// fragments of a JSON string via input_json_delta, only valid to JSON.parse once the block
+// closes), message_delta (final stop_reason + output token count), message_stop, and error (a
+// mid-stream failure, e.g. an overload — surfaced by throwing rather than silently truncating the
+// answer). onTextDelta, if given, is called with the CURRENT ROUND's full accumulated text after
+// every text delta — the caller (AskAI.jsx) shows this live instead of a static "Thinking…".
+async function streamAnalyze({messages,system,tools,maxTokens,model,signal,onTextDelta}){
+  const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools,maxTokens,model,stream:true}),signal});
+  if(!res.ok){
+    const data=await res.json().catch(()=>({}));
+    throw new Error(data?.error||"Ask AI request failed");
+  }
+  const reader=res.body.getReader();
+  const decoder=new TextDecoder();
+  let buf="";
+  const blocks=[]; // sparse array indexed by Anthropic's content_block index
+  let stopReason=null;
+  const usage={input_tokens:0,output_tokens:0};
+  let liveText="";
+  const handleEvent=raw=>{
+    let dataStr="";
+    for(const line of raw.split("\n")){
+      if(line.startsWith("data:"))dataStr+=line.slice(5).trim();
+    }
+    if(!dataStr)return;
+    let evt;
+    try{evt=JSON.parse(dataStr);}catch{return;} // malformed/partial record — skip rather than abort the whole stream
+    if(evt.type==="message_start"){
+      usage.input_tokens=evt.message?.usage?.input_tokens||0;
+    }else if(evt.type==="content_block_start"){
+      const cb=evt.content_block||{};
+      blocks[evt.index]=cb.type==="tool_use"
+        ?{type:"tool_use",id:cb.id,name:cb.name,input:{},_partialJson:""}
+        :{type:"text",text:""};
+    }else if(evt.type==="content_block_delta"){
+      const block=blocks[evt.index];
+      if(!block)return;
+      if(evt.delta?.type==="text_delta"){
+        block.text+=evt.delta.text;
+        liveText+=evt.delta.text;
+        onTextDelta?.(liveText);
+      }else if(evt.delta?.type==="input_json_delta"){
+        block._partialJson=(block._partialJson||"")+(evt.delta.partial_json||"");
+      }
+    }else if(evt.type==="content_block_stop"){
+      const block=blocks[evt.index];
+      if(block?.type==="tool_use"){
+        try{block.input=block._partialJson?JSON.parse(block._partialJson):{};}
+        catch{block.input={};}
+        delete block._partialJson;
+      }
+    }else if(evt.type==="message_delta"){
+      if(evt.delta?.stop_reason)stopReason=evt.delta.stop_reason;
+      if(evt.usage?.output_tokens!=null)usage.output_tokens=evt.usage.output_tokens;
+    }else if(evt.type==="error"){
+      throw new Error(evt.error?.message||"Ask AI streaming error");
+    }
+  };
+  while(true){
+    const{done,value}=await reader.read();
+    if(done)break;
+    buf+=decoder.decode(value,{stream:true});
+    let idx;
+    while((idx=buf.indexOf("\n\n"))!==-1){
+      const raw=buf.slice(0,idx);
+      buf=buf.slice(idx+2);
+      handleEvent(raw);
+    }
+  }
+  return{content:blocks.filter(Boolean),stop_reason:stopReason,usage};
+}
+
 // Runs the full tool-use loop against /api/analyze: send the conversation, execute any tool
 // calls the model makes against real local data, send the results back, repeat until the model
 // gives a final text answer. Capped at MAX_TOOL_ROUNDS as a runaway guard.
 export const ASK_AI_MAX_ROUNDS=6;
-// question can be a plain string OR an Anthropic content-blocks array (used when images are
-// attached — see AskAI.jsx's send(), which builds [{type:"image",...},...,{type:"text",...}]
-// itself so this function stays a dumb pass-through rather than knowing about File/canvas
-// handling). model/signal are both optional passthroughs (2026-07-28, per Mo): model picks which
-// Claude model answers this chat (see ASK_AI_MODELS; api/analyze.js validates/defaults it
-// server-side regardless of what's sent), signal is an AbortController's signal so the caller's
-// Stop button can cancel an in-flight request. steps is returned alongside the answer — one entry
-// per tool call actually executed (name/input/output) — so the UI can show a "what I checked"
-// trace under the response instead of the tool loop being entirely invisible.
-export async function askAIRun({question,history,ctx,model,signal}){
+// question can be a plain string OR an Anthropic content-blocks array (used when images/files are
+// attached — see AskAI.jsx's send(), which builds the block array itself so this function stays a
+// dumb pass-through rather than knowing about File/canvas/CSV-parsing details). model/signal are
+// both optional passthroughs (2026-07-28, per Mo): model picks which Claude model answers this
+// chat (see ASK_AI_MODELS; api/analyze.js validates/defaults it server-side regardless of what's
+// sent), signal is an AbortController's signal so the caller's Stop button can cancel an in-flight
+// request. onTextDelta (2026-07-28, per Mo's streaming request) is called with the current round's
+// live accumulated text as it streams in — reset to "" implicitly at the start of every new round
+// since streamAnalyze's liveText is scoped per call. steps is returned alongside the answer — one
+// entry per tool call actually executed (name/input/output) — so the UI can show a "what I
+// checked" trace under the response instead of the tool loop being entirely invisible. usage sums
+// input/output tokens across every round this turn actually took (a tool-calling turn is several
+// separate Anthropic requests, not one), so the UI can show one honest total per chat message
+// rather than just the final round's count.
+export async function askAIRun({question,history,ctx,model,signal,onTextDelta}){
   const today=new Date().toISOString().slice(0,10);
   const hasBudgets=(ctx.budgetDims||[]).length>0;
-  const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures). For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
+  const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures). For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image. If the user attached a CSV/spreadsheet file, its content appears as plain text context below the question, clearly marked — that data is NOT part of the workspace's real budget/spend data (it was never imported), so don't call query_spend/query_budget/query_pacing expecting to find it; just read and reason about the attached text directly, and say so if the question seems to assume it was imported. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
   const messages=[...history,{role:"user",content:question}];
   const steps=[];
+  const usage={inputTokens:0,outputTokens:0};
   for(let round=0;round<ASK_AI_MAX_ROUNDS;round++){
-    const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200,model}),signal});
-    const data=await res.json();
-    if(!res.ok)throw new Error(data?.error||"Ask AI request failed");
+    const data=await streamAnalyze({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200,model,signal,onTextDelta});
+    usage.inputTokens+=data.usage.input_tokens||0;
+    usage.outputTokens+=data.usage.output_tokens||0;
     if(data.stop_reason!=="tool_use"){
-      return{answer:data.text||"(no response)",messages,steps};
+      const text=data.content.find(b=>b.type==="text")?.text||"";
+      return{answer:text||"(no response)",messages,steps,usage};
     }
     messages.push({role:"assistant",content:data.content});
     const toolResults=[];
