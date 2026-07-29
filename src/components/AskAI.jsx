@@ -155,7 +155,7 @@ function groupChatsByRecency(chats){
 // rather than the small header dropdown alone. The header History dropdown stays as-is
 // underneath — it's the only access point on mobile, where sidebarEl is never mounted (see the
 // `!isMobile` gate around the whole stats <aside> in BudgetHQ's render).
-export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView}){
+export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView}){
   // initialQuestion seeds input via a lazy initializer rather than an effect — correct here (not
   // just convenient) because this component and PacingDashboard's "Ask AI about this view" button
   // are mutually exclusive: the button only exists on view==="pacing", AskAI only renders on
@@ -305,7 +305,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
     const controller=new AbortController();
     abortRef.current=controller;
     try{
-      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel},model,signal:controller.signal,onTextDelta:setStreamingText});
+      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel},model,signal:controller.signal,onTextDelta:setStreamingText,token:session?.access_token});
       const finalHistory=[...newHistory,{role:"assistant",content:answer}];
       const finalMessages=[...newMessages,{role:"assistant",text:answer,steps,usage,historyMark:finalHistory.length}];
       setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
@@ -319,7 +319,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
       setStreamingText("");
       abortRef.current=null;
     }
-  },[mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,model,setAskChats]);
+  },[mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,model,setAskChats,session]);
 
   const send=useCallback(async(question)=>{
     const q=(question||input).trim();
@@ -381,7 +381,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
     setBuildingViewIdx(assistantIdx);setViewBuildError("");
     try{
       const allDimOptions=["Platform","Campaign","Ad Group",...tagDims];
-      const raw=await askAIBuildView({question:q,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta}});
+      const raw=await askAIBuildView({question:q,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta},token:session?.access_token});
       const canonical=aiConfigToViewConfig(raw,{allDimOptions,budgetDims});
       onSaveAsView(canonical);
     }catch(err){
@@ -389,7 +389,7 @@ export default function AskAI({T,mergedNormRows,tags,tagDims,budgetDims,budgets,
     }finally{
       setBuildingViewIdx(null);
     }
-  },[askChats,activeAskChatId,tagDims,mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,onSaveAsView]);
+  },[askChats,activeAskChatId,tagDims,mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,onSaveAsView,session]);
 
   // ── Sidebar chat management: search, pinning, projects, labels, rename (2026-07-21) ──
   const[sidebarSearch,setSidebarSearch]=useState("");

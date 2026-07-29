@@ -30,6 +30,18 @@ async function compressJson(value) {
   return { body: compressed, gzip: true };
 }
 
+// Standalone Bearer-header builder (2026-07-29, per a workspace-siloing review) — same shape
+// apiFetch builds internally below, exposed for call sites that don't go through apiFetch's own
+// JSON-envelope handling: BudgetHQ.jsx's and BudgetManager.jsx's direct fetch("/api/analyze")
+// calls (screenshot-to-data, column-mapping/export-suggestion prompts), now that that endpoint
+// requires a valid Supabase Bearer token (see api/analyze.js's AUTH doc comment). src/lib/askAI.js
+// takes a plain `token` string instead of a session object (it has no other dependency on the
+// Supabase session shape), so its callers pass session?.access_token directly rather than using
+// this helper.
+export function authHeader(session) {
+  return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+}
+
 async function apiFetch(session, path, options = {}) {
   const res = await fetch(path, {
     ...options,

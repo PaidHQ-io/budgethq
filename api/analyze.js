@@ -6,6 +6,22 @@
  * which cannot work — there's no way to attach a secret key to client-side code and have it
  * stay secret, and the request would be rejected/blocked before ever reaching a model).
  *
+ * AUTH (2026-07-29, added per a workspace-siloing review — this endpoint had NO auth check at
+ * all before this, meaning anyone who found the URL could spend Mo's Anthropic API budget with
+ * zero rate limiting or attribution): requires a valid Supabase Bearer token, same requireAuth
+ * check every workspace-scoped BudgetHQ route already uses (see lib/auth.js). Deliberately does
+ * NOT also require workspace membership the way /api/workspaces/[id]/* does — this route has no
+ * workspaceId at all, isn't DB-backed, and is a stateless pass-through (whatever the caller sends
+ * is exactly what goes to Anthropic and comes back, nothing is read from or written to any
+ * workspace's data here) — so there's no cross-workspace data to leak through this endpoint
+ * regardless of who calls it, only cost/abuse to gate. requireAuth alone (any logged-in PaidHQ
+ * user, not necessarily a member of any particular workspace) is the right bar for that. Every
+ * caller (src/lib/askAI.js's streamAnalyze/askAIBuildView/aiSummarizeBudgetPacing, and the direct
+ * fetch("/api/analyze") call sites in BudgetHQ.jsx/BudgetManager.jsx for screenshot-to-data and
+ * column-mapping/export-suggestion prompts) now forwards the caller's session.access_token as a
+ * Bearer header — a request with no/invalid token gets a 401 from requireAuth before this ever
+ * reaches Anthropic.
+ *
  * Three calling shapes:
  *
  * LEGACY (single free-form text turn) — used by three existing AI-assisted features:
@@ -49,6 +65,7 @@
  * Env vars required:
  *   ANTHROPIC_API_KEY
  */
+import { requireAuth } from "./lib/auth.js";
 
 // Model picker (2026-07-28, per Mo — "can we allow users to switch models from Sonnet to
 // Opus, etc.") — allow-listed and validated server-side rather than trusting whatever string
@@ -63,10 +80,18 @@ const DEFAULT_MODEL = "claude-sonnet-5";
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", process.env.ALLOWED_ORIGIN || "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // Any logged-in PaidHQ user, not necessarily a member of any particular workspace — see the
+  // AUTH doc comment at the top of this file for why membership isn't checked here too.
+  try {
+    await requireAuth(req);
+  } catch (err) {
+    return res.status(err.status || 401).json({ error: err.message });
+  }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });

@@ -12,13 +12,14 @@ import {
   PixelPanel, WarnTip, AISummaryCard,
 } from "./shared.jsx";
 import { useGoogleSheetConnect } from "../hooks/useGoogleSheetConnect.js";
+import { authHeader } from "../lib/workspaceApi.js";
 import surfaceBaseHabitatIcon from "../assets/icons/surface-base-habitat.png";
 
 // src/components/BudgetManager.jsx — Budget Panel tab (2026-07-25 split, per Mo: split the
 // four tab components out of the BudgetHQ.jsx monolith into their own files so each tab's code
 // can be lazy-loaded instead of every tab shipping in one bundle on every page load).
 
-export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true}){
+export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true}){
   const yr=new Date().getFullYear();
   const[year,setYear]=useState(yr.toString());
   const[showQ,setShowQ]=useState(false);
@@ -202,7 +203,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
         ?"This year's original import structure wasn't recorded — either it predates this feature, or the data came from a live platform sync rather than a file import — so it's unknown whether the source had quarterly or annual subtotal columns."
         :`Their original budget file for ${year} was ${importMeta.hasQuarterlyTotals?"structured with quarterly subtotal columns (Q1-Q4) alongside monthly columns":"structured with monthly columns only, no quarterly subtotal columns detected"}, and ${importMeta.hasAnnualTotal?"had an annual total column":"had no annual total column detected"}.`;
       const prompt=`A user is exporting a budget-vs-actual report from a paid media budgeting tool. ${structureDesc} There are ${segs.length} budget segment rows, tracked by: ${budgetDims.join(", ")||"(no dimensions set)"}.\n\nThe export always includes an annual actual-spend/projection summary. Recommend whether to ALSO append a month-by-month actual-spend breakdown and/or a quarter-by-quarter actual-spend breakdown, to mirror how this user already organizes their budget file. If the original structure is unknown, default to recommending the monthly breakdown (the safer, more granular option) and say so.\n\nReply ONLY with this JSON (no markdown): {"includeMonthly": true/false, "includeQuarterly": true/false, "reason": "<one short sentence explaining the recommendation>"}`;
-      const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,maxTokens:300})});
+      const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...authHeader(session)},body:JSON.stringify({prompt,maxTokens:300})});
       const data=await res.json();
       if(!res.ok)throw new Error(data?.error||"AI suggestion request failed");
       const result=JSON.parse((data.text||"").replace(/```json|```/g,"").trim());
@@ -482,7 +483,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
         if(!m)throw new Error("Could not read image file");
         const[,mediaType,base64]=m;
         const prompt=`You are transcribing a table from a screenshot of a spreadsheet (Google Sheets, Excel, or similar) into raw grid data — a budget breakdown by some set of dimensions (e.g. Product, Region) and time period (e.g. monthly columns).\n\nLook at the image and transcribe EVERY visible row and column exactly as shown, including header rows, group/category header rows, and blank cells (use "" for empty cells). Preserve the exact left-to-right column order and top-to-bottom row order — do not summarize, merge, reformat, or interpret the data in any way, just transcribe each cell's visible text literally, the same way an export of this exact table to CSV would look.\n\nReturn ONLY a JSON array of arrays of strings — one inner array per row, one string per cell, all rows the same length (pad short rows with "") — no markdown fences, no explanation.`;
-        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...authHeader(session)},body:JSON.stringify({
           messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:prompt}]}],
           maxTokens:4000,
         })});
@@ -792,7 +793,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
         const oldLabels=unclaimedOld.map(k=>({key:k,label:oldBudgetDims.map((d,i)=>k.split("|")[i]||"").join(" · ")}));
         const newLabels=needsCheck.map(n=>({key:n.segKey,label:newActiveDims.map(d=>n.dims[d]||"").join(" · ")}));
         const prompt=`A budgeting tool is importing new segment rows that may be the same underlying items as existing segments, just with an extra dimension added and/or minor spelling or whitespace differences.\n\nExisting segments (dimensions: ${oldBudgetDims.join(", ")}):\n${oldLabels.map(o=>`- ${o.label}`).join("\n")}\n\nNew segments from this import (dimensions: ${newActiveDims.join(", ")}):\n${newLabels.map(n=>`- ${n.label}`).join("\n")}\n\nFor each new segment that likely represents the SAME real-world item as an existing one, return a match — do not guess at unrelated items just because they share a category. Reply ONLY with this JSON (no markdown): {"matches":[{"newLabel":"<exact new segment label from the list above>","oldLabel":"<exact existing segment label from the list above>","confidence":"high"|"medium","reason":"<short reason>"}]}`;
-        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,maxTokens:1200})});
+        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...authHeader(session)},body:JSON.stringify({prompt,maxTokens:1200})});
         const data=await res.json();
         if(!res.ok)throw new Error(data?.error||"AI match request failed");
         const result=JSON.parse((data.text||"").replace(/```json|```/g,"").trim());
@@ -844,7 +845,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
       const sample=iRawRows.slice(0,300).map(row=>row.slice(0,20).map(v=>String(v||"").trim()));
       const prompt=`Analyze this complete budget spreadsheet and return a JSON mapping.\n\nUser's existing tag dimensions: ${(tagDimensions||[]).join(", ")}\n\nComplete file data (${sample.length} rows, up to 20 columns shown — file has ${iRawRows[0]?.length||0} total columns):\n${sample.map((row,i)=>`Row ${i+1}: ${row.map(v=>v.replace(/#REF!/g,"0")).join(" | ")}`).join("\n")}\n\nReturn ONLY this JSON object (no markdown):\n{\n  \"headerRow\": <0-based row index of the main column header row>,\n  \"groupHeaderRow\": <row index of a channel/platform grouping row ABOVE the main header that groups columns, or -1 if none>,\n  \"groupDimension\": <name for the group dimension e.g. \"Channel\" or null>,\n  \"skipPattern\": <substring in subtotal/total rows to skip, or \"\">,\n  \"format\": \"wide\", \"long\", \"transposed\", or \"flat\",\n  \"segmentDimension\": <for transposed: name for the campaign column dimension e.g. \"Campaign\">,\n  \"dimensions\": [{\"name\": <existing dim name>, \"column\": <exact column header>}],\n  \"newDimensions\": [{\"name\": <new dim name>, \"column\": <exact column header>}],\n  \"periodColumn\": <for long format: period column, else null>,\n  \"amountColumn\": <for long or flat format: amount column, else null>,\n  \"hasQuarterlyCaps\": <true/false>,\n  \"hasAnnualCap\": <true/false>\n}\nFormat rules: wide=month names as column headers; transposed=months as rows + campaigns as columns (if a row ABOVE the header groups columns into channels set groupHeaderRow); long=one row per period with an explicit period/date column; flat=one row per segment with a single recurring monthly amount column (e.g. "Monthly Budget") and NO period/date column and NO per-month columns — do not force this into "long" just because there's a column with "month" in its name, that column IS the amount column, not a period. Existing dimensions to map: ${(tagDimensions||[]).join(", ")}`;
 
-      const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
+      const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...authHeader(session)},body:JSON.stringify({prompt})});
       const data=await res.json();
       if(!res.ok)throw new Error(data?.error||"AI analysis request failed");
       const result=JSON.parse((data.text||"").replace(/```json|```/g,"").trim());
@@ -1019,7 +1020,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
         ):(
           <>
           <div style={{padding:"14px 16px 0"}}>
-            <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} mode="budget"/>
+            <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} mode="budget"/>
           </div>
           {/* Rollups — budget totals by one Budget By dimension at a time, independent of the
               detail grid's row grain */}

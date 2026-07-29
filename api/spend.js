@@ -10,11 +10,12 @@
  *
  *   workspaceId + a valid Authorization header are only required for connectors flagged
  *   `perWorkspaceAuth: true` in their meta export (funnel, supermetrics, capterra, linkedin, bing,
- *   meta) — those pull the calling workspace's OWN stored credential from
- *   core.connector_credentials rather than a shared process.env var, so this route needs to
- *   know which workspace is asking and confirm the caller actually belongs to it before handing
- *   back that workspace's data. google is unaffected — it keeps working exactly as before, no auth
- *   required, since it's still one shared account for the whole app.
+ *   meta, and google as of 2026-07-25 — see connectors/google.js's per-workspace-OAuth doc
+ *   comment, this note used to say google was still shared/unauthenticated but that's stale) —
+ *   those pull the calling workspace's OWN stored credential from core.connector_credentials
+ *   rather than a shared process.env var, so this route needs to know which workspace is asking
+ *   and confirm the caller actually belongs to it (requireWorkspaceMember, in
+ *   getWorkspaceCredential below) before handing back that workspace's data.
  *
  *   `envVarFallback: true` in a connector's meta (capterra, linkedin) means a workspace with no
  *   stored per-workspace credential yet doesn't get hard-blocked with "not_connected" — instead
@@ -64,7 +65,9 @@ async function getWorkspaceCredential(req, workspaceId, provider, { optional = f
 
 export default async function handler(req, res) {
   // CORS — allow requests from the BudgetHQ frontend. Authorization is only actually sent for
-  // perWorkspaceAuth connectors (funnel/supermetrics) — everything else still works unauthenticated.
+  // perWorkspaceAuth connectors (funnel, supermetrics, capterra, linkedin, bing, meta, google —
+  // see the doc comment up top) — a connector without that flag (there are currently none live)
+  // would still work unauthenticated.
   res.setHeader("Access-Control-Allow-Origin", process.env.ALLOWED_ORIGIN || "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");

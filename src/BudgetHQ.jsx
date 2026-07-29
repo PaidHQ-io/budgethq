@@ -6,7 +6,7 @@ import {
   getAskAIData, putAskAIData,
   listVersions, saveVersion, deleteVersion as apiDeleteVersion,
   listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64,
-  copyFileToWorkspace,
+  copyFileToWorkspace, authHeader,
 } from "./lib/workspaceApi";
 import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount } from "./lib/coreApi";
 import { exportReportToGoogleSheets, preloadGoogleSheetsApi, preloadGoogleSheetsPicker } from "./lib/googleSheets";
@@ -1332,7 +1332,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         if(!m)throw new Error("Could not read image file");
         const[,mediaType,base64]=m;
         const prompt=`You are extracting advertising spend data from a screenshot of a report, dashboard, or spreadsheet. Look at the image and extract every row of spend data you can find.\n\nFor each row, output an object with these fields (use "" or 0 for anything not visible/applicable):\n{"campaign_group_name": <campaign or product name>, "campaign_name": <ad set/ad group/sub-item name, or same as campaign_group_name if there's no second level shown>, "platform": <ad platform if identifiable, e.g. "Google", "Meta", "LinkedIn", "Capterra", "Bing", else "">, "date": <YYYY-MM-DD if a specific day is shown, or YYYY-MM-01 if only a month/period is shown>, "spend": <numeric spend/cost, no currency symbols or commas>, "impressions": <numeric, 0 if not shown>, "clicks": <numeric, 0 if not shown>}\n\nReturn ONLY a JSON array of these objects, no markdown fences, no explanation. If a table has a grand-total row, skip it — only extract individual line items. If you can't confidently read any spend data, return [].`;
-        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...authHeader(session)},body:JSON.stringify({
           messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:prompt}]}],
           maxTokens:4000,
         })});
@@ -1361,7 +1361,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     };
     reader.onerror=()=>{setScreenshotError("Could not read image file");setScreenshotProcessing(false);};
     reader.readAsDataURL(file);
-  },[]);
+  },[session]);
   const handleScreenshotDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleScreenshotFile(f);},[handleScreenshotFile]);
   const confirmScreenshotImport=useCallback(()=>{
     if(!canEdit)return;
@@ -1649,7 +1649,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         if(!m)throw new Error("Could not read image file");
         const[,mediaType,base64]=m;
         const prompt=`You are extracting a campaign-tagging table from a screenshot of a spreadsheet (Google Sheets, Excel, or similar). It has a header row naming each column — things like "Campaign", "Campaign Group", and various tagging dimensions such as "Product", "Region", or "Funnel" — and one data row per campaign.\n\nRead the header row exactly as shown, then for each data row output an object keyed by those exact header names, e.g. {"Campaign":"...", "Campaign Group":"...", "Product":"...", ...}. Use "" for any empty cell.\n\nReturn ONLY a JSON array of these row objects — no markdown fences, no explanation.`;
-        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...authHeader(session)},body:JSON.stringify({
           messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:prompt}]}],
           maxTokens:4000,
         })});
@@ -1667,7 +1667,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     };
     reader.onerror=()=>{setTagScreenshotError("Could not read image file");setTagScreenshotImporting(false);};
     reader.readAsDataURL(file);
-  },[applyTagRowsFromRecords]);
+  },[applyTagRowsFromRecords,session]);
   // Google Sheets manual connect for tags — same idea as the Budget import's version, but converts
   // the fetched raw grid into {header:true}-shaped row objects (row 0 = headers) since
   // applyTagRowsFromRecords expects that shape, same as Papa.parse's CSV output. Connection logic
@@ -3395,11 +3395,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           other three tabs' chunks are. */}
       <div style={{display:view==="budget"?"contents":"none"}}>
         <Suspense fallback={<TabLoadingFallback/>}>
-        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
+        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} session={session} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
         </Suspense>
       </div>
-      {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)}/></Suspense>}
-      {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}}/></Suspense>}
+      {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)}/></Suspense>}
+      {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}}/></Suspense>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);

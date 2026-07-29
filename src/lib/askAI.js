@@ -335,8 +335,8 @@ export function askAIExecuteTool(toolName,input,ctx){
 // mid-stream failure, e.g. an overload — surfaced by throwing rather than silently truncating the
 // answer). onTextDelta, if given, is called with the CURRENT ROUND's full accumulated text after
 // every text delta — the caller (AskAI.jsx) shows this live instead of a static "Thinking…".
-async function streamAnalyze({messages,system,tools,maxTokens,model,signal,onTextDelta}){
-  const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools,maxTokens,model,stream:true}),signal});
+async function streamAnalyze({messages,system,tools,maxTokens,model,signal,onTextDelta,token}){
+  const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({messages,system,tools,maxTokens,model,stream:true}),signal});
   if(!res.ok){
     const data=await res.json().catch(()=>({}));
     throw new Error(data?.error||"Ask AI request failed");
@@ -418,8 +418,11 @@ export const ASK_AI_MAX_ROUNDS=6;
 // checked" trace under the response instead of the tool loop being entirely invisible. usage sums
 // input/output tokens across every round this turn actually took (a tool-calling turn is several
 // separate Anthropic requests, not one), so the UI can show one honest total per chat message
-// rather than just the final round's count.
-export async function askAIRun({question,history,ctx,model,signal,onTextDelta}){
+// rather than just the final round's count. token (2026-07-29, per the workspace-siloing review —
+// /api/analyze now requires a valid Supabase Bearer token, see that file's doc comment) is the
+// caller's session.access_token, forwarded straight through to streamAnalyze; passing none here
+// isn't a silent no-op, it's a guaranteed 401 from the API now that auth is required there.
+export async function askAIRun({question,history,ctx,model,signal,onTextDelta,token}){
   const today=new Date().toISOString().slice(0,10);
   const hasBudgets=(ctx.budgetDims||[]).length>0;
   const system=`You are answering questions about the user's paid-media budget and spend data inside BudgetHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures). For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image. If the user attached a CSV/spreadsheet file, its content appears as plain text context below the question, clearly marked — that data is NOT part of the workspace's real budget/spend data (it was never imported), so don't call query_spend/query_budget/query_pacing expecting to find it; just read and reason about the attached text directly, and say so if the question seems to assume it was imported. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
@@ -427,7 +430,7 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta}){
   const steps=[];
   const usage={inputTokens:0,outputTokens:0};
   for(let round=0;round<ASK_AI_MAX_ROUNDS;round++){
-    const data=await streamAnalyze({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200,model,signal,onTextDelta});
+    const data=await streamAnalyze({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200,model,signal,onTextDelta,token});
     usage.inputTokens+=data.usage.input_tokens||0;
     usage.outputTokens+=data.usage.output_tokens||0;
     if(data.stop_reason!=="tool_use"){
@@ -486,13 +489,13 @@ export const APPLY_VIEW_TOOL={
 // asking a clarifying question, or explaining it can't do something) is surfaced as an error the
 // caller shows inline rather than silently applying nothing.
 export const ASK_AI_VIEW_MAX_ROUNDS=4;
-export async function askAIBuildView({question,ctx}){
+export async function askAIBuildView({question,ctx,token}){
   const hasBudgets=(ctx.budgetDims||[]).length>0;
   const system=`You configure the Reporting & Pacing tab's "View by" table from a plain-English request. Tag dimensions: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available too — derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the ONLY ones usable for mode="budget" grouping/filters/status): ${ctx.budgetDims.join(", ")}. If the user wants to filter or group by something outside that list, use mode="custom" instead (include the dimension in dims).`:"No Budget By dimensions are set up yet, so mode=\"budget\" has nothing to group by — use mode=\"custom\" for anything about spend by dimension."} When the user names a value casually (e.g. "meta" or "emea"), call list_dimension_values first to confirm the exact stored spelling before filtering — filters must match exactly, not a substring. For requests with a numeric condition ("daily burn over $500", "pacing above 100%", "spend under $10,000", "projected to blow past budget"), use apply_view's numeric_filters param — do NOT try to express a numeric condition via the plain-text filters map, which only does exact string equality. Call apply_view exactly once, as your final action.`;
   const tools=[ASK_AI_TOOLS[0],ASK_AI_TOOLS[1],APPLY_VIEW_TOOL]; // list_tag_dimensions, list_dimension_values, apply_view
   const messages=[{role:"user",content:question}];
   for(let round=0;round<ASK_AI_VIEW_MAX_ROUNDS;round++){
-    const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,system,tools,maxTokens:800})});
+    const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({messages,system,tools,maxTokens:800})});
     const data=await res.json();
     if(!res.ok)throw new Error(data?.error||"Ask AI request failed");
     const applyBlock=(data.content||[]).find(b=>b.type==="tool_use"&&b.name==="apply_view");
@@ -584,7 +587,7 @@ export function aiConfigToViewConfig(raw,{allDimOptions,budgetDims}){
 // the "same every time" complaint that prompted this change. The Budget Panel (mode==="budget")
 // doesn't have this per-view concept — it's a fixed monthly/quarterly/annual grid, not a tab you
 // reconfigure — so it keeps its original always-annual behavior via the `else` branch below.
-export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view}){
+export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view,token}){
   let payload,focus;
   if(mode==="pacing"&&view){
     const{viewMode,periodLabel,dims,segments,totals,expectedPct,daysRemaining,statusFilter,segFilters,numericFilters,trend,trendFilterDim,trendFilterValue,trendSeriesDim}=view;
@@ -683,7 +686,7 @@ export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,bu
     focus="This is for the Budget Panel (where budgets are set up), so focus on budget SETUP and coverage: how many segments are budgeted, the total budgeted amount, and flag segmentsWithBudgetButNoSpendDataYet as a likely tagging gap worth checking (a segment has a budget but no matching spend rows yet). segmentsCapacityConstrained are behind-pace segments whose impressions haven't grown recently despite budget headroom — a signal more budget likely won't fix them; mention only if non-zero.";
   }
   const system=`You are writing a short summary for a paid-media budget dashboard called BudgetHQ. Below is pre-computed JSON data — it is already correct, do not recompute or second-guess any numbers, just narrate them. Write 3-5 sentences of plain prose (no markdown headers, no bullet lists), citing the real figures. If a list is empty, don't dwell on it. ${focus}`;
-  const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:[{role:"user",content:JSON.stringify(payload)}],system,maxTokens:400})});
+  const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({messages:[{role:"user",content:JSON.stringify(payload)}],system,maxTokens:400})});
   const data=await res.json();
   if(!res.ok)throw new Error(data?.error||"Summary request failed");
   return data.text||"(no response)";

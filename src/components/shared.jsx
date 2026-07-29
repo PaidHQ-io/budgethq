@@ -465,17 +465,17 @@ export const InfoTip=({T,text,size=13,width=320})=>(
 // Reporting & Pacing tabs. Owns its own idle/loading/done/error state so each tab gets an
 // independent summary rather than sharing one across navigation.
 // each tab gets an independent summary rather than sharing one across navigation.
-export function AISummaryCard({T,mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view}){
+export function AISummaryCard({T,session,mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view}){
   const[state,setState]=useState({status:"idle",text:"",error:""});
   const run=useCallback(async()=>{
     setState({status:"loading",text:"",error:""});
     try{
-      const text=await aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view});
+      const text=await aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view,token:session?.access_token});
       setState({status:"done",text,error:""});
     }catch(err){
       setState({status:"error",text:"",error:err.message||"Summary failed"});
     }
-  },[mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view]);
+  },[mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view,session]);
 
   // The Budget Panel has nothing to summarize until a budget structure exists. The Reporting &
   // Pacing tab's Custom/Trend views don't need budgetDims at all (they group by whatever dimensions

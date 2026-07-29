@@ -25,9 +25,11 @@ export const CONNECTORS = {
   meta:     { getSpend: metaSpend,     ...metaMeta     },
   bing:     { getSpend: bingSpend,     ...bingMeta     },
   capterra: { getSpend: capterraSpend, ...capterraMeta },
-  // funnel/supermetrics differ from every connector above: `perWorkspaceAuth: true` (see their
-  // meta exports) means /api/spend.js looks up a credential from core.connector_credentials
-  // for the calling workspace instead of reading a shared process.env var — see spend.js.
+  // Every connector here is `perWorkspaceAuth: true` (see each one's meta export, as of
+  // google.js's 2026-07-25 per-workspace OAuth) — /api/spend.js looks up a credential from
+  // core.connector_credentials for the calling workspace instead of reading a shared
+  // process.env var, and confirms the caller actually belongs to that workspace first. This used
+  // to only be true of funnel/supermetrics, hence the naming below, but it's now every connector.
   funnel:       { getSpend: funnelSpend,       ...funnelMeta       },
   supermetrics: { getSpend: supermetricsSpend, ...supermetricsMeta },
 };

@@ -153,7 +153,7 @@ const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
   );
 };
 
-export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,onNavigate,sidebarEl,canEdit=true,onAskAboutView,initialViewConfig,onConsumeInitialViewConfig}){
+export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,session,onNavigate,sidebarEl,canEdit=true,onAskAboutView,initialViewConfig,onConsumeInitialViewConfig}){
   const now=new Date();
   const yr=now.getFullYear();
   const[year,setYear]=useState(yr.toString());
@@ -310,7 +310,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     if(!q)return;
     setAiViewLoading(true);setAiViewError("");
     try{
-      const raw=await askAIBuildView({question:q,ctx:{mergedNormRows,tags:campaignTags,tagDims:tagDimensions,budgetDims,budgets,budgetRowMeta}});
+      const raw=await askAIBuildView({question:q,ctx:{mergedNormRows,tags:campaignTags,tagDims:tagDimensions,budgetDims,budgets,budgetRowMeta},token:session?.access_token});
       const canonical=aiConfigToViewConfig(raw,{allDimOptions,budgetDims});
       applyViewConfig(canonical);
       setAiViewOpen(false);setAiViewQuestion("");
@@ -620,7 +620,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
 
       {/* Segment table */}
       <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
-        <AISummaryCard T={T} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} mode="pacing"
+        <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} mode="pacing"
           view={{
             viewMode,
             periodLabel,
