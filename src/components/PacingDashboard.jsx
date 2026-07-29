@@ -763,7 +763,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <Btn onClick={bulkDeleteSegments} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
             </div>
           )}
-          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13}}>
+          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13,background:T.surface}}>
             <thead><tr>
               <th style={{...TH,width:20}}/>
               <th style={{...TH,width:32}}>
@@ -776,7 +776,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <th style={TH}>Expected</th>
               <th style={TH}>Daily Burn</th>
               <th style={TH}>Projected</th>
-              <th style={{...TH,minWidth:170}}>Status</th>
+              <th style={{...TH,minWidth:200}}>Status</th>
               <th style={TH}/>
             </tr></thead>
             <tbody>
@@ -788,7 +788,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const isSel=selRows.has(seg.segKey);
                 const label=budgetDims.map((d,i)=>seg.dims[i]).join(" · ");
                 const isExpanded=breakdownDim&&expandedRows.has(seg.segKey);
-                const rowBg=isSel?T.rowSelected:"transparent";
+                const rowBg=isSel?T.rowSelected:T.surface;
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
                   <tr key={seg.segKey} className={isSel?undefined:"bhq-tr"} style={{background:rowBg}}>
@@ -836,7 +836,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                       </div>
                       {seg.projectedVariance!=null&&<div style={{fontSize:13,color:seg.projectedVariance>0?T.danger:T.success,fontFamily:"'DM Sans',sans-serif"}}>{fmtSigned(seg.projectedVariance)}</div>}
                     </td>
-                    <td style={{padding:"8px 14px",borderBottom:rbb,minWidth:170}}>
+                    <td style={{padding:"8px 14px",borderBottom:rbb,minWidth:200}}>
                       <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,whiteSpace:"nowrap"}}>{meta.label}</Pill>
                       {/* Capacity-vs-budget signal (item 45) — see detectCapacitySignal's doc
                           comment. Only ever shown for the "constrained" case; "growing" and null
@@ -852,12 +852,15 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                           the table) — picking anything else here is an explicit per-row override,
                           highlighted so it's obvious which rows deviate from the workspace default.
                           Manual shows a second, narrower trailing-days input right below the select
-                          — kept as two stacked controls rather than crammed onto one line, there
-                          just isn't 118px of row width to fit both side by side. */}
-                      <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:2,maxWidth:118}}>
+                          — kept as two stacked controls rather than crammed onto one line. Container
+                          widened to 168px (2026-07-28, per Mo — the old 118px cap clipped the native
+                          dropdown arrow off the right edge of the "Use global (Auto)" option since
+                          the text alone almost filled the box) and the select truncates with an
+                          ellipsis + full text in its title tooltip if a label is still too long. */}
+                      <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:2,maxWidth:168}}>
                         <select value={forecastModeOf(getForecastModelOverride(seg.segKey))} onChange={e=>setForecastModelMode(seg.segKey,e.target.value)} disabled={!canEdit}
                           title={`Forecast model — how this segment's spend is projected across the period. Currently: ${forecastModelLabel(getEffectiveForecastModel(seg.segKey))}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
-                          style={{display:"block",fontSize:13,color:getForecastModelOverride(seg.segKey)?T.accent:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.accentBg:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.accentBorder:T.border}`,borderRadius:5,padding:"1px 3px",cursor:canEdit?"pointer":"default",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+                          style={{display:"block",width:"100%",boxSizing:"border-box",fontSize:13,color:getForecastModelOverride(seg.segKey)?T.accent:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.accentBg:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.accentBorder:T.border}`,borderRadius:5,padding:"2px 4px",cursor:canEdit?"pointer":"default",fontFamily:"'DM Sans',sans-serif",outline:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                           <option value={FORECAST_MODEL_INHERIT}>Use global ({forecastModelLabel(defaultForecastModel)})</option>
                           <option value="auto">Auto</option>
                           <option value="committed">Committed</option>
@@ -967,7 +970,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             </Sel>
             <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredCustomSegments.length} of {customPacing.segments.length} groups</span>
           </div>
-          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13}}>
+          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13,background:T.surface}}>
             <thead><tr>
               <th style={{...TH,width:20}}/>
               {customDims.map(d=><th key={d} style={{...TH,...(d==="Product"?{maxWidth:110}:d==="Module"?{maxWidth:140}:{})}}>{d}</th>)}
@@ -1070,7 +1073,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               </div>
             )}
           </PixelPanel>
-          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13,marginTop:16}}>
+          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13,marginTop:16,background:T.surface}}>
             <thead><tr>
               <th style={TH}>{trendSeriesDim||"Month"}</th>
               {trendData.months.map(m=><th key={m.key} style={TH}>{m.label}</th>)}

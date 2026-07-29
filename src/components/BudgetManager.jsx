@@ -1099,7 +1099,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
               <Btn onClick={bulkDeleteSelected} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
             </div>
           )}
-          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
+          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12,background:T.surface}}>
             <thead><tr>
               <th style={{...TH,width:32,padding:"15px 8px 9px 16px",position:"sticky",left:0,zIndex:4,background:T.headerBg}}>
                 <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title="Select all rows — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -1119,12 +1119,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,onAd
                   <span onClick={()=>{clearSegFilters();setHideNotBudgeted(false);}} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>{hideNotBudgeted&&!hasSegFilters?"Show them":"Clear filters"}</span>
                 </td></tr>
               )}
-              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb="transparent";const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
+              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=T.surface;const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
                 <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
-                  <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:T.bg,zIndex:1}}>
+                  <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:rb,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   </td>
-                  {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:rbb,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:T.bg,zIndex:1,whiteSpace:"nowrap"}}>
+                  {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:rbb,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:rb,zIndex:1,whiteSpace:"nowrap"}}>
                     {DERIVED_DIMS.includes(d)?(
                       // Derived, not stored — renaming here would only relabel the budget row
                       // while spend keeps resolving to the original channel name, silently
