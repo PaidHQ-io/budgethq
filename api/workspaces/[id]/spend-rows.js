@@ -53,6 +53,7 @@ const toCamel = (r) => ({
   impressions: Number(r.impressions),
   clicks: Number(r.clicks),
   source: r.source,
+  is_monthly: r.is_monthly,
 });
 
 // Date normalization + row->column transposition now live in lib/spendRowsColumns.js — see that
@@ -92,11 +93,12 @@ export default withApi(async (req, res) => {
       await sql`
         insert into core.spend_rows
           (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
-           date, as_of_date, spend, impressions, clicks, source)
+           date, as_of_date, spend, impressions, clicks, source, is_monthly)
         select ${workspaceId}, * from unnest(
           ${c.campaign_group_name}::text[], ${c.campaign_name}::text[], ${c.campaign_id}::text[],
           ${c.platform}::text[], ${c.campaign_type}::text[], ${c.date}::date[], ${c.as_of_date}::date[],
-          ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[]
+          ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[],
+          ${c.is_monthly}::boolean[]
         )
       `;
     }
@@ -134,11 +136,12 @@ export default withApi(async (req, res) => {
         ? [tx`
             insert into core.spend_rows
               (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
-               date, as_of_date, spend, impressions, clicks, source)
+               date, as_of_date, spend, impressions, clicks, source, is_monthly)
             select ${workspaceId}, * from unnest(
               ${c.campaign_group_name}::text[], ${c.campaign_name}::text[], ${c.campaign_id}::text[],
               ${c.platform}::text[], ${c.campaign_type}::text[], ${c.date}::date[], ${c.as_of_date}::date[],
-              ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[]
+              ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[],
+              ${c.is_monthly}::boolean[]
             )
           `]
         : []),

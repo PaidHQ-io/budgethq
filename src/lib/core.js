@@ -813,12 +813,26 @@ export function computePlatformFreshness(mergedNormRows){
 // reasonable simplification — revisit if a specific segment's real pattern turns out to diverge
 // meaningfully from its platform's overall shape (e.g. a B2B-only campaign on a platform whose
 // other campaigns skew consumer/weekend-heavy).
+//
+// EXCLUDES is_monthly rows entirely (2026-07-30, per Mo — the "DOW-seasonality contamination"
+// gap): a monthly-grain CSV/screenshot upload lands as ONE row dated to the 1st of that month,
+// holding the FULL MONTH's spend — nothing spreads/prorates it across real days. Counting that row
+// into a single weekday's bucket the way a real day's row is counted would make "$50k really spent
+// across 30 days" look like "$50k spent on one Wednesday," badly inflating whichever weekday that
+// row's date happens to fall on. This matters most for a platform that's mixed-history — some
+// months manually uploaded before it was ever connected, then live-synced (real daily rows) after
+// — since the index is computed from ALL history, not scoped to one period, so old monthly-grain
+// rows would otherwise permanently skew that platform's learned weekly shape even long after
+// real daily data starts flowing in. A platform with ONLY monthly-grain rows (no real daily data
+// at all) simply won't accumulate any trusted weekday samples here — it falls back to the neutral
+// default (1 for every day) below, which is the correct, safe behavior for that case too.
 export const DOW_MIN_SAMPLES=3; // need at least this many distinct historical occurrences of a weekday
                           // before trusting an index computed from it — otherwise neutral (1).
 export const DOW_INDEX_CLAMP=[0.25,3]; // one outlier historical day can't swing the index past this range
 export function computePlatformDayOfWeekIndex(mergedNormRows){
   const sums={}; // {platform: [{total,days:Set<dateStr>} x7]}, index 0=Sunday..6=Saturday (Date#getDay)
   (mergedNormRows||[]).forEach(row=>{
+    if(row.is_monthly)return; // see EXCLUDES doc comment above
     const d=parseSpendDate(row.date);
     if(!d)return;
     const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);

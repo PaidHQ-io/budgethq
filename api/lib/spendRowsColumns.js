@@ -69,5 +69,12 @@ export function toColumns(rows) {
     impressions: valid.map((r) => r.impressions || 0),
     clicks: valid.map((r) => r.clicks || 0),
     source: valid.map((r) => r.source || null),
+    // Whole-month-total-as-one-row marker (2026-07-30) — see core.spend_rows' is_monthly doc
+    // comment in paidhq-core/db/schema.sql (the shared table's schema lives there, not here). Set
+    // client-side at CSV/screenshot import time (BudgetHQ.jsx) when the "one row per month"
+    // checkbox is on; false/absent for everything else, including every synced row. Kept here in
+    // sync with paidhq-core's identical copy of this file so both writers agree on spend_rows'
+    // column shape.
+    is_monthly: valid.map((r) => !!r.is_monthly),
   };
 }

@@ -1403,9 +1403,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     // Same as_of_date attachment as the CSV path's withAsOf (2026-07-30, per Mo — this is the
     // actual fix: without it, a monthly screenshot's freshness fell back to the row's own date,
     // the 1st of the month, reading as stale immediately instead of "current as of today/whenever
-    // the screenshot was taken").
+    // the screenshot was taken"). is_monthly rides along too, same as the CSV path — closes the
+    // DOW-seasonality contamination gap for screenshot imports as well.
     const rowsToImport=screenshotIsMonthly&&screenshotAsOf
-      ?screenshotPreview.map(r=>({...r,as_of_date:screenshotAsOf}))
+      ?screenshotPreview.map(r=>({...r,as_of_date:screenshotAsOf,is_monthly:true}))
       :screenshotPreview;
     setMergedNormRows(prev=>mergeRows(prev,rowsToImport));
     checkpoint(`Imported spend data from screenshot — ${screenshotFileName||"image"} (${rowsToImport.length} rows)`,"tagger_import");
@@ -3238,7 +3239,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 if(!canEdit)return;
                 const norm=normalizeRows(rawRows,colMap);
                 const withPlatform=uploadPlatform==="auto"?norm:norm.map(r=>({...r,platform:uploadPlatform}));
-                const withAsOf=uploadAsOf?withPlatform.map(r=>({...r,as_of_date:uploadAsOf})):withPlatform;
+                // is_monthly rides along with as_of_date (2026-07-30, per Mo — closes the DOW-
+                // seasonality contamination gap: without this, computePlatformDayOfWeekIndex had
+                // no way to tell a real day's spend apart from a whole month's total sitting on
+                // one row, and would learn a skewed weekly pattern from it).
+                const withAsOf=uploadAsOf?withPlatform.map(r=>({...r,as_of_date:uploadAsOf,...(uploadIsMonthly?{is_monthly:true}:{})})):withPlatform;
                 const fileLabel=fileName||"CSV";
                 const conflicts=detectSpendConflicts(mergedNormRows,withAsOf);
                 if(conflicts.length){
