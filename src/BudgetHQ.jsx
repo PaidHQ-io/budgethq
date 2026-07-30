@@ -3130,6 +3130,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     style={{background:T.inputBg,border:`1px solid ${screenshotIsMonthly&&!screenshotAsOf?T.dangerBorder:T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                 </div>
               )}
+              {/* Soft nudge, not a requirement (2026-07-30, per Mo) — monthly-grain data is fully
+                  supported (pacing/forecasting handle it correctly), this is purely an FYI for
+                  anyone who happens to have a per-day option and didn't realize it'd help. Never
+                  blocks or requires anything — screenshots of monthly-only sources (a client's
+                  monthly report, an exec dashboard) are a completely normal, supported case. */}
+              {screenshotIsMonthly&&(
+                <div style={{marginTop:8,fontSize:11,color:T.textMuted}}>💡 For a smoother day-by-day Trend view later, a per-day export or screenshot works even better than monthly — but monthly totals work fine too if that's what's available.</div>
+              )}
             </PixelPanel>
             <div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>
               ✓ <strong>{screenshotPreview.length}</strong> rows · <strong>{fmt$(screenshotPreview.reduce((s,r)=>s+r.spend,0))}</strong> total spend — this was read by AI and may contain mistakes, double-check against the source before confirming.
@@ -3213,6 +3221,15 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                     <input type="date" value={uploadAsOf} onChange={e=>setUploadAsOf(e.target.value)}
                       style={{background:T.inputBg,border:`1px solid ${uploadIsMonthly&&!uploadAsOf?T.dangerBorder:T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
                   </div>
+                )}
+                {/* Soft nudge, not a requirement (2026-07-30, per Mo) — monthly-grain data is fully
+                    supported (pacing/forecasting handle it correctly), this is purely an FYI for
+                    anyone who happens to have a per-day export option and didn't realize it'd
+                    help. Never blocks or requires anything — monthly-only sources (an agency's
+                    monthly report, a platform whose manual export only rolls up to month) are a
+                    completely normal, supported case. */}
+                {uploadIsMonthly&&(
+                  <div style={{marginTop:8,fontSize:11,color:T.textMuted}}>💡 For a smoother day-by-day Trend view later, a per-day export works even better than monthly — but monthly totals work fine too if that's what's available.</div>
                 )}
               </div>
               {[...REQUIRED_COLS,...OPTIONAL_COLS].map((field,i)=>{

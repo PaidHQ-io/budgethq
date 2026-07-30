@@ -1216,6 +1216,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             {trendData.budgetFilterNote&&(
               <div style={{marginTop:8,fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{trendData.budgetFilterNote}</div>
             )}
+            {trendData.spendProrationNote&&(
+              <div style={{marginTop:8,fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{trendData.spendProrationNote}</div>
+            )}
           </PixelPanel>
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13,marginTop:16,background:T.surface}}>
             <thead><tr>

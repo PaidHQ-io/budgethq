@@ -1366,16 +1366,30 @@ function buildTrendPeriods(grain,start,end){
 // something else (e.g. a tag dimension that isn't part of the budget structure) falls back to an
 // unfiltered total budget, flagged via the returned budgetFilterNote so the UI can say so instead
 // of silently showing a number that doesn't match the spend filter.
+//
+// SPEND PRORATION at day/week grain (2026-07-30, per Mo): a row flagged is_monthly (see
+// core.spend_rows' doc comment) holds a WHOLE MONTH's total dated to the 1st of that month — with
+// no spreading, it showed up as a single spike on one day/week and zero everywhere else in that
+// month, a misleading sawtooth rather than a trend. Below, any is_monthly row is spread evenly
+// across every real calendar day of its month for DISPLAY here only (the stored row itself is
+// untouched, and this has no effect at month/quarter/year grain, where the row's real total already
+// lands in the correct single bucket with no approximation needed). Same "prorate, but be honest
+// about it" approach already used for budgetValues just below — surfaced via the returned
+// spendProrationNote so the UI can label the day/week chart as approximate for affected platforms
+// instead of presenting it as real per-day data. Forcing users to always have real daily-grain
+// source data isn't realistic (many manual exports and dashboard screenshots are monthly rollups by
+// nature, not by choice), so this is the trade-off: an honestly-labeled approximation instead of
+// either a misleading spike or refusing to show a trend at all.
 export function computeSpendTrend({mergedNormRows,tags,filterDim,filterValue,seriesDim,start,end,grain="month",budgets,budgetDims}){
   const periods=buildTrendPeriods(grain,start,end);
   const periodIndex=Object.fromEntries(periods.map((p,i)=>[p.key,i]));
   const seriesMap={};
   const fv=(filterValue||"").trim().toLowerCase();
+  const prorateMonthly=grain==="day"||grain==="week";
+  let hasProratedRows=false;
   (mergedNormRows||[]).forEach(row=>{
     const d=parseSpendDate(row.date);
-    if(!d||d<start||d>end)return;
-    const pi=periodIndex[trendBucketKey(grain,d)];
-    if(pi==null)return; // outside the selected range
+    if(!d)return;
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
     if(filterDim&&fv){
       const val=(resolveDimValue(row,rowTags,filterDim)||"").toLowerCase();
@@ -1383,12 +1397,38 @@ export function computeSpendTrend({mergedNormRows,tags,filterDim,filterValue,ser
     }
     const bval=seriesDim?(resolveDimValue(row,rowTags,seriesDim)||"Untagged"):"Spend";
     if(!seriesMap[bval])seriesMap[bval]=new Array(periods.length).fill(0);
-    seriesMap[bval][pi]+=row.spend||0;
+    if(prorateMonthly&&row.is_monthly){
+      // Spread across the month's real days rather than gating on the row's OWN date being inside
+      // [start,end] (a monthly row dated to the 1st can still have days later in its month fall
+      // inside a window that starts mid-month) — each individual day is checked against the range
+      // instead.
+      const y=d.getFullYear(),m=d.getMonth();
+      const daysInMonth=new Date(y,m+1,0).getDate();
+      const perDay=(row.spend||0)/daysInMonth;
+      let touchedAny=false;
+      for(let day=1;day<=daysInMonth;day++){
+        const dd=new Date(y,m,day);
+        if(dd<start||dd>end)continue;
+        const pi=periodIndex[trendBucketKey(grain,dd)];
+        if(pi==null)continue;
+        seriesMap[bval][pi]+=perDay;
+        touchedAny=true;
+      }
+      if(touchedAny)hasProratedRows=true;
+    }else{
+      if(d<start||d>end)return;
+      const pi=periodIndex[trendBucketKey(grain,d)];
+      if(pi==null)return; // outside the selected range
+      seriesMap[bval][pi]+=row.spend||0;
+    }
   });
   const series=Object.entries(seriesMap)
     .map(([label,values])=>({label,values,total:values.reduce((s,v)=>s+v,0)}))
     .sort((a,b)=>b.total-a.total);
   const periodTotals=periods.map((_,i)=>series.reduce((s,ser)=>s+ser.values[i],0));
+  const spendProrationNote=hasProratedRows
+    ?"Some platforms here only report monthly totals, not real per-day numbers. At Day/Week grain, those are spread evenly across each month's real days for this chart — an approximation, not real daily data."
+    :null;
 
   let budgetValues=null;
   let budgetFilterNote=null;
@@ -1445,7 +1485,7 @@ export function computeSpendTrend({mergedNormRows,tags,filterDim,filterValue,ser
     }
   }
 
-  return{periods,series,periodTotals,budgetValues,budgetFilterNote,grandTotal:periodTotals.reduce((s,v)=>s+v,0)};
+  return{periods,series,periodTotals,budgetValues,budgetFilterNote,spendProrationNote,grandTotal:periodTotals.reduce((s,v)=>s+v,0)};
 }
 
 export function pacingStatusMeta(status,T){
