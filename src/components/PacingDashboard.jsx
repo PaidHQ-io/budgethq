@@ -47,17 +47,36 @@ Committed: skips projection entirely — treats the budget as a known lump sum a
 
 const TREND_COLORS=["#F97316","#3B82F6","#10B981","#8B5CF6","#EC4899","#F59E0B","#06B6D4"];
 // Grouped bar chart (2026-07-30, per Mo — replaces the old line-chart TrendLineChart so Budget can
-// sit alongside each spend series as its own bar per period). Width is computed from the bucket
-// count rather than fixed at 720, since day/week grain over a many-month range can mean hundreds
-// of buckets — the caller wraps this in a horizontally-scrollable container so it never squeezes
-// bars down to unreadable slivers.
+// sit alongside each spend series as its own bar per period; widened to fill the panel on 2026-07-30
+// per Mo's follow-up, since a fixed pixel width left the common month/quarter/year case looking
+// cramped against the left edge of a much wider panel).
+//
+// Two layout modes depending on bucket count:
+// - Typical case (<=24 buckets — a two-year month view, a multi-year quarter/year view, or even a
+//   few weeks of day-grain): bars are sized to fill the full panel width responsively, same as the
+//   old line chart's width:"100%" behavior, so it never looks stranded on the left.
+// - Dense case (>24 buckets — day/week grain over a multi-month range can mean hundreds of
+//   buckets): bars get a fixed minimum pixel width instead of being squeezed to invisible slivers,
+//   and the chart becomes horizontally scrollable so it stays legible.
 const TrendBarChart=({T,periods,series,budgetValues})=>{
   const H=230,padL=56,padB=34,padT=12,padR=16;
-  const barW=14,barGap=3,groupGap=18;
+  const barGap=3;
   const barsPerGroup=Math.max(1,series.length+(budgetValues?1:0));
-  const groupWidth=barsPerGroup*barW+(barsPerGroup-1)*barGap;
-  const plotW=periods.length*groupWidth+Math.max(0,periods.length-1)*groupGap;
-  const W=Math.max(720,padL+padR+plotW);
+  const n=Math.max(1,periods.length);
+  const dense=n>24;
+  let W,plotW,groupWidth,groupGap,barW;
+  if(dense){
+    barW=14;groupGap=18;
+    groupWidth=barsPerGroup*barW+(barsPerGroup-1)*barGap;
+    plotW=n*groupWidth+Math.max(0,n-1)*groupGap;
+    W=padL+padR+plotW;
+  }else{
+    W=720; // viewBox reference only — actual rendered size stretches to 100% of the panel below
+    plotW=W-padL-padR;
+    groupGap=Math.min(18,(plotW/n)*0.3);
+    groupWidth=Math.max(6,plotW/n-groupGap);
+    barW=Math.max(2,(groupWidth-(barsPerGroup-1)*barGap)/barsPerGroup);
+  }
   const plotH=H-padT-padB;
   const maxY=Math.max(1,...(budgetValues||[]),...series.flatMap(s=>s.values));
   const yFor=v=>padT+plotH-(v/maxY)*plotH;
@@ -67,46 +86,45 @@ const TrendBarChart=({T,periods,series,budgetValues})=>{
   // one label each (a 6-month day view is ~180 groups) — thin the x-axis labels out to roughly
   // one every 28px instead of cramming every single one in and rendering them unreadable.
   const labelStep=Math.max(1,Math.ceil(28/(groupWidth+groupGap)));
-  return(
-    <div style={{overflowX:"auto"}}>
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} style={{height:"auto",display:"block"}}>
-        {yTicks.map((t,i)=>{
-          const y=yFor(t);
-          return(
-            <g key={i}>
-              <line x1={padL} y1={y} x2={W-padR} y2={y} stroke={T.border} strokeWidth={1}/>
-              <text x={padL-8} y={y+3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(t)}</text>
-            </g>
-          );
-        })}
-        {periods.map((p,pi)=>{
-          const groupX=padL+pi*(groupWidth+groupGap);
-          let barX=groupX;
-          const bars=[];
-          if(budgetValues){
-            const v=budgetValues[pi]||0;
-            const h=(v/maxY)*plotH;
-            bars.push(<rect key="budget" x={barX} y={padT+plotH-h} width={barW} height={h} fill={T.textMuted} opacity={0.35} rx={2}/>);
-            barX+=barW+barGap;
-          }
-          series.forEach((s,si)=>{
-            const v=s.values[pi]||0;
-            const h=(v/maxY)*plotH;
-            bars.push(<rect key={s.label} x={barX} y={padT+plotH-h} width={barW} height={h} fill={TREND_COLORS[si%TREND_COLORS.length]} rx={2}/>);
-            barX+=barW+barGap;
-          });
-          return(
-            <g key={p.key}>
-              {bars}
-              {pi%labelStep===0&&(
-                <text x={groupX+groupWidth/2} y={H-10} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{p.label}</text>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-    </div>
+  const chart=(
+    <svg viewBox={`0 0 ${W} ${H}`} {...(dense?{width:W}:{})} style={{width:dense?undefined:"100%",height:"auto",display:"block"}}>
+      {yTicks.map((t,i)=>{
+        const y=yFor(t);
+        return(
+          <g key={i}>
+            <line x1={padL} y1={y} x2={W-padR} y2={y} stroke={T.border} strokeWidth={1}/>
+            <text x={padL-8} y={y+3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(t)}</text>
+          </g>
+        );
+      })}
+      {periods.map((p,pi)=>{
+        const groupX=padL+pi*(groupWidth+groupGap);
+        let barX=groupX;
+        const bars=[];
+        if(budgetValues){
+          const v=budgetValues[pi]||0;
+          const h=(v/maxY)*plotH;
+          bars.push(<rect key="budget" x={barX} y={padT+plotH-h} width={barW} height={h} fill={T.textMuted} opacity={0.35} rx={2}/>);
+          barX+=barW+barGap;
+        }
+        series.forEach((s,si)=>{
+          const v=s.values[pi]||0;
+          const h=(v/maxY)*plotH;
+          bars.push(<rect key={s.label} x={barX} y={padT+plotH-h} width={barW} height={h} fill={TREND_COLORS[si%TREND_COLORS.length]} rx={2}/>);
+          barX+=barW+barGap;
+        });
+        return(
+          <g key={p.key}>
+            {bars}
+            {pi%labelStep===0&&(
+              <text x={groupX+groupWidth/2} y={H-10} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{p.label}</text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
   );
+  return dense?<div style={{overflowX:"auto"}}>{chart}</div>:chart;
 };
 
 const PacingBar=({actualPct,expectedPct,status,T})=>{
@@ -1195,9 +1213,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           </PixelPanel>
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13,marginTop:16,background:T.surface}}>
             <thead><tr>
-              <th style={TH}>{trendSeriesDim||"Period"}</th>
-              {trendData.periods.map(p=><th key={p.key} style={TH}>{p.label}</th>)}
-              <th style={TH}>Total</th>
+              <th style={{...TH,textAlign:"left"}}>{trendSeriesDim||"Period"}</th>
+              {trendData.periods.map(p=><th key={p.key} style={{...TH,textAlign:"right"}}>{p.label}</th>)}
+              <th style={{...TH,textAlign:"right"}}>Total</th>
             </tr></thead>
             <tbody>
               {trendData.budgetValues&&(

@@ -273,7 +273,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
 
   return (
     <div onPaste={handlePaste} style={{ padding: 28, maxWidth: 1100, margin: "0 auto", fontFamily: "'DM Sans',sans-serif", overflow: "auto", height: "100%", boxSizing: "border-box" }}>
-      <SectionLabel T={T}>Reporting Analyzer</SectionLabel>
+      <SectionLabel T={T}>Performance Intelligence</SectionLabel>
       <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>Import Dreamdata / PowerBI data</div>
       <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
         Screenshot a table from your Dreamdata/PowerBI dashboard and drop it below, or paste
