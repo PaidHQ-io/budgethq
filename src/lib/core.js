@@ -205,7 +205,14 @@ export const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Goog
 // lighter/darker tints of those same three hues rather than off-palette colors, keeping every
 // dimension's pill "on brand" instead of reaching for an arbitrary rainbow.
 export const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","#7A9CAA","#0A2226","#8FB0BC"];
-export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Reporting & Pacing",icon:"chart"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
+// "pacing" relabeled from "Reporting & Pacing" to "Budget Pacing" (2026-07-30, per Mo — folding
+// ReportingHQ's performance-reporting work into BudgetHQ instead of running it as a separate
+// product) since "Reporting" now means something different: the new "reportingAnalyzer" tab covers
+// Dreamdata/PowerBI funnel/pipeline performance data, while this tab is specifically about
+// spend-vs-budget pacing — same component (PacingDashboard.jsx), same `key:"pacing"` (so every
+// existing view==="pacing" check elsewhere keeps working unchanged), just a clearer label now that
+// there are two "reporting"-adjacent tabs instead of one.
+export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Reporting Analyzer",icon:"search"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 export function autoDetect(h){

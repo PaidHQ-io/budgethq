@@ -38,6 +38,11 @@ const Dashboard = lazy(() => import("./components/Dashboard.jsx"));
 const BudgetManager = lazy(() => import("./components/BudgetManager.jsx"));
 const PacingDashboard = lazy(() => import("./components/PacingDashboard.jsx"));
 const AskAI = lazy(() => import("./components/AskAI.jsx"));
+// ReportingHQ folded back into BudgetHQ as a tab (2026-07-30, per Mo — running it as a separate
+// product meant constantly re-porting shared UI, like the Data Sources connector grid, into two
+// codebases). Covers Dreamdata/PowerBI funnel/pipeline performance data (core.reporting_facts) —
+// distinct from this tab's own Data Sources connectors, which already cover ad-platform spend.
+const ReportingAnalyzer = lazy(() => import("./components/ReportingAnalyzer.jsx"));
 
 // Minimal, theme-matched fallback while a lazily-loaded tab chunk is still fetching — deliberately
 // plain (no logo/branding) since this only ever shows for a moment on a cold chunk load.
@@ -3392,6 +3397,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       </div>
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}}/></Suspense>}
+      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace}/></Suspense>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
