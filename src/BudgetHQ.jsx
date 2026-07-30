@@ -199,6 +199,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[screenshotError,setScreenshotError]=useState("");
   const[screenshotPreview,setScreenshotPreview]=useState([]); // rows extracted from an image, pending confirm
   const[screenshotFileName,setScreenshotFileName]=useState("");
+  // Monthly-grain "accurate through" for screenshot imports (2026-07-30, per Mo — the CSV path has
+  // had this since 2026-07-24 via uploadIsMonthly/uploadAsOf, but screenshots never got the same
+  // treatment, so a screenshot of a monthly dashboard landed with no as_of_date at all and
+  // immediately read as stale — computePlatformFreshness falls back to the row's own date, which
+  // for a monthly row is just the 1st of the month, not "today"). Separate state from
+  // uploadIsMonthly/uploadAsOf (not reused) since those already get reset at the end of a CSV
+  // import — sharing one pair of state variables across both flows would let a setting from one
+  // leak into the other.
+  const[screenshotIsMonthly,setScreenshotIsMonthly]=useState(false);
+  const[screenshotAsOf,setScreenshotAsOf]=useState("");
   // Ask AI chats — {id,title,messages,history,updatedAt,pinned,projectId,labels}[], persisted
   // server-side per (workspace,user) — see getAskAIData/putAskAIData. activeAskChatId=null means
   // "viewing a blank/new chat"; a chat record is only actually created (and added to askChats) once
@@ -1322,6 +1332,24 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }
   },[colMap.date,rawRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Same auto-default as the CSV path above, but for a screenshot's extracted rows (2026-07-30,
+  // per Mo — screenshots never got this treatment at all, so a screenshot of a monthly dashboard
+  // landed with no as_of_date and read as stale immediately, since freshness falls back to the
+  // row's own date — the 1st of the month — when as_of_date is missing). Same signal (every
+  // extracted row's date parses to the 1st of its month), same "only fires if still blank" guard.
+  // The vision prompt already asks the model for "YYYY-MM-01 if only a month/period is shown," so
+  // this reuses that same convention rather than needing a new one.
+  useEffect(()=>{
+    if(!screenshotPreview.length||screenshotAsOf)return;
+    const parsedDates=screenshotPreview.map(r=>parseSpendDate(r.date)).filter(Boolean);
+    const looksMonthly=parsedDates.length>0&&parsedDates.every(d=>d.getDate()===1);
+    if(looksMonthly){
+      const y=new Date();y.setDate(y.getDate()-1);
+      setScreenshotAsOf(`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`);
+      setScreenshotIsMonthly(true);
+    }
+  },[screenshotPreview]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Screenshot-to-data: sends the image to Claude (vision, via /api/analyze) with instructions
   // to extract whatever spend rows it can read into the same shape normalizeRows() produces for
   // a CSV upload, then lands in a review step (screenshotPreview) — never auto-committed, since
@@ -1372,12 +1400,20 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const handleScreenshotDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleScreenshotFile(f);},[handleScreenshotFile]);
   const confirmScreenshotImport=useCallback(()=>{
     if(!canEdit)return;
-    setMergedNormRows(prev=>mergeRows(prev,screenshotPreview));
-    checkpoint(`Imported spend data from screenshot — ${screenshotFileName||"image"} (${screenshotPreview.length} rows)`,"tagger_import");
-    showNotif(`Added ${screenshotPreview.length} rows from screenshot — merged with existing data`);
+    // Same as_of_date attachment as the CSV path's withAsOf (2026-07-30, per Mo — this is the
+    // actual fix: without it, a monthly screenshot's freshness fell back to the row's own date,
+    // the 1st of the month, reading as stale immediately instead of "current as of today/whenever
+    // the screenshot was taken").
+    const rowsToImport=screenshotIsMonthly&&screenshotAsOf
+      ?screenshotPreview.map(r=>({...r,as_of_date:screenshotAsOf}))
+      :screenshotPreview;
+    setMergedNormRows(prev=>mergeRows(prev,rowsToImport));
+    checkpoint(`Imported spend data from screenshot — ${screenshotFileName||"image"} (${rowsToImport.length} rows)`,"tagger_import");
+    showNotif(`Added ${rowsToImport.length} rows from screenshot — merged with existing data`);
     setScreenshotPreview([]);setScreenshotFileName("");
+    setScreenshotIsMonthly(false);setScreenshotAsOf("");
     setStep("tag");setView("tagger");
-  },[screenshotPreview,screenshotFileName,checkpoint,canEdit]);
+  },[screenshotPreview,screenshotFileName,screenshotIsMonthly,screenshotAsOf,checkpoint,canEdit]);
 
   // "Don't use data in BudgetHQ" (excludedFromData, see the connector table's action menu) filters
   // that provider's rows out of every calculation/view below — reversible, doesn't touch what's
@@ -3062,11 +3098,44 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 ))}
               </div>
             </PixelPanel>
+            {/* Monthly-grain confirmation — same treatment as the CSV mapping step's equivalent
+                block (2026-07-30, per Mo — screenshots previously had no way to set this at all,
+                so a monthly dashboard screenshot always read as stale the moment it landed, since
+                freshness falls back to the row's own date — the 1st of the month — when
+                as_of_date is missing). Auto-checked when every extracted row's date looks like the
+                1st of a month; uncheck if the screenshot actually showed real per-day numbers. */}
+            <PixelPanel T={T} style={{marginBottom:18}} contentStyle={{background:T.accentBg,padding:"10px 16px"}}>
+              <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer"}}>
+                <input type="checkbox" checked={screenshotIsMonthly} onChange={e=>{
+                  const checked=e.target.checked;
+                  setScreenshotIsMonthly(checked);
+                  if(checked&&!screenshotAsOf){
+                    const y=new Date();y.setDate(y.getDate()-1);
+                    setScreenshotAsOf(`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`);
+                  }
+                }} style={{marginTop:2,cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
+                <div>
+                  <span style={{fontSize:13,fontWeight:500,color:T.text}}>This screenshot shows one number per month, not per day</span>
+                  <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>A monthly dashboard/report screenshot (e.g. Google/Bing's manual view) reports the whole month's total, not a real daily figure. Checked automatically when every extracted row's date looks like the 1st of a month; uncheck if this screenshot actually showed real per-day numbers.</div>
+                </div>
+              </label>
+              {screenshotIsMonthly&&(
+                <div style={{marginTop:10,display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",alignItems:"center"}}>
+                  <div>
+                    <span style={{fontSize:12,fontWeight:500,color:T.text}}>Data accurate through</span>
+                    <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Each row's full-month spend is treated as current through this date — adjust if the screenshot is from a different day than today.</div>
+                  </div>
+                  <input type="date" value={screenshotAsOf} onChange={e=>setScreenshotAsOf(e.target.value)}
+                    style={{background:T.inputBg,border:`1px solid ${screenshotIsMonthly&&!screenshotAsOf?T.dangerBorder:T.border}`,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                </div>
+              )}
+            </PixelPanel>
             <div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>
               ✓ <strong>{screenshotPreview.length}</strong> rows · <strong>{fmt$(screenshotPreview.reduce((s,r)=>s+r.spend,0))}</strong> total spend — this was read by AI and may contain mistakes, double-check against the source before confirming.
+              {screenshotIsMonthly&&<div style={{fontWeight:400,marginTop:2,fontSize:12}}>Each row treated as one month's total, accurate through {screenshotAsOf||"—"}.</div>}
             </div>
             <div style={{display:"flex",justifyContent:"space-between"}}>
-              <Btn onClick={()=>{setScreenshotPreview([]);setScreenshotFileName("");setStep("upload");}} variant="ghost" T={T}>← Cancel</Btn>
+              <Btn onClick={()=>{setScreenshotPreview([]);setScreenshotFileName("");setScreenshotIsMonthly(false);setScreenshotAsOf("");setStep("upload");}} variant="ghost" T={T}>← Cancel</Btn>
               <Btn onClick={confirmScreenshotImport} variant="primary" T={T} size="md">Add {screenshotPreview.length} rows →</Btn>
             </div>
           </div>
