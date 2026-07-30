@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   computePacing, computePlatformDateRange, computeCustomGrouping, computeCustomBreakdown,
-  computeMonthlyTrend, computeSpendBreakdown, renameDimensionValue, countSegmentCampaigns,
+  computeSpendTrend, computeSpendBreakdown, renameDimensionValue, countSegmentCampaigns,
   untagSegmentCampaigns, buildCampaignPlatformIndex, DERIVED_DIMS, pacingStatusMeta, fmtFull, fmtSigned,
   FORECAST_MODELS, FORECAST_MODEL_INHERIT, DEFAULT_MANUAL_TRAILING_DAYS, forecastModelLabel,
   AUTO_SHORT_WINDOW, AUTO_DIVERGENCE_LOW, AUTO_DIVERGENCE_HIGH, CAPACITY_WINDOW, MONTHS, QUARTERS,
@@ -42,44 +42,70 @@ Manual: projects from a trailing window of a specific number of days you choose 
 
 Committed: skips projection entirely — treats the budget as a known lump sum already spent (or actual spend, if that's already higher).`;
 
-// src/components/PacingDashboard.jsx — Reporting & Pacing tab (2026-07-25 split, per Mo).
-// Includes TrendLineChart and PacingBar, the two small chart components only this tab uses.
+// src/components/PacingDashboard.jsx — Budget Pacing tab (2026-07-25 split, per Mo).
+// Includes TrendBarChart and PacingBar, the two small chart components only this tab uses.
 
 const TREND_COLORS=["#F97316","#3B82F6","#10B981","#8B5CF6","#EC4899","#F59E0B","#06B6D4"];
-const TrendLineChart=({T,months,series})=>{
-  const W=720,H=230,padL=56,padB=26,padT=12,padR=16;
-  const plotW=W-padL-padR,plotH=H-padT-padB;
-  const maxY=Math.max(1,...series.flatMap(s=>s.values));
-  const xStep=months.length>1?plotW/(months.length-1):0;
+// Grouped bar chart (2026-07-30, per Mo — replaces the old line-chart TrendLineChart so Budget can
+// sit alongside each spend series as its own bar per period). Width is computed from the bucket
+// count rather than fixed at 720, since day/week grain over a many-month range can mean hundreds
+// of buckets — the caller wraps this in a horizontally-scrollable container so it never squeezes
+// bars down to unreadable slivers.
+const TrendBarChart=({T,periods,series,budgetValues})=>{
+  const H=230,padL=56,padB=34,padT=12,padR=16;
+  const barW=14,barGap=3,groupGap=18;
+  const barsPerGroup=Math.max(1,series.length+(budgetValues?1:0));
+  const groupWidth=barsPerGroup*barW+(barsPerGroup-1)*barGap;
+  const plotW=periods.length*groupWidth+Math.max(0,periods.length-1)*groupGap;
+  const W=Math.max(720,padL+padR+plotW);
+  const plotH=H-padT-padB;
+  const maxY=Math.max(1,...(budgetValues||[]),...series.flatMap(s=>s.values));
   const yFor=v=>padT+plotH-(v/maxY)*plotH;
-  const xFor=i=>padL+(months.length>1?i*xStep:plotW/2);
   const yTicks=[0,0.25,0.5,0.75,1].map(f=>Math.round(maxY*f));
   const fmtTick=v=>v>=1000?`$${Math.round(v/1000)}k`:`$${v}`;
+  // Day/week grain over a multi-month range can produce far more buckets than there's room for
+  // one label each (a 6-month day view is ~180 groups) — thin the x-axis labels out to roughly
+  // one every 28px instead of cramming every single one in and rendering them unreadable.
+  const labelStep=Math.max(1,Math.ceil(28/(groupWidth+groupGap)));
   return(
-    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
-      {yTicks.map((t,i)=>{
-        const y=yFor(t);
-        return(
-          <g key={i}>
-            <line x1={padL} y1={y} x2={W-padR} y2={y} stroke={T.border} strokeWidth={1}/>
-            <text x={padL-8} y={y+3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(t)}</text>
-          </g>
-        );
-      })}
-      {months.map((m,i)=>(
-        <text key={m.key} x={xFor(i)} y={H-6} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{m.label}</text>
-      ))}
-      {series.map((s,si)=>{
-        const color=TREND_COLORS[si%TREND_COLORS.length];
-        const pts=s.values.map((v,i)=>`${xFor(i)},${yFor(v)}`).join(" ");
-        return(
-          <g key={s.label}>
-            <polyline points={pts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"/>
-            {s.values.map((v,i)=><circle key={i} cx={xFor(i)} cy={yFor(v)} r={2.5} fill={color}/>)}
-          </g>
-        );
-      })}
-    </svg>
+    <div style={{overflowX:"auto"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} style={{height:"auto",display:"block"}}>
+        {yTicks.map((t,i)=>{
+          const y=yFor(t);
+          return(
+            <g key={i}>
+              <line x1={padL} y1={y} x2={W-padR} y2={y} stroke={T.border} strokeWidth={1}/>
+              <text x={padL-8} y={y+3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(t)}</text>
+            </g>
+          );
+        })}
+        {periods.map((p,pi)=>{
+          const groupX=padL+pi*(groupWidth+groupGap);
+          let barX=groupX;
+          const bars=[];
+          if(budgetValues){
+            const v=budgetValues[pi]||0;
+            const h=(v/maxY)*plotH;
+            bars.push(<rect key="budget" x={barX} y={padT+plotH-h} width={barW} height={h} fill={T.textMuted} opacity={0.35} rx={2}/>);
+            barX+=barW+barGap;
+          }
+          series.forEach((s,si)=>{
+            const v=s.values[pi]||0;
+            const h=(v/maxY)*plotH;
+            bars.push(<rect key={s.label} x={barX} y={padT+plotH-h} width={barW} height={h} fill={TREND_COLORS[si%TREND_COLORS.length]} rx={2}/>);
+            barX+=barW+barGap;
+          });
+          return(
+            <g key={p.key}>
+              {bars}
+              {pi%labelStep===0&&(
+                <text x={groupX+groupWidth/2} y={H-10} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{p.label}</text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 };
 
@@ -204,6 +230,10 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   const[trendFilterDim,setTrendFilterDim]=useState("");
   const[trendFilterValue,setTrendFilterValue]=useState("");
   const[trendSeriesDim,setTrendSeriesDim]=useState("Platform");
+  // Grain (2026-07-30, per Mo — day/week added alongside the original month/quarter/year since
+  // we're synced live with most ad channels; monthly-only sources like Google's bulk uploads just
+  // show one flat step per month at day/week grain, which is expected, not a bug).
+  const[trendGrain,setTrendGrain]=useState("month"); // "day"|"week"|"month"|"quarter"|"year"
   const[trendStartMonth,setTrendStartMonth]=useState(()=>monthStr(new Date(now.getFullYear(),now.getMonth()-5,1)));
   const[trendEndMonth,setTrendEndMonth]=useState(()=>monthStr(now));
   const trendFilterOptions=allDimOptions.filter(d=>d!==trendSeriesDim);
@@ -243,6 +273,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     trendFilterValue:viewMode==="trend"?trendFilterValue:"",
     trendSeriesDim:viewMode==="trend"?trendSeriesDim:"Platform",
     trendMonthSpan:viewMode==="trend"?monthsBetween(trendStartMonth,trendEndMonth):6,
+    trendGrain:viewMode==="trend"?trendGrain:"month",
   });
   // The one function both "click a saved view" and "AI view applied" funnel through, so the two
   // entry points can never drift into different behavior for the same config shape.
@@ -257,6 +288,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       setTrendFilterDim(cfg.trendFilterDim||"");
       setTrendFilterValue(cfg.trendFilterValue||"");
       setTrendSeriesDim(cfg.trendSeriesDim||"Platform");
+      setTrendGrain(cfg.trendGrain||"month");
       setSegFilters({});setStatusFilter("all");setBreakdownDim("");setNumericFilters([]);
     }else{
       setSegFilters(cfg.segFilters||{});
@@ -345,8 +377,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     if(start>end)[start,end]=[end,start]; // swapped range picker inputs shouldn't produce zero months
     return{start,end};
   },[trendStartMonth,trendEndMonth]);
-  const trendData=useMemo(()=>viewMode==="trend"?computeMonthlyTrend({mergedNormRows,tags:campaignTags,filterDim:trendFilterDim,filterValue:trendFilterValue,seriesDim:trendSeriesDim,start:trendRange.start,end:trendRange.end}):null,
-    [viewMode,mergedNormRows,campaignTags,trendFilterDim,trendFilterValue,trendSeriesDim,trendRange]);
+  const trendData=useMemo(()=>viewMode==="trend"?computeSpendTrend({mergedNormRows,tags:campaignTags,filterDim:trendFilterDim,filterValue:trendFilterValue,seriesDim:trendSeriesDim,start:trendRange.start,end:trendRange.end,grain:trendGrain,budgets,budgetDims}):null,
+    [viewMode,mergedNormRows,campaignTags,trendFilterDim,trendFilterValue,trendSeriesDim,trendRange,trendGrain,budgets,budgetDims]);
 
   const filteredSegments=useMemo(()=>pacing.segments.filter(seg=>{
     if(statusFilter!=="all"&&seg.status!==statusFilter)return false;
@@ -381,9 +413,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   };
   const buildAskAboutViewText=()=>{
     if(viewMode==="trend"){
-      const bits=[`from ${trendStartMonth} to ${trendEndMonth}`,`split by ${trendSeriesDim}`];
+      const bits=[`from ${trendStartMonth} to ${trendEndMonth}`,`by ${trendGrain}`,`split by ${trendSeriesDim}`];
       if(trendFilterDim&&trendFilterValue)bits.push(`filtered to ${trendFilterDim} = "${trendFilterValue}"`);
-      return `Looking at the Reporting & Pacing Trend view, ${bits.join(", ")}. What's the trend telling us, and is anything worth flagging?`;
+      return `Looking at the Budget Pacing Trend view, ${bits.join(", ")}. What's the trend telling us, and is anything worth flagging?`;
     }
     const segBits=Object.entries(segFilters).filter(([,v])=>(v||"").trim()).map(([d,v])=>`${d} contains "${v.trim()}"`);
     const numBits=numericFilters.map(f=>`${NUMERIC_FIELDS[f.field]?.label||f.field} ${f.operator} ${fmtNumFilterVal(f)}`);
@@ -673,6 +705,17 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 <span style={{fontSize:11,color:T.textMuted}}>to</span>
                 <input type="month" value={trendEndMonth} onChange={e=>setTrendEndMonth(e.target.value)}
                   style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+              </div>
+              <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <span style={{fontSize:11,color:T.textMuted}}>By</span>
+                <Sel value={trendGrain} onChange={setTrendGrain} T={T} style={{width:96}}>
+                  <option value="day">Day</option>
+                  <option value="week">Week</option>
+                  <option value="month">Month</option>
+                  <option value="quarter">Quarter</option>
+                  <option value="year">Year</option>
+                </Sel>
               </div>
               <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
               <div style={{display:"flex",gap:4,alignItems:"center"}}>
@@ -1127,9 +1170,16 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
         ):(
           <>
           <PixelPanel T={T} contentStyle={{padding:"18px 20px"}}>
-            <TrendLineChart T={T} months={trendData.months} series={trendData.series}/>
-            {trendData.series.length>0&&(
+            <TrendBarChart T={T} periods={trendData.periods} series={trendData.series} budgetValues={trendData.budgetValues}/>
+            {(trendData.series.length>0||trendData.budgetValues)&&(
               <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+                {trendData.budgetValues&&(
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
+                    <span style={{width:9,height:9,borderRadius:2,background:T.textMuted,opacity:0.35,flexShrink:0}}/>
+                    <span style={{color:T.text,fontWeight:600}}>Budget</span>
+                    <span style={{color:T.textMuted}}>{fmtFull(trendData.budgetValues.reduce((s,v)=>s+v,0))} total</span>
+                  </div>
+                )}
                 {trendData.series.map((s,i)=>(
                   <div key={s.label} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
                     <span style={{width:9,height:9,borderRadius:2,background:TREND_COLORS[i%TREND_COLORS.length],flexShrink:0}}/>
@@ -1139,14 +1189,26 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 ))}
               </div>
             )}
+            {trendData.budgetFilterNote&&(
+              <div style={{marginTop:8,fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{trendData.budgetFilterNote}</div>
+            )}
           </PixelPanel>
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13,marginTop:16,background:T.surface}}>
             <thead><tr>
-              <th style={TH}>{trendSeriesDim||"Month"}</th>
-              {trendData.months.map(m=><th key={m.key} style={TH}>{m.label}</th>)}
+              <th style={TH}>{trendSeriesDim||"Period"}</th>
+              {trendData.periods.map(p=><th key={p.key} style={TH}>{p.label}</th>)}
               <th style={TH}>Total</th>
             </tr></thead>
             <tbody>
+              {trendData.budgetValues&&(
+                <tr className="bhq-tr">
+                  <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
+                    <Pill color={T.textMuted} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,borderRadius:6}}>Budget</Pill>
+                  </td>
+                  {trendData.budgetValues.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.textMuted}}>{v>0?fmtFull(v):"—"}</td>)}
+                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.textMuted}}>{fmtFull(trendData.budgetValues.reduce((s,v)=>s+v,0))}</td>
+                </tr>
+              )}
               {trendData.series.map(s=>(
                 <tr key={s.label} className="bhq-tr">
                   <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
@@ -1158,7 +1220,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               ))}
               <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
                 <td style={{padding:"10px 14px"}}><SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Total</SectionLabel></td>
-                {trendData.monthTotals.map((v,i)=><td key={i} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(v)}</td>)}
+                {trendData.periodTotals.map((v,i)=><td key={i} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(v)}</td>)}
                 <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(trendData.grandTotal)}</td>
               </tr>
             </tbody>

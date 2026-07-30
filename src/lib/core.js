@@ -1289,37 +1289,146 @@ export function computeCustomBreakdown({mergedNormRows,tags,dims,segKey,breakdow
 // Branded Search"), then splits each month's total into a series per `seriesDim` value (typically
 // "Platform", to get one line per channel). seriesDim is optional — pass "" to get one combined
 // "Spend" series with no split.
-export function computeMonthlyTrend({mergedNormRows,tags,filterDim,filterValue,seriesDim,start,end}){
-  const months=[];
-  let cur=new Date(start.getFullYear(),start.getMonth(),1);
-  const last=new Date(end.getFullYear(),end.getMonth(),1);
-  while(cur<=last){
-    months.push({key:`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`,label:cur.toLocaleDateString("en-US",{month:"short",year:"2-digit"})});
-    cur=new Date(cur.getFullYear(),cur.getMonth()+1,1);
+// Trend grain helpers (2026-07-30, per Mo — "since we're largely synced with the ad channels" he
+// wanted Day/Week grain alongside the original Month/Quarter/Year, not just month buckets).
+// trendBucketKey assigns any date to its bucket under a given grain; trendBucketLabel renders that
+// bucket's key for display. Both are pure functions of (grain, date) so the row-assignment loop
+// and the budget-proration loop in computeSpendTrend below always agree on identical bucket
+// boundaries — two independently-drifting bucketing rules would be very easy to get subtly wrong.
+function trendBucketKey(grain,d){
+  const y=d.getFullYear(),m=d.getMonth()+1;
+  if(grain==="day")return localISODate(d);
+  if(grain==="week"){
+    // Monday-start week, same convention as ReportingHQ's normalizePeriodStart used for
+    // reporting_facts — one "week" definition across the whole app.
+    const dow=d.getDay(); // 0=Sun..6=Sat
+    const back=dow===0?6:dow-1;
+    return localISODate(new Date(d.getFullYear(),d.getMonth(),d.getDate()-back));
   }
-  const monthIndex=Object.fromEntries(months.map((m,i)=>[m.key,i]));
+  if(grain==="quarter")return `${y}-Q${Math.floor((m-1)/3)+1}`;
+  if(grain==="year")return `${y}`;
+  return `${y}-${String(m).padStart(2,"0")}`; // month (default)
+}
+function trendBucketLabel(grain,key){
+  if(grain==="day")return new Date(key+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  if(grain==="week")return `Wk of ${new Date(key+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}`;
+  if(grain==="quarter"){const[y,q]=key.split("-");return `${q} ${y}`;}
+  if(grain==="year")return key;
+  const[y,m]=key.split("-");
+  return new Date(Number(y),Number(m)-1,1).toLocaleDateString("en-US",{month:"short",year:"2-digit"});
+}
+// Walks one calendar day at a time from start to end (cheap even at 24 months' worth of days —
+// a few hundred iterations) collecting each day's bucket the first time it's seen, so bucket order
+// always matches chronological order regardless of grain.
+function buildTrendPeriods(grain,start,end){
+  const periods=[];
+  const seen=new Set();
+  let cur=new Date(start.getFullYear(),start.getMonth(),start.getDate());
+  const last=new Date(end.getFullYear(),end.getMonth(),end.getDate());
+  while(cur<=last){
+    const key=trendBucketKey(grain,cur);
+    if(!seen.has(key)){seen.add(key);periods.push({key,label:trendBucketLabel(grain,key)});}
+    cur=new Date(cur.getFullYear(),cur.getMonth(),cur.getDate()+1);
+  }
+  return periods;
+}
+
+// grain: "day"|"week"|"month"(default)|"quarter"|"year". budgets/budgetDims are optional — pass
+// both to get a budgetValues series alongside spend; omit either to get spend-only (budgetValues
+// comes back null), same as the old computeMonthlyTrend this replaces.
+//
+// Budget only genuinely exists at MONTHLY grain (see computePacing's yearBudgets[sk].monthly) —
+// there's no such thing as a real stored daily or weekly budget number. At month/quarter/year
+// grain the budget series below is exact (the real stored monthly figures, summed). At day/week
+// grain it's PRORATED — each month's budget divided evenly across its calendar days — a reasonable
+// pace reference, but deliberately not held out as real day-level budget data.
+//
+// Budget figures can only be restricted by trendFilterDim/trendFilterValue when that filter
+// dimension is actually one of this workspace's budgetDims (budget segments aren't keyed by every
+// possible campaign dimension, only by whichever ones make up a budget row) — filtering by
+// something else (e.g. a tag dimension that isn't part of the budget structure) falls back to an
+// unfiltered total budget, flagged via the returned budgetFilterNote so the UI can say so instead
+// of silently showing a number that doesn't match the spend filter.
+export function computeSpendTrend({mergedNormRows,tags,filterDim,filterValue,seriesDim,start,end,grain="month",budgets,budgetDims}){
+  const periods=buildTrendPeriods(grain,start,end);
+  const periodIndex=Object.fromEntries(periods.map((p,i)=>[p.key,i]));
   const seriesMap={};
   const fv=(filterValue||"").trim().toLowerCase();
   (mergedNormRows||[]).forEach(row=>{
     const d=parseSpendDate(row.date);
-    if(!d)return;
-    const mk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-    const mi=monthIndex[mk];
-    if(mi==null)return; // outside the selected range
+    if(!d||d<start||d>end)return;
+    const pi=periodIndex[trendBucketKey(grain,d)];
+    if(pi==null)return; // outside the selected range
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
     if(filterDim&&fv){
       const val=(resolveDimValue(row,rowTags,filterDim)||"").toLowerCase();
       if(!val.includes(fv))return;
     }
     const bval=seriesDim?(resolveDimValue(row,rowTags,seriesDim)||"Untagged"):"Spend";
-    if(!seriesMap[bval])seriesMap[bval]=new Array(months.length).fill(0);
-    seriesMap[bval][mi]+=row.spend||0;
+    if(!seriesMap[bval])seriesMap[bval]=new Array(periods.length).fill(0);
+    seriesMap[bval][pi]+=row.spend||0;
   });
   const series=Object.entries(seriesMap)
     .map(([label,values])=>({label,values,total:values.reduce((s,v)=>s+v,0)}))
     .sort((a,b)=>b.total-a.total);
-  const monthTotals=months.map((_,i)=>series.reduce((s,ser)=>s+ser.values[i],0));
-  return{months,series,monthTotals,grandTotal:monthTotals.reduce((s,v)=>s+v,0)};
+  const periodTotals=periods.map((_,i)=>series.reduce((s,ser)=>s+ser.values[i],0));
+
+  let budgetValues=null;
+  let budgetFilterNote=null;
+  if(budgetDims?.length&&budgets){
+    const filterIdx=filterDim?budgetDims.indexOf(filterDim):-1;
+    if(filterDim&&fv&&filterIdx===-1){
+      budgetFilterNote=`Budget shown unfiltered — "${filterDim}" isn't one of this workspace's budget dimensions (${budgetDims.join(", ")}).`;
+    }
+    const matchesFilter=sk=>{
+      if(!filterDim||!fv||filterIdx===-1)return true;
+      const dims=sk.split("|");
+      return(dims[filterIdx]||"").toLowerCase().includes(fv);
+    };
+    // Real monthly budget total (summed across every matching segKey) for each (year,month)
+    // touched by the range — same monthly[monthKey] shape computePacing reads.
+    const monthBudgetTotal={};
+    for(let y=start.getFullYear();y<=end.getFullYear();y++){
+      Object.entries(budgets[y]||{}).forEach(([sk,seg])=>{
+        if(!matchesFilter(sk))return;
+        Object.entries(seg?.monthly||{}).forEach(([mk,amt])=>{
+          const k=`${y}-${mk}`;
+          monthBudgetTotal[k]=(monthBudgetTotal[k]||0)+(amt||0);
+        });
+      });
+    }
+    budgetValues=new Array(periods.length).fill(0);
+    if(grain==="day"||grain==="week"){
+      let cur=new Date(start.getFullYear(),start.getMonth(),start.getDate());
+      const last=new Date(end.getFullYear(),end.getMonth(),end.getDate());
+      while(cur<=last){
+        const y=cur.getFullYear(),m=cur.getMonth()+1;
+        const monthTotal=monthBudgetTotal[`${y}-${String(m).padStart(2,"0")}`]||0;
+        const daysInMonth=new Date(y,m,0).getDate();
+        const pi=periodIndex[trendBucketKey(grain,cur)];
+        if(pi!=null)budgetValues[pi]+=monthTotal/daysInMonth;
+        cur=new Date(cur.getFullYear(),cur.getMonth(),cur.getDate()+1);
+      }
+    }else{
+      // month/quarter/year — exact, no proration: each period's own key tells us which month(s)
+      // it spans.
+      periods.forEach((p,i)=>{
+        if(grain==="month"){
+          budgetValues[i]=monthBudgetTotal[p.key]||0;
+        }else if(grain==="quarter"){
+          const[y,q]=p.key.split("-Q");
+          const qi=Number(q);
+          budgetValues[i]=[qi*3-2,qi*3-1,qi*3]
+            .map(mn=>String(mn).padStart(2,"0"))
+            .reduce((s,mk)=>s+(monthBudgetTotal[`${y}-${mk}`]||0),0);
+        }else if(grain==="year"){
+          budgetValues[i]=Object.entries(monthBudgetTotal).filter(([k])=>k.startsWith(`${p.key}-`)).reduce((s,[,v])=>s+v,0);
+        }
+      });
+    }
+  }
+
+  return{periods,series,periodTotals,budgetValues,budgetFilterNote,grandTotal:periodTotals.reduce((s,v)=>s+v,0)};
 }
 
 export function pacingStatusMeta(status,T){

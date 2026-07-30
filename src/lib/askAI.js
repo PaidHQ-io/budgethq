@@ -573,7 +573,7 @@ export function aiConfigToViewConfig(raw,{allDimOptions,budgetDims}){
 }
 
 // Powers the "✨ AI Summary" card on the Budget Panel and Reporting & Pacing tabs. Deliberately NOT
-// a tool-use loop like askAIRun — computePacing()/computeCustomGrouping()/computeMonthlyTrend()
+// a tool-use loop like askAIRun — computePacing()/computeCustomGrouping()/computeSpendTrend()
 // already compute the exact same numbers those tabs render on screen, so re-deriving them via tool
 // calls would just risk the model getting its own arithmetic wrong. Instead this condenses whatever
 // is ALREADY computed and on screen into a small JSON payload and asks Claude for a single-turn
@@ -606,18 +606,19 @@ export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,bu
       ...(numericFilters||[]).map(f=>`${NUMERIC_FIELDS[f.field]?.label||f.field} ${f.operator} ${fmtFilterVal(f)}`),
     ];
     if(viewMode==="trend"){
-      const{months,series,monthTotals,grandTotal}=trend||{months:[],series:[],monthTotals:[],grandTotal:0};
+      const{periods,series,periodTotals,budgetValues,grandTotal}=trend||{periods:[],series:[],periodTotals:[],budgetValues:null,grandTotal:0};
       payload={
         viewType:"trend",
-        dateRange:months.length?`${months[0].label} – ${months[months.length-1].label}`:"(no months in range)",
+        dateRange:periods.length?`${periods[0].label} – ${periods[periods.length-1].label}`:"(no periods in range)",
         filterDim:trendFilterDim||null,
         filterValue:trendFilterValue||null,
         seriesDim:trendSeriesDim||null,
         grandTotal:Math.round(grandTotal),
         topSeries:series.slice(0,5).map(s=>({label:s.label,total:Math.round(s.total)})),
-        monthlyTotals:months.map((m,i)=>({month:m.label,total:Math.round(monthTotals[i]||0)})),
+        periodTotals:periods.map((p,i)=>({period:p.label,total:Math.round(periodTotals[i]||0)})),
+        totalBudget:budgetValues?Math.round(budgetValues.reduce((s,v)=>s+v,0)):null,
       };
-      focus="This is the Reporting & Pacing tab's Trend view — monthly spend over a date range broken out by series (e.g. Platform or a tag dimension), NOT a single-period budget-vs-actual comparison, so there is no budget figure to compare against. Describe the overall trend across the months (growing, declining, or flat), call out which series dominates spend, and mention any notable month-over-month swings.";
+      focus="This is the Budget Pacing tab's Trend view — spend (and, when available, budget) over a date range, bucketed by whatever grain the user picked (day/week/month/quarter/year), broken out by series (e.g. Platform or a tag dimension). Describe the overall trend across periods (growing, declining, or flat), call out which series dominates spend, mention any notable period-over-period swings, and if totalBudget is present, compare total spend to total budget.";
     }else if(viewMode==="custom"){
       const topSpenders=[...segments].sort((a,b)=>b.spend-a.spend).slice(0,5)
         .map(s=>({segment:s.dims.join(" / "),spend:Math.round(s.spend),projected:s.projected==null?null:Math.round(s.projected)}));

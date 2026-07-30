@@ -254,7 +254,7 @@ export function blobToBase64(blob){
   });
 }
 
-// Hand-rolled multi-line SVG chart for computeMonthlyTrend's output — no charting library
+// Hand-rolled multi-line SVG chart for computeSpendTrend's output — no charting library
 // dependency, matching every other visual in this file (PacingBar, SpendVsBudgetBar,
 // PlatformSpendBars are all plain SVG/div too). One polyline per series (e.g. one per channel),
 // sharing a single y-axis scaled to the highest point across every series so lines stay
