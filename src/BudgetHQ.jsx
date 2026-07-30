@@ -8,7 +8,7 @@ import {
   listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64,
   copyFileToWorkspace, authHeader,
 } from "./lib/workspaceApi";
-import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount } from "./lib/coreApi";
+import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount, syncSpend } from "./lib/coreApi";
 import { exportReportToGoogleSheets, preloadGoogleSheetsApi, preloadGoogleSheetsPicker } from "./lib/googleSheets";
 import {
   THEME, REQUIRED_COLS, OPTIONAL_COLS, COL_LABELS, campaignKey, isEmptyConfig, splitFilterTerms,
@@ -1195,19 +1195,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(pausedConn?.paused){showNotif(`${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} is paused — resume it in Data Sources before syncing.`);return;}
     setSyncState(p=>({...p,[platformKey]:"loading"}));
     try{
-      const pl=PLATFORMS.find(p=>p.key===platformKey);
-      const headers={"Content-Type":"application/json"};
-      const body={platform:platformKey,startDate:syncDateRange.start,endDate:syncDateRange.end};
-      if(pl?.perWorkspaceAuth){
-        body.workspaceId=workspace?.id;
-        if(session?.access_token)headers.Authorization=`Bearer ${session.access_token}`;
-      }
-      const res=await fetch("/api/spend",{method:"POST",headers,body:JSON.stringify(body)});
-      if(!res.ok){
-        const err=await res.json();
-        throw new Error(err.error||"API error");
-      }
-      const{rows,endDate:effectiveEndDate}=await res.json();
+      // Moved to paidhq-core 2026-07-30 — syncSpend (lib/coreApi.js) calls the shared
+      // /api/spend there instead of this app's own local route, so any product's Sync button
+      // hits the same endpoint. workspaceId is harmless to always send: paidhq-core's route only
+      // actually reads it for perWorkspaceAuth connectors (every live one today), same as before.
+      const{rows,endDate:effectiveEndDate}=await syncSpend(session,{platform:platformKey,startDate:syncDateRange.start,endDate:syncDateRange.end,workspaceId:workspace?.id});
       if(rows.length===0) throw new Error("No spend data returned for this date range");
       // Tag each row with which connector pulled it — `sync:${provider}` matches the convention
       // api/lib/spendRowsStore.js already uses for the cron rolling-sync path, so a manual Sync

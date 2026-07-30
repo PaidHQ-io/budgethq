@@ -179,3 +179,25 @@ export function saveOAuthAccount(session, workspaceId, provider, body) {
     body: JSON.stringify(body),
   });
 }
+
+// ─── Spend sync (pull live data from a connected platform into core.spend_rows) ─────────────
+// Moved to paidhq-core 2026-07-30, per Mo — "it's important for ReportingHQ users to be able to
+// trigger syncs as well." Same reasoning as the OAuth connect flow's move: pulling spend into the
+// shared core.spend_rows table is workspace infrastructure, not a BudgetHQ-specific action, so any
+// product's Sync button calls this exact same endpoint now. BudgetHQ's own local /api/spend.js
+// still exists as a rollback safety net (not yet removed) but the frontend calls paidhq-core's
+// from here on. Same request/response shapes as the old local route — a straight move, not a
+// redesign — so every existing caller in BudgetHQ.jsx keeps working unchanged apart from swapping
+// which function it calls and threading the session through (paidhq-core's version is
+// authenticated the same way every other core route is, unlike the old same-origin fetch).
+
+export function getConnectorRegistry(session) {
+  return coreFetch(session, "/api/spend?action=registry").then((d) => d.connectors || {});
+}
+
+export function syncSpend(session, { platform, startDate, endDate, workspaceId }) {
+  return coreFetch(session, "/api/spend", {
+    method: "POST",
+    body: JSON.stringify({ platform, startDate, endDate, workspaceId }),
+  });
+}

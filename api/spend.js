@@ -1,6 +1,13 @@
 /**
  * /api/spend.js — Vercel serverless function
  *
+ * DEPRECATED (2026-07-30) — superseded by paidhq-core's /api/spend (see that file's doc comment).
+ * BudgetHQ's own frontend now calls syncSpend/getConnectorRegistry in src/lib/coreApi.js, which
+ * hit paidhq-core instead of this route. Left in place as a rollback safety net, same pattern
+ * already used for the OAuth connect flow and core.connector_credentials/core.spend_rows — not
+ * called by any BudgetHQ code as of this date. Drop in a later cleanup pass once the move has run
+ * in production for a while with no issues. Original doc comment preserved below for history.
+ *
  * GET  /api/spend?action=registry
  *   Returns connector metadata (which platforms are live vs CSV)
  *
