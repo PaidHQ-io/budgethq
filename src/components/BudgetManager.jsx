@@ -13,6 +13,7 @@ import {
 } from "./shared.jsx";
 import { useGoogleSheetConnect } from "../hooks/useGoogleSheetConnect.js";
 import { authHeader } from "../lib/workspaceApi.js";
+import { usePersistentState } from "../lib/persist.js";
 import surfaceBaseHabitatIcon from "../assets/icons/surface-base-habitat.png";
 
 // src/components/BudgetManager.jsx — Budget Panel tab (2026-07-25 split, per Mo: split the
@@ -21,9 +22,12 @@ import surfaceBaseHabitatIcon from "../assets/icons/surface-base-habitat.png";
 
 export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true}){
   const yr=new Date().getFullYear();
-  const[year,setYear]=useState(yr.toString());
-  const[showQ,setShowQ]=useState(false);
-  const[showA,setShowA]=useState(false);
+  // year/showQ/showA/segFilters persisted (2026-07-30, per Mo — "whatever screen with whatever
+  // filters on any tab I've selected" should survive a refresh), same pattern as
+  // showRollups/hideNotBudgeted/hiddenRollupDims just below.
+  const[year,setYear]=usePersistentState("paidhq_budget_year",yr.toString());
+  const[showQ,setShowQ]=usePersistentState("paidhq_budget_showQ",false);
+  const[showA,setShowA]=usePersistentState("paidhq_budget_showA",false);
   // Persisted to localStorage (like the top-level view/askChats prefs) rather than plain useState
   // — BudgetManager itself now stays mounted across tab switches (see the display:none wrapper in
   // BudgetHQ's render), so this survives that on its own, but persisting it too means the toggle
@@ -74,7 +78,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[contractionNewDims,setContractionNewDims]=useState([]); // this import's active dims — for display only, kept in state (not read from the ref) since refs can't be read during render
   // Budget row tagging
   const[selRows,setSelRows]=useState(new Set());
-  const[segFilters,setSegFilters]=useState({}); // {dim: filterText} — substring match, ANDed across dims
+  const[segFilters,setSegFilters]=usePersistentState("paidhq_budget_segFilters",{}); // {dim: filterText} — substring match, ANDed across dims
   const[applyMetaDim,setApplyMetaDim]=useState("");
   const[applyMetaVal,setApplyMetaVal]=useState("");
   const[editingMeta,setEditingMeta]=useState(null); // {segKey, dim}

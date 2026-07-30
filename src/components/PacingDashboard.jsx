@@ -10,6 +10,7 @@ import {
 } from "../lib/core.js";
 import { askAIBuildView, aiConfigToViewConfig } from "../lib/askAI.js";
 import { Icon, Btn, SectionLabel, Sel, Divider, PixelPanel, AISummaryCard, Pill, WarnTip, InfoTip } from "./shared.jsx";
+import { usePersistentState } from "../lib/persist.js";
 import lifeSupportBackpackIcon from "../assets/icons/life-support-backpack.png";
 
 // Forecast-model "mode" — the 3 user-facing choices (Auto/Committed/Manual) — vs. the raw stored
@@ -200,20 +201,25 @@ const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
 export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,session,onNavigate,sidebarEl,canEdit=true,onAskAboutView,initialViewConfig,onConsumeInitialViewConfig}){
   const now=new Date();
   const yr=now.getFullYear();
-  const[year,setYear]=useState(yr.toString());
-  const[periodType,setPeriodType]=useState("monthly");
-  const[month,setMonth]=useState(String(now.getMonth()+1).padStart(2,"0"));
-  const[quarter,setQuarter]=useState(`Q${Math.floor(now.getMonth()/3)+1}`);
+  // Period/filter/view-mode controls below are persisted to localStorage (2026-07-30, per Mo —
+  // "whatever screen with whatever filters on any tab I've selected" should survive a refresh, not
+  // reset back to defaults). Purely transient UI state (row selection, expanded rows, in-place
+  // editing, the notif toast) stays on plain useState below, unpersisted on purpose — see
+  // usePersistentState's doc comment in shared.jsx.
+  const[year,setYear]=usePersistentState("paidhq_pacing_year",yr.toString());
+  const[periodType,setPeriodType]=usePersistentState("paidhq_pacing_periodType","monthly");
+  const[month,setMonth]=usePersistentState("paidhq_pacing_month",()=>String(now.getMonth()+1).padStart(2,"0"));
+  const[quarter,setQuarter]=usePersistentState("paidhq_pacing_quarter",()=>`Q${Math.floor(now.getMonth()/3)+1}`);
   const years=[(yr-1).toString(),yr.toString(),(yr+1).toString()];
 
   const[selRows,setSelRows]=useState(new Set());
-  const[segFilters,setSegFilters]=useState({}); // {dim: filterText} — substring match, ANDed across dims
-  const[numericFilters,setNumericFilters]=useState([]); // [{field,operator,value}] — see NumericFilterChips/NUMERIC_FIELDS; ANDed with each other and with segFilters/statusFilter
-  const[statusFilter,setStatusFilter]=useState("all");
+  const[segFilters,setSegFilters]=usePersistentState("paidhq_pacing_segFilters",{}); // {dim: filterText} — substring match, ANDed across dims
+  const[numericFilters,setNumericFilters]=usePersistentState("paidhq_pacing_numericFilters",[]); // [{field,operator,value}] — see NumericFilterChips/NUMERIC_FIELDS; ANDed with each other and with segFilters/statusFilter
+  const[statusFilter,setStatusFilter]=usePersistentState("paidhq_pacing_statusFilter","all");
   const[notif,setNotif]=useState(null);
   const[editingSegVal,setEditingSegVal]=useState(null); // {segKey, dim}
   const[editSegVal,setEditSegVal]=useState("");
-  const[breakdownDim,setBreakdownDim]=useState(""); // "" = no drill-down; else "Platform" or a tag dimension
+  const[breakdownDim,setBreakdownDim]=usePersistentState("paidhq_pacing_breakdownDim",""); // "" = no drill-down; else "Platform" or a tag dimension
   const[expandedRows,setExpandedRows]=useState(new Set());
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
   // See buildCampaignPlatformIndex's doc comment — needed anywhere budgetDims might include
@@ -231,8 +237,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   // Panel first just to see how spend breaks out by Platform/tags. customDims seeds to ["Platform"]
   // in that case so the table renders something useful immediately, not an empty "pick a dimension"
   // state.
-  const[viewMode,setViewMode]=useState(()=>budgetDims.length?"budget":"custom"); // "budget" | "custom" | "trend"
-  const[customDims,setCustomDims]=useState(()=>budgetDims.length?[]:["Platform"]);
+  const[viewMode,setViewMode]=usePersistentState("paidhq_pacing_viewMode",()=>budgetDims.length?"budget":"custom"); // "budget" | "custom" | "trend"
+  const[customDims,setCustomDims]=usePersistentState("paidhq_pacing_customDims",()=>budgetDims.length?[]:["Platform"]);
   const allDimOptions=["Platform","Campaign","Ad Group",...(tagDimensions||[])];
   const activeDims=viewMode==="custom"?customDims:budgetDims;
   const changeViewMode=v=>{setViewMode(v);setSelRows(new Set());setExpandedRows(new Set());setBreakdownDim("");setSegFilters({});};
@@ -245,15 +251,15 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   // above, since it's a genuinely different shape (a date RANGE spanning many months, not a single
   // period) rather than another variation on the existing budget/custom table.
   const monthStr=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-  const[trendFilterDim,setTrendFilterDim]=useState("");
-  const[trendFilterValue,setTrendFilterValue]=useState("");
-  const[trendSeriesDim,setTrendSeriesDim]=useState("Platform");
+  const[trendFilterDim,setTrendFilterDim]=usePersistentState("paidhq_pacing_trendFilterDim","");
+  const[trendFilterValue,setTrendFilterValue]=usePersistentState("paidhq_pacing_trendFilterValue","");
+  const[trendSeriesDim,setTrendSeriesDim]=usePersistentState("paidhq_pacing_trendSeriesDim","Platform");
   // Grain (2026-07-30, per Mo — day/week added alongside the original month/quarter/year since
   // we're synced live with most ad channels; monthly-only sources like Google's bulk uploads just
   // show one flat step per month at day/week grain, which is expected, not a bug).
-  const[trendGrain,setTrendGrain]=useState("month"); // "day"|"week"|"month"|"quarter"|"year"
-  const[trendStartMonth,setTrendStartMonth]=useState(()=>monthStr(new Date(now.getFullYear(),now.getMonth()-5,1)));
-  const[trendEndMonth,setTrendEndMonth]=useState(()=>monthStr(now));
+  const[trendGrain,setTrendGrain]=usePersistentState("paidhq_pacing_trendGrain","month"); // "day"|"week"|"month"|"quarter"|"year"
+  const[trendStartMonth,setTrendStartMonth]=usePersistentState("paidhq_pacing_trendStartMonth",()=>monthStr(new Date(now.getFullYear(),now.getMonth()-5,1)));
+  const[trendEndMonth,setTrendEndMonth]=usePersistentState("paidhq_pacing_trendEndMonth",()=>monthStr(now));
   const trendFilterOptions=allDimOptions.filter(d=>d!==trendSeriesDim);
   const trendSeriesOptions=allDimOptions.filter(d=>d!==trendFilterDim);
 

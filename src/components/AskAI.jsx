@@ -4,6 +4,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { askAIRun, askAIBuildView, aiConfigToViewConfig, ASK_AI_MODELS, ASK_AI_DEFAULT_MODEL } from "../lib/askAI.js";
 import { Inp, Btn, Sel, Icon, SectionLabel, MarkdownLite } from "./shared.jsx";
+import { usePersistentState } from "../lib/persist.js";
 import aiScienceDroneIcon from "../assets/icons/ai-science-drone.png";
 
 // Persisted across chats/sessions (2026-07-28, per Mo's model-picker request) — a per-browser
@@ -392,9 +393,12 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
   },[askChats,activeAskChatId,tagDims,mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,onSaveAsView,session]);
 
   // ── Sidebar chat management: search, pinning, projects, labels, rename (2026-07-21) ──
-  const[sidebarSearch,setSidebarSearch]=useState("");
-  const[activeProjectId,setActiveProjectId]=useState(null); // null="All chats"; "unfiled" sentinel; else a project id
-  const[activeLabel,setActiveLabel]=useState(null);
+  // search/activeProjectId/activeLabel persisted (2026-07-30, per Mo — "whatever screen with
+  // whatever filters on any tab I've selected" should survive a refresh); the rest below (menus,
+  // in-place rename/edit drafts) stays plain useState since it's transient UI, not a filter.
+  const[sidebarSearch,setSidebarSearch]=usePersistentState("paidhq_ask_sidebarSearch","");
+  const[activeProjectId,setActiveProjectId]=usePersistentState("paidhq_ask_activeProjectId",null); // null="All chats"; "unfiled" sentinel; else a project id
+  const[activeLabel,setActiveLabel]=usePersistentState("paidhq_ask_activeLabel",null);
   const[newProjectName,setNewProjectName]=useState("");
   const[editingProjectId,setEditingProjectId]=useState(null);
   const[editingProjectName,setEditingProjectName]=useState("");
@@ -428,7 +432,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
     setAskProjects(prev=>prev.filter(p=>p.id!==id));
     setAskChats(prev=>prev.map(c=>c.projectId===id?{...c,projectId:null}:c));
     setActiveProjectId(p=>p===id?null:p);
-  },[setAskProjects,setAskChats]);
+  },[setAskProjects,setAskChats,setActiveProjectId]);
   const commitProjectRename=useCallback((id,name)=>{
     const trimmed=name.trim();
     if(trimmed)setAskProjects(prev=>prev.map(p=>p.id===id?{...p,name:trimmed}:p));

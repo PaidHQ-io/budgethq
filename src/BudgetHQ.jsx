@@ -23,6 +23,7 @@ import {
   MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip,
 } from "./components/shared.jsx";
 import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
+import { usePersistentState } from "./lib/persist.js";
 import lunarRoverIcon from "./assets/icons/lunar-rover.png";
 import explorationRoverIcon from "./assets/icons/exploration-rover.png";
 import maintenanceRobotIcon from "./assets/icons/maintenance-robot.png";
@@ -142,17 +143,20 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[applyVal,setApplyVal]=useState("");
   const[dragOver,setDragOver]=useState(false);
   const[notif,setNotif]=useState(null);
-  const[sortCol,setSortCol]=useState("spend");
-  const[sortDir,setSortDir]=useState("desc");
-  const[fCamp,setFCamp]=useState("");
-  const[fCampExclude,setFCampExclude]=useState("");
-  const[fGroup,setFGroup]=useState("");
-  const[fGroupExclude,setFGroupExclude]=useState("");
-  const[fPlat,setFPlat]=useState("");
-  const[fSMin,setFSMin]=useState("");
-  const[fSMax,setFSMax]=useState("");
-  const[fTag,setFTag]=useState("");
-  const[fTagExclude,setFTagExclude]=useState("");
+  // Campaign Tagger's sort + filter state, persisted to localStorage (2026-07-30, per Mo —
+  // "whatever screen with whatever filters on any tab I've selected" should survive a refresh).
+  // selectedTagFilters is handled separately just below (it's a Set, not JSON-friendly on its own).
+  const[sortCol,setSortCol]=usePersistentState("paidhq_tagger_sortCol","spend");
+  const[sortDir,setSortDir]=usePersistentState("paidhq_tagger_sortDir","desc");
+  const[fCamp,setFCamp]=usePersistentState("paidhq_tagger_fCamp","");
+  const[fCampExclude,setFCampExclude]=usePersistentState("paidhq_tagger_fCampExclude","");
+  const[fGroup,setFGroup]=usePersistentState("paidhq_tagger_fGroup","");
+  const[fGroupExclude,setFGroupExclude]=usePersistentState("paidhq_tagger_fGroupExclude","");
+  const[fPlat,setFPlat]=usePersistentState("paidhq_tagger_fPlat","");
+  const[fSMin,setFSMin]=usePersistentState("paidhq_tagger_fSMin","");
+  const[fSMax,setFSMax]=usePersistentState("paidhq_tagger_fSMax","");
+  const[fTag,setFTag]=usePersistentState("paidhq_tagger_fTag","");
+  const[fTagExclude,setFTagExclude]=usePersistentState("paidhq_tagger_fTagExclude","");
   // How comma-separated terms within one filter field combine — "or"/ANY vs "and"/ALL — with
   // independent modes for include vs exclude on each field.
   //
@@ -169,18 +173,24 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // defaults to "or"/ANY (matches that reading), same default as include. "and"/ALL — only drop rows
   // containing every term together — is still available as the narrower option for the rarer case of
   // excluding one specific combination while leaving partial matches alone.
-  const[fGroupInclMode,setFGroupInclMode]=useState("or");
-  const[fGroupExclMode,setFGroupExclMode]=useState("or");
-  const[fCampInclMode,setFCampInclMode]=useState("or");
-  const[fCampExclMode,setFCampExclMode]=useState("or");
-  const[fTagInclMode,setFTagInclMode]=useState("or");
-  const[fTagExclMode,setFTagExclMode]=useState("or");
-  const[selectedTagFilters,setSelectedTagFilters]=useState(new Set()); // Set of "dim:val"
+  const[fGroupInclMode,setFGroupInclMode]=usePersistentState("paidhq_tagger_fGroupInclMode","or");
+  const[fGroupExclMode,setFGroupExclMode]=usePersistentState("paidhq_tagger_fGroupExclMode","or");
+  const[fCampInclMode,setFCampInclMode]=usePersistentState("paidhq_tagger_fCampInclMode","or");
+  const[fCampExclMode,setFCampExclMode]=usePersistentState("paidhq_tagger_fCampExclMode","or");
+  const[fTagInclMode,setFTagInclMode]=usePersistentState("paidhq_tagger_fTagInclMode","or");
+  const[fTagExclMode,setFTagExclMode]=usePersistentState("paidhq_tagger_fTagExclMode","or");
+  // Set of "dim:val" — kept as a plain useState (Sets aren't JSON-friendly) with its own
+  // localStorage read/write below instead of going through usePersistentState, same array<->Set
+  // bridging pattern already used for Budget Panel's hiddenRollupDims.
+  const[selectedTagFilters,setSelectedTagFilters]=useState(()=>{
+    try{const v=JSON.parse(localStorage.getItem("paidhq_tagger_selectedTagFilters")||"[]");return new Set(Array.isArray(v)?v:[]);}catch{return new Set();}
+  });
+  useEffect(()=>{try{localStorage.setItem("paidhq_tagger_selectedTagFilters",JSON.stringify([...selectedTagFilters]));}catch{/* ignore */}},[selectedTagFilters]);
   const toggleTagFilter=useCallback((dim,val)=>{
     const key=`${dim}:${val}`;
     setSelectedTagFilters(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
   },[]);
-  const[fStatus,setFStatus]=useState("all");
+  const[fStatus,setFStatus]=usePersistentState("paidhq_tagger_fStatus","all");
   const[filtersOpen,setFiltersOpen]=useState(()=>{try{const v=localStorage.getItem("paidhq_tagger_filters_open");return v===null?true:v==="1";}catch(e){return true;}});
   useEffect(()=>{try{localStorage.setItem("paidhq_tagger_filters_open",filtersOpen?"1":"0");}catch(e){}},[filtersOpen]);
   const fileRef=useRef();
