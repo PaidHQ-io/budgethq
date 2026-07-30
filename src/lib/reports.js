@@ -12,7 +12,7 @@ import { campaignKey, derivePlatform, computePacing, pacingStatusMeta, fmtSigned
 // so a report never has to be built twice or risk drifting between the download and email paths.
 // Uses THEME directly (not a T prop) since these run outside the React render tree.
 
-export function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,defaultForecastModel}){
+export function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,defaultForecastModel,combineGoogleChannels=false}){
   const campaignMap={};
   (mergedNormRows||[]).forEach(row=>{
     const name=row.campaign_name;if(!name)return;
@@ -46,7 +46,7 @@ export function buildDashboardReport({mergedNormRows,tags,tagDims,budgets,budget
   const statusCounts={};
   if((budgetDims||[]).length){
     Object.keys(budgets||{}).forEach(year=>{
-      const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel});
+      const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel,combineGoogleChannels});
       pacing.segments.forEach(s=>{statusCounts[s.status]=(statusCounts[s.status]||0)+1;});
     });
   }
@@ -86,11 +86,11 @@ export function buildTaggerReport({mergedNormRows,tags,tagDims}){
   };
 }
 
-export function buildBudgetReport({budgets,budgetDims,budgetRowMeta,defaultForecastModel,budgetMetaDims,mergedNormRows,tags}){
+export function buildBudgetReport({budgets,budgetDims,budgetRowMeta,defaultForecastModel,budgetMetaDims,mergedNormRows,tags,combineGoogleChannels=false}){
   const years=Object.keys(budgets||{}).sort();
   const sections=years.map(year=>{
     const yearBudgets=budgets[year]||{};
-    const pacing=(budgetDims||[]).length?computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel}):{segments:[]};
+    const pacing=(budgetDims||[]).length?computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel,combineGoogleChannels}):{segments:[]};
     const pacingBySeg={};
     pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
     const headers=[...budgetDims,...(budgetMetaDims||[]),"Annual Budget","Actual Spend","% Used","Pacing Status"];
@@ -117,13 +117,13 @@ export function buildBudgetReport({budgets,budgetDims,budgetRowMeta,defaultForec
   };
 }
 
-export function buildPacingReport({budgets,budgetDims,mergedNormRows,tags,budgetRowMeta,defaultForecastModel}){
+export function buildPacingReport({budgets,budgetDims,mergedNormRows,tags,budgetRowMeta,defaultForecastModel,combineGoogleChannels=false}){
   const years=Object.keys(budgets||{}).sort();
   const headers=[...(budgetDims||[]),"Year","Budget","Actual Spend","% Used","Daily Run Rate","Projected Year-End","Variance","Status"];
   const rows=[];
   years.forEach(year=>{
     if(!(budgetDims||[]).length)return;
-    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel});
+    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel,combineGoogleChannels});
     pacing.segments.forEach(s=>{
       rows.push([...s.dims,year,
         `$${Math.round(s.budget).toLocaleString()}`,

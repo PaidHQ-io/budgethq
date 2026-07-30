@@ -9,7 +9,7 @@ import spaceStationIcon from "../assets/icons/space-station.png";
 // src/components/Dashboard.jsx — Dashboard tab (2026-07-25 split, per Mo).
 
 export default // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,defaultForecastModel,campaignTags,mergedNormRows,connectionDetails,exportTags}){
+function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,defaultForecastModel,campaignTags,mergedNormRows,connectionDetails,exportTags,combineGoogleChannels=false}){
   const cardBg=T.surface;
   const bc=T.badgeColors||[T.accent,T.accent,T.accent,T.accent,T.accent];
   const cards=[
@@ -68,7 +68,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
   // computePacing degrades to an empty segments array rather than throwing.
   const pacing=useMemo(()=>{
     if(!isPopulated)return null;
-    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:dashPeriodType,month,quarter,today:now,budgetRowMeta,defaultForecastModel});
+    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year,periodType:dashPeriodType,month,quarter,today:now,budgetRowMeta,defaultForecastModel,combineGoogleChannels});
   },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,year,month,quarter,dashPeriodType,budgetRowMeta,defaultForecastModel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // pacing.daysRemaining is already computed for the projection math — surfacing it here too means
@@ -84,7 +84,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
   const prevPeriod=useMemo(()=>stepPeriodBack({periodType:dashPeriodType,year,month,quarter}),[dashPeriodType,year,month,quarter]);
   const prevPacing=useMemo(()=>{
     if(!isPopulated)return null;
-    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year:prevPeriod.year,periodType:dashPeriodType,month:prevPeriod.month,quarter:prevPeriod.quarter,today:now,budgetRowMeta,defaultForecastModel});
+    return computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags||{},budgetDims:budgetDims||[],budgets:budgets||{},year:prevPeriod.year,periodType:dashPeriodType,month:prevPeriod.month,quarter:prevPeriod.quarter,today:now,budgetRowMeta,defaultForecastModel,combineGoogleChannels});
   },[isPopulated,mergedNormRows,campaignTags,budgetDims,budgets,prevPeriod,dashPeriodType,budgetRowMeta,defaultForecastModel]); // eslint-disable-line react-hooks/exhaustive-deps
   const prevPeriodSpend=prevPacing?.totals?.spend||0;
   const spendDeltaPct=prevPeriodSpend>0&&hasData?Math.round(((pacing?.totals?.spend||0)-prevPeriodSpend)/prevPeriodSpend*100):null;

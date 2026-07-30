@@ -156,7 +156,7 @@ function groupChatsByRecency(chats){
 // rather than the small header dropdown alone. The header History dropdown stays as-is
 // underneath — it's the only access point on mobile, where sidebarEl is never mounted (see the
 // `!isMobile` gate around the whole stats <aside> in BudgetHQ's render).
-export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView}){
+export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView,combineGoogleChannels=false}){
   // initialQuestion seeds input via a lazy initializer rather than an effect — correct here (not
   // just convenient) because this component and PacingDashboard's "Ask AI about this view" button
   // are mutually exclusive: the button only exists on view==="pacing", AskAI only renders on
@@ -306,7 +306,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
     const controller=new AbortController();
     abortRef.current=controller;
     try{
-      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel},model,signal:controller.signal,onTextDelta:setStreamingText,token:session?.access_token});
+      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels},model,signal:controller.signal,onTextDelta:setStreamingText,token:session?.access_token});
       const finalHistory=[...newHistory,{role:"assistant",content:answer}];
       const finalMessages=[...newMessages,{role:"assistant",text:answer,steps,usage,historyMark:finalHistory.length}];
       setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
@@ -320,7 +320,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
       setStreamingText("");
       abortRef.current=null;
     }
-  },[mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,model,setAskChats,session]);
+  },[mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,model,setAskChats,session]);
 
   const send=useCallback(async(question)=>{
     const q=(question||input).trim();

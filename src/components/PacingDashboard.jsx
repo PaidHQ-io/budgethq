@@ -198,7 +198,7 @@ const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
   );
 };
 
-export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,session,onNavigate,sidebarEl,canEdit=true,onAskAboutView,initialViewConfig,onConsumeInitialViewConfig}){
+export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,session,onNavigate,sidebarEl,canEdit=true,onAskAboutView,initialViewConfig,onConsumeInitialViewConfig,combineGoogleChannels=false}){
   const now=new Date();
   const yr=now.getFullYear();
   // Period/filter/view-mode controls below are persisted to localStorage (2026-07-30, per Mo —
@@ -389,11 +389,11 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   const breakdownOptions=allDimOptions.filter(d=>!activeDims.includes(d));
   const toggleExpand=key=>setExpandedRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
 
-  const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now,budgetRowMeta,defaultForecastModel}),
-    [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter,budgetRowMeta,defaultForecastModel]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now,budgetRowMeta,defaultForecastModel,combineGoogleChannels}),
+    [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter,budgetRowMeta,defaultForecastModel,combineGoogleChannels]); // eslint-disable-line react-hooks/exhaustive-deps
   const platformDateRange=useMemo(()=>computePlatformDateRange(mergedNormRows),[mergedNormRows]);
-  const customPacing=useMemo(()=>viewMode==="custom"&&customDims.length?computeCustomGrouping({mergedNormRows,tags:campaignTags,dims:customDims,year,periodType,month,quarter,today:now}):null,
-    [viewMode,mergedNormRows,campaignTags,customDims,year,periodType,month,quarter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const customPacing=useMemo(()=>viewMode==="custom"&&customDims.length?computeCustomGrouping({mergedNormRows,tags:campaignTags,dims:customDims,year,periodType,month,quarter,today:now,combineGoogleChannels}):null,
+    [viewMode,mergedNormRows,campaignTags,customDims,year,periodType,month,quarter,combineGoogleChannels]); // eslint-disable-line react-hooks/exhaustive-deps
   const trendRange=useMemo(()=>{
     const[sy,sm]=trendStartMonth.split("-").map(Number);
     const[ey,em]=trendEndMonth.split("-").map(Number);
@@ -401,8 +401,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     if(start>end)[start,end]=[end,start]; // swapped range picker inputs shouldn't produce zero months
     return{start,end};
   },[trendStartMonth,trendEndMonth]);
-  const trendData=useMemo(()=>viewMode==="trend"?computeSpendTrend({mergedNormRows,tags:campaignTags,filterDim:trendFilterDim,filterValue:trendFilterValue,seriesDim:trendSeriesDim,start:trendRange.start,end:trendRange.end,grain:trendGrain,budgets,budgetDims}):null,
-    [viewMode,mergedNormRows,campaignTags,trendFilterDim,trendFilterValue,trendSeriesDim,trendRange,trendGrain,budgets,budgetDims]);
+  const trendData=useMemo(()=>viewMode==="trend"?computeSpendTrend({mergedNormRows,tags:campaignTags,filterDim:trendFilterDim,filterValue:trendFilterValue,seriesDim:trendSeriesDim,start:trendRange.start,end:trendRange.end,grain:trendGrain,budgets,budgetDims,combineGoogleChannels}):null,
+    [viewMode,mergedNormRows,campaignTags,trendFilterDim,trendFilterValue,trendSeriesDim,trendRange,trendGrain,budgets,budgetDims,combineGoogleChannels]);
 
   const filteredSegments=useMemo(()=>pacing.segments.filter(seg=>{
     if(statusFilter!=="all"&&seg.status!==statusFilter)return false;
@@ -676,7 +676,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
 
       {/* Segment table */}
       <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
-        <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} mode="pacing"
+        <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} combineGoogleChannels={combineGoogleChannels} mode="pacing"
           view={{
             viewMode,
             periodLabel,
@@ -1015,7 +1015,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   </tr>
                 );
                 if(!isExpanded)return[parentRow];
-                const breakdown=computeSpendBreakdown({mergedNormRows,tags:campaignTags,budgetDims,segKey:seg.segKey,breakdownDim,start:pacing.start,end:pacing.end});
+                const breakdown=computeSpendBreakdown({mergedNormRows,tags:campaignTags,budgetDims,segKey:seg.segKey,breakdownDim,start:pacing.start,end:pacing.end,combineGoogleChannels});
                 const breakdownRows=breakdown.length===0?[
                   <tr key={seg.segKey+"-empty"} style={{background:rowBg}}>
                     <td/><td/>
@@ -1144,7 +1144,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   </tr>
                 );
                 if(!isExpanded)return[parentRow];
-                const breakdown=computeCustomBreakdown({mergedNormRows,tags:campaignTags,dims:customDims,segKey:seg.segKey,breakdownDim,start:customPacing.start,end:customPacing.end});
+                const breakdown=computeCustomBreakdown({mergedNormRows,tags:campaignTags,dims:customDims,segKey:seg.segKey,breakdownDim,start:customPacing.start,end:customPacing.end,combineGoogleChannels});
                 const breakdownRows=breakdown.length===0?[
                   <tr key={seg.segKey+"-empty"}>
                     <td/>

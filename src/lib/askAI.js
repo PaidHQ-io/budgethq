@@ -220,8 +220,8 @@ export function askAIQueryBudget({budgets,budgetDims,filters,year,periodType,mon
 // Pacing tab itself renders from) rather than re-deriving status/variance logic separately, so
 // Ask AI's "over budget"/"behind pace" answers can never drift from what that tab shows for the
 // same period.
-export function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,filters,year,periodType,month,quarter,groupBy,having}){
-  const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:periodType||"annual",month,quarter,today:new Date(),budgetRowMeta,defaultForecastModel});
+export function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,filters,year,periodType,month,quarter,groupBy,having,combineGoogleChannels=false}){
+  const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:periodType||"annual",month,quarter,today:new Date(),budgetRowMeta,defaultForecastModel,combineGoogleChannels});
   const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
   let matched=pacing.segments.filter(seg=>filterEntries.every(([dim,val])=>{
     const idx=budgetDims.indexOf(dim);
@@ -317,7 +317,7 @@ export function askAIExecuteTool(toolName,input,ctx){
   }
   if(toolName==="query_pacing"){
     if(!(ctx.budgetDims||[]).length)return{error:"No Budget By dimensions are set up yet in the Budget Panel — there's no budget data to compare spend against."};
-    return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,budgetRowMeta:ctx.budgetRowMeta,defaultForecastModel:ctx.defaultForecastModel,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by,having:input.having});
+    return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,budgetRowMeta:ctx.budgetRowMeta,defaultForecastModel:ctx.defaultForecastModel,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by,having:input.having,combineGoogleChannels:ctx.combineGoogleChannels});
   }
   return{error:`Unknown tool: ${toolName}`};
 }
@@ -587,7 +587,7 @@ export function aiConfigToViewConfig(raw,{allDimOptions,budgetDims}){
 // the "same every time" complaint that prompted this change. The Budget Panel (mode==="budget")
 // doesn't have this per-view concept — it's a fixed monthly/quarterly/annual grid, not a tab you
 // reconfigure — so it keeps its original always-annual behavior via the `else` branch below.
-export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view,token}){
+export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,budgets,budgetRowMeta,defaultForecastModel,mode,view,token,combineGoogleChannels=false}){
   let payload,focus;
   if(mode==="pacing"&&view){
     const{viewMode,periodLabel,dims,segments,totals,expectedPct,daysRemaining,statusFilter,segFilters,numericFilters,trend,trendFilterDim,trendFilterValue,trendSeriesDim}=view;
@@ -662,7 +662,7 @@ export async function aiSummarizeBudgetPacing({mergedNormRows,tags,budgetDims,bu
     }
   }else{
     const year=String(new Date().getFullYear());
-    const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel});
+    const pacing=computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel,combineGoogleChannels});
     const withVariance=pacing.segments.map(s=>({...s,overBy:s.spend-s.budget}));
     const topOver=[...withVariance].filter(s=>s.status==="over").sort((a,b)=>b.overBy-a.overBy).slice(0,5)
       .map(s=>({segment:s.dims.join(" / "),budget:Math.round(s.budget),spend:Math.round(s.spend),overBy:Math.round(s.overBy)}));

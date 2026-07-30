@@ -25,7 +25,7 @@ export const config = { api: { bodyParser: false } };
 const EMPTY_CONFIG = {
   tags: {}, tagDims: [], budgets: {}, budgetDims: [],
   budgetRowMeta: {}, budgetMetaDims: [], budgetImportMeta: {}, savedViews: [],
-  defaultForecastModel: "auto", updatedAt: null,
+  defaultForecastModel: "auto", combineGoogleChannels: false, updatedAt: null,
 };
 
 const toCamel = (row) => ({
@@ -38,6 +38,9 @@ const toCamel = (row) => ({
   budgetImportMeta: row.budget_import_meta,
   savedViews: row.saved_views,
   defaultForecastModel: row.default_forecast_model,
+  // Combine Google Search/Display/Demand Gen into one "Google" for reporting/budgeting (2026-07-30,
+  // per Mo) — see resolveDimValue's Platform branch in lib/core.js for where this takes effect.
+  combineGoogleChannels: row.combine_google_channels,
   updatedAt: row.updated_at,
 });
 
@@ -58,13 +61,13 @@ export default withApi(async (req, res) => {
     const b = await readJsonBody(req);
     const [row] = await sql`
       insert into core.workspace_config
-        (workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims, budget_import_meta, saved_views, default_forecast_model, updated_at)
+        (workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims, budget_import_meta, saved_views, default_forecast_model, combine_google_channels, updated_at)
       values
         (${workspaceId}, ${JSON.stringify(b.tags ?? {})}, ${JSON.stringify(b.tagDims ?? [])},
          ${JSON.stringify(b.budgets ?? {})}, ${JSON.stringify(b.budgetDims ?? [])},
          ${JSON.stringify(b.budgetRowMeta ?? {})}, ${JSON.stringify(b.budgetMetaDims ?? [])},
          ${JSON.stringify(b.budgetImportMeta ?? {})}, ${JSON.stringify(b.savedViews ?? [])},
-         ${b.defaultForecastModel || "auto"}, now())
+         ${b.defaultForecastModel || "auto"}, ${!!b.combineGoogleChannels}, now())
       on conflict (workspace_id) do update set
         tags = excluded.tags,
         tag_dims = excluded.tag_dims,
@@ -75,6 +78,7 @@ export default withApi(async (req, res) => {
         budget_import_meta = excluded.budget_import_meta,
         saved_views = excluded.saved_views,
         default_forecast_model = excluded.default_forecast_model,
+        combine_google_channels = excluded.combine_google_channels,
         updated_at = now()
       returning *
     `;

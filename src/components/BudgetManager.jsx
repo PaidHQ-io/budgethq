@@ -20,7 +20,7 @@ import surfaceBaseHabitatIcon from "../assets/icons/surface-base-habitat.png";
 // four tab components out of the BudgetHQ.jsx monolith into their own files so each tab's code
 // can be lazy-loaded instead of every tab shipping in one bundle on every page load).
 
-export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true}){
+export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true,combineGoogleChannels=false}){
   const yr=new Date().getFullYear();
   // year/showQ/showA/segFilters persisted (2026-07-30, per Mo — "whatever screen with whatever
   // filters on any tab I've selected" should survive a refresh), same pattern as
@@ -156,10 +156,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // the export-preview modal's granularity choice (which the AI suggestion pre-fills based on
   // whether the originally-imported file for this year had quarterly/annual total columns).
   const exportBudgets=({includeMonthly=false,includeQuarterly=false}={})=>{
-    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel});
+    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel,combineGoogleChannels});
     const pacingBySeg={};
     pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
-    const actualsByMonth=(includeMonthly||includeQuarterly)?computeActualsByMonth({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,year}):{};
+    const actualsByMonth=(includeMonthly||includeQuarterly)?computeActualsByMonth({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,year,combineGoogleChannels}):{};
     const header=[...budgetDims,...budgetMetaDims,...MONTHS.map(m=>m.label),"Total",
       ...(includeMonthly?MONTHS.map(m=>`${m.label} Actual`):[]),
       ...(includeQuarterly?QUARTERS.map(q=>`${q.key} Actual`):[]),
@@ -1024,7 +1024,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         ):(
           <>
           <div style={{padding:"14px 16px 0"}}>
-            <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} mode="budget"/>
+            <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} combineGoogleChannels={combineGoogleChannels} mode="budget"/>
           </div>
           {/* Rollups — budget totals by one Budget By dimension at a time, independent of the
               detail grid's row grain */}

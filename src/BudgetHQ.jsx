@@ -15,7 +15,8 @@ import {
   matchesTerms, getBudgetDimValues, DEFAULT_DIMS, LEGACY_LOCAL_KEYS, PLATFORM_COLORS,
   TAG_DIM_COLORS, NAV, autoDetect, derivePlatform, localISODate, fmt$, downloadCSV,
   groupVersionsByDay, fmtFileSize, normalizeRows, spendRowKey, mergeRows, detectSpendConflicts,
-  parseSpendDate, consolidateBudgetSegKeys,
+  parseSpendDate, consolidateBudgetSegKeys, computePlatformFreshness,
+  renameDimensionValue, GOOGLE_SUBCHANNELS,
 } from "./lib/core.js";
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
@@ -252,6 +253,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // redesign — see FORECAST_MODELS in lib/core.js) — the same default computePacing itself falls
   // back to, so an unconfigured workspace gets the adaptive model out of the box.
   const[defaultForecastModel,setDefaultForecastModel]=useState("auto");
+  // Workspace-wide "combine Google sub-channels" toggle (2026-07-30, per Mo — some workspaces
+  // want Google Search/Display/Demand Gen reported as one "Google" line, others want them broken
+  // out; different workspaces, different preferences, so this lives here rather than as a fixed
+  // app-wide behavior). Same tier as defaultForecastModel above — a workspace-shared setting, not
+  // per-tab UI state. Defaults to false (today's existing granular behavior) so no workspace's
+  // reporting silently changes shape on its own. See resolveDimValue's Platform branch in
+  // lib/core.js for where this actually takes effect.
+  const[combineGoogleChannels,setCombineGoogleChannels]=useState(false);
 
   // Tag-value autocomplete sources: values already used in the Budget Panel for each dimension,
   // unioned with values already used on other campaigns' tags — either one matching exactly is
@@ -714,6 +723,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         setBudgetImportMeta(config.budgetImportMeta||{});
         setSavedViews(config.savedViews||[]);
         setDefaultForecastModel(config.defaultForecastModel||"auto");
+        setCombineGoogleChannels(!!config.combineGoogleChannels);
         const dedupedRows=mergeRows([],rows||[]);
         const rowsDeduped=dedupedRows.length!==(rows||[]).length;
         setMergedNormRows(dedupedRows);
@@ -771,7 +781,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const rowsDirtyRef=useRef(false);
   const latestConfigRef=useRef(null);
   const latestRowsRef=useRef(null);
-  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel};});
+  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels};});
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
   // ── Second, independent safety net (2026-07-20) ─────────────────────────────────────────────
@@ -799,7 +809,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel};
+      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels};
       if(isEmptyConfig(payload)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current){
         console.error("[workspace config save] BLOCKED — refusing to overwrite known real data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's data, use Settings → Clear data instead of whatever just triggered this.");
         return; // stays dirty — retries on the next change, or once real data is back
@@ -810,7 +820,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
-  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
   // replace-all (not incremental) is the sync model here.
@@ -1518,6 +1528,29 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   },[tagDims,tags,campaigns]);
 
   const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
+  // Toggling Google channel combining on (2026-07-30, per Mo) — when Platform is one of the
+  // Budget By dimensions, any existing "Google Search"/"Google Display"/"Demand Gen" budget rows
+  // are immediately folded into a single "Google" row (merging monthly amounts, not overwriting —
+  // same renameDimensionValue merge-on-collision behavior the inline segment-rename UI already
+  // uses), so the Budget Panel/Pacing tables don't end up showing a stray combined "Google" segment
+  // with $0 budget sitting alongside the old sub-channel rows still holding the real numbers.
+  // Turning it back off deliberately does NOT reverse the merge — there's no way to un-sum a
+  // combined row back into its original three amounts, so Google budget rows just stay combined
+  // until someone manually re-splits them.
+  const handleToggleCombineGoogleChannels=next=>{
+    if(!canEdit)return;
+    if(next&&!combineGoogleChannels&&budgetDims.includes("Platform")){
+      let cur={budgets,budgetRowMeta,tags};
+      GOOGLE_SUBCHANNELS.forEach(subChannel=>{
+        cur=renameDimensionValue({budgets:cur.budgets,budgetRowMeta:cur.budgetRowMeta,tags:cur.tags,budgetDims,dim:"Platform",oldVal:subChannel,newVal:"Google"});
+      });
+      setBudgets(cur.budgets);
+      setBudgetRowMeta(cur.budgetRowMeta);
+      setTags(cur.tags);
+      showNotif("Combined Google Search/Display/Demand Gen budget rows into \"Google\"");
+    }
+    setCombineGoogleChannels(next);
+  };
   const pushHistory=useCallback(currentTags=>{setTagsHistory(h=>[...h.slice(-49),currentTags]);},[]);
   const undoTags=useCallback(()=>{if(!tagsHistory.length)return;setTags(tagsHistory[tagsHistory.length-1]);setTagsHistory(h=>h.slice(0,-1));showNotif("Undone");},[tagsHistory]);
   // Accepts an optional override value — used when TagAutocompleteInput's Enter handler commits a
@@ -1916,8 +1949,8 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const exportableView=EXPORTABLE_VIEWS[view]||null;
   const buildCurrentReport=useCallback(()=>{
     if(!exportableView)return null;
-    return exportableView.build({mergedNormRows:visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,defaultForecastModel});
-  },[exportableView,visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,defaultForecastModel]);
+    return exportableView.build({mergedNormRows:visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,defaultForecastModel,combineGoogleChannels});
+  },[exportableView,visibleNormRows,tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,defaultForecastModel,combineGoogleChannels]);
   const handleExportDownload=useCallback(format=>{
     const report=buildCurrentReport();
     if(!report||!exportableView)return;
@@ -3480,7 +3513,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       {/* Same fix as the top-nav Tagger tab above: route off mergedNormRows.length (is there
           actually data to show), not the transient step flag — see that button's doc comment for
           why branching on step left this dead-clicking whenever step had drifted off "tag". */}
-      {view==="dashboard"&&<Suspense fallback={<TabLoadingFallback/>}><Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={visibleNormRows.length>0} budgets={budgets} budgetDims={budgetDims} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} campaignTags={tags} mergedNormRows={visibleNormRows} connectionDetails={connectionDetails} exportTags={exportTags}/></Suspense>}
+      {view==="dashboard"&&<Suspense fallback={<TabLoadingFallback/>}><Dashboard T={T} onNavigate={v=>{if(v==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}else if(v==="data"){setStep("upload");setView("data");}else setView(v);}} stats={stats} hasData={visibleNormRows.length>0} budgets={budgets} budgetDims={budgetDims} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} campaignTags={tags} mergedNormRows={visibleNormRows} connectionDetails={connectionDetails} exportTags={exportTags} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {/* Kept mounted (display:none when inactive) rather than conditionally unmounted like the
           other views below — Budget owns an in-progress Import modal (importOpen/iStep/iRawRows/
           dimMap/preview/etc.) as local state, and unmounting on every tab switch was silently
@@ -3493,15 +3526,22 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           other three tabs' chunks are. */}
       <div style={{display:view==="budget"?"contents":"none"}}>
         <Suspense fallback={<TabLoadingFallback/>}>
-        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} session={session} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit}/>
+        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} session={session} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit} combineGoogleChannels={combineGoogleChannels}/>
         </Suspense>
       </div>
-      {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)}/></Suspense>}
-      {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}}/></Suspense>}
+      {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
+      {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace}/></Suspense>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
+        // lastDate below reuses computePlatformFreshness — the same "as of what date is this
+        // platform's spend current" signal the Budget Pacing tab's Data Freshness panel already
+        // shows (as_of_date-aware: a monthly CSV/screenshot's explicit "accurate through" date
+        // takes priority over its row's own date, same as everywhere else this is used) — so
+        // "last import" here always agrees with what Pacing already tells you, rather than a
+        // second, subtly different definition of "how current is this platform."
+        const platformFreshness=computePlatformFreshness(visibleNormRows);
         const platformBreakdown=(()=>{
           const map={};
           visibleNormRows.forEach(r=>{
@@ -3509,8 +3549,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             if(!map[p])map[p]={platform:p,rows:0,spend:0,campaigns:new Set()};
             map[p].rows++;map[p].spend+=r.spend;map[p].campaigns.add(campaignKey(r.campaign_group_name,r.campaign_name));
           });
-          return Object.values(map).map(m=>({platform:m.platform,rows:m.rows,spend:m.spend,campaigns:m.campaigns.size})).sort((a,b)=>b.spend-a.spend);
+          return Object.values(map).map(m=>({platform:m.platform,rows:m.rows,spend:m.spend,campaigns:m.campaigns.size,lastDate:platformFreshness[m.platform]||null})).sort((a,b)=>b.spend-a.spend);
         })();
+        const fmtLastImport=d=>{
+          if(!d)return"—";
+          const daysStale=Math.floor((new Date()-d)/86400000);
+          const label=daysStale<=0?"Today":daysStale===1?"Yesterday":`${daysStale} days ago`;
+          return`${label} (${d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})})`;
+        };
         // disabled always also folds in !canEdit — every one of these is a destructive write
         // (clear data), so a view-only member sees the same disabled state a real 403 would force
         // anyway, rather than a button that looks clickable and then just fails.
@@ -3720,6 +3766,23 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   stat:`${mergedNormRows.length.toLocaleString()} spend rows · ${Object.keys(tags).length.toLocaleString()} tagged campaigns`,
                   action:clearTaggerData,label:"Clear Tagger data",disabled:!mergedNormRows.length&&!Object.keys(tags).length,
                 })}
+                <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Combine Google channels</div>
+                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:480}}>
+                      Report Google Search, Google Display, and Demand Gen as a single "Google" channel across the Budget Panel, Reporting &amp; Pacing, and Ask AI, instead of breaking them out separately. Forecasting stays accurate per sub-channel behind the scenes — only budgeting/reporting grouping is affected.
+                    </div>
+                    {combineGoogleChannels&&budgetDims.includes("Platform")&&(
+                      <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"'DM Sans',sans-serif"}}>Existing Google Search/Display/Demand Gen budget rows were merged into "Google" when this was turned on.</div>
+                    )}
+                  </div>
+                  <label style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,cursor:canEdit?"pointer":"default",opacity:canEdit?1:0.5}} title={canEdit?undefined:"View-only access"}>
+                    <input type="checkbox" checked={combineGoogleChannels} disabled={!canEdit}
+                      onChange={e=>handleToggleCombineGoogleChannels(e.target.checked)}
+                      style={{cursor:canEdit?"pointer":"default",accentColor:T.accent,width:16,height:16}}/>
+                    <span style={{fontSize:12,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>{combineGoogleChannels?"Combined":"Separate"}</span>
+                  </label>
+                </div>
                 {canEdit&&platformBreakdown.length>0&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
                     <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Clear Tagger data by channel</div>
@@ -3731,7 +3794,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                             <span style={{width:8,height:8,borderRadius:"50%",background:PLATFORM_COLORS[p.platform]||T.textMuted,flexShrink:0}}/>
                             <div style={{minWidth:0}}>
                               <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{p.platform}</div>
-                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{p.rows.toLocaleString()} row{p.rows===1?"":"s"} · {p.campaigns.toLocaleString()} campaign{p.campaigns===1?"":"s"} · {fmt$(p.spend)}</div>
+                              <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{p.rows.toLocaleString()} row{p.rows===1?"":"s"} · {p.campaigns.toLocaleString()} campaign{p.campaigns===1?"":"s"} · {fmt$(p.spend)} · last import {fmtLastImport(p.lastDate)}</div>
                             </div>
                           </div>
                           <Btn onClick={()=>clearPlatformData(p.platform,p.rows)} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Clear</Btn>

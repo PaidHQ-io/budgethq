@@ -674,15 +674,15 @@ export function countSegmentCampaigns(tags,budgetDims,segKey,platformIndex){
 // range) grouped by ONE secondary dimension — independent of budgets entirely, so it works
 // whether or not a formal budget exists at that level. "Platform" is a synthetic option derived
 // per-row (same logic the rest of the app uses for platform badges), since it isn't a manual tag.
-export function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownDim,start,end}){
+export function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownDim,start,end,combineGoogleChannels=false}){
   const vals=segKey.split("|");
   const map={};
   mergedNormRows.forEach(row=>{
     const d=parseSpendDate(row.date);
     if(!d||d<start||d>end)return;
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
-    if(!budgetDims.every((dim,i)=>resolveDimValue(row,rowTags,dim)===vals[i]))return;
-    const bval=resolveDimValue(row,rowTags,breakdownDim)||"Untagged";
+    if(!budgetDims.every((dim,i)=>resolveDimValue(row,rowTags,dim,combineGoogleChannels)===vals[i]))return;
+    const bval=resolveDimValue(row,rowTags,breakdownDim,combineGoogleChannels)||"Untagged";
     map[bval]=(map[bval]||0)+row.spend;
   });
   const total=Object.values(map).reduce((s,v)=>s+v,0);
@@ -753,14 +753,14 @@ export function matchesNumericFilters(obj,filters){
 // answers can't drift from what the Reporting tab itself shows), and a tagged_status filter on
 // query_spend (spend data alone, sliced by whether a campaign carries every Budget By tag or not).
 
-export function computeActualsByMonth({mergedNormRows,tags,budgetDims,year}){
+export function computeActualsByMonth({mergedNormRows,tags,budgetDims,year,combineGoogleChannels=false}){
   const map={};
   if(!budgetDims.length)return map;
   mergedNormRows.forEach(row=>{
     const d=parseSpendDate(row.date);
     if(!d||d.getFullYear()!==Number(year))return;
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
-    const vals=budgetDims.map(dim=>resolveDimValue(row,rowTags,dim));
+    const vals=budgetDims.map(dim=>resolveDimValue(row,rowTags,dim,combineGoogleChannels));
     if(vals.some(v=>!v))return;
     const sk=vals.join("|");
     const mk=String(d.getMonth()+1).padStart(2,"0");
@@ -1023,14 +1023,36 @@ export function projectPlatformSegment(platformSpendMap,platformFreshness,{start
   return{projectedSum:platformProjectedSum,dailyRate:totalDays?platformProjectedSum/totalDays:0,lowConfidencePlatforms};
 }
 
+// Google sub-channels collapsible into one "Google" label when a workspace turns on
+// combineGoogleChannels (2026-07-30, per Mo). Exported so the Settings toggle's one-time budget-row
+// migration (see renameDimensionValue call sites in BudgetHQ.jsx) uses this exact same list instead
+// of a second, easily-drifting copy of "which values count as Google."
+export const GOOGLE_SUBCHANNELS=["Google Search","Google Display","Demand Gen"];
+// Collapses a derived platform label to "Google" when combine is on and it's one of
+// GOOGLE_SUBCHANNELS — deliberately NOT touching "Performance Max" or "YouTube" (also Google
+// products, but distinct enough campaign types that lumping them in wasn't what was asked for; easy
+// to widen GOOGLE_SUBCHANNELS later if that turns out to be wanted too). Pure display/grouping
+// mapping only — derivePlatform() itself is untouched, so computePlatformFreshness/
+// computePlatformDayOfWeekIndex/platformSpendMap (the actual forecasting engine) keep tracking
+// Search/Display/Demand Gen as separate real platforms regardless of this setting, each with its
+// own accurate freshness and day-of-week seasonality — see projectPlatformSegment, which already
+// sums every platform within a segment together. Combining only changes which BUDGET SEGMENT/
+// BREAKDOWN ROW a campaign's spend counts toward, never how accurately any individual platform's
+// own spend is forecast.
+function groupGooglePlatform(platform,combine){
+  return combine&&GOOGLE_SUBCHANNELS.includes(platform)?"Google":platform;
+}
 // Resolves a single dimension's value for a spend row — "Platform"/"Campaign"/"Ad Group" (see
 // DERIVED_DIMS) are all derived straight from the row itself (not a manual tag): Platform via
 // derivePlatform(), Campaign from campaign_group_name, Ad Group from campaign_name — everything
 // else comes from that campaign's tags. Shared by computePacing, computeCustomGrouping,
 // computeSpendBreakdown, and their breakdown counterparts so these pseudo-dimensions behave
 // identically wherever they're used as a grouping or breakdown dimension.
-export function resolveDimValue(row,rowTags,dim){
-  if(dim==="Platform")return derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+//
+// combineGoogleChannels (optional, default false) only affects the "Platform" branch — see
+// groupGooglePlatform above.
+export function resolveDimValue(row,rowTags,dim,combineGoogleChannels=false){
+  if(dim==="Platform")return groupGooglePlatform(derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type),combineGoogleChannels);
   if(dim==="Campaign")return row.campaign_group_name||"";
   if(dim==="Ad Group")return row.campaign_name||"";
   return rowTags[dim]||"";
@@ -1088,7 +1110,7 @@ export function detectCapacitySignal(dailyMap,{expectedPct,actualPct,budget,spen
 // threaded it through) can simply omit it; it defaults to "auto" (2026-07-25, was "full-period"
 // before the Auto/Manual/Committed redesign — see FORECAST_MODELS above), so an un-updated caller
 // now gets the better adaptive default instead of the old always-cumulative one.
-export function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today,budgetRowMeta,defaultForecastModel}){
+export function computePacing({mergedNormRows,tags,budgetDims,budgets,year,periodType,month,quarter,today,budgetRowMeta,defaultForecastModel,combineGoogleChannels=false}){
   const{start,end,months}=getPeriodRange(periodType,year,month,quarter);
   const totalDays=Math.round((end-start)/86400000)+1;
   let elapsedDays;
@@ -1127,7 +1149,7 @@ export function computePacing({mergedNormRows,tags,budgetDims,budgets,year,perio
       if(seenCampaigns.has(key))return;
       seenCampaigns.add(key);
       const rowTags=tags[key]||{};
-      const vals=budgetDims.map(dim=>resolveDimValue(row,rowTags,dim));
+      const vals=budgetDims.map(dim=>resolveDimValue(row,rowTags,dim,combineGoogleChannels));
       if(vals.some(v=>!v))return;
       const sk=vals.join("|");
       campaignCountMap[sk]=(campaignCountMap[sk]||0)+1;
@@ -1136,10 +1158,15 @@ export function computePacing({mergedNormRows,tags,budgetDims,budgets,year,perio
       const d=parseSpendDate(row.date);
       if(!d||d<start||d>end)return;
       const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
-      const vals=budgetDims.map(dim=>resolveDimValue(row,rowTags,dim));
+      const vals=budgetDims.map(dim=>resolveDimValue(row,rowTags,dim,combineGoogleChannels));
       if(vals.some(v=>!v))return;
       const sk=vals.join("|");
       spendMap[sk]=(spendMap[sk]||0)+row.spend;
+      // Intentionally NOT grouped by combineGoogleChannels — platformSpendMap stays keyed by the
+      // real granular platform even when its parent segment (sk, above) is combined into "Google",
+      // so projectPlatformSegment (which sums every platform within a segment together) still runs
+      // each real sub-channel's own accurate freshness/day-of-week seasonality. See
+      // groupGooglePlatform's doc comment.
       const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
       if(!platformSpendMap[sk])platformSpendMap[sk]={};
       if(!platformSpendMap[sk][platform])platformSpendMap[sk][platform]={total:0,byDate:{}};
@@ -1234,7 +1261,7 @@ export function stepPeriodBack({periodType,year,month,quarter}){
 // budgets in this app are only ever entered against a budgetDims combo, so there's nothing to
 // compare an arbitrary grouping like "just Platform" against; this returns Spend/Daily Burn/
 // Projected only, using the exact same per-platform freshness projection as computePacing.
-export function computeCustomGrouping({mergedNormRows,tags,dims,year,periodType,month,quarter,today}){
+export function computeCustomGrouping({mergedNormRows,tags,dims,year,periodType,month,quarter,today,combineGoogleChannels=false}){
   const{start,end}=getPeriodRange(periodType,year,month,quarter);
   const totalDays=Math.round((end-start)/86400000)+1;
   let elapsedDays;
@@ -1255,10 +1282,12 @@ export function computeCustomGrouping({mergedNormRows,tags,dims,year,periodType,
       if(!d||d<start||d>end)return;
       const ck=campaignKey(row.campaign_group_name,row.campaign_name);
       const rowTags=tags[ck]||{};
-      const vals=dims.map(dim=>resolveDimValue(row,rowTags,dim));
+      const vals=dims.map(dim=>resolveDimValue(row,rowTags,dim,combineGoogleChannels));
       if(vals.some(v=>!v))return; // same convention as budget segments — every chosen dim must be present
       const sk=vals.join("|");
       spendMap[sk]=(spendMap[sk]||0)+row.spend;
+      // See computePacing's identical comment — platformSpendMap intentionally stays keyed by the
+      // real granular platform regardless of combineGoogleChannels.
       const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
       if(!platformSpendMap[sk])platformSpendMap[sk]={};
       if(!platformSpendMap[sk][platform])platformSpendMap[sk][platform]={total:0,byDate:{}};
@@ -1283,15 +1312,15 @@ export function computeCustomGrouping({mergedNormRows,tags,dims,year,periodType,
 
 // Expand-row breakdown for computeCustomGrouping, mirroring computeSpendBreakdown but matching
 // against an arbitrary dims array (via resolveDimValue) instead of the fixed budgetDims.
-export function computeCustomBreakdown({mergedNormRows,tags,dims,segKey,breakdownDim,start,end}){
+export function computeCustomBreakdown({mergedNormRows,tags,dims,segKey,breakdownDim,start,end,combineGoogleChannels=false}){
   const vals=segKey.split("|");
   const map={};
   mergedNormRows.forEach(row=>{
     const d=parseSpendDate(row.date);
     if(!d||d<start||d>end)return;
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
-    if(!dims.every((dim,i)=>resolveDimValue(row,rowTags,dim)===vals[i]))return;
-    const bval=resolveDimValue(row,rowTags,breakdownDim)||"Untagged";
+    if(!dims.every((dim,i)=>resolveDimValue(row,rowTags,dim,combineGoogleChannels)===vals[i]))return;
+    const bval=resolveDimValue(row,rowTags,breakdownDim,combineGoogleChannels)||"Untagged";
     map[bval]=(map[bval]||0)+row.spend;
   });
   const total=Object.values(map).reduce((s,v)=>s+v,0);
@@ -1380,7 +1409,7 @@ function buildTrendPeriods(grain,start,end){
 // source data isn't realistic (many manual exports and dashboard screenshots are monthly rollups by
 // nature, not by choice), so this is the trade-off: an honestly-labeled approximation instead of
 // either a misleading spike or refusing to show a trend at all.
-export function computeSpendTrend({mergedNormRows,tags,filterDim,filterValue,seriesDim,start,end,grain="month",budgets,budgetDims}){
+export function computeSpendTrend({mergedNormRows,tags,filterDim,filterValue,seriesDim,start,end,grain="month",budgets,budgetDims,combineGoogleChannels=false}){
   const periods=buildTrendPeriods(grain,start,end);
   const periodIndex=Object.fromEntries(periods.map((p,i)=>[p.key,i]));
   const seriesMap={};
@@ -1392,10 +1421,10 @@ export function computeSpendTrend({mergedNormRows,tags,filterDim,filterValue,ser
     if(!d)return;
     const rowTags=tags[campaignKey(row.campaign_group_name,row.campaign_name)]||{};
     if(filterDim&&fv){
-      const val=(resolveDimValue(row,rowTags,filterDim)||"").toLowerCase();
+      const val=(resolveDimValue(row,rowTags,filterDim,combineGoogleChannels)||"").toLowerCase();
       if(!val.includes(fv))return;
     }
-    const bval=seriesDim?(resolveDimValue(row,rowTags,seriesDim)||"Untagged"):"Spend";
+    const bval=seriesDim?(resolveDimValue(row,rowTags,seriesDim,combineGoogleChannels)||"Untagged"):"Spend";
     if(!seriesMap[bval])seriesMap[bval]=new Array(periods.length).fill(0);
     if(prorateMonthly&&row.is_monthly){
       // Spread across the month's real days rather than gating on the row's OWN date being inside
