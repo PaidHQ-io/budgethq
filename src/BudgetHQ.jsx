@@ -1771,6 +1771,22 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     archiveFile(new File(["﻿"+csv],"budgethq-tags.csv",{type:"text/csv;charset=utf-8"}),"Tag export").then(refreshFileStore);
     showNotif("Tags exported");
   };
+  // Same shape as exportTags above, scoped to just the multi-select's checked rows instead of every
+  // campaign (2026-08-01, per Mo — "select the rows I want to highlight and export to csv"). Reads
+  // against `campaigns` (the full, unfiltered set) rather than `filtered` — matches how applyTags/
+  // bulkRemoveTag/bulkRemoveCampaigns above all resolve `selected` already: a row stays part of the
+  // selection even if a filter tweak after selecting it would now hide it from view, so this export
+  // can't silently drop a row the toolbar's own "N selected" count still promises is included.
+  const exportSelectedCsv=()=>{
+    const rowsToExport=campaigns.filter(c=>selected.has(c.key));
+    if(!rowsToExport.length)return;
+    const header=["Campaign Group","Campaign","Platform","Spend",...tagDims];
+    const rows=[header,...rowsToExport.map(c=>[c.groupName,c.name,c.platform,c.spend.toFixed(2),...tagDims.map(d=>(tags[c.key]||{})[d]||"")])];
+    downloadCSV(rows,"budgethq-selected-campaigns.csv");
+    const csv=rows.map(r=>r.map(v=>`"${String(v==null?"":v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    archiveFile(new File(["﻿"+csv],"budgethq-selected-campaigns.csv",{type:"text/csv;charset=utf-8"}),"Selected campaigns export").then(refreshFileStore);
+    showNotif(`Exported ${rowsToExport.length} selected campaign${rowsToExport.length===1?"":"s"}`);
+  };
 
   // Shared row-processing core for both the CSV tag import and the screenshot tag import below —
   // takes row objects keyed by column name (exactly what Papa.parse({header:true}) produces, and
@@ -3538,6 +3554,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 <Btn onClick={applyTags} disabled={!applyDim||!applyVal} variant="primary" size="sm" T={T}>Apply</Btn>
                 <Btn onClick={()=>bulkRemoveTag(applyDim)} disabled={!applyDim} variant="danger" size="sm" T={T}>Remove</Btn>
                 <div style={{width:1,height:16,background:T.border}}/>
+                <Btn onClick={exportSelectedCsv} variant="ghost" size="sm" T={T} title="Download just the selected rows — Campaign Group, Campaign, Platform, Spend, and every tag dimension">Export CSV</Btn>
                 <Btn onClick={bulkRemoveCampaigns} variant="danger" size="sm" T={T} title="Delete these campaigns' spend rows entirely — e.g. filter Platform to isolate a bad import, select-all, then delete">Delete from dataset</Btn>
                 <Btn onClick={()=>setSelected(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
                 <div style={{marginLeft:"auto"}}>
