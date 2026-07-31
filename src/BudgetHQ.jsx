@@ -899,6 +899,17 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     {key:"linkedin",label:"LinkedIn",status:"live",perWorkspaceAuth:true,oauth:true,color:"#0A66C2",desc:"Ad account, OAuth-connected",domain:"linkedin.com"},
     {key:"bing",label:"Bing",status:"live",perWorkspaceAuth:true,oauth:true,color:"#00809D",desc:"Microsoft Advertising, OAuth-connected",domain:"bing.com",mark:BingMark},
     {key:"google",label:"Google Ads",status:"live",perWorkspaceAuth:true,oauth:true,color:"#EA4335",desc:"Ad account, OAuth-connected",domain:"ads.google.com",mark:GoogleAdsMark},
+    // Daily-sync workaround for Google Ads accounts stuck behind Google's OAuth brand-verification
+    // review (2026-07-31, per Mo) — NOT the same thing as the "sheets"/isSheets entry below (that's
+    // a one-time manual pull with no stored credential; this is a real live connector, synced daily
+    // just like Bing/LinkedIn/Meta, just reading a public Google Sheet instead of an ad platform API
+    // directly). Some OTHER tool (Google Ads' own Sheets export, Supermetrics, an Apps Script, etc.)
+    // has to land spend data into that sheet on its own schedule — BudgetHQ only reads it.
+    {key:"googlesheets",label:"Google Sheets (Ads workaround)",status:"live",perWorkspaceAuth:true,color:"#0F9D58",desc:"Daily sync from a public Google Sheet — works around Google Ads OAuth verification",domain:"sheets.google.com",
+      connectNote:"1) In the Sheet: File → Share → change to \"Anyone with the link\" → Viewer. 2) Paste that link below. 3) The sheet needs Campaign Group Name, Spend, and Date columns at minimum (same as a CSV upload). Add a Campaign Type column (Search/Display/Demand Gen/Performance Max) too if you want an accurate breakdown — without it, every row is reported as Google Search. Something else (Google Ads' own Sheets export, Supermetrics, Apps Script, etc.) needs to keep the sheet updated — BudgetHQ only reads it, once a day.",
+      connectFields:[
+        {key:"sheetUrl",label:"Google Sheet URL",placeholder:"https://docs.google.com/spreadsheets/d/.../edit#gid=0"},
+      ]},
     {key:"meta",label:"Meta Ads",status:"live",perWorkspaceAuth:true,oauth:true,color:"#1877F2",desc:"Ad account, OAuth-connected",domain:"meta.com"},
     {key:"capterra",label:"Capterra",status:"live",perWorkspaceAuth:true,color:"#FF7043",desc:"API key per product",domain:"capterra.com",
       connectFields:[
@@ -2650,6 +2661,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Connect {pl.label}</div>
                       <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                     </div>
+                    {pl.connectNote&&<div style={{fontSize:11,color:T.textSub,lineHeight:1.5,marginBottom:10,fontFamily:"'DM Sans',sans-serif"}}>{pl.connectNote}</div>}
                     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                       {(pl.connectFields||[]).map(f=>{
                         if(f.type==="keyvaluelist"){

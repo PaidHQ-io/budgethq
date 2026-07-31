@@ -67,7 +67,7 @@ const ACCOUNT_INCOMPLETE_CHECKS = {
   google: (credential) => !!credential?.accessToken && !credential?.accountId,
 };
 
-const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing", "meta", "google"];
+const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing", "meta", "google", "googlesheets"];
 
 // Settings' connections-management table needs SOMETHING to show per provider beyond just
 // "connected" — but the credential itself must never reach the client (see GET's doc comment
@@ -106,6 +106,7 @@ const SAFE_SUMMARY = {
   funnel: (c) => ({ accountId: c?.accountId || null, projectId: c?.projectId || null }),
   supermetrics: (c) => ({ dsId: c?.dsId || null, dsAccounts: c?.dsAccounts || null }),
   capterra: (c) => ({ products: Object.keys(parseCapterraApiKeys(c?.apiKeys)) }),
+  googlesheets: (c) => ({ sheetUrl: c?.sheetUrl || null }),
 };
 
 export default withApi(async (req, res) => {

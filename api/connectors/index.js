@@ -18,6 +18,7 @@ import { getSpend as bingSpend,   meta as bingMeta }       from "./bing.js";
 import { getSpend as capterraSpend, meta as capterraMeta } from "./capterra.js";
 import { getSpend as funnelSpend, meta as funnelMeta }     from "./funnel.js";
 import { getSpend as supermetricsSpend, meta as supermetricsMeta } from "./supermetrics.js";
+import { getSpend as googlesheetsSpend, meta as googlesheetsMeta } from "./googlesheets.js";
 
 export const CONNECTORS = {
   linkedin: { getSpend: linkedinSpend, ...linkedinMeta },
@@ -30,8 +31,11 @@ export const CONNECTORS = {
   // core.connector_credentials for the calling workspace instead of reading a shared
   // process.env var, and confirms the caller actually belongs to that workspace first. This used
   // to only be true of funnel/supermetrics, hence the naming below, but it's now every connector.
+  // googlesheets additionally has no OAuth concept at all (see its own doc comment) — the
+  // "credential" is just a public sheet URL, no token to refresh or expire.
   funnel:       { getSpend: funnelSpend,       ...funnelMeta       },
   supermetrics: { getSpend: supermetricsSpend, ...supermetricsMeta },
+  googlesheets: { getSpend: googlesheetsSpend, ...googlesheetsMeta },
 };
 
 /**
