@@ -537,6 +537,26 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     if(!file)return;
     parseFileToRows(file,rawRows=>ingestRawRows(file.name,rawRows));
   };
+  // Parses the vision model's "JSON array of row arrays" response, tolerating the case where the
+  // response got cut off mid-row before finishing (2026-07-31, per a real failure Mo hit on a
+  // large multi-brand budget table — "Unterminated string in JSON at position 6451" surfaced as a
+  // raw parse error instead of a usable result). A straight JSON.parse is tried first; if that
+  // fails, every COMPLETE `[...]` row is salvaged individually — each row is a flat array of
+  // strings with no nested brackets, so a balanced-bracket regex reliably finds every row that
+  // finished before the cutoff and skips only the one row (if any) that was mid-write when the
+  // response ran out of room. Returns however many complete rows it found, so a big table degrades
+  // to "most of the table, with a clear heads-up" instead of an all-or-nothing failure.
+  const parseTruncatedGridJSON=text=>{
+    const cleaned=String(text||"").replace(/```json|```/g,"").trim();
+    try{
+      const direct=JSON.parse(cleaned);
+      if(Array.isArray(direct))return{rows:direct,truncated:false};
+    }catch{/* fall through to salvage */}
+    const rowMatches=cleaned.match(/\[(?:[^[\]]|\\.)*\]/g)||[];
+    const rows=[];
+    rowMatches.forEach(m=>{try{const row=JSON.parse(m);if(Array.isArray(row))rows.push(row);}catch{/* skip the row that was cut off mid-write */}});
+    return{rows,truncated:true};
+  };
   // Sends the screenshot to Claude (vision, via /api/analyze) with instructions to transcribe the
   // visible table into a raw 2D grid — literally, no interpretation — then hands that grid to the
   // exact same ingestRawRows() pipeline a CSV/XLSX upload uses. This is deliberately NOT a second
@@ -556,14 +576,22 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         const prompt=`You are transcribing a table from a screenshot of a spreadsheet (Google Sheets, Excel, or similar) into raw grid data — a budget breakdown by some set of dimensions (e.g. Product, Region) and time period (e.g. monthly columns).\n\nLook at the image and transcribe EVERY visible row and column exactly as shown, including header rows, group/category header rows, and blank cells (use "" for empty cells). Preserve the exact left-to-right column order and top-to-bottom row order — do not summarize, merge, reformat, or interpret the data in any way, just transcribe each cell's visible text literally, the same way an export of this exact table to CSV would look.\n\nReturn ONLY a JSON array of arrays of strings — one inner array per row, one string per cell, all rows the same length (pad short rows with "") — no markdown fences, no explanation.`;
         const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...authHeader(session)},body:JSON.stringify({
           messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:prompt}]}],
-          maxTokens:4000,
+          // Was 4000 — too tight for a wide, many-row table (e.g. a multi-brand budget with 15+
+          // columns and dozens of rows easily runs past that as JSON), which produced a response
+          // truncated mid-row and a raw "Unterminated string in JSON" parse error instead of a
+          // usable result. 8000 covers meaningfully larger tables; parseTruncatedGridJSON above is
+          // the backstop for whatever still doesn't fit in one pass.
+          maxTokens:8000,
         })});
         const data=await res.json();
         if(!res.ok)throw new Error(data?.error||"Screenshot analysis failed");
-        const parsed=JSON.parse((data.text||"[]").replace(/```json|```/g,"").trim());
+        const{rows:parsed,truncated}=parseTruncatedGridJSON(data.text);
         if(!Array.isArray(parsed)||!parsed.length)throw new Error("Couldn't read a table from that screenshot — try a clearer image or a wider crop.");
         const rawRows=parsed.map(row=>Array.isArray(row)?row.map(v=>String(v??"")):[String(row??"")]);
         ingestRawRows(file.name,rawRows);
+        if(truncated||data.stop_reason==="max_tokens"){
+          showNotif(`Transcribed ${rawRows.length} rows — this table may be too large to read in one pass. Check the end of the preview, and if rows are missing, crop a screenshot of just the remaining ones and import again.`);
+        }
       }catch(err){
         setScreenshotImportError(err.message);
       }finally{
