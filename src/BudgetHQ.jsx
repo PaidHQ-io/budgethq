@@ -1149,6 +1149,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     }
   },[session?.access_token]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Google Sheets (Ads workaround) connector's "Setup guide" modal (2026-07-31, per Mo) — the
+  // connect panel's connectNote is a couple sentences; getting spend INTO the sheet in the first
+  // place (BudgetHQ only ever reads it) needs real step-by-step instructions for the two realistic
+  // ways to do that, which don't fit inline. Lives here rather than a separate docs page since
+  // someone only needs this exactly when they're mid-setup on this one connector.
+  const[googleSheetsGuideOpen,setGoogleSheetsGuideOpen]=useState(false);
   const[connectPanelKey,setConnectPanelKey]=useState(null); // which platform's connect form is open, or null
   const[connectValues,setConnectValues]=useState({});
   // connectPairs holds the guided-form state for "keyvaluelist" fields (currently just Capterra's
@@ -2662,6 +2668,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
                     </div>
                     {pl.connectNote&&<div style={{fontSize:11,color:T.textSub,lineHeight:1.5,marginBottom:10,fontFamily:"'DM Sans',sans-serif"}}>{pl.connectNote}</div>}
+                    {pl.key==="googlesheets"&&<div onClick={()=>setGoogleSheetsGuideOpen(true)} style={{fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",marginBottom:10,fontFamily:"'DM Sans',sans-serif"}}>Need help getting Google Ads spend into a Sheet? Setup guide →</div>}
                     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                       {(pl.connectFields||[]).map(f=>{
                         if(f.type==="keyvaluelist"){
@@ -3927,6 +3934,65 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               <Btn onClick={()=>setDeleteWorkspaceOpen(false)} variant="ghost" T={T}>Cancel</Btn>
               <Btn onClick={confirmDeleteWorkspace} variant="danger" T={T} disabled={deleteWorkspaceSaving||deleteWorkspaceConfirmText.trim()!==workspace?.name}>{deleteWorkspaceSaving?"Deleting…":"Delete workspace"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── GOOGLE SHEETS (ADS WORKAROUND) SETUP GUIDE ── */}
+      {googleSheetsGuideOpen&&(
+        <div onClick={()=>setGoogleSheetsGuideOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:640,maxHeight:"85vh",display:"flex",flexDirection:"column",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Getting Google Ads spend into a Sheet</div>
+              <span onClick={()=>setGoogleSheetsGuideOpen(false)} style={{fontSize:14,color:T.textMuted,cursor:"pointer"}}>✕</span>
+            </div>
+            <div style={{padding:20,overflow:"auto",fontSize:13,color:T.textSub,lineHeight:1.65,fontFamily:"'DM Sans',sans-serif"}}>
+              <p style={{margin:"0 0 16px"}}>
+                BudgetHQ only <em>reads</em> the sheet — something else has to keep it filled with fresh Google Ads spend. Below are the two realistic ways to do that. Either one works; pick based on how much control you want over what gets exported.
+              </p>
+
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Option 1 — Sheets' built-in Google Ads connector</div>
+              <div style={{fontSize:12,color:T.textMuted,marginBottom:8}}>Fastest to set up. Less control over exactly what's in the export.</div>
+              <ol style={{margin:"0 0 16px",paddingLeft:20}}>
+                <li style={{marginBottom:6}}>Open a blank Google Sheet (start fresh rather than reusing an old one — a sheet can only ever be linked to one Google Ads account at a time).</li>
+                <li style={{marginBottom:6}}>Insert menu → Data connector → Google Ads.</li>
+                <li style={{marginBottom:6}}>Sign in with the Google account that has <strong>direct user access on the Ads account itself</strong> — not just access through a Manager (MCC) account. Check this in Google Ads → Admin (gear icon) → Access and security → Users before you start; that's the exact list "isn't associated with a Google Ads account" errors are complaining about.</li>
+                <li style={{marginBottom:6}}>Pick the ad account, choose your columns/date range, and insert the report.</li>
+                <li>Sheets can refresh this on its own schedule — check the connector's own refresh settings so it stays current daily.</li>
+              </ol>
+
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Option 2 — Scheduled report from Google Ads, segmented by ad group (recommended)</div>
+              <div style={{fontSize:12,color:T.textMuted,marginBottom:8}}>More setup, but you control exactly what's exported and it avoids the account-association error entirely since the sheet is created fresh from inside the correct Ads account.</div>
+              <ol style={{margin:"0 0 16px",paddingLeft:20}}>
+                <li style={{marginBottom:6}}>In Google Ads (ads.google.com), signed in as the account with access, go to Reports → Report editor.</li>
+                <li style={{marginBottom:6}}>Build a report with <strong>Ad group</strong> as a dimension/segment alongside Campaign, Date, and Cost — this gives BudgetHQ real ad-group-level granularity instead of one lump sum per campaign. Add Campaign type too if you want Search/Display/Demand Gen/Performance Max broken out accurately (see the column note below).</li>
+                <li style={{marginBottom:6}}>Save the report, then use the download/export icon and choose Google Sheets as the destination — this creates a new linked sheet.</li>
+                <li>Click Schedule on that export and set it to run daily, so the sheet stays current without anyone touching it.</li>
+              </ol>
+
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Column names</div>
+              <p style={{margin:"0 0 8px"}}>
+                Whatever Google Ads calls its columns is fine — BudgetHQ auto-detects common variants the same way CSV uploads do. As a target, aim for something close to:
+              </p>
+              <div style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6,padding:"8px 12px",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",fontSize:11.5,marginBottom:8}}>
+                Campaign → <strong>Campaign Group Name</strong> (required)<br/>
+                Ad group → <strong>Campaign Name</strong> (recommended)<br/>
+                Cost → <strong>Spend</strong> (required)<br/>
+                Day → <strong>Date</strong> (required)<br/>
+                Campaign type → <strong>Campaign Type</strong> (recommended — Search/Display/Demand Gen/Performance Max)<br/>
+                Impr. / Clicks → <strong>Impressions</strong> / <strong>Clicks</strong> (optional)
+              </div>
+              <p style={{margin:0}}>
+                Without a Campaign Type column, every row reports as generic Google Search rather than split by sub-channel.
+              </p>
+
+              <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`,fontSize:12,color:T.textMuted}}>
+                Once the sheet is set up and refreshing on its own: File → Share → change to "Anyone with the link" → Viewer, then paste that link into the connect form. BudgetHQ pulls from it once a day.
+              </div>
+            </div>
+            <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",flexShrink:0}}>
+              <Btn onClick={()=>setGoogleSheetsGuideOpen(false)} variant="primary" T={T}>Got it</Btn>
             </div>
           </div>
         </div>
