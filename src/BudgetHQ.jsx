@@ -3740,7 +3740,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
           been imported, including anything a user has since hidden from the dashboards. */}
-      {view==="dataAudit"&&<Suspense fallback={<TabLoadingFallback/>}><DataAudit T={T} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
+      {view==="dataAudit"&&<Suspense fallback={<TabLoadingFallback/>}><DataAudit T={T} session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels} tagDims={tagDims}/></Suspense>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);

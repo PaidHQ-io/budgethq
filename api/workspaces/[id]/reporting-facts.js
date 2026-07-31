@@ -9,9 +9,16 @@
  * 'reportinghq' entitlement — this is just another BudgetHQ tab.
  *
  * GET    ?period_type=month&start=YYYY-MM-DD&end=YYYY-MM-DD&campaign_name=...&tags={"Product":
- *        "Spreadsheet Server"} — list facts, optionally filtered. No filters returns everything
- *        for the workspace. `tags` filters by exact-match containment (rows whose tags include at
- *        least the given key/value pairs), not full equality — a URL-encoded JSON object.
+ *        "Spreadsheet Server"} — list facts, optionally filtered. Paginated server-side the same
+ *        way spend-rows.js's GET is (see that file's INCIDENT doc comment) — a `(period_start,id)`
+ *        keyset cursor via `?limit=&afterPeriodStart=&afterId=`, response includes `nextCursor`
+ *        (null once exhausted). reporting_facts rows are far fewer per workspace than spend_rows
+ *        today (one row per campaign per PERIOD, not per day), so this hasn't actually hit Neon's
+ *        response-size cap yet — added preemptively since it's the exact same unbounded-`select *`
+ *        shape that already took the whole app down once, and the Data Audit tab (2026-08-01) is
+ *        about to add a second unfiltered caller of this same route. `tags` filters by exact-match
+ *        containment (rows whose tags include at least the given key/value pairs), not full
+ *        equality — a URL-encoded JSON object.
  * POST   Body: { rows: [{ source, periodType, periodStart, campaignName?, tags?, metrics }] } —
  *        upserts each row against core.reporting_facts's dedup key (workspace_id, period_type,
  *        period_start, campaign_name, tags). Re-importing an already-stored slice MERGES its
@@ -47,6 +54,13 @@ export const config = { api: { bodyParser: false } };
 
 const PERIOD_TYPES = ["day", "week", "month", "quarter", "year"];
 
+// Same reasoning as spend-rows.js's DEFAULT_PAGE_LIMIT/MAX_PAGE_LIMIT — see that file's doc
+// comment. reporting_facts rows carry a jsonb tags blob and a jsonb metrics blob on top of the
+// plain columns spend_rows has, so this errs a little smaller per page despite today's much lower
+// row counts, to keep the same wide safety margin under Neon's response-size cap.
+const DEFAULT_PAGE_LIMIT = 5000;
+const MAX_PAGE_LIMIT = 10000;
+
 function parseTagsFilter(raw) {
   if (!raw) return null;
   try {
@@ -76,8 +90,14 @@ export default withApi(async (req, res) => {
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
-    const { period_type, start, end, campaign_name, tags } = req.query;
+    const { period_type, start, end, campaign_name, tags, afterPeriodStart, afterId } = req.query;
     const tagsFilter = parseTagsFilter(tags);
+    const parsedLimit = parseInt(req.query.limit, 10);
+    const pageLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, MAX_PAGE_LIMIT)
+      : DEFAULT_PAGE_LIMIT;
+    // Same "cursor is one thing, not two independent filters" reasoning as spend-rows.js's GET.
+    const hasCursor = Boolean(afterPeriodStart && afterId);
     const rows = await sql`
       select * from core.reporting_facts
       where workspace_id = ${workspaceId}
@@ -86,9 +106,16 @@ export default withApi(async (req, res) => {
         and (${end || null}::date is null or period_start <= ${end || null}::date)
         and (${campaign_name || null}::text is null or campaign_name = ${campaign_name || null})
         and (${tagsFilter ? JSON.stringify(tagsFilter) : null}::jsonb is null or tags @> ${tagsFilter ? JSON.stringify(tagsFilter) : null}::jsonb)
-      order by period_start asc
+        and (
+          ${hasCursor ? afterPeriodStart : null}::date is null
+          or (period_start, id) > (${hasCursor ? afterPeriodStart : null}::date, ${hasCursor ? afterId : null}::uuid)
+        )
+      order by period_start asc, id asc
+      limit ${pageLimit}
     `;
-    return res.status(200).json({ rows: rows.map(toCamel) });
+    const last = rows.length === pageLimit ? rows[rows.length - 1] : null;
+    const nextCursor = last ? { afterPeriodStart: last.period_start, afterId: last.id } : null;
+    return res.status(200).json({ rows: rows.map(toCamel), nextCursor });
   }
 
   if (req.method === "POST") {

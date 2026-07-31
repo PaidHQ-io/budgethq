@@ -99,3 +99,31 @@ export function labelForPeriod(periodType, periodStart) {
 export function defaultPeriodStart(periodType) {
   return normalizePeriodStart(periodType || "month", new Date().toISOString());
 }
+
+// Advances an already-normalized period_start (i.e. already the correct start-of-period for its
+// grain — the output of normalizePeriodStart, not an arbitrary date) to the NEXT period's start,
+// for the same grain. Used by the Data Audit tab's missing-period walk (computeReportingAudit in
+// core.js) — the reporting_facts equivalent of computeDataAudit's day-by-day collapseMissing, just
+// stepping by the row's own grain instead of always by one calendar day, since reporting_facts mixes
+// day/week/month/quarter/year rows rather than being uniformly daily like spend_rows. Returns null
+// for an unparseable input or unrecognized periodType, same failure contract as normalizePeriodStart.
+export function stepPeriodStart(periodType, periodStart) {
+  const d = parseDateUTC(periodStart);
+  if (!d || !PERIOD_TYPES.includes(periodType)) return null;
+  switch (periodType) {
+    case "day":
+      d.setUTCDate(d.getUTCDate() + 1);
+      return toISO(d);
+    case "week":
+      d.setUTCDate(d.getUTCDate() + 7);
+      return toISO(d);
+    case "month":
+      return toISO(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)));
+    case "quarter":
+      return toISO(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 3, 1)));
+    case "year":
+      return toISO(new Date(Date.UTC(d.getUTCFullYear() + 1, 0, 1)));
+    default:
+      return null;
+  }
+}

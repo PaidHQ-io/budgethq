@@ -1,5 +1,6 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { stepPeriodStart } from "./reportingPeriods.js";
 
 // src/lib/core.js — pure data/pacing logic extracted from the monolithic BudgetHQ.jsx
 // (2026-07-25 split, per Mo). No React, no JSX — every export here is a plain function or
@@ -1705,6 +1706,114 @@ export function computeDataAudit({mergedNormRows,combineGoogleChannels=false}){
       sourceCount:bySource.length,platformCount:byPlatform.length,campaignCount:allCampaigns.size,
     },
     bySource,byPlatform,
+  };
+}
+
+// ─── REPORTING AUDIT (2026-08-01, per Mo — "let's add the powerBI data to it") ─────────────────
+// Same spirit as computeDataAudit above, but for core.reporting_facts (Dreamdata/PowerBI funnel/
+// pipeline data, imported via the Reporting Analyzer tab) instead of spend_rows — a SEPARATE
+// function rather than folded into computeDataAudit, because the two tables don't share a shape:
+//   - reporting_facts mixes MULTIPLE period grains (day/week/month/quarter/year) for the same
+//     workspace, rather than being uniformly daily like spend_rows — so gaps are walked in units of
+//     each grain's own period (via stepPeriodStart), bucketed by periodType instead of by platform
+//     (there's no ad-platform dimension on funnel data).
+//   - There's no overlapRanges here the way computeDataAudit has for spend, and that's not an
+//     oversight: reporting_facts can't go stale via a silent last-write-wins merge the way spend
+//     can. Its dedup key (workspace_id, period_type, period_start, campaign_name, tags) plus its
+//     upsert-merge write path (see reporting-facts.js's POST doc comment — metrics are merged with
+//     jsonb `||`, not replaced wholesale) means two imports for the same period+campaign+tags
+//     combine their metrics rather than one silently overwriting the other. There's structurally
+//     nothing for an overlap check to catch.
+//   - What IS worth surfacing instead: tag completeness. tags is this data's only way of attaching a
+//     row to a Product/Region/Funnel/etc. segment, and an incomplete tag isn't a date problem, but
+//     it's exactly the kind of "do I actually understand this data" gap Mo's original ask (a tab to
+//     fully understand what's been brought in) was about.
+export function computeReportingAudit({reportingFacts,tagDims=[]}){
+  const rows=reportingFacts||[];
+  const bySourceMap={};
+  const byPeriodTypeMap={};
+  let earliest=null,latest=null,lastImportedAt=null;
+  const allCampaigns=new Set();
+  const tagMissingCounts={};
+  tagDims.forEach(d=>{tagMissingCounts[d]=0;});
+
+  rows.forEach(r=>{
+    const ps=r.periodStart,pt=r.periodType;
+    // Every row that's actually made it through the Reporting Analyzer's import review has both
+    // (the review step requires a resolved period before Import is even clickable) — this guard is
+    // just so one somehow-malformed row can't throw off every stat below.
+    if(!ps||!pt)return;
+    const sourceKey=r.source||"manual";
+    const campKey=r.campaignName||"(none)";
+
+    if(!earliest||ps<earliest)earliest=ps;
+    if(!latest||ps>latest)latest=ps;
+    if(r.importedAt&&(!lastImportedAt||r.importedAt>lastImportedAt))lastImportedAt=r.importedAt;
+    allCampaigns.add(campKey);
+
+    tagDims.forEach(d=>{if(!r.tags||!r.tags[d])tagMissingCounts[d]++;});
+
+    if(!bySourceMap[sourceKey])bySourceMap[sourceKey]={sourceKey,rows:0,campaigns:new Set(),start:ps,end:ps};
+    const sAgg=bySourceMap[sourceKey];
+    sAgg.rows++;sAgg.campaigns.add(campKey);
+    if(ps<sAgg.start)sAgg.start=ps;
+    if(ps>sAgg.end)sAgg.end=ps;
+
+    if(!byPeriodTypeMap[pt])byPeriodTypeMap[pt]={periodType:pt,rows:0,campaigns:new Set(),start:ps,end:ps,periods:new Set()};
+    const pAgg=byPeriodTypeMap[pt];
+    pAgg.rows++;pAgg.campaigns.add(campKey);pAgg.periods.add(ps);
+    if(ps<pAgg.start)pAgg.start=ps;
+    if(ps>pAgg.end)pAgg.end=ps;
+  });
+
+  // Walks a period grain's own span one PERIOD at a time (stepPeriodStart, not calendar days) and
+  // collapses consecutive missing periods into ranges — same collapsing idea as computeDataAudit's
+  // collapseMissing above, just moving in units of that grain instead of always one day. Guarded at
+  // 20,000 steps (covers a multi-decade DAILY span with wide margin, the slowest-moving grain here)
+  // so a future bug in stepPeriodStart can't spin this into an infinite loop.
+  const collapseMissingPeriods=(periodType,start,end,presentSet)=>{
+    if(!start||!end)return[];
+    const ranges=[];
+    let cur=null,k=start,guard=0;
+    while(k&&k<=end&&guard<20000){
+      guard++;
+      if(!presentSet.has(k)){
+        if(cur){cur.end=k;cur.periods++;}
+        else cur={start:k,end:k,periods:1};
+      }else if(cur){
+        ranges.push(cur);cur=null;
+      }
+      k=stepPeriodStart(periodType,k);
+    }
+    if(cur)ranges.push(cur);
+    return ranges;
+  };
+
+  const bySource=Object.values(bySourceMap).map(s=>({
+    sourceKey:s.sourceKey,rows:s.rows,campaigns:s.campaigns.size,start:s.start,end:s.end,
+  })).sort((a,b)=>b.rows-a.rows);
+
+  const byPeriodType=Object.values(byPeriodTypeMap).map(p=>{
+    const gapRanges=collapseMissingPeriods(p.periodType,p.start,p.end,p.periods);
+    const gapPeriodCount=gapRanges.reduce((s,r)=>s+r.periods,0);
+    return{
+      periodType:p.periodType,rows:p.rows,campaigns:p.campaigns.size,start:p.start,end:p.end,
+      gapRanges,gapPeriodCount,
+    };
+  }).sort((a,b)=>b.rows-a.rows);
+
+  const tagCompleteness=tagDims.map(d=>({
+    dimension:d,
+    missing:tagMissingCounts[d]||0,
+    missingPct:rows.length?Math.round(((tagMissingCounts[d]||0)/rows.length)*100):0,
+  }));
+
+  return{
+    overview:{
+      totalRows:rows.length,sourceCount:bySource.length,periodTypeCount:byPeriodType.length,
+      campaignCount:allCampaigns.size,earliest,latest,lastImportedAt,
+    },
+    bySource,byPeriodType,tagCompleteness,
   };
 }
 

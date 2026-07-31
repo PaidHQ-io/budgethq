@@ -27,18 +27,39 @@ async function api(session, workspaceId, path, options = {}) {
   return body;
 }
 
+// Page size for the loop below — mirrors workspaceApi.js's getSpendRows fix (see spend-rows.js's
+// GET doc comment for the 507 incident that pattern exists to prevent). reporting-facts.js's GET
+// paginates server-side regardless of whether a caller asks for it, so this loop is what makes that
+// invisible to every existing caller (ReportingAnalyzer's refreshHistory, and Data Audit's fetch
+// below) — neither needed any changes to pick up the fix.
+const REPORTING_FACTS_PAGE_SIZE = 5000;
+
 // filters: { periodType, start, end, campaignName, tags } — tags is a plain object, e.g.
 // { Product: "Spreadsheet Server" }, matched by containment (rows whose tags include at least
 // these key/values), not full equality.
-export function listReportingFacts(session, workspaceId, filters = {}) {
-  const qs = new URLSearchParams();
-  if (filters.periodType) qs.set("period_type", filters.periodType);
-  if (filters.start) qs.set("start", filters.start);
-  if (filters.end) qs.set("end", filters.end);
-  if (filters.campaignName) qs.set("campaign_name", filters.campaignName);
-  if (filters.tags && Object.keys(filters.tags).length) qs.set("tags", JSON.stringify(filters.tags));
-  const q = qs.toString();
-  return api(session, workspaceId, q ? `?${q}` : "").then((d) => d.rows || []);
+export async function listReportingFacts(session, workspaceId, filters = {}) {
+  const baseParams = new URLSearchParams();
+  if (filters.periodType) baseParams.set("period_type", filters.periodType);
+  if (filters.start) baseParams.set("start", filters.start);
+  if (filters.end) baseParams.set("end", filters.end);
+  if (filters.campaignName) baseParams.set("campaign_name", filters.campaignName);
+  if (filters.tags && Object.keys(filters.tags).length) baseParams.set("tags", JSON.stringify(filters.tags));
+  baseParams.set("limit", String(REPORTING_FACTS_PAGE_SIZE));
+
+  let rows = [];
+  let cursor = null;
+  for (;;) {
+    const params = new URLSearchParams(baseParams);
+    if (cursor) {
+      params.set("afterPeriodStart", cursor.afterPeriodStart);
+      params.set("afterId", cursor.afterId);
+    }
+    const d = await api(session, workspaceId, `?${params.toString()}`);
+    rows = rows.concat(d.rows || []);
+    if (!d.nextCursor) break;
+    cursor = d.nextCursor;
+  }
+  return rows;
 }
 
 // rows: [{ source, periodType, periodStart, campaignName?, tags?, metrics }] — tags is an
