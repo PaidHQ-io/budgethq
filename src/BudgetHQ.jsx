@@ -45,6 +45,10 @@ const AskAI = lazy(() => import("./components/AskAI.jsx"));
 // codebases). Covers Dreamdata/PowerBI funnel/pipeline performance data (core.reporting_facts) —
 // distinct from this tab's own Data Sources connectors, which already cover ad-platform spend.
 const ReportingAnalyzer = lazy(() => import("./components/ReportingAnalyzer.jsx"));
+// Data Audit tab (2026-07-31, per Mo — "I need a new tab where I can review in detail what data
+// has been brought into BudgetHQ and from where"). Read-only view over mergedNormRows; no data of
+// its own to fetch, so lazy-loading it costs nothing beyond the chunk itself.
+const DataAudit = lazy(() => import("./components/DataAudit.jsx"));
 
 // Minimal, theme-matched fallback while a lazily-loaded tab chunk is still fetching — deliberately
 // plain (no logo/branding) since this only ever shows for a moment on a cold chunk load.
@@ -1385,6 +1389,16 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // columns on the same step==="map" screen a CSV upload lands on — same pipeline, different source.
   const[gsheetSpendOpen,setGsheetSpendOpen]=useState(false);
 
+  // Which kind of manual import is sitting in the "map" review step right now — "csv" (a real
+  // uploaded file) or "sheet-onetime" (the one-time "Connect a Google Sheet" pull just below,
+  // distinct from the DAILY-SYNCING googlesheets connector in Data Sources). Tags the rows at
+  // confirm time (2026-07-31, per Mo's Data Audit tab — "I need to know... from where" — before
+  // this, neither kind set a `source` at all, so a CSV upload, a screenshot, and a one-time Sheet
+  // pull were all indistinguishable in mergedNormRows). Defaults to "csv" since handleFile's
+  // Papa.parse path is the far more common case; gsSpend's callback below overrides it right before
+  // calling applySpendGrid.
+  const[uploadSourceKind,setUploadSourceKind]=useState("csv");
+
   // Shared by handleFile's Papa.parse callback and the Sheets grid below — both end up with
   // the same shape (array of row objects + field names) and need to land on the same review step.
   const applySpendGrid=useCallback((data,fields,sourceLabel)=>{
@@ -1408,6 +1422,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     const[headerRow,...dataRows]=grid;
     const fields=headerRow.map((h,i)=>h||`Column ${i+1}`);
     const data=dataRows.map(row=>Object.fromEntries(fields.map((f,i)=>[f,row[i]||""])));
+    setUploadSourceKind("sheet-onetime");
     applySpendGrid(data,fields,tabTitle);
     setGsheetSpendOpen(false);
   });
@@ -1415,6 +1430,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const handleFile=useCallback(file=>{
     if(!file)return;
     archiveFile(file,"Spend import");
+    setUploadSourceKind("csv");
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
       applySpendGrid(r.data,r.meta.fields||[],file.name);
     }});
@@ -1521,9 +1537,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     // the 1st of the month, reading as stale immediately instead of "current as of today/whenever
     // the screenshot was taken"). is_monthly rides along too, same as the CSV path — closes the
     // DOW-seasonality contamination gap for screenshot imports as well.
-    const rowsToImport=screenshotIsMonthly&&screenshotAsOf
+    const rowsToImport=(screenshotIsMonthly&&screenshotAsOf
       ?screenshotPreview.map(r=>({...r,as_of_date:screenshotAsOf,is_monthly:true}))
-      :screenshotPreview;
+      :screenshotPreview
+    // Tagged "screenshot" (2026-07-31, per Mo's Data Audit tab) so it's distinguishable from a CSV
+    // upload — same reasoning as applySpendGrid's uploadSourceKind, just no review-step detour
+    // since screenshots don't share that flow.
+    ).map(r=>({...r,source:"screenshot"}));
     setMergedNormRows(prev=>mergeRows(prev,rowsToImport));
     checkpoint(`Imported spend data from screenshot — ${screenshotFileName||"image"} (${rowsToImport.length} rows)`,"tagger_import");
     showNotif(`Added ${rowsToImport.length} rows from screenshot — merged with existing data`);
@@ -3471,7 +3491,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 // seasonality contamination gap: without this, computePlatformDayOfWeekIndex had
                 // no way to tell a real day's spend apart from a whole month's total sitting on
                 // one row, and would learn a skewed weekly pattern from it).
-                const withAsOf=uploadAsOf?withPlatform.map(r=>({...r,as_of_date:uploadAsOf,...(uploadIsMonthly?{is_monthly:true}:{})})):withPlatform;
+                const withAsOfBase=uploadAsOf?withPlatform.map(r=>({...r,as_of_date:uploadAsOf,...(uploadIsMonthly?{is_monthly:true}:{})})):withPlatform;
+                // Tags every row with which manual-import path produced it (2026-07-31, per Mo's
+                // Data Audit tab) — "csv" for a real uploaded file, "sheet-onetime" for the one-time
+                // "Connect a Google Sheet" pull just below (NOT the same thing as the daily-syncing
+                // googlesheets connector in Data Sources, which tags "sync:googlesheets" instead).
+                // Matches the `sync:<provider>` convention closely enough that Data Audit's source
+                // labeling can tell every import method apart at a glance.
+                const withAsOf=withAsOfBase.map(r=>({...r,source:uploadSourceKind}));
                 const fileLabel=fileName||"CSV";
                 const conflicts=detectSpendConflicts(mergedNormRows,withAsOf);
                 if(conflicts.length){
@@ -3710,6 +3737,10 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace}/></Suspense>}
+      {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
+          exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
+          been imported, including anything a user has since hidden from the dashboards. */}
+      {view==="dataAudit"&&<Suspense fallback={<TabLoadingFallback/>}><DataAudit T={T} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);

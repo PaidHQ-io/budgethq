@@ -215,7 +215,7 @@ export const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","
 // NOTE (2026-07-30, per Mo): the "reportingAnalyzer" key/route is unchanged (matches the tab's
 // component/file name, BudgetHQ.jsx's view-state, and API doc-comments) — only the user-facing
 // label was renamed, from "Reporting Analyzer" to "Performance Intelligence".
-export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Performance Intelligence",icon:"search"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
+export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Performance Intelligence",icon:"search"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 export function autoDetect(h){
@@ -1576,6 +1576,136 @@ export function pacingStatusMeta(status,T){
     case"no-data":return{label:"No data yet",color:T.textMuted,bg:T.surfaceEl,border:T.border};
     default:return{label:"No budget set",color:T.textMuted,bg:T.surfaceEl,border:T.border};
   }
+}
+
+// ─── DATA AUDIT (2026-07-31, per Mo) ───────────────────────────────────────────────────────────
+// "I need a new tab where I can review in detail what data has been brought into BudgetHQ and from
+// where... gaps in dates... overlap... conflicts... whether manual or synced." Scoped to spend/
+// dates only for now — channel-specific metrics beyond spend, PowerBI, and CRM data are explicitly
+// future work per Mo, not part of this function.
+//
+// IMPORTANT LIMITATION, worth understanding up front because it shapes what this can honestly
+// report: mergeRows() (see its own doc comment above) is last-write-wins, keyed by campaign +
+// calendar day — the moment two sources both have a row for the same campaign on the same day,
+// only the most-recently-merged one survives in mergedNormRows. That means by the time this
+// function runs, there is no way to detect a VALUE disagreement between two sources for a day that
+// already got merged — the losing value isn't stored anywhere anymore. (detectSpendConflicts, run
+// at CSV/screenshot import review time, is the only place that can still see both sides — but only
+// in the moment, before the merge commits, which is also why it isn't reused here.)
+//
+// What CAN be honestly reconstructed after the fact is RANGE overlap: which sources, for a given
+// platform, claim date ranges that intersect. That doesn't prove the numbers ever disagreed, but it
+// does say exactly where a silent last-write-wins resolution COULD have happened — worth knowing
+// even without the specific numbers behind it. See byPlatform[].overlapRanges below.
+export function computeDataAudit({mergedNormRows,combineGoogleChannels=false}){
+  const rows=mergedNormRows||[];
+  const dayKey=d=>d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`:null;
+
+  const bySourceMap={};
+  const byPlatformMap={};
+  let totalSpend=0,earliest=null,latest=null,unparseableDates=0;
+  const allCampaigns=new Set();
+
+  rows.forEach(r=>{
+    const d=parseSpendDate(r.date);
+    const dk=dayKey(d);
+    // A row whose date can't be placed on a calendar at all can't participate in range/gap/overlap
+    // math — counted separately (unparseableDates) rather than silently dropped, so a workspace
+    // with a lot of these has a visible signal that something upstream is producing bad dates,
+    // instead of those rows just quietly vanishing from every stat below.
+    if(!dk){unparseableDates++;return;}
+    const sourceKey=r.source||"manual";
+    const platform=groupGooglePlatform(derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type),combineGoogleChannels);
+    const spend=r.spend||0;
+    const campKey=campaignKey(r.campaign_group_name,r.campaign_name);
+
+    totalSpend+=spend;
+    if(!earliest||dk<earliest)earliest=dk;
+    if(!latest||dk>latest)latest=dk;
+    allCampaigns.add(campKey);
+
+    if(!bySourceMap[sourceKey])bySourceMap[sourceKey]={sourceKey,rows:0,spend:0,start:dk,end:dk,campaigns:new Set(),platforms:new Set()};
+    const sAgg=bySourceMap[sourceKey];
+    sAgg.rows++;sAgg.spend+=spend;sAgg.campaigns.add(campKey);sAgg.platforms.add(platform);
+    if(dk<sAgg.start)sAgg.start=dk;
+    if(dk>sAgg.end)sAgg.end=dk;
+
+    if(!byPlatformMap[platform])byPlatformMap[platform]={platform,rows:0,spend:0,start:dk,end:dk,campaigns:new Set(),days:new Set(),sources:{}};
+    const pAgg=byPlatformMap[platform];
+    pAgg.rows++;pAgg.spend+=spend;pAgg.campaigns.add(campKey);pAgg.days.add(dk);
+    if(dk<pAgg.start)pAgg.start=dk;
+    if(dk>pAgg.end)pAgg.end=dk;
+    if(!pAgg.sources[sourceKey])pAgg.sources[sourceKey]={sourceKey,rows:0,spend:0,start:dk,end:dk};
+    const psAgg=pAgg.sources[sourceKey];
+    psAgg.rows++;psAgg.spend+=spend;
+    if(dk<psAgg.start)psAgg.start=dk;
+    if(dk>psAgg.end)psAgg.end=dk;
+  });
+
+  // Walks a [start,end] calendar span (inclusive) day by day and collapses consecutive days NOT in
+  // presentSet into ranges — e.g. missing Mar 5/6/7 becomes one {start:"...-03-05",end:"...-03-07",
+  // days:3} entry instead of three separate ones. "T00:00:00" (no Z) keeps every date parsed/
+  // compared in local time throughout, matching dayKey's own local getFullYear/Month/Date — mixing
+  // local and UTC here would risk an off-by-one at the range's edges.
+  const collapseMissing=(start,end,presentSet)=>{
+    if(!start||!end)return[];
+    const ranges=[];
+    let cur=null;
+    const d=new Date(`${start}T00:00:00`);
+    const endD=new Date(`${end}T00:00:00`);
+    while(d<=endD){
+      const k=dayKey(d);
+      if(!presentSet.has(k)){
+        if(cur){cur.end=k;cur.days++;}
+        else cur={start:k,end:k,days:1};
+      }else if(cur){
+        ranges.push(cur);cur=null;
+      }
+      d.setDate(d.getDate()+1);
+    }
+    if(cur)ranges.push(cur);
+    return ranges;
+  };
+
+  const bySource=Object.values(bySourceMap).map(s=>({
+    sourceKey:s.sourceKey,rows:s.rows,spend:s.spend,start:s.start,end:s.end,
+    campaigns:s.campaigns.size,platforms:Array.from(s.platforms).sort(),
+  })).sort((a,b)=>b.spend-a.spend);
+
+  const byPlatform=Object.values(byPlatformMap).map(p=>{
+    const sources=Object.values(p.sources).map(s=>({sourceKey:s.sourceKey,rows:s.rows,spend:s.spend,start:s.start,end:s.end}))
+      .sort((a,b)=>a.start<b.start?-1:a.start>b.start?1:0);
+    const gapRanges=collapseMissing(p.start,p.end,p.days);
+    const gapDayCount=gapRanges.reduce((s,r)=>s+r.days,0);
+    // Pairwise range-overlap across this platform's contributing sources — see this function's own
+    // top-of-file doc comment for exactly what an entry here can and can't prove. O(n²) in source
+    // count, which is fine since a single platform realistically has a handful of sources at most
+    // (a connector or two, maybe a CSV backfill), never dozens.
+    const overlapRanges=[];
+    for(let i=0;i<sources.length;i++){
+      for(let j=i+1;j<sources.length;j++){
+        const a=sources[i],b=sources[j];
+        const start=a.start>b.start?a.start:b.start;
+        const end=a.end<b.end?a.end:b.end;
+        if(start<=end){
+          const days=Math.round((new Date(`${end}T00:00:00`)-new Date(`${start}T00:00:00`))/86400000)+1;
+          overlapRanges.push({sourceA:a.sourceKey,sourceB:b.sourceKey,start,end,days});
+        }
+      }
+    }
+    return{
+      platform:p.platform,rows:p.rows,spend:p.spend,start:p.start,end:p.end,campaigns:p.campaigns.size,
+      sources,gapRanges,gapDayCount,overlapRanges,
+    };
+  }).sort((a,b)=>b.spend-a.spend);
+
+  return{
+    overview:{
+      totalRows:rows.length,totalSpend,earliest,latest,unparseableDates,
+      sourceCount:bySource.length,platformCount:byPlatform.length,campaignCount:allCampaigns.size,
+    },
+    bySource,byPlatform,
+  };
 }
 
 export const fmtSigned=n=>n==null?"—":(n>0?"+":n<0?"−":"")+"$"+Math.round(Math.abs(n)).toLocaleString();
