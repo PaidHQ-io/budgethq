@@ -309,9 +309,18 @@ on conflict (id) do nothing;
 -- identical copy of paidhq-core's own idempotent fix here too so this deploy doesn't depend on
 -- paidhq-core deploying first — whichever of the two projects deploys first actually changes the
 -- constraint on the shared database, the other's copy of this same ALTER is just a no-op re-run.
+--
+-- 'budgethq' is deliberately kept IN the allow-list alongside 'paidhq', not replaced by it —
+-- second production failure, same deploy: Postgres validates a freshly-added CHECK CONSTRAINT
+-- against every EXISTING row immediately, so excluding 'budgethq' here made the ALTER itself fail
+-- ("violated by some row") against every un-migrated 'budgethq' row still in the table at the
+-- moment this ran — which is all of them, since the UPDATE below hasn't executed yet at this
+-- point in the script. Keeping both values accepted makes this ALTER succeed regardless of
+-- ordering; nothing writes 'budgethq' anymore so it's a permanently-harmless extra allowed value,
+-- not an ongoing state to worry about.
 alter table core.entitlements drop constraint if exists entitlements_product_check;
 alter table core.entitlements add constraint entitlements_product_check
-  check (product in ('paidhq','vaulthq','reportinghq','focushq','audithq'));
+  check (product in ('paidhq','budgethq','vaulthq','reportinghq','focushq','audithq'));
 
 -- One-time data migration (2026-07-31): the product was renamed from BudgetHQ to PaidHQ.
 -- Existing entitlement rows in core.entitlements still say product = 'budgethq' from before the
