@@ -301,6 +301,18 @@ select
 from budgethq.alert_rules
 on conflict (id) do nothing;
 
+-- core.entitlements.product has a CHECK CONSTRAINT (defined in the sibling paidhq-core repo's
+-- own db/schema.sql, since core.entitlements is a shared table this schema doesn't own) that
+-- didn't originally allow 'paidhq' as a value — the UPDATE just below failed against production
+-- with "violates check constraint entitlements_product_check" the first time this ran, because
+-- that constraint still only allowed the old 5 product slugs including 'budgethq'. Carrying an
+-- identical copy of paidhq-core's own idempotent fix here too so this deploy doesn't depend on
+-- paidhq-core deploying first — whichever of the two projects deploys first actually changes the
+-- constraint on the shared database, the other's copy of this same ALTER is just a no-op re-run.
+alter table core.entitlements drop constraint if exists entitlements_product_check;
+alter table core.entitlements add constraint entitlements_product_check
+  check (product in ('paidhq','vaulthq','reportinghq','focushq','audithq'));
+
 -- One-time data migration (2026-07-31): the product was renamed from BudgetHQ to PaidHQ.
 -- Existing entitlement rows in core.entitlements still say product = 'budgethq' from before the
 -- rename; update them to 'paidhq' so requireEntitlement's check (api/lib/auth.js, which now
