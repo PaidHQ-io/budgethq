@@ -3,10 +3,10 @@
  *
  * GET — returns the core.workspace_config JSONB blob: tags, tagDims, budgets, budgetDims,
  *       budgetRowMeta, budgetMetaDims, budgetImportMeta, savedViews, defaultForecastModel. Field names match
- *       BudgetHQ.jsx's existing in-memory state variables exactly, so the frontend can drop this
+ *       PaidHQ.jsx's existing in-memory state variables exactly, so the frontend can drop this
  *       straight into useState() without any reshaping. Returns an empty default (not 404) if
  *       this workspace hasn't been touched yet — workspace creation now happens in paidhq-core,
- *       which knows nothing about BudgetHQ's own config table, so there's no guarantee a row
+ *       which knows nothing about PaidHQ's own config table, so there's no guarantee a row
  *       exists on first access.
  * PUT  — upserts the whole blob. The frontend already holds the full current state client-side
  *        (it's a small, infrequently-changing object compared to spend_rows), so whole-document

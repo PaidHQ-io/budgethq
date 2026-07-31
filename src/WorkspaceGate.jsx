@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { listWorkspaces, createWorkspace, grantEntitlement, acceptInvite } from "./lib/coreApi";
 import { PENDING_INVITE_KEY } from "./AuthGate";
 import { workspaceKeyFor } from "./lib/accounts";
-import BudgetHQ from "./BudgetHQ";
+import PaidHQ from "./PaidHQ";
 
-// Standalone subset of BudgetHQ's theme tokens — see Auth.jsx for why this isn't imported from
-// BudgetHQ.jsx directly.
-// border/textMuted retuned 2026-07-26 (per Mo, matching BudgetHQ.jsx's core.js THEME — see its
+// Standalone subset of PaidHQ's theme tokens — see Auth.jsx for why this isn't imported from
+// PaidHQ.jsx directly.
+// border/textMuted retuned 2026-07-26 (per Mo, matching PaidHQ.jsx's core.js THEME — see its
 // doc comment for where these values came from). accent/onAccent/accentBg/accentBorder fixed in
 // the same pass — this standalone copy had been missed by the app-wide orange-to-blue rebrand
 // since it doesn't import the shared THEME object.
@@ -237,7 +237,7 @@ function CreateWorkspaceScreen({ name, setName, kind, setKind, onSubmit, loading
 }
 
 // Sits between AuthGate (owns the Supabase session — now sessionS, plural, one per held account)
-// and BudgetHQ (the actual product). Owns the list of workspaces the signed-in user belongs to,
+// and PaidHQ (the actual product). Owns the list of workspaces the signed-in user belongs to,
 // which one is "active," and the create-a-workspace flow — all via paidhq-core's API, never
 // talking to Postgres directly (that's core's job; every product goes through its API for
 // workspace/entitlement data).
@@ -392,12 +392,12 @@ export default function WorkspaceGate({
     setCreateError("");
     try {
       const workspace = await createWorkspace(session, { name: newName.trim(), kind: newKind });
-      // Whoever creates a workspace from inside BudgetHQ gets an immediate BudgetHQ trial for
+      // Whoever creates a workspace from inside PaidHQ gets an immediate PaidHQ trial for
       // it — signing up through the product and then hitting a paywall before touching it at
       // all would be a bad first impression. Turning this into real billing (expiring trials,
       // upgrading to paid) is a follow-up for when Stripe is wired in; this just unblocks
       // actually using the product today.
-      await grantEntitlement(session, workspace.id, { product: "budgethq", plan: "trial", status: "trialing" });
+      await grantEntitlement(session, workspace.id, { product: "paidhq", plan: "trial", status: "trialing" });
       setNewName("");
       setShowCreateForm(false);
       selectWorkspace(workspace.id);
@@ -489,7 +489,7 @@ export default function WorkspaceGate({
   return (
     <>
       {banner}
-      <BudgetHQ
+      <PaidHQ
         session={session}
         onSignOut={onSignOut}
         workspace={active}

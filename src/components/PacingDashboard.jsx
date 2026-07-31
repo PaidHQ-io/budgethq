@@ -321,7 +321,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       setNumericFilters(cfg.numericFilters||[]);
     }
   };
-  // Consumes AskAI's "Save as view" relay (2026-07-29, per Mo — see BudgetHQ.jsx's
+  // Consumes AskAI's "Save as view" relay (2026-07-29, per Mo — see PaidHQ.jsx's
   // pendingViewConfig doc comment) — initialViewConfig arrives already in the canonical shape
   // (built by AskAI.jsx's handleSaveAsView via the same aiConfigToViewConfig this component's own
   // "Ask AI to build a view" box uses below), so this just applies it and clears the relay. Unlike
@@ -426,7 +426,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
 
   // "Ask AI about this view →" (2026-07-28, per Mo's scope-awareness ask) — templates the
   // currently active View-by mode + filters into a plain-English question and hands it to
-  // onAskAboutView (wired up in BudgetHQ.jsx to stash it and switch to the Ask AI tab). This is
+  // onAskAboutView (wired up in PaidHQ.jsx to stash it and switch to the Ask AI tab). This is
   // the fix for a real gap: Ask AI's chat always queries the full unfiltered dataset from
   // scratch, with zero awareness of whatever's on screen here unless the question restates it —
   // this button restates it for you instead of leaving Ask AI blind to your filters.

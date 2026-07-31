@@ -2,7 +2,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { stepPeriodStart } from "./reportingPeriods.js";
 
-// src/lib/core.js — pure data/pacing logic extracted from the monolithic BudgetHQ.jsx
+// src/lib/core.js — pure data/pacing logic extracted from the monolithic PaidHQ.jsx
 // (2026-07-25 split, per Mo). No React, no JSX — every export here is a plain function or
 // constant, safe to import from lib code, tab components, or the root app equally. Combines
 // what were three conceptual layers in the original file (CSV/column-detection constants +
@@ -24,11 +24,11 @@ import { stepPeriodStart } from "./reportingPeriods.js";
 // (#EAEAEA/#D4D4D4) are barely-there by design, while zams' cell dividers are a real, deliberate
 // warm gray-mauve line — confirmed via the same pixel sample: a 1px solid rgb(165,159,167). Kept
 // exactly that value for borderStrong (used for the more emphatic dividers/table frames) and a
-// lighter tint of the same hue for the everyday border token, since BudgetHQ has far more
+// lighter tint of the same hue for the everyday border token, since PaidHQ has far more
 // bordered elements per screen (every input/table cell/card) than zams' generously-spaced promo
 // grid — using the full-strength line everywhere would read as busy rather than structured.
 // textMuted nudged toward the same warm-gray hue too, since SectionLabel (fontSize 10, bold,
-// uppercase, 0.08em tracking) already IS BudgetHQ's version of zams' "[0X] SECTION NAME" eyebrow
+// uppercase, 0.08em tracking) already IS PaidHQ's version of zams' "[0X] SECTION NAME" eyebrow
 // label — same role, just needed the color to actually match. Accent blue is untouched, per Mo.
 export const THEME = {
   bg:"#FAFAFA",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
@@ -163,7 +163,7 @@ export const campaignKeyParts=key=>{const i=(key||"").indexOf("||");return i===-
 // Break down by pickers, the "not a real tag, don't let someone rename it" guards, etc.).
 export const DERIVED_DIMS=["Platform","Campaign","Ad Group"];
 // Used by the debounced-save empty-write guard (see the big comment near hadRealConfigRef in the
-// main BudgetHQ component) — "empty" means nothing worth protecting, i.e. no tags, no budgets, and
+// main PaidHQ component) — "empty" means nothing worth protecting, i.e. no tags, no budgets, and
 // no budget dimension setup either (tagDims/budgetRowMeta/budgetImportMeta are metadata that only
 // matter alongside actual tags/budgets, so they're deliberately not checked here).
 export const isEmptyConfig=c=>!Object.keys(c?.tags||{}).length&&!Object.keys(c?.budgets||{}).length;
@@ -193,7 +193,7 @@ export function getBudgetDimValues(budgets,budgetDims){
 }
 export const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 // Pre-auth localStorage keys — see the "one-time import of pre-auth localStorage data" block in
-// BudgetHQ() for what reads/clears these.
+// PaidHQ() for what reads/clears these.
 export const LEGACY_LOCAL_KEYS=["paidhq_tags","paidhq_dims","paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta","paidhq_rows"];
 export const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#0082FB",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
 // Applied-tag pill colors in the Tagger — a plain white/grey pill read as too flat to spot at a
@@ -207,14 +207,14 @@ export const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Goog
 // dimension's pill "on brand" instead of reaching for an arbitrary rainbow.
 export const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","#7A9CAA","#0A2226","#8FB0BC"];
 // "pacing" relabeled from "Reporting & Pacing" to "Budget Pacing" (2026-07-30, per Mo — folding
-// ReportingHQ's performance-reporting work into BudgetHQ instead of running it as a separate
+// ReportingHQ's performance-reporting work into PaidHQ instead of running it as a separate
 // product) since "Reporting" now means something different: the new "reportingAnalyzer" tab covers
 // Dreamdata/PowerBI funnel/pipeline performance data, while this tab is specifically about
 // spend-vs-budget pacing — same component (PacingDashboard.jsx), same `key:"pacing"` (so every
 // existing view==="pacing" check elsewhere keeps working unchanged), just a clearer label now that
 // there are two "reporting"-adjacent tabs instead of one.
 // NOTE (2026-07-30, per Mo): the "reportingAnalyzer" key/route is unchanged (matches the tab's
-// component/file name, BudgetHQ.jsx's view-state, and API doc-comments) — only the user-facing
+// component/file name, PaidHQ.jsx's view-state, and API doc-comments) — only the user-facing
 // label was renamed, from "Reporting Analyzer" to "Performance Intelligence".
 export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Performance Intelligence",icon:"search"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
@@ -368,7 +368,7 @@ export function downloadCSV(rows, filename){
 // deleteVersion and listFiles/uploadFile/deleteFile/downloadFile imported above from
 // workspaceApi.js), workspace-scoped instead of living in one fixed-name IndexedDB database
 // shared across every workspace ever opened in this browser. The load/save call sites live
-// further down inside the BudgetHQ component, where session/workspace are in scope.
+// further down inside the PaidHQ component, where session/workspace are in scope.
 
 // Groups version records into "Today" / "Yesterday" / weekday-or-date buckets, same convention
 // Google Sheets' version history panel uses, so the list reads as a scannable timeline instead
@@ -393,7 +393,7 @@ export function groupVersionsByDay(versions){
 // Archive of raw uploaded/exported files (tagging CSVs, channel spend import CSVs, PDFs, etc.).
 // Auto-captured at the CSV import/export call sites (see handleFile, exportTags,
 // importTagsFromCSV) plus a manual "Add file" upload for anything else (PDFs, insertion orders,
-// etc.) the app never parses itself. archiveFile itself is defined inside the BudgetHQ component
+// etc.) the app never parses itself. archiveFile itself is defined inside the PaidHQ component
 // (needs session/workspace in scope to call the API) — see the "archiveFile" useCallback below.
 
 export const fmtFileSize=n=>{
@@ -856,7 +856,7 @@ export function computePlatformDayOfWeekIndex(mergedNormRows){
 }
 export const DEFAULT_DOW_INDEX=[1,1,1,1,1,1,1];
 
-// Full min/max date range of spend data actually present in BudgetHQ for each platform, regardless
+// Full min/max date range of spend data actually present in PaidHQ for each platform, regardless
 // of how it got there (live sync, Google Sheets pull, CSV/screenshot upload). Distinct from
 // computePlatformFreshness above, which is specifically "as of what date is this platform's
 // spend current" for pacing/projection math (as_of_date-aware, always the max). This is the
@@ -1027,7 +1027,7 @@ export function projectPlatformSegment(platformSpendMap,platformFreshness,{start
 // Every Google-family sub-channel derivePlatform() can produce — the full menu a workspace can
 // choose to fold into a combined "Google" line, one channel at a time (2026-07-31, per Mo).
 // Exported so both the Settings UI's per-channel checkboxes and the one-time budget-row migration
-// (see renameDimensionValue call sites in BudgetHQ.jsx) iterate this exact same list instead of a
+// (see renameDimensionValue call sites in PaidHQ.jsx) iterate this exact same list instead of a
 // second, easily-drifting copy of "which values count as Google."
 //
 // WIDENED (2026-07-31) from a fixed 3-item list (Search/Display/Demand Gen) that used to be
@@ -1042,7 +1042,7 @@ export const GOOGLE_SUBCHANNELS=["Google Search","Google Display","Demand Gen","
 // Mo: "they need to have the flexibility to combine or separate whatever they want, not just a
 // toggle on or off" — e.g. combine everything except YouTube, or keep only Search separate. It's
 // now an object, {channelName: true} meaning "fold this one into Google" — any channel absent or
-// false stays under its own real label. Every caller across the codebase (BudgetHQ.jsx,
+// false stays under its own real label. Every caller across the codebase (PaidHQ.jsx,
 // PacingDashboard.jsx, BudgetManager.jsx, AskAI.jsx, Dashboard.jsx, askAI.js, reports.js) just
 // threads this value through by the same prop name without interpreting it themselves, so none of
 // them needed to change — only groupGooglePlatform (the one place that actually reads it) did.
@@ -1145,7 +1145,7 @@ export function detectCapacitySignal(dailyMap,{expectedPct,actualPct,budget,spen
 }
 
 // defaultForecastModel (optional, 2026-07-25) — the workspace-wide fallback set via
-// PacingDashboard's global model selector (see BudgetHQ's own defaultForecastModel state/prop
+// PacingDashboard's global model selector (see PaidHQ's own defaultForecastModel state/prop
 // threading). A row's own budgetRowMeta[sk]._forecastModel, when present, always wins over this —
 // see the fallback chain below, same priority order as the legacy _committed key. Every caller
 // that doesn't have this value handy (report builders, AI tools called from contexts that never
@@ -1580,7 +1580,7 @@ export function pacingStatusMeta(status,T){
 }
 
 // ─── DATA AUDIT (2026-07-31, per Mo) ───────────────────────────────────────────────────────────
-// "I need a new tab where I can review in detail what data has been brought into BudgetHQ and from
+// "I need a new tab where I can review in detail what data has been brought into PaidHQ and from
 // where... gaps in dates... overlap... conflicts... whether manual or synced." Scoped to spend/
 // dates only for now — channel-specific metrics beyond spend, PowerBI, and CRM data are explicitly
 // future work per Mo, not part of this function.

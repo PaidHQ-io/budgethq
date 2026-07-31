@@ -9,7 +9,7 @@
 
 // Row dates aren't always real per-day dates by the time they reach this API — CSV imports (esp.
 // the "flat"/recurring-monthly format) can carry values like "February 2026" or "Jul-26" straight
-// through from the source file. The frontend's own parseSpendDate() (BudgetHQ.jsx) already treats
+// through from the source file. The frontend's own parseSpendDate() (PaidHQ.jsx) already treats
 // these as valid, meaningful values everywhere else (pacing math, trend charts), but the RAW string
 // is what gets sent here — and Postgres's date parser has no idea what "February 2026" means, so it
 // throws (`invalid input syntax for type date`). Normalizing here (same rules as parseSpendDate,
@@ -71,7 +71,7 @@ export function toColumns(rows) {
     source: valid.map((r) => r.source || null),
     // Whole-month-total-as-one-row marker (2026-07-30) — see core.spend_rows' is_monthly doc
     // comment in paidhq-core/db/schema.sql (the shared table's schema lives there, not here). Set
-    // client-side at CSV/screenshot import time (BudgetHQ.jsx) when the "one row per month"
+    // client-side at CSV/screenshot import time (PaidHQ.jsx) when the "one row per month"
     // checkbox is on; false/absent for everything else, including every synced row. Kept here in
     // sync with paidhq-core's identical copy of this file so both writers agree on spend_rows'
     // column shape.

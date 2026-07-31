@@ -5,11 +5,11 @@
  *
  * Unlike LinkedIn, Microsoft's identity platform issues refresh tokens to ANY registered app —
  * there's no separate partner-approval gate for that part. Two things ARE still required before
- * this can go live, both confirmed NOT yet done for BudgetHQ as of 2026-07-22 (see the chat
+ * this can go live, both confirmed NOT yet done for PaidHQ as of 2026-07-22 (see the chat
  * writeup this shipped with):
  *   1. A Developer Token (BING_DEVELOPER_TOKEN) — a Microsoft Advertising account-level key,
  *      requested self-serve from Microsoft Advertising's own Developer Center (Account settings ->
- *      Developer Settings -> Request Token). Usually instant for first-party use, but BudgetHQ
+ *      Developer Settings -> Request Token). Usually instant for first-party use, but PaidHQ
  *      pulling data on behalf of many different customer accounts is exactly the "tool provider"
  *      scenario Microsoft's docs say can take up to ~5 business days for review.
  *   2. An Entra ID (Azure AD) app registration (BING_CLIENT_ID/BING_CLIENT_SECRET) — created in

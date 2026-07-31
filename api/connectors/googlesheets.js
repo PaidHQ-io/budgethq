@@ -4,10 +4,10 @@
  * Google's own Google Ads connector (google.js) needs OAuth access to the Google Ads API's
  * restricted scope, which requires Google's full app-verification/brand-verification review before
  * it can be used by anyone outside a handful of test users — a slow, multi-week process. This
- * connector sidesteps that entirely: instead of BudgetHQ talking to Google Ads directly, the
+ * connector sidesteps that entirely: instead of PaidHQ talking to Google Ads directly, the
  * workspace points some OTHER tool (Google Ads' own "Export to Sheets" scheduled report, a Sheets
  * add-on, Supermetrics, Funnel.io, an Apps Script, etc. — anything capable of landing spend data
- * into a Sheet on its own schedule) at a Google Sheet, and BudgetHQ just reads that Sheet daily like
+ * into a Sheet on its own schedule) at a Google Sheet, and PaidHQ just reads that Sheet daily like
  * any other live connector. No OAuth, no Google review, no restricted scope — the sheet only needs
  * to be link-shared ("Anyone with the link can view"), and this fetches it via Google's public
  * `/export?format=csv` endpoint the same way a browser would download it.
@@ -23,7 +23,7 @@
  * fuzzy way the CSV upload's autoDetect() does (see COL_PATTERNS below — deliberately kept in sync
  * with core.js's copy of the same patterns) rather than requiring exact snake_case column names.
  *
- * MAPPING (2026-07-31, per Mo): previewSheet() lets BudgetHQ's connect panel show the user the real
+ * MAPPING (2026-07-31, per Mo): previewSheet() lets PaidHQ's connect panel show the user the real
  * headers, the auto-detected guess, and a sample row BEFORE saving — the user can override any
  * field, and that confirmed mapping is saved into credential.columnMap. getSpend() always prefers a
  * saved columnMap over re-guessing — this keeps every DAILY sync unattended (no re-prompting), it's
@@ -33,7 +33,7 @@
  * DATE FILTERING: unlike every other connector here, Sheets has no native date-range query — the
  * whole sheet comes back every time, so getSpend filters rows to [startDate, endDate] itself.
  *
- * NOTE: this is BudgetHQ's own rollback-safety-net copy — the actual live sync path runs through
+ * NOTE: this is PaidHQ's own rollback-safety-net copy — the actual live sync path runs through
  * paidhq-core's identical copy of this file (spend syncs moved there 2026-07-30, see
  * api/spend.js's deprecation comment). Keep both in sync.
  */
@@ -138,7 +138,7 @@ async function loadSheetRows(sheetUrl) {
   return { headers, allRows };
 }
 
-// Lets the Data Sources UI show the user what BudgetHQ actually sees in their sheet — real
+// Lets the Data Sources UI show the user what PaidHQ actually sees in their sheet — real
 // headers, what got auto-detected, and a sample row — BEFORE the connection is saved, and again
 // later via "Adjust mapping" (2026-07-31, per Mo). Doesn't require an existing credential — this
 // runs against whatever sheetUrl the user just pasted.
@@ -171,7 +171,7 @@ export async function getSpend({ startDate, endDate, credential }) {
   const missing = REQUIRED_COLS.filter((f) => !colMap[f]);
   if (missing.length) {
     throw new Error(
-      `Couldn't find a column for ${missing.join(", ")} in the Google Sheet. Expected headers like "Campaign Group Name", "Spend", and "Date" — same columns as BudgetHQ's CSV upload.`
+      `Couldn't find a column for ${missing.join(", ")} in the Google Sheet. Expected headers like "Campaign Group Name", "Spend", and "Date" — same columns as PaidHQ's CSV upload.`
     );
   }
   const colIndex = {};

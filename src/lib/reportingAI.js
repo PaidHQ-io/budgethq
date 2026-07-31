@@ -1,8 +1,8 @@
 /**
  * Screenshot-to-rows extraction for the Reporting Analyzer tab's Dreamdata/PowerBI import. Ported
- * from ReportingHQ (2026-07-30, per Mo — folding ReportingHQ into BudgetHQ instead of running it
+ * from ReportingHQ (2026-07-30, per Mo — folding ReportingHQ into PaidHQ instead of running it
  * as a separate product), unchanged — sends a screenshot to Claude via /api/analyze, the same
- * proxy BudgetHQ's own screenshot-to-spend and column-mapping features already use to keep the
+ * proxy PaidHQ's own screenshot-to-spend and column-mapping features already use to keep the
  * Anthropic key server-side (see api/analyze.js's "FULL" calling shape), with a tool-use prompt
  * that forces structured output — a free-text "read the table and reply with JSON" prompt is one
  * stray sentence away from unparseable output; tool_use makes the model's response conform to a

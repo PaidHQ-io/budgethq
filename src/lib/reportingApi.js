@@ -1,9 +1,9 @@
 /**
- * Client for BudgetHQ's own /api/workspaces/[id]/reporting-facts route (not paidhq-core — same
+ * Client for PaidHQ's own /api/workspaces/[id]/reporting-facts route (not paidhq-core — same
  * split as spend-rows.js/workspaceApi.js: paidhq-core owns auth/workspace/entitlement, this
  * product's own /api routes query the shared core.* tables directly via a schema-qualified query,
  * same physical database). Ported from ReportingHQ (2026-07-30, per Mo — folding ReportingHQ into
- * BudgetHQ as a "Reporting Analyzer" tab), unchanged apart from this doc comment.
+ * PaidHQ as a "Reporting Analyzer" tab), unchanged apart from this doc comment.
  */
 export function authHeader(session) {
   return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
@@ -76,7 +76,7 @@ export function upsertReportingFacts(session, workspaceId, rows) {
 // Region, Funnel, Pillar, Branded Search, Module, Brand, user-editable per workspace) plus known
 // VALUES for each, and known Campaign values — pulled from this workspace's own reporting_facts
 // history plus Campaign Tagger's tags and spend_rows, so the Reporting Analyzer's import review
-// table offers the same vocabulary already used elsewhere in BudgetHQ. See
+// table offers the same vocabulary already used elsewhere in PaidHQ. See
 // api/workspaces/[id]/dimension-values.js for the merge logic.
 // Returns { tagDims: string[], values: { [dimensionName]: string[] }, campaignName: string[] }.
 export async function getDimensionValues(session, workspaceId) {

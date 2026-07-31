@@ -8,7 +8,7 @@
  *   1. A Developer Token (GOOGLE_ADS_DEVELOPER_TOKEN) — requested from inside a Google Ads MANAGER
  *      account (Tools & Settings -> Setup -> API Center), NOT self-serve like Bing's. Google's
  *      review queue for "Basic access" (enough to pull real advertiser accounts' data, capped at
- *      15,000 operations/day — plenty for BudgetHQ's read-only daily spend pulls) has historically
+ *      15,000 operations/day — plenty for PaidHQ's read-only daily spend pulls) has historically
  *      taken anywhere from a couple days to a couple weeks; there's no way to speed this up other
  *      than filling out the use-case questionnaire clearly. This has to be applied for by Mo
  *      personally (tied to his own Google Ads manager account) — not something buildable ahead of
@@ -249,7 +249,7 @@ export async function adsApiSearchAll(customerId, query, auth) {
 // they can see real ad accounts inside the Google Ads UI. Fixing that needs a manager-account
 // hierarchy browser (GoogleAdsService.search against the manager customer with
 // customer_client.manager=false, sending the manager's ID as login-customer-id) — not built yet
-// since it adds real complexity for a case that may not apply to BudgetHQ's actual early users.
+// since it adds real complexity for a case that may not apply to PaidHQ's actual early users.
 // If Mo's own account (or an early customer's) turns out to need this, that's the fix.
 export async function listAccessibleAccounts(accessToken) {
   const listResp = await adsApiGet("/customers:listAccessibleCustomers", accessToken);

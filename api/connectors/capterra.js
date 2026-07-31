@@ -35,7 +35,7 @@
  * year's data, and dropped a different amount per campaign depending on that campaign's daily
  * volume — which is why the undercount wasn't a clean multiplier across products.
  *
- * campaign_name (the ad set/ad group equivalent in BudgetHQ) is Capterra's `product_name` field
+ * campaign_name (the ad set/ad group equivalent in PaidHQ) is Capterra's `product_name` field
  * (e.g. "Jet Reports", "Spreadsheet Server") — the named product within the campaign, not the
  * category or channel. Falls back to `category` only if a row is ever missing product_name.
  *
@@ -46,7 +46,7 @@
  *
  * AGGREGATION NOTE: the API returns multiple rows per product per day, broken out by channel
  * and/or country (confirmed live — e.g. two "Spreadsheet" rows on the same date, one per
- * country, each with its own cost). mergeRows() upstream (src/BudgetHQ.jsx) de-dupes by
+ * country, each with its own cost). mergeRows() upstream (src/PaidHQ.jsx) de-dupes by
  * campaign_group_name + campaign_name + date and OVERWRITES on a collision rather than summing
  * — so this connector pre-aggregates (sums cost/clicks) down to one row per campaign+product+day
  * before returning, otherwise those channel/country splits would silently disappear on merge

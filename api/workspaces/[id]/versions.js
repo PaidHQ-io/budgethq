@@ -1,5 +1,5 @@
 /**
- * /api/workspaces/[id]/versions — server-side counterpart to BudgetHQ's existing IndexedDB
+ * /api/workspaces/[id]/versions — server-side counterpart to PaidHQ's existing IndexedDB
  * version-history feature (checkpoint snapshots of tags/budgets/spend after major actions, plus
  * on-demand named saves). Same shape as before (id, timestamp, label, trigger, snapshot), now
  * workspace-scoped and durable.

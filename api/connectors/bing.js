@@ -89,7 +89,7 @@ function buildSubmitReportXml({ accessToken, developerToken, customerId, account
         <ExcludeReportHeader>true</ExcludeReportHeader>
         <Format>Csv</Format>
         <FormatVersion>2.0</FormatVersion>
-        <ReportName>BudgetHQ Ad Group Performance</ReportName>
+        <ReportName>PaidHQ Ad Group Performance</ReportName>
         <ReturnOnlyCompleteData>false</ReturnOnlyCompleteData>
         <Aggregation>Daily</Aggregation>
         <Columns xmlns:a="https://bingads.microsoft.com/Reporting/v13">
@@ -247,7 +247,7 @@ async function downloadAndParseReport(url) {
       // guide's Time Period Column section).
       const date = row.TimePeriod || null;
       if (!date || spend <= 0) return null;
-      // Aligned with LinkedIn's taxonomy (see connectors/linkedin.js's doc comment): BudgetHQ's
+      // Aligned with LinkedIn's taxonomy (see connectors/linkedin.js's doc comment): PaidHQ's
       // campaign_group_name is the platform's own mid-tier "Campaign", and campaign_name is the
       // leaf tier below it — Bing's Ad Group, same role as LinkedIn's inner "Campaign" object.
       // Previously this used AccountName ("insightsoftware") as the group, which put every one of

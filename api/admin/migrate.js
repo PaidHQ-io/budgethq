@@ -1,5 +1,5 @@
 /**
- * MANUAL FALLBACK: applies db/schema.sql (BudgetHQ's own budgethq.* tables) using DATABASE_URL
+ * MANUAL FALLBACK: applies db/schema.sql (PaidHQ's own paidhq.* tables) using DATABASE_URL
  * from Vercel's own runtime env — same rationale as paidhq-core's identical endpoint
  * (api/admin/migrate.js there): Vercel's "sensitive" env vars are write-only once saved, so there's
  * no way to run db/migrate.js locally without the connection string ever being visible again.

@@ -9,7 +9,7 @@
  *
  * GET /ai-chats — returns the CALLER's own { chats, projects } for this workspace (never anyone
  *   else's). `projects` (2026-07-21) is the folder/project list chats can be filed under, alongside
- *   pinning and free-text labels stored directly on each chat record — see AskAI in BudgetHQ.jsx.
+ *   pinning and free-text labels stored directly on each chat record — see AskAI in PaidHQ.jsx.
  * PUT /ai-chats — upserts the CALLER's own { chats, projects }.
  *
  * STORAGE NOTE: the underlying `chats` jsonb column's stored VALUE changed shape from a bare

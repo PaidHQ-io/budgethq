@@ -155,12 +155,12 @@ function groupChatsByRecency(chats){
 // (search, pinning, projects, labels) modeled on the Claude desktop app's own history sidebar
 // rather than the small header dropdown alone. The header History dropdown stays as-is
 // underneath — it's the only access point on mobile, where sidebarEl is never mounted (see the
-// `!isMobile` gate around the whole stats <aside> in BudgetHQ's render).
+// `!isMobile` gate around the whole stats <aside> in PaidHQ's render).
 export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView,combineGoogleChannels=false}){
   // initialQuestion seeds input via a lazy initializer rather than an effect — correct here (not
   // just convenient) because this component and PacingDashboard's "Ask AI about this view" button
   // are mutually exclusive: the button only exists on view==="pacing", AskAI only renders on
-  // view==="ask" (see BudgetHQ.jsx), so AskAI is ALWAYS unmounted at the moment the button is
+  // view==="ask" (see PaidHQ.jsx), so AskAI is ALWAYS unmounted at the moment the button is
   // clickable and freshly mounts when the tab switch lands here — this genuinely only needs to run
   // once, at construction, not react to a later prop change on an already-mounted instance.
   const[input,setInput]=useState(()=>initialQuestion||"");

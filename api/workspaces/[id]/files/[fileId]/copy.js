@@ -5,7 +5,7 @@
  * workspace in the URL (the source) into another workspace the caller ALSO belongs to (the
  * target). This is a real duplicate — a brand-new row with its own id in the target workspace —
  * not a shared reference. Files stay hard-siloed by default (see files.js and the workspace_id
- * foreign keys throughout budgethq.* — this is the one deliberate escape hatch from that, and it's
+ * foreign keys throughout paidhq.* — this is the one deliberate escape hatch from that, and it's
  * always an explicit action, never automatic).
  *
  * Access: view access (any role) is enough on the SOURCE — copying doesn't change anything there,

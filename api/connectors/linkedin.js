@@ -32,9 +32,9 @@ const restHeaders = (token) => ({
 });
 
 // Resolve campaign names + their parent campaignGroup URN individually by ID — bulk fetch not
-// supported on Advertising API tier. Note: LinkedIn's "Campaign" object is BudgetHQ's leaf-level
+// supported on Advertising API tier. Note: LinkedIn's "Campaign" object is PaidHQ's leaf-level
 // campaign_name (equivalent to an ad set/ad group on other platforms); LinkedIn's "Campaign Group"
-// is BudgetHQ's campaign_group_name (equivalent to what other platforms simply call "Campaign").
+// is PaidHQ's campaign_group_name (equivalent to what other platforms simply call "Campaign").
 async function resolveCampaignNames(token, urns) {
   const campaigns = {};
   const batches = [];
@@ -94,7 +94,7 @@ async function fetchAnalytics(token, accountId, startDate, endDate) {
 
   // timeGranularity=DAILY (found 2026-07, was MONTHLY): MONTHLY collapses an entire month's spend
   // into ONE row per campaign, dated to the 1st of that month (see the date-mapping fix below) —
-  // BudgetHQ's pacing engine (computePlatformFreshness/computePacing in src/BudgetHQ.jsx) assumes
+  // PaidHQ's pacing engine (computePlatformFreshness/computePacing in src/PaidHQ.jsx) assumes
   // "live-synced" platforms like LinkedIn report true day-by-day data and derives each platform's
   // projection off the most recent date it actually has spend for. With MONTHLY granularity, the
   // current month's row is always dated the 1st, so freshness "as of" the 1st plus a large lump

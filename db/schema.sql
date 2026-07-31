@@ -300,3 +300,11 @@ select
   id, workspace_id, type, scope, threshold_pct, stale_days, channels, enabled, created_by, created_at
 from budgethq.alert_rules
 on conflict (id) do nothing;
+
+-- One-time data migration (2026-07-31): the product was renamed from BudgetHQ to PaidHQ.
+-- Existing entitlement rows in core.entitlements still say product = 'budgethq' from before the
+-- rename; update them to 'paidhq' so requireEntitlement's check (api/lib/auth.js, which now
+-- checks for 'paidhq') keeps matching active/trialing subscribers instead of locking them out on
+-- deploy. Safe to run repeatedly — once no rows match 'budgethq' this becomes a no-op, same as
+-- every other statement in this file.
+update core.entitlements set product = 'paidhq' where product = 'budgethq';

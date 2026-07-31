@@ -144,10 +144,10 @@ export function buildPacingReport({budgets,budgetDims,mergedNormRows,tags,budget
 }
 
 export const EXPORTABLE_VIEWS={
-  dashboard:{label:"Dashboard",build:buildDashboardReport,filenameBase:"budgethq-dashboard"},
-  tagger:{label:"Campaign Tagger",build:buildTaggerReport,filenameBase:"budgethq-campaign-tagger"},
-  budget:{label:"Budget Panel",build:buildBudgetReport,filenameBase:"budgethq-budget-panel"},
-  pacing:{label:"Reporting & Pacing",build:buildPacingReport,filenameBase:"budgethq-reporting-pacing"},
+  dashboard:{label:"Dashboard",build:buildDashboardReport,filenameBase:"paidhq-dashboard"},
+  tagger:{label:"Campaign Tagger",build:buildTaggerReport,filenameBase:"paidhq-campaign-tagger"},
+  budget:{label:"Budget Panel",build:buildBudgetReport,filenameBase:"paidhq-budget-panel"},
+  pacing:{label:"Reporting & Pacing",build:buildPacingReport,filenameBase:"paidhq-reporting-pacing"},
 };
 export const EXPORT_FORMATS=[{key:"csv",label:"CSV",mime:"text/csv;charset=utf-8"},{key:"xlsx",label:"Excel",mime:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},{key:"pdf",label:"PDF",mime:"application/pdf"},{key:"html",label:"HTML",mime:"text/html;charset=utf-8"}];
 
@@ -178,7 +178,7 @@ export function reportToHTMLString(report){
     <div style="max-width:900px;margin:0 auto;background:#FFFFFF;border-radius:8px;padding:32px 36px;border:1px solid #EAEAEA;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
         <span style="width:26px;height:26px;border-radius:7px;background:#000000;display:inline-block;"></span>
-        <span style="font-size:15px;font-weight:700;color:#171717;">BudgetHQ</span>
+        <span style="font-size:15px;font-weight:700;color:#171717;">PaidHQ</span>
       </div>
       <h1 style="font-size:22px;font-weight:800;color:#171717;margin:18px 0 2px;">${escHtml(report.title)}</h1>
       <p style="font-size:12px;color:#8F8F8F;margin:0 0 8px;">${escHtml(report.subtitle)}</p>
@@ -193,7 +193,7 @@ export function buildReportPDFDoc(report){
   doc.setFillColor(0,0,0);
   doc.roundedRect(marginX,y-14,18,18,4,4,"F");
   doc.setFontSize(13);doc.setTextColor(23,23,23);doc.setFont(undefined,"bold");
-  doc.text("BudgetHQ",marginX+26,y+1);
+  doc.text("PaidHQ",marginX+26,y+1);
   y+=28;
   doc.setFontSize(18);doc.text(report.title,marginX,y);
   y+=15;

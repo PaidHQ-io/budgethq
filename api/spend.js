@@ -2,10 +2,10 @@
  * /api/spend.js — Vercel serverless function
  *
  * DEPRECATED (2026-07-30) — superseded by paidhq-core's /api/spend (see that file's doc comment).
- * BudgetHQ's own frontend now calls syncSpend/getConnectorRegistry in src/lib/coreApi.js, which
+ * PaidHQ's own frontend now calls syncSpend/getConnectorRegistry in src/lib/coreApi.js, which
  * hit paidhq-core instead of this route. Left in place as a rollback safety net, same pattern
  * already used for the OAuth connect flow and core.connector_credentials/core.spend_rows — not
- * called by any BudgetHQ code as of this date. Drop in a later cleanup pass once the move has run
+ * called by any PaidHQ code as of this date. Drop in a later cleanup pass once the move has run
  * in production for a while with no issues. Original doc comment preserved below for history.
  *
  * GET  /api/spend?action=registry
@@ -71,7 +71,7 @@ async function getWorkspaceCredential(req, workspaceId, provider, { optional = f
 }
 
 export default async function handler(req, res) {
-  // CORS — allow requests from the BudgetHQ frontend. Authorization is only actually sent for
+  // CORS — allow requests from the PaidHQ frontend. Authorization is only actually sent for
   // perWorkspaceAuth connectors (funnel, supermetrics, capterra, linkedin, bing, meta, google —
   // see the doc comment up top) — a connector without that flag (there are currently none live)
   // would still work unauthenticated.

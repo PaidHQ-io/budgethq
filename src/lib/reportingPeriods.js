@@ -1,6 +1,6 @@
 /**
  * Period-grain helpers for core.reporting_facts (period_type + period_start). Ported from
- * ReportingHQ (2026-07-30, per Mo — folding ReportingHQ into BudgetHQ as a "Reporting Analyzer"
+ * ReportingHQ (2026-07-30, per Mo — folding ReportingHQ into PaidHQ as a "Reporting Analyzer"
  * tab), unchanged — entirely product-agnostic date math, nothing ReportingHQ-specific about it.
  *
  * The AI extraction path (reportingAI.js) asks the model to compute period_start itself (it

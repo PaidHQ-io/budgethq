@@ -9,7 +9,7 @@
  * AUTH (2026-07-29, added per a workspace-siloing review — this endpoint had NO auth check at
  * all before this, meaning anyone who found the URL could spend Mo's Anthropic API budget with
  * zero rate limiting or attribution): requires a valid Supabase Bearer token, same requireAuth
- * check every workspace-scoped BudgetHQ route already uses (see lib/auth.js). Deliberately does
+ * check every workspace-scoped PaidHQ route already uses (see lib/auth.js). Deliberately does
  * NOT also require workspace membership the way /api/workspaces/[id]/* does — this route has no
  * workspaceId at all, isn't DB-backed, and is a stateless pass-through (whatever the caller sends
  * is exactly what goes to Anthropic and comes back, nothing is read from or written to any
@@ -17,7 +17,7 @@
  * regardless of who calls it, only cost/abuse to gate. requireAuth alone (any logged-in PaidHQ
  * user, not necessarily a member of any particular workspace) is the right bar for that. Every
  * caller (src/lib/askAI.js's streamAnalyze/askAIBuildView/aiSummarizeBudgetPacing, and the direct
- * fetch("/api/analyze") call sites in BudgetHQ.jsx/BudgetManager.jsx for screenshot-to-data and
+ * fetch("/api/analyze") call sites in PaidHQ.jsx/BudgetManager.jsx for screenshot-to-data and
  * column-mapping/export-suggestion prompts) now forwards the caller's session.access_token as a
  * Bearer header — a request with no/invalid token gets a 401 from requireAuth before this ever
  * reaches Anthropic.

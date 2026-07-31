@@ -45,8 +45,8 @@ export async function requireAuth(req) {
 // place that actually enforces the tenant isolation the whole schema is built around.
 //
 // Queries core.workspace_members — membership itself is owned by the shared paidhq-core service,
-// not BudgetHQ. This works as a plain schema-qualified query (not an HTTP call to core) because
-// BudgetHQ and paidhq-core share one Postgres database, just separated by schema. See
+// not PaidHQ. This works as a plain schema-qualified query (not an HTTP call to core) because
+// PaidHQ and paidhq-core share one Postgres database, just separated by schema. See
 // db/schema.sql's header comment.
 export async function requireWorkspaceMember(sql, workspaceId, userId) {
   const rows = await sql`
@@ -73,18 +73,18 @@ export function requireEditAccess(role) {
   }
 }
 
-// Confirms the workspace has an active (or trialing) BudgetHQ entitlement — i.e. someone's
-// actually paying for/trialing BudgetHQ specifically for this workspace, not just any PaidHQ
+// Confirms the workspace has an active (or trialing) PaidHQ entitlement — i.e. someone's
+// actually paying for/trialing PaidHQ specifically for this workspace, not just any PaidHQ
 // product. Being a workspace member (requireWorkspaceMember) is necessary but not sufficient: an
-// agency could have a workspace for a client that only has VaultHQ, not BudgetHQ, and members of
-// that workspace shouldn't be able to pull BudgetHQ data for it.
+// agency could have a workspace for a client that only has VaultHQ, not PaidHQ, and members of
+// that workspace shouldn't be able to pull PaidHQ data for it.
 export async function requireEntitlement(sql, workspaceId) {
   const rows = await sql`
     select status from core.entitlements
-    where workspace_id = ${workspaceId} and product = 'budgethq' and status in ('active','trialing')
+    where workspace_id = ${workspaceId} and product = 'paidhq' and status in ('active','trialing')
   `;
   if (!rows.length) {
-    const err = new Error("This workspace doesn't have an active BudgetHQ subscription");
+    const err = new Error("This workspace doesn't have an active PaidHQ subscription");
     err.status = 402; // Payment Required
     throw err;
   }

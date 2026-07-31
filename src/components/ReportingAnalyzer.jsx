@@ -5,16 +5,16 @@ import { listReportingFacts, upsertReportingFacts, getDimensionValues } from "..
 import { PERIOD_TYPES, PERIOD_TYPE_LABELS, normalizePeriodStart, labelForPeriod, defaultPeriodStart } from "../lib/reportingPeriods.js";
 
 // Reporting Analyzer tab (2026-07-30, per Mo — folding ReportingHQ's Dreamdata/PowerBI funnel
-// performance reporting into BudgetHQ as a tab instead of running it as a separate product).
+// performance reporting into PaidHQ as a tab instead of running it as a separate product).
 // Ported from ReportingHQ's DataSources.jsx, with one deliberate omission: that file also rendered
 // a ConnectionsPanel for LinkedIn/Bing/Google Ads/Meta/Capterra/Funnel.io/Supermetrics — redundant
-// here, since BudgetHQ's own Data Sources tab already has the full connector grid natively. This
+// here, since PaidHQ's own Data Sources tab already has the full connector grid natively. This
 // tab is entirely about core.reporting_facts: importing Dreamdata/PowerBI screenshots and browsing
 // what's already been imported — same relationship to this data that Campaign Tagger has to
 // spend_rows (one tab, both the import/tag mechanism and the resulting table).
 //
 // T is accepted as a prop (not hardcoded locally, unlike the ReportingHQ original) to match every
-// other BudgetHQ tab's convention — BudgetHQ.jsx computes THEME once and threads it down.
+// other PaidHQ tab's convention — PaidHQ.jsx computes THEME once and threads it down.
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {

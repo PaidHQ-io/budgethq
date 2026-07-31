@@ -1,7 +1,7 @@
 /**
  * /api/workspaces/[id]/dimension-values — GET only.
  *
- * Ported from ReportingHQ (2026-07-30, per Mo — folding ReportingHQ into BudgetHQ as a "Reporting
+ * Ported from ReportingHQ (2026-07-30, per Mo — folding ReportingHQ into PaidHQ as a "Reporting
  * Analyzer" tab). Returns the workspace's actual tag DIMENSION NAMES plus known VALUES for each, so
  * the Reporting Analyzer's import review UI tags with the exact same dimensions as Campaign
  * Tagger — not a separate hardcoded vocabulary. tag_dims are themselves user-editable per workspace

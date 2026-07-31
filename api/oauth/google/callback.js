@@ -11,7 +11,7 @@
  *
  * Deliberately NOT wrapped in withApi (see lib/http.js) — that wrapper turns thrown errors into a
  * raw JSON response, which would leave the user staring at `{"error":"..."}` in their browser
- * instead of landing back in the app. Every failure path here redirects back to BudgetHQ with an
+ * instead of landing back in the app. Every failure path here redirects back to PaidHQ with an
  * error flag the SPA can show as a normal notification instead.
  *
  * On success: exchanges the code for a refresh/access token pair, looks up which Google Ads

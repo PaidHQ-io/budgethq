@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 // src/lib/persist.js — usePersistentState: device-local (localStorage) persisted useState
 // (2026-07-30, per Mo: "any tab I've selected" should keep its filters/view settings across a
 // browser refresh, not just which tab is active). Mirrors the existing hand-rolled localStorage
-// try/catch pattern already used in BudgetHQ.jsx for
+// try/catch pattern already used in PaidHQ.jsx for
 // paidhq_last_view/paidhq_sidebar_width/paidhq_tagger_filters_open — deliberately unscoped by
 // workspace, same as those, since this is a device/browser preference, not workspace data synced
 // with the server (switching workspaces keeps your last filter shape, same as switching

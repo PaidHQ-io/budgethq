@@ -27,7 +27,7 @@
  *          paused: true stops ALL syncing (cron heartbeat skips it, frontend disables manual Sync)
  *            without disconnecting — see schema.sql's doc comment on the column.
  *          excludedFromData: true tells the frontend to filter this provider's rows out of every
- *            calculation/view — enforced entirely client-side (see BudgetHQ.jsx's
+ *            calculation/view — enforced entirely client-side (see PaidHQ.jsx's
  *            visibleNormRows), this route just stores the flag.
  */
 import { sql } from "../../lib/db.js";
@@ -76,7 +76,7 @@ const VALID_PROVIDERS = ["funnel", "supermetrics", "capterra", "linkedin", "bing
 // access/refresh tokens). Capterra's apiKeys is a {productName: key} map — only the product names
 // (the object's keys) are safe to show, never the values.
 // Capterra's apiKeys credential is saved as the raw JSON STRING the user pasted into the connect
-// panel's textarea (see BudgetHQ.jsx) — it's never parsed/re-shaped before being written to the
+// panel's textarea (see PaidHQ.jsx) — it's never parsed/re-shaped before being written to the
 // DB. SAFE_SUMMARY's capterra extractor below used to do `Object.keys(c.apiKeys)` directly on
 // that string, which doesn't throw — it just returns the string's character INDICES ("0","1",
 // "2",...) since Object.keys() on a string treats it array-like. That's what was rendering as

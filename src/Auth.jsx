@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { supabase as defaultClient, supabaseConfigured } from "./lib/supabaseClient";
 
-// Small standalone subset of BudgetHQ's Vercel-matched theme tokens — kept local rather than
-// imported from BudgetHQ.jsx since this screen renders before any workspace/session data exists
+// Small standalone subset of PaidHQ's Vercel-matched theme tokens — kept local rather than
+// imported from PaidHQ.jsx since this screen renders before any workspace/session data exists
 // and shouldn't depend on that file's internals.
-// border/textMuted retuned 2026-07-26 (per Mo, matching BudgetHQ.jsx's core.js THEME — see its
+// border/textMuted retuned 2026-07-26 (per Mo, matching PaidHQ.jsx's core.js THEME — see its
 // doc comment for where these values came from). accent/onAccent fixed in the same pass — this
 // standalone copy had been missed by the app-wide orange-to-blue rebrand since it doesn't import
 // the shared THEME object.
@@ -186,7 +186,7 @@ export default function AuthScreen({ client = defaultClient, redirectTo = window
             lineHeight: 1.6,
           }}
         >
-          BudgetHQ isn't configured for sign-in yet — VITE_SUPABASE_URL and
+          PaidHQ isn't configured for sign-in yet — VITE_SUPABASE_URL and
           VITE_SUPABASE_ANON_KEY are missing from this deployment's environment variables.
         </div>
       </div>
@@ -229,7 +229,7 @@ export default function AuthScreen({ client = defaultClient, redirectTo = window
           <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>PaidHQ</div>
         </div>
         <div style={{ fontSize: 13, color: T.textSub, marginBottom: 22 }}>
-          {mode === "signin" && (heading || "Sign in to BudgetHQ")}
+          {mode === "signin" && (heading || "Sign in to PaidHQ")}
           {mode === "signup" && "Create your PaidHQ account"}
           {mode === "forgot" && "Reset your password"}
         </div>

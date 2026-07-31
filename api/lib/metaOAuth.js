@@ -14,7 +14,7 @@
  *      Mo's own ad account today. Any OTHER workspace's user hitting the consent screen will be
  *      rejected by Meta itself until the app goes through App Review for the `ads_read`
  *      permission and is switched to Live mode — same "Testing mode" caveat already documented
- *      for Facebook login and Google Sheets export above. Nothing on the BudgetHQ side changes
+ *      for Facebook login and Google Sheets export above. Nothing on the PaidHQ side changes
  *      when that happens; Meta just starts letting more people through the same consent screen.
  *
  * TOKEN MODEL — genuinely different from LinkedIn/Bing, worth reading before touching this file:
@@ -51,7 +51,7 @@ const AUTH_URL = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
 // Token endpoint is called via graphGet("/oauth/access_token", ...) below (relative to GRAPH_BASE)
 // rather than a separate constant — no other caller needs the full URL on its own.
 // ads_read is enough for pulling spend/insights — no write scope (ads_management) requested since
-// BudgetHQ only ever reads spend data, never modifies campaigns/budgets on the platform side.
+// PaidHQ only ever reads spend data, never modifies campaigns/budgets on the platform side.
 const SCOPES = ["ads_read"];
 
 export function verifyState(state) {

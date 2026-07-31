@@ -150,7 +150,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                   <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:44,height:"auto"}}/>
                 </div>
                 <div>
-                  <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"'DM Sans',sans-serif"}}>BudgetHQ</h1>
+                  <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"'DM Sans',sans-serif"}}>PaidHQ</h1>
                   <div style={{fontSize:12,fontWeight:600,color:T.textSub,letterSpacing:"0.02em",fontFamily:"'DM Sans',sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
                 </div>
               </div>
@@ -364,7 +364,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
 
             {/* New static Quick Actions panel (2026-07-24, per Mo — modeled on Funnel.io's Home
                 dashboard). "Create dashboard" and "Quick start videos" deliberately left out — no
-                multi-dashboard concept in BudgetHQ yet, and videos are coming later per Mo. "Export
+                multi-dashboard concept in PaidHQ yet, and videos are coming later per Mo. "Export
                 your data" reuses the same exportTags() the Tagger sidebar's "Export tags CSV" button
                 already calls, rather than a new "coming soon" stub. */}
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>

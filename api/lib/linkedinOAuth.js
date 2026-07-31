@@ -15,7 +15,7 @@
  *
  * STATE: LinkedIn's redirect lands on the callback with no Authorization header at all — the
  * browser navigated there directly, this isn't a fetch we control, so none of the normal
- * Bearer-token auth every other BudgetHQ route relies on is available. See lib/oauthState.js
+ * Bearer-token auth every other PaidHQ route relies on is available. See lib/oauthState.js
  * (shared with Bing's OAuth flow) for how `state` carries the workspaceId/userId across that hop
  * instead — that's what proves the person completing LinkedIn's consent screen is the same
  * authenticated user who clicked "Connect" for that specific workspace, without needing a session

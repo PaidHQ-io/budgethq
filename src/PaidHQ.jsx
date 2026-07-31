@@ -40,13 +40,13 @@ const Dashboard = lazy(() => import("./components/Dashboard.jsx"));
 const BudgetManager = lazy(() => import("./components/BudgetManager.jsx"));
 const PacingDashboard = lazy(() => import("./components/PacingDashboard.jsx"));
 const AskAI = lazy(() => import("./components/AskAI.jsx"));
-// ReportingHQ folded back into BudgetHQ as a tab (2026-07-30, per Mo — running it as a separate
+// ReportingHQ folded back into PaidHQ as a tab (2026-07-30, per Mo — running it as a separate
 // product meant constantly re-porting shared UI, like the Data Sources connector grid, into two
 // codebases). Covers Dreamdata/PowerBI funnel/pipeline performance data (core.reporting_facts) —
 // distinct from this tab's own Data Sources connectors, which already cover ad-platform spend.
 const ReportingAnalyzer = lazy(() => import("./components/ReportingAnalyzer.jsx"));
 // Data Audit tab (2026-07-31, per Mo — "I need a new tab where I can review in detail what data
-// has been brought into BudgetHQ and from where"). Read-only view over mergedNormRows; no data of
+// has been brought into PaidHQ and from where"). Read-only view over mergedNormRows; no data of
 // its own to fetch, so lazy-loading it costs nothing beyond the chunk itself.
 const DataAudit = lazy(() => import("./components/DataAudit.jsx"));
 
@@ -60,7 +60,7 @@ const TabLoadingFallback = () => (
 );
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
-export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitchWorkspace,onCreateWorkspace,accounts,activeAccountKey,onSwitchAccount,onAddAccount,onSignOutAccount,onWorkspacesChanged}={}){
+export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchWorkspace,onCreateWorkspace,accounts,activeAccountKey,onSwitchAccount,onAddAccount,onSignOutAccount,onWorkspacesChanged}={}){
   const T=THEME;
   const[accountMenuOpen,setAccountMenuOpen]=useState(false);
   const[workspaceMenuOpen,setWorkspaceMenuOpen]=useState(false);
@@ -626,7 +626,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const saveConfigTimer=useRef(null);
   const saveRowsTimer=useRef(null);
 
-  // One-time import of pre-auth localStorage data — anyone who used BudgetHQ before login/
+  // One-time import of pre-auth localStorage data — anyone who used PaidHQ before login/
   // workspaces existed has real tags/budgets/spend rows sitting under the old "paidhq_*" keys in
   // this browser. That data doesn't disappear just because loading now goes through the server,
   // but it also won't show up in a brand-new empty workspace on its own — this offers a one-time
@@ -916,9 +916,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     // a one-time manual pull with no stored credential; this is a real live connector, synced daily
     // just like Bing/LinkedIn/Meta, just reading a public Google Sheet instead of an ad platform API
     // directly). Some OTHER tool (Google Ads' own Sheets export, Supermetrics, an Apps Script, etc.)
-    // has to land spend data into that sheet on its own schedule — BudgetHQ only reads it.
+    // has to land spend data into that sheet on its own schedule — PaidHQ only reads it.
     {key:"googlesheets",label:"Google Sheets (Ads workaround)",status:"live",perWorkspaceAuth:true,color:"#0F9D58",desc:"Daily sync from a public Google Sheet — works around Google Ads OAuth verification",domain:"sheets.google.com",
-      connectNote:"1) In the Sheet: File → Share → change to \"Anyone with the link\" → Viewer. 2) Paste that link below and click Preview sheet — you'll get a chance to check (or fix) which column is which before connecting. The sheet needs Campaign Group Name, Spend, and Date columns at minimum (same as a CSV upload); add a Campaign Type column (Search/Display/Demand Gen/Performance Max) too if you want an accurate breakdown — without it, every row is reported as Google Search. Something else (Google Ads' own Sheets export, Supermetrics, Apps Script, etc.) needs to keep the sheet updated — BudgetHQ only reads it, once a day.",
+      connectNote:"1) In the Sheet: File → Share → change to \"Anyone with the link\" → Viewer. 2) Paste that link below and click Preview sheet — you'll get a chance to check (or fix) which column is which before connecting. The sheet needs Campaign Group Name, Spend, and Date columns at minimum (same as a CSV upload); add a Campaign Type column (Search/Display/Demand Gen/Performance Max) too if you want an accurate breakdown — without it, every row is reported as Google Search. Something else (Google Ads' own Sheets export, Supermetrics, Apps Script, etc.) needs to keep the sheet updated — PaidHQ only reads it, once a day.",
       connectFields:[
         {key:"sheetUrl",label:"Google Sheet URL",placeholder:"https://docs.google.com/spreadsheets/d/.../edit#gid=0"},
       ]},
@@ -1034,7 +1034,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       .finally(()=>setSavingSchedule(null));
   },[workspace?.id,session?.access_token,refreshConnectedProviders]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Data Sources connector table's "Pause import" / "Don't use data in BudgetHQ" actions (2026-07-24)
+  // Data Sources connector table's "Pause import" / "Don't use data in PaidHQ" actions (2026-07-24)
   // — same instant-save PATCH pattern as the schedule dropdown above, just toggling one boolean at
   // a time. `flags` is a partial {paused?, excludedFromData?} object so a caller only ever sends the
   // one thing it's actually changing. See schema.sql's doc comment on these columns for exactly what
@@ -1048,7 +1048,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         refreshConnectedProviders();
         const label=PLATFORMS.find(p=>p.key===provider)?.label||provider;
         if(flags.paused!==undefined)showNotif(flags.paused?`Paused ${label} — it won't sync until resumed.`:`Resumed ${label}.`);
-        if(flags.excludedFromData!==undefined)showNotif(flags.excludedFromData?`${label}'s data is hidden from BudgetHQ — reversible any time.`:`${label}'s data is back in BudgetHQ.`);
+        if(flags.excludedFromData!==undefined)showNotif(flags.excludedFromData?`${label}'s data is hidden from PaidHQ — reversible any time.`:`${label}'s data is back in PaidHQ.`);
       })
       .catch(e=>showNotif(`Couldn't save: ${e.message}`))
       .finally(()=>setSavingConnectionFlag(null));
@@ -1163,7 +1163,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
 
   // Google Sheets (Ads workaround) connector's "Setup guide" modal (2026-07-31, per Mo) — the
   // connect panel's connectNote is a couple sentences; getting spend INTO the sheet in the first
-  // place (BudgetHQ only ever reads it) needs real step-by-step instructions for the two realistic
+  // place (PaidHQ only ever reads it) needs real step-by-step instructions for the two realistic
   // ways to do that, which don't fit inline. Lives here rather than a separate docs page since
   // someone only needs this exactly when they're mid-setup on this one connector.
   const[googleSheetsGuideOpen,setGoogleSheetsGuideOpen]=useState(false);
@@ -1194,7 +1194,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   };
   // Re-opens the connect panel for an ALREADY-connected Google Sheet, pre-filled with its current
   // sheetUrl, and immediately re-previews it so the mapping table shows up right away instead of
-  // making the user click "Preview sheet" again for a sheet BudgetHQ already knows about. Seeds
+  // making the user click "Preview sheet" again for a sheet PaidHQ already knows about. Seeds
   // sheetColumnMap from whatever's currently saved (conn.columnMap, from SAFE_SUMMARY) rather than
   // the freshly auto-detected guess, so re-opening this doesn't silently discard a prior manual
   // override — falls back to the fresh guess only if nothing was saved yet (pre-mapping-feature
@@ -1343,7 +1343,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       // Tag each row with which connector pulled it — `sync:${provider}` matches the convention
       // api/lib/spendRowsStore.js already uses for the cron rolling-sync path, so a manual Sync
       // click and an automated one are equally traceable back to their connector. This is what
-      // lets "Don't use data in BudgetHQ" (excludedFromData) and the Import start/end date columns
+      // lets "Don't use data in PaidHQ" (excludedFromData) and the Import start/end date columns
       // in the connector table find exactly this provider's rows without touching CSV-uploaded or
       // screenshot-imported data for the same platform. Rows pulled before this shipped (2026-07-24)
       // won't have this tag until their connector syncs again.
@@ -1552,7 +1552,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     setStep("tag");setView("tagger");
   },[screenshotPreview,screenshotFileName,screenshotIsMonthly,screenshotAsOf,checkpoint,canEdit]);
 
-  // "Don't use data in BudgetHQ" (excludedFromData, see the connector table's action menu) filters
+  // "Don't use data in PaidHQ" (excludedFromData, see the connector table's action menu) filters
   // that provider's rows out of every calculation/view below — reversible, doesn't touch what's
   // actually stored. Only rows tagged source==="sync:<provider>" are affected (see syncPlatform's
   // tagging comment above and spendRowsStore.js's matching convention on the cron side); manually
@@ -1764,11 +1764,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const exportTags=()=>{
     const header=["Campaign Group","Campaign","Platform","Spend",...tagDims];
     const rows=[header,...campaigns.map(c=>[c.groupName,c.name,c.platform,c.spend.toFixed(2),...tagDims.map(d=>(tags[c.key]||{})[d]||"")])];
-    downloadCSV(rows,"budgethq-tags.csv");
+    downloadCSV(rows,"paidhq-tags.csv");
     // Archive a copy alongside the download — same CSV serialization downloadCSV uses internally,
     // wrapped as a File so archiveFile has a .name/.size/.type to work with.
     const csv=rows.map(r=>r.map(v=>`"${String(v==null?"":v).replace(/"/g,'""')}"`).join(",")).join("\n");
-    archiveFile(new File(["﻿"+csv],"budgethq-tags.csv",{type:"text/csv;charset=utf-8"}),"Tag export").then(refreshFileStore);
+    archiveFile(new File(["﻿"+csv],"paidhq-tags.csv",{type:"text/csv;charset=utf-8"}),"Tag export").then(refreshFileStore);
     showNotif("Tags exported");
   };
   // Same shape as exportTags above, scoped to just the multi-select's checked rows instead of every
@@ -1782,9 +1782,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     if(!rowsToExport.length)return;
     const header=["Campaign Group","Campaign","Platform","Spend",...tagDims];
     const rows=[header,...rowsToExport.map(c=>[c.groupName,c.name,c.platform,c.spend.toFixed(2),...tagDims.map(d=>(tags[c.key]||{})[d]||"")])];
-    downloadCSV(rows,"budgethq-selected-campaigns.csv");
+    downloadCSV(rows,"paidhq-selected-campaigns.csv");
     const csv=rows.map(r=>r.map(v=>`"${String(v==null?"":v).replace(/"/g,'""')}"`).join(",")).join("\n");
-    archiveFile(new File(["﻿"+csv],"budgethq-selected-campaigns.csv",{type:"text/csv;charset=utf-8"}),"Selected campaigns export").then(refreshFileStore);
+    archiveFile(new File(["﻿"+csv],"paidhq-selected-campaigns.csv",{type:"text/csv;charset=utf-8"}),"Selected campaigns export").then(refreshFileStore);
     showNotif(`Exported ${rowsToExport.length} selected campaign${rowsToExport.length===1?"":"s"}`);
   };
 
@@ -2153,7 +2153,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       const fmt=EXPORT_FORMATS.find(f=>f.key===emailExportFormat);
       const filename=`${exportableView.filenameBase}.${emailExportFormat}`;
       const res=await fetch("/api/email",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        to,subject:`${report.title} — BudgetHQ`,note:emailExportNote,reportTitle:report.title,reportSubtitle:report.subtitle,
+        to,subject:`${report.title} — PaidHQ`,note:emailExportNote,reportTitle:report.title,reportSubtitle:report.subtitle,
         filename,mime:fmt?.mime||"application/octet-stream",base64,
       })});
       const data=await res.json().catch(()=>({}));
@@ -2265,7 +2265,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           <div style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
             <Icon name="bolt" size={17} color={T.text}/>
           </div>
-          {(statsOpen||isMobile)&&<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>BudgetHQ</div>}
+          {(statsOpen||isMobile)&&<div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>PaidHQ</div>}
           {/* Bigger, easier-to-hit sidebar toggle living right next to the wordmark — the tiny 18px
               circle riding the sidebar's edge (below) is still there, but it's a fiddly target.
               This is the primary way to hide/show the column now. Doesn't apply to Dashboard, which
@@ -2467,7 +2467,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             <div ref={setAskSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="data"?(
             // Data Sources' own left column (2026-07-24, per Mo — modeled on Funnel.io's Data
-            // sources page, scoped down since BudgetHQ has ~8 connectors total, not Funnel's scale).
+            // sources page, scoped down since PaidHQ has ~8 connectors total, not Funnel's scale).
             // Health list reuses the exact same connectionDetails Settings' Connections table and
             // the Dashboard's "Data source health" card both already read — one source of truth,
             // three places it's summarized.
@@ -2853,7 +2853,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div style={{fontSize:11,color:T.textMuted,marginBottom:10,fontFamily:"'DM Sans',sans-serif"}}>Reading sheet…</div>
                     )}
                     {/* Column mapping review — the actual point of this step (2026-07-31, per Mo):
-                        show the user exactly what BudgetHQ found in their sheet (real headers + a
+                        show the user exactly what PaidHQ found in their sheet (real headers + a
                         sample value) instead of silently auto-detecting, so a wrong guess is
                         obvious right here instead of surfacing later as "spend just isn't showing
                         up." sheetColumnMap starts seeded from the server's own auto-detected guess
@@ -3232,7 +3232,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           )}
                           <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
                           <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
-                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in BudgetHQ":"Don't use this data in BudgetHQ"}</button>
+                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in PaidHQ":"Don't use this data in PaidHQ"}</button>
                           <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
                           <button onClick={()=>{closeConnActionsMenu();disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
                         </div>
@@ -3811,7 +3811,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   <div style={{width:36,height:36,borderRadius:10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="gear" size={17} color={T.text}/></div>
                   <h1 style={{fontSize:22,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:"'DM Sans',sans-serif"}}>Settings</h1>
                 </div>
-                <p style={{fontSize:13,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>Manage the data stored in this BudgetHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
+                <p style={{fontSize:13,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>Manage the data stored in this PaidHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 {canManageTeam&&(
@@ -4122,7 +4122,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
           <div style={{width:"100%",maxWidth:440,background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd}}>
             <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.text}}>Import your existing data?</div>
             <div style={{padding:20,fontSize:13,color:T.textSub,lineHeight:1.6}}>
-              This browser has BudgetHQ data from before you signed in — {localImportPrompt.rows.length?`${localImportPrompt.rows.length.toLocaleString()} spend rows, `:""}{Object.keys(localImportPrompt.tags).length?`${Object.keys(localImportPrompt.tags).length.toLocaleString()} tagged campaigns, `:""}{Object.keys(localImportPrompt.budgets).length?"budget allocations":""}.
+              This browser has PaidHQ data from before you signed in — {localImportPrompt.rows.length?`${localImportPrompt.rows.length.toLocaleString()} spend rows, `:""}{Object.keys(localImportPrompt.tags).length?`${Object.keys(localImportPrompt.tags).length.toLocaleString()} tagged campaigns, `:""}{Object.keys(localImportPrompt.budgets).length?"budget allocations":""}.
               <br/><br/>
               Import it into <strong style={{color:T.text}}>{workspace?.name}</strong>? This only happens once — if you skip it, this local data stays in your browser but won't be brought in automatically later.
             </div>
@@ -4165,7 +4165,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
             </div>
             <div style={{padding:20,overflow:"auto",fontSize:13,color:T.textSub,lineHeight:1.65,fontFamily:"'DM Sans',sans-serif"}}>
               <p style={{margin:"0 0 16px"}}>
-                BudgetHQ only <em>reads</em> the sheet — something else has to keep it filled with fresh Google Ads spend. Below are the two realistic ways to do that. Either one works; pick based on how much control you want over what gets exported.
+                PaidHQ only <em>reads</em> the sheet — something else has to keep it filled with fresh Google Ads spend. Below are the two realistic ways to do that. Either one works; pick based on how much control you want over what gets exported.
               </p>
 
               <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Option 1 — Sheets' built-in Google Ads connector</div>
@@ -4182,14 +4182,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <div style={{fontSize:12,color:T.textMuted,marginBottom:8}}>More setup, but you control exactly what's exported and it avoids the account-association error entirely since the sheet is created fresh from inside the correct Ads account.</div>
               <ol style={{margin:"0 0 16px",paddingLeft:20}}>
                 <li style={{marginBottom:6}}>In Google Ads (ads.google.com), signed in as the account with access, go to Reports → Report editor.</li>
-                <li style={{marginBottom:6}}>Build a report with <strong>Ad group</strong> as a dimension/segment alongside Campaign, Date, and Cost — this gives BudgetHQ real ad-group-level granularity instead of one lump sum per campaign. Add Campaign type too if you want Search/Display/Demand Gen/Performance Max broken out accurately (see the column note below).</li>
+                <li style={{marginBottom:6}}>Build a report with <strong>Ad group</strong> as a dimension/segment alongside Campaign, Date, and Cost — this gives PaidHQ real ad-group-level granularity instead of one lump sum per campaign. Add Campaign type too if you want Search/Display/Demand Gen/Performance Max broken out accurately (see the column note below).</li>
                 <li style={{marginBottom:6}}>Save the report, then use the download/export icon and choose Google Sheets as the destination — this creates a new linked sheet.</li>
                 <li>Click Schedule on that export and set it to run daily, so the sheet stays current without anyone touching it.</li>
               </ol>
 
               <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Column names</div>
               <p style={{margin:"0 0 8px"}}>
-                Whatever Google Ads calls its columns is fine — BudgetHQ auto-detects common variants the same way CSV uploads do. As a target, aim for something close to:
+                Whatever Google Ads calls its columns is fine — PaidHQ auto-detects common variants the same way CSV uploads do. As a target, aim for something close to:
               </p>
               <div style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:6,padding:"8px 12px",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",fontSize:11.5,marginBottom:8}}>
                 Campaign → <strong>Campaign Group Name</strong> (required)<br/>
@@ -4204,7 +4204,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               </p>
 
               <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`,fontSize:12,color:T.textMuted}}>
-                Once the sheet is set up and refreshing on its own: File → Share → change to "Anyone with the link" → Viewer, then paste that link into the connect form. BudgetHQ pulls from it once a day.
+                Once the sheet is set up and refreshing on its own: File → Share → change to "Anyone with the link" → Viewer, then paste that link into the connect form. PaidHQ pulls from it once a day.
               </div>
             </div>
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",flexShrink:0}}>

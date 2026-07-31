@@ -1,9 +1,9 @@
 /**
- * ONE-TIME diagnostic: confirms whether BudgetHQ's own DATABASE_URL is actually pointing at the
+ * ONE-TIME diagnostic: confirms whether PaidHQ's own DATABASE_URL is actually pointing at the
  * same Postgres database as paidhq-core's. Built to debug a specific symptom: paidhq-core's
- * /api/workspaces correctly shows a workspace with a trialing budgethq entitlement, but BudgetHQ's
- * own requireEntitlement check (which queries core.entitlements through BudgetHQ's OWN db.js
- * connection, not core's) returns 402 for that same workspace. If BudgetHQ's connection string
+ * /api/workspaces correctly shows a workspace with a trialing paidhq entitlement, but PaidHQ's
+ * own requireEntitlement check (which queries core.entitlements through PaidHQ's OWN db.js
+ * connection, not core's) returns 402 for that same workspace. If PaidHQ's connection string
  * points at a different database/branch than core's, this is exactly the symptom you'd see — this
  * endpoint proves or disproves that directly instead of guessing from masked Vercel env vars.
  * GET only. Gated to Mo's accounts. Delete once the mismatch is diagnosed/fixed.
@@ -29,7 +29,7 @@ export default withApi(async (req, res) => {
     select
       (select count(*)::int from core.workspaces) as workspaces,
       (select count(*)::int from core.entitlements) as entitlements,
-      (select count(*)::int from core.entitlements where product = 'budgethq' and status in ('active','trialing')) as active_budgethq_entitlements
+      (select count(*)::int from core.entitlements where product = 'paidhq' and status in ('active','trialing')) as active_paidhq_entitlements
   `;
 
   let thisWorkspace = null;

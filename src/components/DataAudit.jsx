@@ -7,7 +7,7 @@ import { Icon, PixelPanel, DashStatTile, Pill, SectionLabel } from "./shared.jsx
 // src/components/DataAudit.jsx — Data Audit tab (2026-07-31, per Mo; PowerBI/reporting_facts
 // section added 2026-08-01, per Mo — "let's add the powerBI data to it").
 //
-// "I need a new tab where I can review in detail what data has been brought into BudgetHQ and from
+// "I need a new tab where I can review in detail what data has been brought into PaidHQ and from
 // where. I need to know if there are any gaps in dates... where there is any overlap... where there
 // are any conflicts from a data standpoint... whether manual or synced." Originally scoped to
 // spend/dates only — CRM data is still future work, but Dreamdata/PowerBI (core.reporting_facts,
@@ -15,8 +15,8 @@ import { Icon, PixelPanel, DashStatTile, Pill, SectionLabel } from "./shared.jsx
 // one, covering the exact same questions (coverage, gaps, sources) for that data instead.
 //
 // Two independent data domains, two independent audits: computeDataAudit (spend_rows, via
-// mergedNormRows already loaded by BudgetHQ.jsx) and computeReportingAudit (reporting_facts, fetched
-// by this component directly via listReportingFacts — reporting_facts isn't part of BudgetHQ.jsx's
+// mergedNormRows already loaded by PaidHQ.jsx) and computeReportingAudit (reporting_facts, fetched
+// by this component directly via listReportingFacts — reporting_facts isn't part of PaidHQ.jsx's
 // central workspace-data load the way spend is, so this tab loads it independently, same pattern
 // ReportingAnalyzer.jsx's own refreshHistory already uses). See computeReportingAudit's own doc
 // comment (lib/core.js) for why its shape differs from computeDataAudit's — mixed period grains
@@ -24,7 +24,7 @@ import { Icon, PixelPanel, DashStatTile, Pill, SectionLabel } from "./shared.jsx
 // silently conflict the way spend can; its upsert path merges instead of overwriting).
 //
 // Deliberately reads the RAW mergedNormRows, not the excludedFromData-filtered visibleNormRows —
-// same reasoning as Data Sources' own Import start/end columns (see BudgetHQ.jsx's
+// same reasoning as Data Sources' own Import start/end columns (see PaidHQ.jsx's
 // importDateRangeByProvider): an audit tool that hides a paused/excluded connector's history isn't
 // actually auditing the true stored state, it's auditing a curated subset of it.
 //
@@ -40,7 +40,7 @@ const MANUAL_SOURCE_LABELS={
   "sheet-onetime":"Google Sheet (one-time pull)",
   manual:"Manual import (unlabeled — synced/imported before source tagging shipped)",
 };
-// Mirrors PLATFORMS' labels in BudgetHQ.jsx for the "sync:<provider>" case — duplicated rather than
+// Mirrors PLATFORMS' labels in PaidHQ.jsx for the "sync:<provider>" case — duplicated rather than
 // imported since PLATFORMS is defined inline in that file, not exported (same accepted
 // duplicated-metadata pattern already used elsewhere in this codebase, e.g. bing.js/googlesheets.js
 // across the two repos).
@@ -88,7 +88,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
   const isExpanded=p=>expanded.has(p)||byPlatform.find(x=>x.platform===p)?.gapDayCount>0||byPlatform.find(x=>x.platform===p)?.overlapRanges.length>0;
   const toggle=p=>setExpanded(s=>{const n=new Set(s);if(isExpanded(p)&&s.has(p)){n.delete(p);}else if(isExpanded(p)){n.add(p);/* was auto-expanded via flags; explicit add lets the next click collapse it */}else n.add(p);return n;});
 
-  // reporting_facts isn't part of BudgetHQ.jsx's central workspace-data load (mergedNormRows is) —
+  // reporting_facts isn't part of PaidHQ.jsx's central workspace-data load (mergedNormRows is) —
   // it's loaded independently here, same pattern ReportingAnalyzer.jsx's own refreshHistory already
   // uses. null = still loading (distinct from [], an actually-empty workspace) so the section below
   // can show "Loading…" instead of flashing an empty state first.
@@ -128,7 +128,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
       <div style={{maxWidth:1040,margin:"0 auto"}}>
         <div style={{marginBottom:20}}>
           <h2 style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Data Audit</h2>
-          <p style={{fontSize:13,color:T.textSub,fontFamily:"'DM Sans',sans-serif",maxWidth:640}}>Every spend row and every Dreamdata/PowerBI import currently stored in BudgetHQ — where it came from, what date range it covers, and where there are gaps or overlapping coverage. CRM data is still future work.</p>
+          <p style={{fontSize:13,color:T.textSub,fontFamily:"'DM Sans',sans-serif",maxWidth:640}}>Every spend row and every Dreamdata/PowerBI import currently stored in PaidHQ — where it came from, what date range it covers, and where there are gaps or overlapping coverage. CRM data is still future work.</p>
         </div>
 
         <SectionLabel T={T} style={{marginBottom:8}}>Spend</SectionLabel>
@@ -147,7 +147,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
         {overview.unparseableDates>0&&(
           <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:8,marginBottom:14,fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>
             <Icon name="alert" size={13} color={T.warning}/>
-            {overview.unparseableDates.toLocaleString()} row{overview.unparseableDates===1?"":"s"} {overview.unparseableDates===1?"has":"have"} a date BudgetHQ couldn't parse — excluded from every stat below (not from your actual data, just this audit's date math).
+            {overview.unparseableDates.toLocaleString()} row{overview.unparseableDates===1?"":"s"} {overview.unparseableDates===1?"has":"have"} a date PaidHQ couldn't parse — excluded from every stat below (not from your actual data, just this audit's date math).
           </div>
         )}
 

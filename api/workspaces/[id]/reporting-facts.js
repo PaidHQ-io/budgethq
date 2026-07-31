@@ -2,11 +2,11 @@
  * /api/workspaces/[id]/reporting-facts
  *
  * Ported from ReportingHQ (2026-07-30, per Mo — folding ReportingHQ's performance-reporting work
- * into BudgetHQ as a "Reporting Analyzer" tab instead of running it as a separate product). Reads/
+ * into PaidHQ as a "Reporting Analyzer" tab instead of running it as a separate product). Reads/
  * writes core.reporting_facts — same shared table, unchanged shape, so any workspace's data
  * imported while ReportingHQ still existed as its own app is already here with nothing to migrate.
- * Gated by BudgetHQ's own requireEntitlement (product = 'budgethq') now, not a separate
- * 'reportinghq' entitlement — this is just another BudgetHQ tab.
+ * Gated by PaidHQ's own requireEntitlement (product = 'paidhq') now, not a separate
+ * 'reportinghq' entitlement — this is just another PaidHQ tab.
  *
  * GET    ?period_type=month&start=YYYY-MM-DD&end=YYYY-MM-DD&campaign_name=...&tags={"Product":
  *        "Spreadsheet Server"} — list facts, optionally filtered. Paginated server-side the same

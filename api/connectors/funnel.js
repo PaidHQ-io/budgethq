@@ -3,12 +3,12 @@
  * Status: live, but per-workspace credentialed — unlike linkedin/bing/capterra (one shared
  * process.env token for the whole app), this connector authenticates with the CALLING
  * WORKSPACE's own stored Funnel.io credential (see api/workspaces/[id]/connections.js), since
- * Funnel.io accounts are the kind of thing each BudgetHQ customer has their own separate one of.
+ * Funnel.io accounts are the kind of thing each PaidHQ customer has their own separate one of.
  *
  * API: Funnel's Account Export API — https://api.funnel.io/api/account/v1/$ACCOUNT_ID/project/$PROJECT_ID
  *   ?group_by=campaign_day&start_day=YYYY-MM-DD&end_day=YYYY-MM-DD&apiToken=$API_TOKEN
  * group_by=campaign_day is the most granular grouping Funnel offers (channel + campaign + day),
- * which is what BudgetHQ's per-campaign, per-day row shape needs.
+ * which is what PaidHQ's per-campaign, per-day row shape needs.
  *
  * Credential shape (stored in core.connector_credentials.credential):
  *   { apiToken, accountId, projectId }

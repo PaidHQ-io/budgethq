@@ -1,7 +1,7 @@
 /**
  * /api/email.js — Vercel serverless function
  *
- * Sends a BudgetHQ export as an email attachment via Resend's HTTP API, keeping the API key
+ * Sends a PaidHQ export as an email attachment via Resend's HTTP API, keeping the API key
  * server-side (same reasoning as /api/analyze.js — a secret key can never live in client code).
  *
  * Used by the "Email a copy" action in the ··· menu (Dashboard / Campaign Tagger / Budget Panel /
@@ -15,10 +15,10 @@
  * Env vars required:
  *   RESEND_API_KEY
  * Env vars optional:
- *   RESEND_FROM_EMAIL — defaults to "BudgetHQ <onboarding@resend.dev>", which works without any
+ *   RESEND_FROM_EMAIL — defaults to "PaidHQ <onboarding@resend.dev>", which works without any
  *   domain setup but (per Resend's test-mode restriction) can only deliver to the email address
  *   the Resend account itself is registered under. Once paidhq.io is verified as a sending domain
- *   in Resend, set this to something like "BudgetHQ <reports@paidhq.io>" to send to anyone.
+ *   in Resend, set this to something like "PaidHQ <reports@paidhq.io>" to send to anyone.
  */
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -38,7 +38,7 @@ export default async function handler(req, res) {
   if (!to || !EMAIL_RE.test(to)) return res.status(400).json({ error: "A valid recipient email is required" });
   if (!filename || !base64) return res.status(400).json({ error: "filename and base64 are required" });
 
-  const from = process.env.RESEND_FROM_EMAIL || "BudgetHQ <onboarding@resend.dev>";
+  const from = process.env.RESEND_FROM_EMAIL || "PaidHQ <onboarding@resend.dev>";
 
   const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html = `
@@ -46,7 +46,7 @@ export default async function handler(req, res) {
       <div style="max-width:520px;margin:0 auto;background:#FFFFFF;border-radius:8px;padding:28px 32px;border:1px solid #E9E9E7;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;">
           <span style="width:20px;height:20px;border-radius:6px;background:#2383E2;display:inline-block;"></span>
-          <span style="font-size:14px;font-weight:700;color:#37352F;">BudgetHQ</span>
+          <span style="font-size:14px;font-weight:700;color:#37352F;">PaidHQ</span>
         </div>
         <h1 style="font-size:18px;font-weight:700;color:#37352F;margin:0 0 4px;">${esc(reportTitle) || "Your export"}</h1>
         <p style="font-size:12px;color:#9B9A97;margin:0 0 16px;">${esc(reportSubtitle) || ""}</p>
@@ -65,7 +65,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         from,
         to: [to],
-        subject: subject || reportTitle || "Your BudgetHQ export",
+        subject: subject || reportTitle || "Your PaidHQ export",
         html,
         attachments: [{ filename, content: base64 }],
       }),

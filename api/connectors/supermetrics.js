@@ -1,7 +1,7 @@
 /**
  * Supermetrics connector
  * Status: live, per-workspace credentialed — same reasoning as connectors/funnel.js. Each
- * BudgetHQ workspace connects its own Supermetrics API key rather than sharing one process.env
+ * PaidHQ workspace connects its own Supermetrics API key rather than sharing one process.env
  * credential across the whole app.
  *
  * API: Supermetrics Query API — GET https://api.supermetrics.com/query/data/json

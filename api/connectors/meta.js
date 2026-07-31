@@ -10,7 +10,7 @@
  * workspace (unlike linkedin/capterra) — every workspace, including Mo's own, connects through the
  * same Connect button.
  *
- * Meta's hierarchy is Campaign > Ad Set > Ad. BudgetHQ's two-level model (campaign_group_name /
+ * Meta's hierarchy is Campaign > Ad Set > Ad. PaidHQ's two-level model (campaign_group_name /
  * campaign_name) maps Campaign -> campaign_group_name and Ad Set -> campaign_name, the same
  * correspondence LinkedIn's connector uses (LinkedIn Campaign Group -> Campaign).
  */
@@ -55,7 +55,7 @@ export async function getSpend({ startDate, endDate, credential }) {
   if (!accountId) throw new Error("No Meta ad account selected yet for this workspace — pick one to finish connecting.");
 
   // level=adset + time_increment=1: one row per ad set per real calendar day, not a range total —
-  // BudgetHQ's pacing engine (computePlatformFreshness/computePacing in src/BudgetHQ.jsx) assumes
+  // PaidHQ's pacing engine (computePlatformFreshness/computePacing in src/PaidHQ.jsx) assumes
   // "live-synced" platforms report true day-by-day data and derives each platform's projection off
   // the most recent date it actually has spend for. A range-total or monthly-grain response here
   // would hit the exact same overstated-projection bug LinkedIn's connector already documents

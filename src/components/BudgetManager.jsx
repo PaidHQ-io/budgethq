@@ -17,7 +17,7 @@ import { usePersistentState } from "../lib/persist.js";
 import surfaceBaseHabitatIcon from "../assets/icons/surface-base-habitat.png";
 
 // src/components/BudgetManager.jsx — Budget Panel tab (2026-07-25 split, per Mo: split the
-// four tab components out of the BudgetHQ.jsx monolith into their own files so each tab's code
+// four tab components out of the PaidHQ.jsx monolith into their own files so each tab's code
 // can be lazy-loaded instead of every tab shipping in one bundle on every page load).
 
 export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true,combineGoogleChannels=false}){
@@ -30,7 +30,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[showA,setShowA]=usePersistentState("paidhq_budget_showA",false);
   // Persisted to localStorage (like the top-level view/askChats prefs) rather than plain useState
   // — BudgetManager itself now stays mounted across tab switches (see the display:none wrapper in
-  // BudgetHQ's render), so this survives that on its own, but persisting it too means the toggle
+  // PaidHQ's render), so this survives that on its own, but persisting it too means the toggle
   // also survives a hard page reload, matching how every other "which view mode am I in" pref in
   // the app behaves.
   const[showRollups,setShowRollups]=useState(()=>{try{return localStorage.getItem("paidhq_budget_show_rollups")==="1";}catch(e){return false;}});
@@ -184,7 +184,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       ];
       rows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),...amts,total||"",...monthlyActualCols,...quarterlyActualCols,...pacingCols]);
     });
-    downloadCSV(rows,`budgethq-budgets-pacing-${year}.csv`);
+    downloadCSV(rows,`paidhq-budgets-pacing-${year}.csv`);
     showNotif("Budgets + pacing snapshot exported");
   };
 

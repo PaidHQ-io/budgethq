@@ -1,9 +1,9 @@
 /**
- * Shared HMAC-signed `state` param helper for BudgetHQ's OAuth2 connect flows (LinkedIn, Bing —
+ * Shared HMAC-signed `state` param helper for PaidHQ's OAuth2 connect flows (LinkedIn, Bing —
  * see lib/linkedinOAuth.js and lib/bingOAuth.js). Both providers redirect the browser away to a
  * third-party consent screen and back to a callback route with NO Authorization header at all
  * (it's a real top-level navigation, not a fetch this app controls), so neither callback can rely
- * on the normal Bearer-token auth every other BudgetHQ route uses.
+ * on the normal Bearer-token auth every other PaidHQ route uses.
  *
  * Instead, each provider's `start` route signs {workspaceId, userId, provider, nonce, exp} into an
  * opaque `state` string using OAUTH_STATE_SECRET (a server-only secret, never exposed to the

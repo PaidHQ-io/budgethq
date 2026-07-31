@@ -1,7 +1,7 @@
 /**
  * GET /api/oauth/linkedin/start?workspaceId=...
  *
- * Called via an authenticated fetch (Bearer header, same as every other BudgetHQ API route) from
+ * Called via an authenticated fetch (Bearer header, same as every other PaidHQ API route) from
  * the SPA's Connect panel — NOT a raw browser navigation, since we need to verify the caller
  * actually belongs to (and can edit) the workspace they're connecting BEFORE handing back a
  * LinkedIn consent URL. The frontend then does `window.location.href = url` itself to hand the

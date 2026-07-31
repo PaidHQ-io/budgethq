@@ -4,7 +4,7 @@
  * PER-WORKSPACE AUTH (2026-07-25): a workspace connects its OWN Google Ads account via a full
  * OAuth2 flow (api/oauth/google/{start,callback,accounts}.js), same shape as LinkedIn/Bing/Meta —
  * see lib/googleAdsOAuth.js for the full credential shape, the developer-token prerequisite (a
- * single BudgetHQ-wide GOOGLE_ADS_DEVELOPER_TOKEN env var, not stored per workspace — same pattern
+ * single PaidHQ-wide GOOGLE_ADS_DEVELOPER_TOKEN env var, not stored per workspace — same pattern
  * as BING_DEVELOPER_TOKEN), and its doc comment's SETUP REQUIRED section for what still needs to
  * happen in Google Cloud / Google Ads before this can run against a real account at all. Replaces
  * the old CSV-only stub (pre-per-workspace-OAuth-era, single shared env-var credential) — no env-
@@ -17,7 +17,7 @@
  * response shape below as unverified until a real sync is attempted — see the Bing connector's own
  * doc comment for the class of nested-field-order/shape landmine to watch for once that happens.
  *
- * Google Ads' hierarchy is Campaign > Ad Group > Ad. BudgetHQ's two-level model
+ * Google Ads' hierarchy is Campaign > Ad Group > Ad. PaidHQ's two-level model
  * (campaign_group_name / campaign_name) maps Campaign -> campaign_group_name and Ad Group ->
  * campaign_name — same correspondence LinkedIn (Campaign Group -> Campaign) and Bing (Campaign ->
  * Ad Group) use, see connectors/linkedin.js's doc comment for that taxonomy note.
@@ -37,7 +37,7 @@
 import { adsApiSearchAll } from "../lib/googleAdsOAuth.js";
 
 // ad_group (not campaign or ad_group_ad) — one row per ad group per real calendar day via
-// segments.date, not a range total. Same reasoning as Meta's time_increment=1: BudgetHQ's pacing
+// segments.date, not a range total. Same reasoning as Meta's time_increment=1: PaidHQ's pacing
 // engine (computePlatformFreshness/computePacing) assumes "live-synced" platforms report true
 // day-by-day data and derives each platform's projection off the most recent date it actually has
 // spend for — a range-total response here would hit the same overstated-projection bug LinkedIn's
@@ -73,7 +73,7 @@ function buildAssetGroupQuery(startDate, endDate) {
 // costMicros comes back as a string (Google's REST JSON encodes int64 fields as strings to avoid
 // JS/other clients' float precision loss) — divide by 1,000,000 per Google's documented "micros"
 // convention (same unit Search Ads 360/other Google Ads-adjacent APIs use). `child` is whichever of
-// r.adGroup/r.assetGroup this row came from — the thing that plays Ad Group's role as BudgetHQ's
+// r.adGroup/r.assetGroup this row came from — the thing that plays Ad Group's role as PaidHQ's
 // second grouping level (see the two-level-model doc note up top).
 function mapRow(r, child) {
   const spend = Math.round((parseInt(r.metrics?.costMicros || "0", 10) / 1e6) * 100) / 100;

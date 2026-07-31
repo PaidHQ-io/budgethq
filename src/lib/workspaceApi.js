@@ -1,5 +1,5 @@
 /**
- * Client for BudgetHQ's own workspace-scoped API routes (/api/workspaces/[id]/...) — same-origin,
+ * Client for PaidHQ's own workspace-scoped API routes (/api/workspaces/[id]/...) — same-origin,
  * unlike paidhq-core's coreApi.js which calls a separate deployed service. Every call needs the
  * Supabase access token so the API's requireAuth/requireWorkspaceMember/requireEntitlement chain
  * can verify the request.
@@ -32,7 +32,7 @@ async function compressJson(value) {
 
 // Standalone Bearer-header builder (2026-07-29, per a workspace-siloing review) — same shape
 // apiFetch builds internally below, exposed for call sites that don't go through apiFetch's own
-// JSON-envelope handling: BudgetHQ.jsx's and BudgetManager.jsx's direct fetch("/api/analyze")
+// JSON-envelope handling: PaidHQ.jsx's and BudgetManager.jsx's direct fetch("/api/analyze")
 // calls (screenshot-to-data, column-mapping/export-suggestion prompts), now that that endpoint
 // requires a valid Supabase Bearer token (see api/analyze.js's AUTH doc comment). src/lib/askAI.js
 // takes a plain `token` string instead of a session object (it has no other dependency on the
@@ -66,7 +66,7 @@ export function getWorkspaceConfig(session, workspaceId) {
 }
 
 // fetchOpts is normally omitted — it exists so the beforeunload/visibilitychange flush in
-// BudgetHQ.jsx can pass `{keepalive:true}`. A plain fetch gets silently aborted the instant the
+// PaidHQ.jsx can pass `{keepalive:true}`. A plain fetch gets silently aborted the instant the
 // page starts navigating away/closing; `keepalive` is the one browser mechanism that lets a fetch
 // started right before unload actually finish (same purpose as navigator.sendBeacon, but usable
 // here since sendBeacon can't send a custom Authorization header the way fetch can).
@@ -89,7 +89,7 @@ const SPEND_ROWS_PAGE_SIZE = 10000;
 // an unfiltered fetch of a large workspace's full history used to exceed Neon's ~64MiB HTTP
 // response cap and take the ENTIRE app down on load, not just this one fetch) until the server
 // reports no `nextCursor`, concatenating every page. Callers still see one flat array, same
-// contract as before — this is the only call site (BudgetHQ.jsx's initial workspace-data load), so
+// contract as before — this is the only call site (PaidHQ.jsx's initial workspace-data load), so
 // no other code needed to change.
 export async function getSpendRows(session, workspaceId) {
   let rows = [];

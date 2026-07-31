@@ -3,8 +3,8 @@
  * product points at for "who am I, which workspaces do I belong to, what am I entitled to."
  * Every call needs the Supabase access token from the current session (paidhq-core verifies it
  * against Supabase's public JWKS — see its api/lib/auth.js). VITE_CORE_API_URL is paidhq-core's
- * deployed origin (e.g. https://paidhq-core.vercel.app) — separate from BudgetHQ's own /api
- * routes since core is a standalone service shared across products, not a BudgetHQ endpoint.
+ * deployed origin (e.g. https://paidhq-core.vercel.app) — separate from PaidHQ's own /api
+ * routes since core is a standalone service shared across products, not a PaidHQ endpoint.
  */
 const CORE_API_URL = import.meta.env.VITE_CORE_API_URL;
 
@@ -72,7 +72,7 @@ export function deleteAccount(session, targetUserId) {
 }
 
 // ─── Team / access levels ───────────────────────────────────────────────────
-// "member" is view-only in BudgetHQ (enforced server-side by every product API route — see
+// "member" is view-only in PaidHQ (enforced server-side by every product API route — see
 // requireEditAccess in api/lib/auth.js); "admin"/"owner" have full edit access, and only they can
 // invite/remove people or change roles (enforced by paidhq-core's own requireRole checks).
 
@@ -103,7 +103,7 @@ export function listInvites(session, workspaceId) {
 export function inviteMember(session, workspaceId, { email, role }) {
   return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/invites`, {
     method: "POST",
-    body: JSON.stringify({ email, role, appUrl: window.location.origin, appName: "BudgetHQ" }),
+    body: JSON.stringify({ email, role, appUrl: window.location.origin, appName: "PaidHQ" }),
   });
 }
 
@@ -125,16 +125,16 @@ export function acceptInvite(session, token) {
 // ─── Connector credentials / OAuth connect flow ─────────────────────────────
 // Moved to paidhq-core 2026-07-28, per Mo (full OAuth connect flow, not just the cron sync engine)
 // — connection management and every provider's consent-screen round-trip are shared across every
-// PaidHQ product now, not BudgetHQ-specific. See paidhq-core's api/workspaces/[id]/connections.js
+// PaidHQ product now, not PaidHQ-specific. See paidhq-core's api/workspaces/[id]/connections.js
 // and api/oauth/*/{start,callback,accounts}.js doc comments for the full story, including why
 // requireEntitlement was dropped and how resolveAllowedReturnUrl gets the browser back to the
-// right product after the redirect. BudgetHQ's own local copies of these same routes still exist
+// right product after the redirect. PaidHQ's own local copies of these same routes still exist
 // as a rollback safety net (not yet removed — see ROADMAP) but the frontend calls paidhq-core's
 // from here on.
 //
 // Same response shapes as the old local /api/workspaces/[id]/connections and /api/oauth/* routes
 // (paidhq-core's versions are a straight move, not a redesign), so every existing caller in
-// BudgetHQ.jsx keeps working unchanged apart from swapping which function it calls.
+// PaidHQ.jsx keeps working unchanged apart from swapping which function it calls.
 
 export function listConnections(session, workspaceId) {
   return coreFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/connections`).then((d) => d.connections || []);
@@ -161,7 +161,7 @@ export function deleteConnection(session, workspaceId, provider) {
 }
 
 // Returns { url } — the caller does window.location.href = url to send the browser into the
-// provider's own consent screen (see startOAuth's caller in BudgetHQ.jsx). Not a redirect itself;
+// provider's own consent screen (see startOAuth's caller in PaidHQ.jsx). Not a redirect itself;
 // this call just asks paidhq-core to sign the state param and hand back where to go.
 export function startOAuth(session, workspaceId, provider) {
   return coreFetch(session, `/api/oauth/${provider}/start?workspaceId=${encodeURIComponent(workspaceId)}`);
@@ -183,11 +183,11 @@ export function saveOAuthAccount(session, workspaceId, provider, body) {
 // ─── Spend sync (pull live data from a connected platform into core.spend_rows) ─────────────
 // Moved to paidhq-core 2026-07-30, per Mo — "it's important for ReportingHQ users to be able to
 // trigger syncs as well." Same reasoning as the OAuth connect flow's move: pulling spend into the
-// shared core.spend_rows table is workspace infrastructure, not a BudgetHQ-specific action, so any
-// product's Sync button calls this exact same endpoint now. BudgetHQ's own local /api/spend.js
+// shared core.spend_rows table is workspace infrastructure, not a PaidHQ-specific action, so any
+// product's Sync button calls this exact same endpoint now. PaidHQ's own local /api/spend.js
 // still exists as a rollback safety net (not yet removed) but the frontend calls paidhq-core's
 // from here on. Same request/response shapes as the old local route — a straight move, not a
-// redesign — so every existing caller in BudgetHQ.jsx keeps working unchanged apart from swapping
+// redesign — so every existing caller in PaidHQ.jsx keeps working unchanged apart from swapping
 // which function it calls and threading the session through (paidhq-core's version is
 // authenticated the same way every other core route is, unlike the old same-origin fetch).
 

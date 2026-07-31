@@ -5,7 +5,7 @@ import AuthScreen from "./Auth";
 
 // Standalone subset of the shared theme tokens — same convention Auth.jsx/WorkspaceGate.jsx
 // already use for screens that render before the main product's theme context exists.
-// border retuned 2026-07-26 (per Mo, matching BudgetHQ.jsx's core.js THEME — see its doc comment
+// border retuned 2026-07-26 (per Mo, matching PaidHQ.jsx's core.js THEME — see its doc comment
 // for where this came from). accent/onAccent fixed in the same pass — this standalone copy had
 // been missed by the app-wide orange-to-blue rebrand since it doesn't import the shared THEME
 // object.
@@ -122,7 +122,7 @@ export default function AddAccountScreen() {
           <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.6 }}>
             <strong style={{ color: T.text }}>{alreadyAdded}</strong> is already signed in on this
             browser — no need to add it twice. You can close this tab and switch to it from the
-            account menu in your other BudgetHQ tab.
+            account menu in your other PaidHQ tab.
           </div>
         </div>
       </CenteredScreen>
@@ -152,7 +152,7 @@ export default function AddAccountScreen() {
         </div>
         <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.6, marginBottom: 22 }}>
           Signed in as <strong style={{ color: T.text }}>{session.user?.email}</strong>. Switch to it
-          from the account menu in your other BudgetHQ tab — then you can close this one.
+          from the account menu in your other PaidHQ tab — then you can close this one.
         </div>
         <button
           onClick={() => window.close()}

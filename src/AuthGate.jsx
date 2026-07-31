@@ -42,7 +42,7 @@ function LoadingScreen() {
 // Top of the auth stack. Used to own a single Supabase session; now owns a SET of them — every
 // account someone is simultaneously signed into in this browser (personal email, a client's login,
 // etc.) — and hands the currently-active one down to WorkspaceGate exactly like before, so
-// everything below (WorkspaceGate, BudgetHQ) only has to understand "one session," never "which of
+// everything below (WorkspaceGate, PaidHQ) only has to understand "one session," never "which of
 // several." See lib/accounts.js and lib/supabaseClient.js for the storage-key-per-account
 // mechanics this is built on.
 //
@@ -88,7 +88,7 @@ function AuthGateMain() {
 
   // Mirrors activeAccountKey for effects/callbacks below that shouldn't re-run or be recreated
   // just because the active account changed, but still need the CURRENT value rather than
-  // whatever it was when they were defined — same pattern BudgetHQ.jsx uses for `session` itself,
+  // whatever it was when they were defined — same pattern PaidHQ.jsx uses for `session` itself,
   // after a real production bug there (see that file's sessionRef comment) taught this the hard
   // way: closures over state inside effects/callbacks with unrelated dependency arrays go stale.
   const activeAccountKeyRef = useRef(activeAccountKey);

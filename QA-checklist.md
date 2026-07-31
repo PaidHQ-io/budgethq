@@ -1,4 +1,4 @@
-# BudgetHQ end-to-end QA checklist
+# PaidHQ end-to-end QA checklist
 
 Code-level audit is done — no bugs found in the core import/sync/tagging/pacing logic. This checklist is for verifying the same flow with your real data in the live app (budget.paidhq.io). Two things below are flagged as **watch closely**, not code bugs — they're places where a data-entry mismatch can silently break pacing with no error message.
 

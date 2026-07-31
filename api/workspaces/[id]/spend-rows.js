@@ -11,7 +11,7 @@
  *        INCIDENT (2026-07-31, per Mo): this used to have no limit at all — "no filters returns
  *        everything for the workspace" — which was fine until an active workspace's history grew
  *        past the point where the serialized response exceeded Neon's ~64MiB HTTP response cap.
- *        Past that point EVERY unfiltered GET 507'd outright, which meant BudgetHQ's initial
+ *        Past that point EVERY unfiltered GET 507'd outright, which meant PaidHQ's initial
  *        workspace-data load (getSpendRows, called with no filters) failed unconditionally — the
  *        whole app was stuck on the "couldn't load this workspace's data" screen, not just one
  *        view. Pagination removes the ceiling entirely: no single page can ever approach the
