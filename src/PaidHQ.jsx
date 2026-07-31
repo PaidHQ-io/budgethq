@@ -2256,49 +2256,29 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   }
 
   return(
-    <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",background:T.bg,color:T.text,fontFamily:T.font,overflow:"hidden",position:"relative"}}>
+    <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"row",background:T.bg,color:T.text,fontFamily:T.font,overflow:"hidden",position:"relative"}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
 
-      {/* ── TOP BAR ──
-          The divider under the bar is NOT one continuous border on this outer div — that made
-          "erasing" it under just the active tab fragile (overlap/margin tricks kept leaving a
-          hairline). Instead every piece (logo, each tab, the trailing filler, actions) draws its
-          OWN bottom border at the same fixed height, and the active tab's is simply colored to
-          match the body (T.bg) instead of T.border, so it reads as blank/seamless there.
-          The "···" menu on the right (Notion-style) covers file-level actions (version history)
-          instead of a dedicated "File" trigger — its dropdown is positioned relative to this
-          outer wrapper so it isn't clipped by any child's overflow:hidden. ── */}
-      <div style={{display:"flex",alignItems:"stretch",height:48,flexShrink:0,background:T.topbarBg,borderBottom:`1px solid ${T.border}`,zIndex:30,position:"relative"}}>
-        <div style={{width:isMobile?undefined:(statsOpen?statsWidth:56),display:"flex",alignItems:"center",justifyContent:statsOpen||isMobile?"flex-start":"center",gap:6,padding:statsOpen||isMobile?"0 16px":0,flexShrink:0,boxSizing:"border-box",borderRight:isMobile?"none":`1px solid ${T.border}`,overflow:"hidden",transition:statsResizing.current?"none":"width 0.15s"}}>
-          <div style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Icon name="bolt" size={17} color={T.text}/>
-          </div>
-          {(statsOpen||isMobile)&&<div style={{fontFamily:T.font,fontSize:14,fontWeight:500,color:T.text,letterSpacing:"-0.3px",whiteSpace:"nowrap"}}>PaidHQ</div>}
-          {/* Bigger, easier-to-hit sidebar toggle living right next to the wordmark — the tiny 18px
-              circle riding the sidebar's edge (below) is still there, but it's a fiddly target.
-              This is the primary way to hide/show the column now. Doesn't apply to Dashboard, which
-              has no sidebar column of its own. */}
-          {!isMobile&&view!=="dashboard"&&(
-            <button className="bhq-iconbtn" onClick={()=>setStatsOpen(o=>!o)} title={statsOpen?"Hide sidebar":"Show sidebar"}
-              style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",padding:0,flexShrink:0}}>
-              <Icon name="panelLeft" size={15} color={T.textMuted}/>
-            </button>
-          )}
+      {/* ── VERTICAL RAIL ── (2026-07-31, per Mo — replaced the old horizontal top bar entirely.
+          Icon-only, filled with the active theme's own accent color rather than a neutral
+          surface — every icon here gets a native `title` tooltip in place of the label text
+          that used to sit next to it. The sidebar-resize toggle that used to live next to the
+          wordmark is gone with no replacement needed: the small edge-mounted collapse handle
+          further down (search "Collapse handle for the stats column") already does the exact
+          same job and was already rendered independently of this bar. Dropdowns for the
+          workspace/account/"more" triggers now open to the RIGHT of the rail instead of
+          below-and-right, since there's a fixed-width column to their left instead of open
+          space above them. ── */}
+      <div style={{width:64,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",background:T.accent,zIndex:30,position:"relative",overflowY:"auto"}}>
+        <div style={{width:64,height:48,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <Icon name="bolt" size={19} color="#FFFFFF"/>
         </div>
-        {/* Tabs underline the active one with a 2px accent bottom-border rather than the old
-            "browser tab" bordered-box treatment — flat until active/hover, per the VaultHQ
-            top-bar convention. */}
-        {/* overflowX was "visible" on desktop (only scrolling on mobile) — fine while the trailing
-            actions area stayed small, but at moderate window widths with a full action toolbar
-            (tagged-count pill + Add data + Clear all, all removed 2026-07-24) this flex item had
-            nowhere to shrink to and its content spilled out over the neighboring actions area
-            instead of wrapping, which is what the overlapping "Reporting & Pacing" label Mo
-            screenshotted actually was. Always-auto means if tabs ever don't fit again, this row
-            scrolls horizontally instead of painting over its neighbor. */}
-        <div style={{display:"flex",alignItems:"stretch",gap:2,flex:1,paddingLeft:isMobile?4:16,minWidth:0,overflowX:"auto"}}>
+        <div style={{width:32,height:1,background:"rgba(255,255,255,0.25)",marginBottom:10,flexShrink:0}}/>
+
+        <div style={{display:"flex",flexDirection:"column",gap:6,width:"100%",alignItems:"center",flexShrink:0}}>
           {NAV.map(item=>{
             const active=view===item.key;
-            return <button key={item.key} className={active?undefined:"bhq-tab"} onClick={()=>{
+            return <button key={item.key} title={item.label} onClick={()=>{
                 // Add Data now lives at view==="data" (2026-07-24) instead of nested under Campaign
                 // Tagger's own step==="upload" — clicking Tagger with no data yet sends you to Data
                 // Sources first, matching "connect data before tagging it." Clicking Data Sources
@@ -2317,33 +2297,31 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 if(item.key==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}
                 else if(item.key==="data"){setStep("upload");setView("data");}
                 else setView(item.key);
-              }} style={{display:"flex",alignItems:"center",gap:7,padding:isMobile?"0 12px":"0 16px",boxSizing:"border-box",flexShrink:0,border:"none",borderBottom:`2px solid ${active?T.accent:"transparent"}`,background:"transparent",color:active?T.text:T.textSub,fontSize:14,fontWeight:active?600:500,cursor:"pointer",fontFamily:T.font,whiteSpace:"nowrap",transition:"color 0.12s,border-color 0.12s"}}>
-              <Icon name={item.icon} size={15} color={active?T.accent:T.textSub}/>
-              {!isMobile&&item.label}
+              }}
+              onMouseEnter={e=>{if(!active)e.currentTarget.style.background="rgba(255,255,255,0.12)";}}
+              onMouseLeave={e=>{if(!active)e.currentTarget.style.background="transparent";}}
+              style={{width:44,height:40,display:"flex",alignItems:"center",justifyContent:"center",border:"none",borderRadius:T.r10,background:active?"rgba(255,255,255,0.22)":"transparent",cursor:"pointer",transition:"background 0.12s",flexShrink:0}}>
+              <Icon name={item.icon} size={17} color={active?"#FFFFFF":"rgba(255,255,255,0.65)"}/>
             </button>;
           })}
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:isMobile?4:8,padding:isMobile?"0 8px":"0 14px",flexShrink:0,boxSizing:"border-box"}}>
-          {/* Removed 2026-07-24, per Mo — this trio (tagged-count pill, "Add data", "Clear all")
-              was crowding the bar badly enough at moderate widths that it visually overlapped the
-              nav tabs (see the responsive fix on the tabs container below too). All three were also
-              redundant with something that already exists elsewhere: the tagged count is in the
-              persistent stats sidebar, "Add data" duplicated the Data Sources nav tab immediately to
-              its left, and "Clear all" duplicated Settings' "Clear Tagger data" section — that one
-              specifically is also the safer home for a destructive, irreversible action anyway.
-              "Add data"'s back-to-Data-Sources role is replaced by a proper "← Back to Data Sources"
-              link inside the Tagger table's own filter row instead (below), rather than living up
-              here. */}
+
+        <div style={{flex:1}}/>
+
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,paddingBottom:14,width:"100%",flexShrink:0}}>
           {workspace&&workspaces&&(
             <div style={{position:"relative"}}>
-              <button className="bhq-iconbtn" onClick={()=>setWorkspaceMenuOpen(o=>!o)}
-                style={{display:"flex",alignItems:"center",gap:6,height:30,padding:"0 10px",borderRadius:T.r8,background:workspaceMenuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",transition:"background 0.12s",fontFamily:T.font}}>
-                {!isMobile&&<span style={{fontSize:11,fontWeight:600,color:T.text,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{workspace.name}</span>}
-                <Icon name="chevronDown" size={11} color={T.textMuted}/>
+              <button title={workspace.name} onClick={()=>setWorkspaceMenuOpen(o=>!o)}
+                onMouseEnter={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background="rgba(255,255,255,0.12)";}}
+                onMouseLeave={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background="transparent";}}
+                style={{width:40,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:"none",borderRadius:T.r8,background:workspaceMenuOpen?"rgba(255,255,255,0.22)":"transparent",cursor:"pointer",transition:"background 0.12s",fontFamily:T.font}}>
+                <div style={{width:22,height:22,borderRadius:T.r6,background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#FFFFFF",flexShrink:0}}>
+                  {(workspace.name||"?")[0].toUpperCase()}
+                </div>
               </button>
               {workspaceMenuOpen&&(<>
                 <div onClick={()=>setWorkspaceMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-                <div style={{position:"absolute",top:38,right:0,zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                <div style={{position:"absolute",bottom:0,left:"calc(100% + 8px)",zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
                   <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Workspaces</div>
                   {workspaces.map(w=>(
                     <button key={w.id} className="bhq-row" onClick={()=>{setWorkspaceMenuOpen(false);onSwitchWorkspace&&onSwitchWorkspace(w.id);}}
@@ -2363,13 +2341,13 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           )}
           {session&&(
             <div style={{position:"relative"}}>
-              <button className="bhq-iconbtn" title={session.user?.email} onClick={()=>setAccountMenuOpen(o=>!o)}
-                style={{width:30,height:30,borderRadius:"50%",background:accountMenuOpen?T.surfaceHover:T.accentBg,border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11,fontWeight:700,color:T.accent,fontFamily:T.font}}>
+              <button title={session.user?.email} onClick={()=>setAccountMenuOpen(o=>!o)}
+                style={{width:30,height:30,borderRadius:"50%",background:accountMenuOpen?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11,fontWeight:700,color:"#FFFFFF",fontFamily:T.font}}>
                 {(session.user?.email||"?")[0].toUpperCase()}
               </button>
               {accountMenuOpen&&(<>
                 <div onClick={()=>setAccountMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-                <div style={{position:"absolute",top:38,right:0,zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                <div style={{position:"absolute",bottom:0,left:"calc(100% + 8px)",zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
                   <div style={{padding:"7px 10px 8px",fontSize:12,color:T.text,fontWeight:600,wordBreak:"break-all"}}>{session.user?.email}</div>
                   <div style={{height:1,background:T.border,margin:"2px 4px 6px"}}/>
                   <button className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onSignOut&&onSignOut();}}
@@ -2400,49 +2378,59 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               </>)}
             </div>
           )}
-          <button className="bhq-iconbtn" title="Settings" onClick={()=>setView("settings")}
-            style={{width:30,height:30,borderRadius:T.r8,background:view==="settings"?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
-            <Icon name="gear" size={15} color={T.textSub}/>
+          <button title="Settings" onClick={()=>setView("settings")}
+            onMouseEnter={e=>{if(view!=="settings")e.currentTarget.style.background="rgba(255,255,255,0.12)";}}
+            onMouseLeave={e=>{if(view!=="settings")e.currentTarget.style.background="transparent";}}
+            style={{width:40,height:40,borderRadius:T.r10,background:view==="settings"?"rgba(255,255,255,0.22)":"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
+            <Icon name="gear" size={16} color="rgba(255,255,255,0.8)"/>
           </button>
-          <button className="bhq-iconbtn" title="More" onClick={()=>setFileMenuOpen(o=>!o)}
-            style={{width:30,height:30,borderRadius:T.r8,background:fileMenuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
-            <Icon name="dots" size={15} color={T.textSub}/>
-          </button>
-          {fileMenuOpen&&(<>
-            <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-            <div style={{position:"absolute",top:44,right:isMobile?8:14,zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-              {exportableView&&(<>
-                <div style={{padding:"5px 10px 5px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Export {exportableView.label}</div>
-                <div style={{display:"flex",gap:4,padding:"0 6px 6px"}}>
-                  {EXPORT_FORMATS.map(f=>(
-                    <button key={f.key} className="bhq-row" onClick={()=>{setFileMenuOpen(false);handleExportDownload(f.key);}}
-                      style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:T.font}}>
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-                <button className="bhq-row" disabled={sheetsExporting} onClick={()=>{setFileMenuOpen(false);handleExportToGoogleSheets();}}
-                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:T.font,textAlign:"left"}}>
-                  <Icon name="export" size={14} color={T.textSub}/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
-                </button>
-                <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);openEmailExport();}}
+          <div style={{position:"relative"}}>
+            <button title="More" onClick={()=>setFileMenuOpen(o=>!o)}
+              onMouseEnter={e=>{if(!fileMenuOpen)e.currentTarget.style.background="rgba(255,255,255,0.12)";}}
+              onMouseLeave={e=>{if(!fileMenuOpen)e.currentTarget.style.background="transparent";}}
+              style={{width:40,height:40,borderRadius:T.r10,background:fileMenuOpen?"rgba(255,255,255,0.22)":"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
+              <Icon name="dots" size={16} color="rgba(255,255,255,0.8)"/>
+            </button>
+            {fileMenuOpen&&(<>
+              <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
+              <div style={{position:"absolute",bottom:0,left:"calc(100% + 8px)",zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                {exportableView&&(<>
+                  <div style={{padding:"5px 10px 5px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Export {exportableView.label}</div>
+                  <div style={{display:"flex",gap:4,padding:"0 6px 6px"}}>
+                    {EXPORT_FORMATS.map(f=>(
+                      <button key={f.key} className="bhq-row" onClick={()=>{setFileMenuOpen(false);handleExportDownload(f.key);}}
+                        style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:T.font}}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button className="bhq-row" disabled={sheetsExporting} onClick={()=>{setFileMenuOpen(false);handleExportToGoogleSheets();}}
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:T.font,textAlign:"left"}}>
+                    <Icon name="export" size={14} color={T.textSub}/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
+                  </button>
+                  <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);openEmailExport();}}
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
+                    <Icon name="mail" size={14} color={T.textSub}/> Email a copy…
+                  </button>
+                  <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
+                </>)}
+                {canEdit&&<button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
                   style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                  <Icon name="mail" size={14} color={T.textSub}/> Email a copy…
-                </button>
-                <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
-              </>)}
-              {canEdit&&<button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
-                style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                <Icon name="save" size={14} color={T.textSub}/> Name current version…
-              </button>}
-              {canEdit&&<button className="bhq-row" onClick={openVersionHistory}
-                style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                <Icon name="clock" size={14} color={T.textSub}/> Version history
-              </button>}
-            </div>
-          </>)}
+                  <Icon name="save" size={14} color={T.textSub}/> Name current version…
+                </button>}
+                {canEdit&&<button className="bhq-row" onClick={openVersionHistory}
+                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
+                  <Icon name="clock" size={14} color={T.textSub}/> Version history
+                </button>}
+              </div>
+            </>)}
+          </div>
         </div>
       </div>
+
+      {/* ── RIGHT COLUMN ── everything that used to sit below the old horizontal top bar now
+          lives in its own flex column beside the rail instead of below it. */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0,position:"relative"}}>
 
       {/* View-only banner — "member" role can see every tab but every product API route rejects
           their writes server-side (requireEditAccess). This is the one place that surfaces that
@@ -4480,6 +4468,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .bhq-row:hover{background:${T.surfaceHover} !important;}
         .bhq-tr:hover td{background:${T.rowHover} !important;}
       `}</style>
+      </div>
     </div>
   );
 }
