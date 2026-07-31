@@ -18,7 +18,7 @@ import { getSpend as bingSpend,   meta as bingMeta }       from "./bing.js";
 import { getSpend as capterraSpend, meta as capterraMeta } from "./capterra.js";
 import { getSpend as funnelSpend, meta as funnelMeta }     from "./funnel.js";
 import { getSpend as supermetricsSpend, meta as supermetricsMeta } from "./supermetrics.js";
-import { getSpend as googlesheetsSpend, meta as googlesheetsMeta } from "./googlesheets.js";
+import { getSpend as googlesheetsSpend, meta as googlesheetsMeta, previewSheet as googlesheetsPreview } from "./googlesheets.js";
 
 export const CONNECTORS = {
   linkedin: { getSpend: linkedinSpend, ...linkedinMeta },
@@ -35,7 +35,7 @@ export const CONNECTORS = {
   // "credential" is just a public sheet URL, no token to refresh or expire.
   funnel:       { getSpend: funnelSpend,       ...funnelMeta       },
   supermetrics: { getSpend: supermetricsSpend, ...supermetricsMeta },
-  googlesheets: { getSpend: googlesheetsSpend, ...googlesheetsMeta },
+  googlesheets: { getSpend: googlesheetsSpend, preview: googlesheetsPreview, ...googlesheetsMeta },
 };
 
 /**
@@ -43,5 +43,5 @@ export const CONNECTORS = {
  * Sent as JSON in /api/spend?action=registry
  */
 export const CONNECTOR_REGISTRY = Object.fromEntries(
-  Object.entries(CONNECTORS).map(([key, { getSpend: _fn, ...rest }]) => [key, rest])
+  Object.entries(CONNECTORS).map(([key, { getSpend: _fn, preview: _preview, ...rest }]) => [key, rest])
 );

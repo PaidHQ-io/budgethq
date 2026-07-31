@@ -106,7 +106,9 @@ const SAFE_SUMMARY = {
   funnel: (c) => ({ accountId: c?.accountId || null, projectId: c?.projectId || null }),
   supermetrics: (c) => ({ dsId: c?.dsId || null, dsAccounts: c?.dsAccounts || null }),
   capterra: (c) => ({ products: Object.keys(parseCapterraApiKeys(c?.apiKeys)) }),
-  googlesheets: (c) => ({ sheetUrl: c?.sheetUrl || null }),
+  // columnMap included (2026-07-31, per Mo) so the "Adjust mapping" action can show what's
+  // currently saved without a round trip.
+  googlesheets: (c) => ({ sheetUrl: c?.sheetUrl || null, columnMap: c?.columnMap || null }),
 };
 
 export default withApi(async (req, res) => {

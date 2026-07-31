@@ -94,6 +94,29 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // POST /api/spend?action=preview — mirrors paidhq-core's live copy of this route (2026-07-31, per
+  // Mo). Dead code same as the rest of this file (see deprecation note up top) but kept in sync.
+  if (req.query?.action === "preview") {
+    const { platform: previewPlatform, ...params } = req.body || {};
+    if (!previewPlatform) return res.status(400).json({ error: "platform is required" });
+    try {
+      await requireAuth(req);
+      const connector = CONNECTORS[String(previewPlatform).toLowerCase()];
+      if (!connector) {
+        return res.status(404).json({ error: `Unknown platform: ${previewPlatform}`, available: Object.keys(CONNECTORS) });
+      }
+      if (typeof connector.preview !== "function") {
+        return res.status(400).json({ error: `${connector.label} doesn't support previewing yet.` });
+      }
+      const result = await connector.preview(params);
+      return res.status(200).json(result);
+    } catch (err) {
+      const status = err.status || 500;
+      if (status >= 500) console.error(`[spend/preview/${previewPlatform}]`, err);
+      return res.status(status).json({ error: err.message, code: err.code || undefined });
+    }
+  }
+
   const { platform, startDate, endDate, workspaceId } = req.body || {};
 
   if (!platform) return res.status(400).json({ error: "platform is required" });

@@ -201,3 +201,15 @@ export function syncSpend(session, { platform, startDate, endDate, workspaceId }
     body: JSON.stringify({ platform, startDate, endDate, workspaceId }),
   });
 }
+
+// Preview what a connector sees before (or after) saving a connection — currently only
+// googlesheets implements this (see paidhq-core's connectors/googlesheets.js previewSheet). Powers
+// the connect panel's "review & adjust mapping" step and the connections table's "Adjust mapping"
+// action (2026-07-31, per Mo). `params` is whatever that connector's preview() needs — for
+// googlesheets, { sheetUrl }. Returns { headers, colMap, sampleRow, missing, rowCount }.
+export function previewConnector(session, platform, params) {
+  return coreFetch(session, "/api/spend?action=preview", {
+    method: "POST",
+    body: JSON.stringify({ platform, ...params }),
+  });
+}

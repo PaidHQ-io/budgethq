@@ -8,7 +8,7 @@ import {
   listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64,
   copyFileToWorkspace, authHeader,
 } from "./lib/workspaceApi";
-import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount, syncSpend } from "./lib/coreApi";
+import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount, syncSpend, previewConnector } from "./lib/coreApi";
 import { exportReportToGoogleSheets, preloadGoogleSheetsApi, preloadGoogleSheetsPicker } from "./lib/googleSheets";
 import {
   THEME, REQUIRED_COLS, OPTIONAL_COLS, COL_LABELS, campaignKey, isEmptyConfig, splitFilterTerms,
@@ -906,7 +906,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     // directly). Some OTHER tool (Google Ads' own Sheets export, Supermetrics, an Apps Script, etc.)
     // has to land spend data into that sheet on its own schedule — BudgetHQ only reads it.
     {key:"googlesheets",label:"Google Sheets (Ads workaround)",status:"live",perWorkspaceAuth:true,color:"#0F9D58",desc:"Daily sync from a public Google Sheet — works around Google Ads OAuth verification",domain:"sheets.google.com",
-      connectNote:"1) In the Sheet: File → Share → change to \"Anyone with the link\" → Viewer. 2) Paste that link below. 3) The sheet needs Campaign Group Name, Spend, and Date columns at minimum (same as a CSV upload). Add a Campaign Type column (Search/Display/Demand Gen/Performance Max) too if you want an accurate breakdown — without it, every row is reported as Google Search. Something else (Google Ads' own Sheets export, Supermetrics, Apps Script, etc.) needs to keep the sheet updated — BudgetHQ only reads it, once a day.",
+      connectNote:"1) In the Sheet: File → Share → change to \"Anyone with the link\" → Viewer. 2) Paste that link below and click Preview sheet — you'll get a chance to check (or fix) which column is which before connecting. The sheet needs Campaign Group Name, Spend, and Date columns at minimum (same as a CSV upload); add a Campaign Type column (Search/Display/Demand Gen/Performance Max) too if you want an accurate breakdown — without it, every row is reported as Google Search. Something else (Google Ads' own Sheets export, Supermetrics, Apps Script, etc.) needs to keep the sheet updated — BudgetHQ only reads it, once a day.",
       connectFields:[
         {key:"sheetUrl",label:"Google Sheet URL",placeholder:"https://docs.google.com/spreadsheets/d/.../edit#gid=0"},
       ]},
@@ -1164,10 +1164,75 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   const[connectPairs,setConnectPairs]=useState({});
   const[connectSaving,setConnectSaving]=useState(false);
   const[connectError,setConnectError]=useState("");
+  // Google Sheets column-mapping review step (2026-07-31, per Mo) — sheetPreview holds what the
+  // server actually saw when it fetched the sheet (headers/auto-detected guess/a sample row);
+  // sheetColumnMap is the user-adjustable {field: header} the mapping dropdowns write to, seeded
+  // from sheetPreview.colMap but editable before Connect is clicked. Both null/empty means "haven't
+  // previewed yet" — the connect panel shows a "Preview sheet" button instead of the mapping table
+  // until then. Reused for both the initial connect flow AND "Adjust mapping" on an already-
+  // connected sheet (see openAdjustMapping below) — same panel, same state, the only difference is
+  // whether connectValues.sheetUrl/sheetColumnMap start pre-filled from the existing connection.
+  const[sheetPreview,setSheetPreview]=useState(null);
+  const[sheetPreviewLoading,setSheetPreviewLoading]=useState(false);
+  const[sheetColumnMap,setSheetColumnMap]=useState({});
 
   const openConnectPanel=platformKey=>{
     setConnectPanelKey(platformKey);setConnectValues({});setConnectPairs({});setConnectError("");
+    setSheetPreview(null);setSheetColumnMap({});
   };
+  // Re-opens the connect panel for an ALREADY-connected Google Sheet, pre-filled with its current
+  // sheetUrl, and immediately re-previews it so the mapping table shows up right away instead of
+  // making the user click "Preview sheet" again for a sheet BudgetHQ already knows about. Seeds
+  // sheetColumnMap from whatever's currently saved (conn.columnMap, from SAFE_SUMMARY) rather than
+  // the freshly auto-detected guess, so re-opening this doesn't silently discard a prior manual
+  // override — falls back to the fresh guess only if nothing was saved yet (pre-mapping-feature
+  // connections). Triggered from the connections table's ⋯ menu.
+  const openAdjustMapping=useCallback(async conn=>{
+    const sheetUrl=conn?.summary?.sheetUrl;
+    if(!sheetUrl)return;
+    setConnectPanelKey("googlesheets");setConnectValues({sheetUrl});setConnectPairs({});setConnectError("");
+    setSheetPreview(null);setSheetColumnMap({});
+    setSheetPreviewLoading(true);
+    try{
+      const result=await previewConnector(session,"googlesheets",{sheetUrl});
+      setSheetPreview(result);
+      setSheetColumnMap(conn?.summary?.columnMap&&Object.keys(conn.summary.columnMap).length?conn.summary.columnMap:(result.colMap||{}));
+    }catch(e){
+      setConnectError(e.message);
+    }finally{
+      setSheetPreviewLoading(false);
+    }
+  },[session]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Fields the mapping table shows dropdowns for, in the same order/vocabulary as core.js's
+  // REQUIRED_COLS/OPTIONAL_COLS and the googlesheets connector's own COL_PATTERNS — required ones
+  // block Connect until mapped, optional ones can be left as "— Not in this sheet —".
+  const GSHEET_FIELDS=[
+    {key:"campaign_group_name",label:"Campaign Group Name",required:true},
+    {key:"spend",label:"Spend",required:true},
+    {key:"date",label:"Date",required:true},
+    {key:"campaign_name",label:"Campaign Name",required:false},
+    {key:"platform",label:"Platform",required:false},
+    {key:"campaign_type",label:"Campaign Type",required:false},
+    {key:"campaign_id",label:"Campaign ID",required:false},
+    {key:"adset_id",label:"Ad Set ID",required:false},
+    {key:"impressions",label:"Impressions",required:false},
+    {key:"clicks",label:"Clicks",required:false},
+  ];
+  const handlePreviewSheet=useCallback(async()=>{
+    const sheetUrl=(connectValues.sheetUrl||"").trim();
+    if(!sheetUrl){setConnectError("Paste a Google Sheet link first.");return;}
+    setConnectError("");setSheetPreviewLoading(true);
+    try{
+      const result=await previewConnector(session,"googlesheets",{sheetUrl});
+      setSheetPreview(result);
+      setSheetColumnMap(result.colMap||{});
+    }catch(e){
+      setConnectError(e.message);
+      setSheetPreview(null);
+    }finally{
+      setSheetPreviewLoading(false);
+    }
+  },[connectValues.sheetUrl,session]);
   // Always returns at least one (possibly empty) row so there's always something to render/type
   // into, even right after the panel opens or after the last row gets removed.
   const pairRowsFor=fieldKey=>(connectPairs[fieldKey]?.length?connectPairs[fieldKey]:[{label:"",value:""}]);
@@ -1227,16 +1292,26 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         });
         credential[f.key]=obj;
       });
+      // Google Sheets carries the user-confirmed mapping alongside sheetUrl (2026-07-31, per Mo) —
+      // only the fields actually mapped to a real header make it in, so an optional field left as
+      // "— Not in this sheet —" isn't saved as an empty string (getSpend's REQUIRED_COLS check
+      // treats a falsy colMap entry as "not mapped", same as if the key were absent entirely).
+      if(platformKey==="googlesheets"){
+        const map={};
+        Object.entries(sheetColumnMap).forEach(([field,header])=>{if(header)map[field]=header;});
+        credential.columnMap=map;
+      }
       await saveConnectionCredential(session,workspace.id,platformKey,credential);
       setConnectedProviders(p=>({...p,[platformKey]:true}));
       setConnectPanelKey(null);
+      setSheetPreview(null);setSheetColumnMap({});
       showNotif(`Connected ${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} — click Sync to pull spend.`);
     }catch(e){
       setConnectError(e.message);
     }finally{
       setConnectSaving(false);
     }
-  },[workspace?.id,session?.access_token,connectValues,connectPairs]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[workspace?.id,session?.access_token,connectValues,connectPairs,sheetColumnMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncPlatform=useCallback(async(platformKey)=>{
     if(!canEdit)return;
@@ -2674,8 +2749,9 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                 // per row side by side, so they need more breathing room than the standard
                 // single-input connect panels — widen it just for those.
                 const hasPairField=(pl.connectFields||[]).some(f=>f.type==="keyvaluelist");
+                const isGSheet=pl.key==="googlesheets";
                 return(
-                  <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:hasPairField?560:420}}>
+                  <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:8,maxWidth:hasPairField?560:(isGSheet&&sheetPreview?520:420)}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                       <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Connect {pl.label}</div>
                       <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
@@ -2719,13 +2795,58 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                         );
                       })}
                     </div>
+                    {isGSheet&&sheetPreviewLoading&&(
+                      <div style={{fontSize:11,color:T.textMuted,marginBottom:10,fontFamily:"'DM Sans',sans-serif"}}>Reading sheet…</div>
+                    )}
+                    {/* Column mapping review — the actual point of this step (2026-07-31, per Mo):
+                        show the user exactly what BudgetHQ found in their sheet (real headers + a
+                        sample value) instead of silently auto-detecting, so a wrong guess is
+                        obvious right here instead of surfacing later as "spend just isn't showing
+                        up." sheetColumnMap starts seeded from the server's own auto-detected guess
+                        (see handlePreviewSheet/openAdjustMapping) — this is a review-and-override
+                        step, not a from-scratch mapping chore. */}
+                    {isGSheet&&sheetPreview&&(
+                      <div style={{marginBottom:10}}>
+                        <div style={{fontSize:11,fontWeight:600,color:T.text,marginBottom:2,fontFamily:"'DM Sans',sans-serif"}}>
+                          Column mapping{sheetPreview.rowCount!=null&&<span style={{fontWeight:400,color:T.textMuted}}> · {sheetPreview.rowCount} data row{sheetPreview.rowCount===1?"":"s"} found</span>}
+                        </div>
+                        <div style={{fontSize:11,color:T.textMuted,marginBottom:8,fontFamily:"'DM Sans',sans-serif"}}>Auto-detected from your sheet's headers — check these are right, or change any of them.</div>
+                        <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:260,overflowY:"auto",paddingRight:2}}>
+                          {GSHEET_FIELDS.map(f=>{
+                            const chosen=sheetColumnMap[f.key]||"";
+                            const sample=chosen&&sheetPreview.sampleRow?sheetPreview.sampleRow[chosen]:null;
+                            return(
+                              <div key={f.key} style={{display:"flex",alignItems:"center",gap:6}}>
+                                <div style={{width:132,flexShrink:0,fontSize:11,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>{f.label}{f.required&&<span style={{color:T.danger}}> *</span>}</div>
+                                <select value={chosen} onChange={e=>setSheetColumnMap(m=>({...m,[f.key]:e.target.value}))}
+                                  style={{flex:1,minWidth:0,background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 7px",fontSize:11.5,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
+                                  <option value="">{f.required?"— Select a column —":"— Not in this sheet —"}</option>
+                                  {sheetPreview.headers.map(h=><option key={h} value={h}>{h}</option>)}
+                                </select>
+                                {sample!=null&&String(sample).trim()!==""&&(
+                                  <div title={String(sample)} style={{width:84,flexShrink:0,fontSize:10.5,color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}>{String(sample)}</div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <span onClick={()=>{setSheetPreview(null);setSheetColumnMap({});}} style={{display:"inline-block",marginTop:8,fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>← Use a different sheet</span>
+                      </div>
+                    )}
                     {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
-                    <Btn onClick={()=>saveConnection(pl.key)}
-                      disabled={connectSaving||(pl.connectFields||[]).some(f=>{
-                        if(f.type==="keyvaluelist")return !pairRowsFor(f.key).some(r=>r.label.trim()&&r.value.trim());
-                        return !f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim();
-                      })}
-                      variant="primary" size="sm" T={T}>{connectSaving?"Connecting…":"Connect"}</Btn>
+                    {isGSheet&&!sheetPreview?(
+                      <Btn onClick={handlePreviewSheet} disabled={sheetPreviewLoading||!(connectValues.sheetUrl||"").trim()}
+                        variant="primary" size="sm" T={T}>{sheetPreviewLoading?"Reading sheet…":"Preview sheet"}</Btn>
+                    ):(
+                      <Btn onClick={()=>saveConnection(pl.key)}
+                        disabled={connectSaving||(isGSheet
+                          ?GSHEET_FIELDS.some(f=>f.required&&!sheetColumnMap[f.key])
+                          :(pl.connectFields||[]).some(f=>{
+                            if(f.type==="keyvaluelist")return !pairRowsFor(f.key).some(r=>r.label.trim()&&r.value.trim());
+                            return !f.key.endsWith("Accounts")&&!(connectValues[f.key]||"").trim();
+                          }))}
+                        variant="primary" size="sm" T={T}>{connectSaving?"Connecting…":(isGSheet?"Confirm & connect":"Connect")}</Btn>
+                    )}
                   </div>
                 );
               })()}
@@ -3015,6 +3136,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                           )}
                           {!conn.needsAccountSelection&&!conn.needsReconnect&&(
                             <button onClick={()=>{closeConnActionsMenu();pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
+                          )}
+                          {/* Google Sheets-only (2026-07-31, per Mo) — re-opens the connect panel
+                              pre-filled with this sheet's URL and re-fetches its headers, so a
+                              sheet whose columns changed (or a mapping picked wrong the first time)
+                              can be fixed without disconnecting and reconnecting from scratch. */}
+                          {pl.key==="googlesheets"&&!conn.needsAccountSelection&&!conn.needsReconnect&&(
+                            <button onClick={()=>{closeConnActionsMenu();openAdjustMapping(conn);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:"'DM Sans',sans-serif",textAlign:"left",opacity:canEdit?1:0.5}}>Adjust mapping</button>
                           )}
                           {!warn&&(
                             <div style={{padding:"6px 10px 4px"}} onClick={e=>e.stopPropagation()}>

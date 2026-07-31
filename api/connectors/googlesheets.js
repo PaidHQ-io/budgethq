@@ -21,10 +21,14 @@
  * OPTIONAL_COLS on the frontend) — Campaign Group Name/Spend/Date required, Campaign Name/Platform/
  * Campaign Type/Impressions/Clicks/Campaign ID/Ad Set ID optional. Headers are matched the same
  * fuzzy way the CSV upload's autoDetect() does (see COL_PATTERNS below — deliberately kept in sync
- * with core.js's copy of the same patterns) rather than requiring exact snake_case column names,
- * since there's no interactive mapping step possible for an unattended daily sync — whatever's
- * auto-detected on day 1 is what gets used every day after, so the fuzzy matching has to be good
- * enough to work unattended.
+ * with core.js's copy of the same patterns) rather than requiring exact snake_case column names.
+ *
+ * MAPPING (2026-07-31, per Mo): previewSheet() lets BudgetHQ's connect panel show the user the real
+ * headers, the auto-detected guess, and a sample row BEFORE saving — the user can override any
+ * field, and that confirmed mapping is saved into credential.columnMap. getSpend() always prefers a
+ * saved columnMap over re-guessing — this keeps every DAILY sync unattended (no re-prompting), it's
+ * only the one-time setup/"Adjust mapping" action that's interactive. A sheet connected before this
+ * shipped just has no columnMap yet, so getSpend transparently falls back to fuzzy auto-detect.
  *
  * DATE FILTERING: unlike every other connector here, Sheets has no native date-range query — the
  * whole sheet comes back every time, so getSpend filters rows to [startDate, endDate] itself.
@@ -121,20 +125,49 @@ async function fetchSheetCsv(sheetUrl) {
   return text;
 }
 
+// Shared by getSpend and previewSheet — fetches + parses the sheet and returns its header row
+// (trimmed) alongside every row (including the header row at index 0), so callers can slice
+// whatever they need without re-fetching.
+async function loadSheetRows(sheetUrl) {
+  const { default: Papa } = await import("papaparse");
+  const csvText = await fetchSheetCsv(sheetUrl);
+  const parsed = Papa.parse(csvText, { header: false, skipEmptyLines: true });
+  const allRows = parsed.data || [];
+  if (!allRows.length) throw new Error("The Google Sheet appears to be empty.");
+  const headers = allRows[0].map((h) => String(h || "").trim());
+  return { headers, allRows };
+}
+
+// Lets the Data Sources UI show the user what BudgetHQ actually sees in their sheet — real
+// headers, what got auto-detected, and a sample row — BEFORE the connection is saved, and again
+// later via "Adjust mapping" (2026-07-31, per Mo). Doesn't require an existing credential — this
+// runs against whatever sheetUrl the user just pasted.
+export async function previewSheet({ sheetUrl }) {
+  if (!sheetUrl) throw new Error("Paste a Google Sheet link first.");
+  const { headers, allRows } = await loadSheetRows(sheetUrl);
+  const colMap = autoDetectColumns(headers);
+  const missing = REQUIRED_COLS.filter((f) => !colMap[f]);
+  const sampleRow = allRows[1]
+    ? headers.reduce((acc, h, i) => {
+        acc[h] = allRows[1][i];
+        return acc;
+      }, {})
+    : null;
+  return { headers, colMap, sampleRow, missing, rowCount: Math.max(0, allRows.length - 1) };
+}
+
 export async function getSpend({ startDate, endDate, credential }) {
   const sheetUrl = credential?.sheetUrl;
   if (!sheetUrl) {
     throw new Error("This workspace hasn't connected a Google Sheet yet — reconnect this workspace's Google Sheets data source.");
   }
 
-  const { default: Papa } = await import("papaparse");
-  const csvText = await fetchSheetCsv(sheetUrl);
-  const parsed = Papa.parse(csvText, { header: false, skipEmptyLines: true });
-  const allRows = parsed.data || [];
-  if (!allRows.length) throw new Error("The Google Sheet appears to be empty.");
+  const { headers, allRows } = await loadSheetRows(sheetUrl);
 
-  const headers = allRows[0].map((h) => String(h || "").trim());
-  const colMap = autoDetectColumns(headers);
+  // A user-confirmed mapping always wins over auto-detection — see the module doc comment's
+  // MAPPING section. Falls back to fuzzy auto-detect for any sheet connected before this shipped.
+  const hasStoredMap = credential?.columnMap && Object.keys(credential.columnMap).length > 0;
+  const colMap = hasStoredMap ? credential.columnMap : autoDetectColumns(headers);
   const missing = REQUIRED_COLS.filter((f) => !colMap[f]);
   if (missing.length) {
     throw new Error(
@@ -145,6 +178,14 @@ export async function getSpend({ startDate, endDate, credential }) {
   Object.entries(colMap).forEach(([field, header]) => {
     colIndex[field] = headers.indexOf(header);
   });
+  if (hasStoredMap) {
+    const brokenRequired = REQUIRED_COLS.filter((f) => colIndex[f] < 0);
+    if (brokenRequired.length) {
+      throw new Error(
+        `This sheet's saved column mapping no longer matches its headers (can't find: ${brokenRequired.join(", ")}). Open Data Sources → Google Sheets → Adjust mapping to fix it.`
+      );
+    }
+  }
   const get = (row, field) => {
     const i = colIndex[field];
     return i != null && i >= 0 ? row[i] : undefined;
