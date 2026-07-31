@@ -1285,6 +1285,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       showNotif(`Loaded ${rows.length} ${platformKey} campaigns — merged with existing data${adjustedNote}`);
     }catch(e){
       setSyncState(p=>({...p,[platformKey]:"error:"+e.message}));
+      // 2026-07-31, per Mo — a failed sync used to only leave a small red line above the
+      // connections table (easy to miss, clears on refresh) with zero toast at all, which is
+      // exactly why a real failure (e.g. a Google Sheet that isn't actually shared "Anyone with
+      // the link can view" yet) could look indistinguishable from success. This doesn't replace
+      // that inline line — just makes the failure impossible to miss in the moment it happens.
+      showNotif(`${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} sync failed — ${e.message}`,"error");
     }
   },[syncDateRange,checkpoint,workspace?.id,session?.access_token,connectionDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1544,7 +1550,14 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
     return result;
   },[tagDims,tags,campaigns]);
 
-  const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(null),3000);};
+  // 2026-07-31, per Mo — a failed sync (e.g. googlesheets connector hitting "not publicly viewable")
+  // previously never surfaced a toast at all, only a small 11px red line above the connections
+  // table that's easy to miss and clears on refresh. That's exactly what caused a synced-Google-
+  // Sheet-that-actually-failed to look like "it worked" — silence read as success. Now any call
+  // site can opt into an error-styled toast (red, 6s instead of 3s so there's time to actually read
+  // an error message) by passing "error" as the second arg; every existing single-arg call site
+  // keeps behaving exactly as before (green, 3s).
+  const showNotif=(msg,type="success")=>{setNotif({msg,type});setTimeout(()=>setNotif(null),type==="error"?6000:3000);};
   // Toggling Google channel combining on (2026-07-30, per Mo) — when Platform is one of the
   // Budget By dimensions, any existing "Google Search"/"Google Display"/"Demand Gen" budget rows
   // are immediately folded into a single "Google" row (merging monthly amounts, not overwriting —
@@ -2643,7 +2656,7 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       {/* ── MAIN ── */}
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
 
-      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"'DM Sans',sans-serif"}}>{notif}</div>}
+      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:notif.type==="error"?T.danger:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"'DM Sans',sans-serif",maxWidth:420}}>{notif.msg}</div>}
 
       {/* ── UPLOAD ── (moved 2026-07-24 from view==="tagger" to its own view==="data" — see NAV) */}
       {step==="upload"&&view==="data"&&(
