@@ -110,6 +110,38 @@ export const THEME_AIDA = {
   shadowLg:"0 20px 48px rgba(0,0,0,0.10),0 6px 16px rgba(0,0,0,0.05)",
 };
 
+// Midnight theme (2026-07-31, per Mo — dark mode). Deliberately a dark variant of Classic's own
+// shapes rather than Aida's: same font, same radius scale, same signature accent blue, just
+// inverted for a dark surface. Kept as its own theme rather than a CSS-level "invert Classic"
+// trick since several values genuinely need retuning, not just flipping — shadows barely read on
+// a near-black background (dropped to almost nothing here, relying on the surface/surfaceEl/
+// surfaceHover step-up instead for a sense of elevation), and the semantic colors
+// (success/warning/danger) and badgeColors both need brighter, more saturated versions than
+// Classic's — the muted tones tuned for a white background read muddy/low-contrast on near-black.
+// Classic's badgeColors array even has a literal near-black swatch in it (#141414) that would
+// have vanished into a dark background entirely if reused as-is.
+export const THEME_MIDNIGHT = {
+  font:THEME_CLASSIC.font,
+  ...RADIUS_CLASSIC,
+  bg:"#0A0A0A",surface:"#141414",surfaceEl:"#1C1C1C",surfaceHover:"#242424",
+  border:"#2A2A2A",borderStrong:"#3A3A3A",
+  text:"#F2F2F2",textSub:"#A3A3A3",textMuted:"#6E6E6E",textDim:"#3A3A3A",
+  accent:"#006CFF",accentHover:"#3B8EFF",onAccent:"#FFFFFF",
+  accentBg:"rgba(0,108,255,0.16)",accentBorder:"rgba(0,108,255,0.4)",accentText:"#4D94FF",
+  accentSoft:"#4D94FF",
+  success:"#3DDC84",successBg:"rgba(61,220,132,0.12)",successBorder:"rgba(61,220,132,0.32)",
+  warning:"#FBBF24",warningBg:"rgba(251,191,36,0.12)",warningBorder:"rgba(251,191,36,0.32)",
+  danger:"#FF6B6B",dangerBg:"rgba(255,107,107,0.12)",dangerBorder:"rgba(255,107,107,0.32)",
+  rowHover:"#1C1C1C",rowSelected:"rgba(0,108,255,0.14)",
+  inputBg:"#1C1C1C",headerBg:"#141414",sidebarBg:"#0A0A0A",topbarBg:"#141414",
+  pill:"#1C1C1C",pillBorder:"#2A2A2A",
+  hatchBg:"repeating-linear-gradient(45deg, rgba(255,255,255,0.06) 0px, rgba(255,255,255,0.06) 1.5px, transparent 1.5px, transparent 9px)",
+  badgeColors:["#5DA9B5","#8FC4CC","#E8EDF0","#6FA8C0","#3D6B78","#A8D4DC","#2A4550"],
+  shadow:"none",
+  shadowMd:"0 4px 16px rgba(0,0,0,0.5)",
+  shadowLg:"0 20px 40px rgba(0,0,0,0.6)",
+};
+
 // Kept as a plain alias (not a live binding) so any existing `import { THEME }` call site — and
 // non-component code like lib/reports.js, which builds report output outside the React render
 // tree and has no access to whichever theme is active in a browser tab — keeps working exactly

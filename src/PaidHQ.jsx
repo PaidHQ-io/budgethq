@@ -11,7 +11,7 @@ import {
 import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount, syncSpend, previewConnector } from "./lib/coreApi";
 import { exportReportToGoogleSheets, preloadGoogleSheetsApi, preloadGoogleSheetsPicker } from "./lib/googleSheets";
 import {
-  THEME, THEME_CLASSIC, THEME_AIDA, REQUIRED_COLS, OPTIONAL_COLS, COL_LABELS, campaignKey, isEmptyConfig, splitFilterTerms,
+  THEME, THEME_CLASSIC, THEME_AIDA, THEME_MIDNIGHT, REQUIRED_COLS, OPTIONAL_COLS, COL_LABELS, campaignKey, isEmptyConfig, splitFilterTerms,
   matchesTerms, getBudgetDimValues, DEFAULT_DIMS, LEGACY_LOCAL_KEYS, PLATFORM_COLORS,
   TAG_DIM_COLORS, NAV, autoDetect, derivePlatform, localISODate, fmt$, downloadCSV,
   groupVersionsByDay, fmtFileSize, normalizeRows, spendRowKey, mergeRows, detectSpendConflicts,
@@ -69,7 +69,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // ever written; everywhere else in this file just reads T same as it always has, so this is a
   // one-line change from the app's perspective.
   const[themeName,setThemeName]=usePersistentState("paidhq_theme","classic");
-  const T=themeName==="aida"?THEME_AIDA:THEME_CLASSIC;
+  const T=themeName==="aida"?THEME_AIDA:themeName==="midnight"?THEME_MIDNIGHT:THEME_CLASSIC;
   const[accountMenuOpen,setAccountMenuOpen]=useState(false);
   const[workspaceMenuOpen,setWorkspaceMenuOpen]=useState(false);
   const[width,setWidth]=useState(typeof window!=="undefined"?window.innerWidth:1200);
@@ -3829,6 +3829,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     {[
                       {key:"classic",label:"Classic",desc:"Current look — DM Sans, compact corners",swatch:THEME_CLASSIC},
                       {key:"aida",label:"Aida",desc:"New theme — Poppins, rounder, soft mint accent",swatch:THEME_AIDA},
+                      {key:"midnight",label:"Midnight",desc:"Dark mode — same shapes as Classic, inverted",swatch:THEME_MIDNIGHT},
                     ].map(opt=>{
                       const active=themeName===opt.key;
                       return(
