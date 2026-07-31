@@ -74,7 +74,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields }) {
                 const periodType = e.target.value;
                 onChange({ ...row, periodType, periodStart: defaultPeriodStart(periodType) });
               }}
-              style={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 6px", fontFamily: "'DM Sans',sans-serif" }}
+              style={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "4px 6px", fontFamily: "'DM Sans',sans-serif" }}
             >
               {PERIOD_TYPES.map((pt) => (
                 <option key={pt} value={pt}>{PERIOD_TYPE_LABELS[pt]}</option>
@@ -84,7 +84,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields }) {
               type="date"
               value={row.periodStart || defaultPeriodStart(row.periodType || "month")}
               onChange={(e) => onChange({ ...row, periodStart: normalizePeriodStart(row.periodType || "month", e.target.value) })}
-              style={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 6px", fontFamily: "'DM Sans',sans-serif" }}
+              style={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "4px 6px", fontFamily: "'DM Sans',sans-serif" }}
             />
           </div>
         ) : (
@@ -104,7 +104,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields }) {
             onChange={(v) => onChange(setField(row, f, v))}
             suggestions={fieldSuggestions(dimensionValues, f)}
             placeholder="—"
-            inputStyle={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 6px", width: "100%", fontFamily: "'DM Sans',sans-serif" }}
+            inputStyle={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "4px 6px", width: "100%", fontFamily: "'DM Sans',sans-serif" }}
           />
         </td>
       ))}
@@ -297,7 +297,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
           )}
         </div>
         {extractError && (
-          <div style={{ marginTop: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius: 8, fontSize: 12, color: T.danger }}>
+          <div style={{ marginTop: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize: 12, color: T.danger }}>
             {extractError}
           </div>
         )}
@@ -312,7 +312,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
             {hasUnresolved && <Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>Assign a period below to continue</Pill>}
           </div>
 
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 14, padding: "10px 12px", background: T.surfaceEl, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 14, padding: "10px 12px", background: T.surfaceEl, border: `1px solid ${T.border}`, borderRadius:T.r8 }}>
             <span style={{ fontSize: 11, color: T.textMuted, marginRight: 2 }}>Tag all rows missing:</span>
             {fields.map((f) => (
               <div key={f} style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -323,7 +323,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
                   onEnter={() => applyBatchTag(f)}
                   suggestions={fieldSuggestions(dimensionValues, f)}
                   placeholder={fieldLabel(f)}
-                  inputStyle={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 8px", width: 130, fontFamily: "'DM Sans',sans-serif" }}
+                  inputStyle={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "5px 8px", width: 130, fontFamily: "'DM Sans',sans-serif" }}
                 />
                 <Btn T={T} variant="ghost" size="sm" disabled={!batchTags[f]?.trim()} onClick={() => applyBatchTag(f)}>
                   Apply
@@ -366,7 +366,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
           style={{
             marginBottom: 20,
             padding: "10px 14px",
-            borderRadius: 8,
+            borderRadius:T.r8,
             fontSize: 12,
             background: importResult.error ? T.dangerBg : T.successBg,
             border: `1px solid ${importResult.error ? T.dangerBorder : T.successBorder}`,
@@ -381,7 +381,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
 
       <SectionLabel T={T}>Stored data</SectionLabel>
       {historyError && (
-        <div style={{ padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius: 8, fontSize: 12, color: T.danger, marginBottom: 12 }}>
+        <div style={{ padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize: 12, color: T.danger, marginBottom: 12 }}>
           {historyError}
         </div>
       )}

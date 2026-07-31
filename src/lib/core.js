@@ -30,7 +30,23 @@ import { stepPeriodStart } from "./reportingPeriods.js";
 // textMuted nudged toward the same warm-gray hue too, since SectionLabel (fontSize 10, bold,
 // uppercase, 0.08em tracking) already IS PaidHQ's version of zams' "[0X] SECTION NAME" eyebrow
 // label — same role, just needed the color to actually match. Accent blue is untouched, per Mo.
-export const THEME = {
+// Radius scale (2026-07-31, per Mo — added alongside the Aida theme below). Keyed by each
+// value's CURRENT literal pixel size across the app (r6, r8, r10, ...) rather than a semantic
+// name like "sm"/"md" — this is what let the whole app's ~287 scattered `borderRadius:N` inline
+// literals get swapped to token references mechanically (grep+sed on the exact number) instead
+// of hand-judging which semantic tier each one of 287 call sites "should" be. THEME_CLASSIC's
+// values below are identical to the numbers they replace, so switching back to Classic is
+// pixel-identical to how the app looked before this existed. r20/r22 are left alone in both
+// themes (not blown out to a pill radius) — every call site using them is a fixed-size circular
+// avatar/icon button where the radius already equals exactly half the element's own
+// width/height, so they're already perfect circles; the visual "pill-ness" Aida wants instead
+// comes from ordinary buttons/inputs/cards moving from r6-r10 up into genuinely pill territory.
+const RADIUS_CLASSIC = {r0:0,r2:2,r3:3,r4:4,r5:5,r6:6,r7:7,r8:8,r9:9,r10:10,r12:12,r14:14,r20:20,r22:22};
+const RADIUS_AIDA = {r0:0,r2:6,r3:8,r4:10,r5:12,r6:14,r7:16,r8:18,r9:20,r10:22,r12:26,r14:30,r20:20,r22:22};
+
+export const THEME_CLASSIC = {
+  font:"'DM Sans',sans-serif",
+  ...RADIUS_CLASSIC,
   bg:"#FAFAFA",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
   border:"#C9C3C7",borderStrong:"#A59FA7",
   text:"#171717",textSub:"#666666",textMuted:"#96909A",textDim:"#E5E5E5",
@@ -57,6 +73,48 @@ export const THEME = {
   shadowMd:"0 8px 24px rgba(0,0,0,0.08),0 2px 6px rgba(0,0,0,0.04)",
   shadowLg:"0 20px 48px rgba(0,0,0,0.12),0 6px 16px rgba(0,0,0,0.06)",
 };
+
+// Aida theme (2026-07-31, per Mo — bought this palette/type/shape language as a Tailwind mockup
+// and asked for it as a switchable second theme, not a replacement). Palette pulled directly from
+// the purchased template's own Tailwind config (background/panel/textMain/textMuted/accent/
+// cardBg/tealAccent/tealDark) plus colors sampled straight out of its markup (the lime highlight
+// bg on tooltips/active chart bars, the donut-chart teals, the mint "VISA card" green). Two
+// judgment calls beyond a literal copy: (1) T.accent (this app's workhorse color — primary
+// buttons, active/selected states, progress fills) maps to the template's own near-black
+// `primary` (#1A1D1F), not its pale mint `accent` (#C4F0A9) — in the template itself, the dark
+// tone is what actually drives its primary CTAs (the "Dashboard" nav pill, the round + buttons),
+// while the mint is a sparse highlight color (badges, one highlighted chart bar), so accentSoft
+// carries the mint instead of accent itself; a full-size button filled with pale mint would read
+// washed out and wouldn't match how the template actually uses either color. (2) badgeColors
+// swapped to a set built from the template's own teal/mint family so per-platform badges (Tagger,
+// Reporting) stay in the same palette instead of keeping Classic's blue-gray set.
+export const THEME_AIDA = {
+  font:"'Poppins',sans-serif",
+  ...RADIUS_AIDA,
+  bg:"#F5F6F8",surface:"#FFFFFF",surfaceEl:"#F0F2F4",surfaceHover:"#E9EBEE",
+  border:"#E3E6E9",borderStrong:"#C9CDD2",
+  text:"#1A1D1F",textSub:"#4A4F54",textMuted:"#6F767E",textDim:"#D8DBDE",
+  accent:"#1A1D1F",accentHover:"#000000",onAccent:"#FFFFFF",
+  accentBg:"#EDEDED",accentBorder:"rgba(26,29,31,0.25)",accentText:"#1A1D1F",
+  accentSoft:"#C4F0A9",
+  success:"#3F9142",successBg:"rgba(63,145,66,0.10)",successBorder:"rgba(63,145,66,0.28)",
+  warning:"#C2790A",warningBg:"rgba(194,121,10,0.10)",warningBorder:"rgba(194,121,10,0.28)",
+  danger:"#D8494E",dangerBg:"rgba(216,73,78,0.10)",dangerBorder:"rgba(216,73,78,0.28)",
+  rowHover:"#F5F6F8",rowSelected:"rgba(196,240,169,0.35)",
+  inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#F5F6F8",topbarBg:"#FFFFFF",
+  pill:"#F0F2F4",pillBorder:"#E3E6E9",
+  hatchBg:"repeating-linear-gradient(45deg, rgba(111,118,126,0.16) 0px, rgba(111,118,126,0.16) 1.5px, transparent 1.5px, transparent 9px)",
+  badgeColors:["#60C2B9","#B5E4DF","#1A1D1F","#80D2CA","#4A7068","#C4F0A9","#3E5F58"],
+  shadow:"0 4px 20px rgba(0,0,0,0.03)",
+  shadowMd:"0 8px 24px rgba(0,0,0,0.06),0 2px 8px rgba(0,0,0,0.04)",
+  shadowLg:"0 20px 48px rgba(0,0,0,0.10),0 6px 16px rgba(0,0,0,0.05)",
+};
+
+// Kept as a plain alias (not a live binding) so any existing `import { THEME }` call site — and
+// non-component code like lib/reports.js, which builds report output outside the React render
+// tree and has no access to whichever theme is active in a browser tab — keeps working exactly
+// as before, unaffected by the Settings toggle below.
+export const THEME = THEME_CLASSIC;
 
 export const MONTHS=[{key:"01",label:"Jan"},{key:"02",label:"Feb"},{key:"03",label:"Mar"},{key:"04",label:"Apr"},{key:"05",label:"May"},{key:"06",label:"Jun"},{key:"07",label:"Jul"},{key:"08",label:"Aug"},{key:"09",label:"Sep"},{key:"10",label:"Oct"},{key:"11",label:"Nov"},{key:"12",label:"Dec"}];
 export const QUARTERS=[{key:"Q1",months:["01","02","03"],label:"Q1 Cap"},{key:"Q2",months:["04","05","06"],label:"Q2 Cap"},{key:"Q3",months:["07","08","09"],label:"Q3 Cap"},{key:"Q4",months:["10","11","12"],label:"Q4 Cap"}];

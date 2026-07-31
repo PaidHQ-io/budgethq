@@ -132,8 +132,8 @@ const PacingBar=({actualPct,expectedPct,status,T})=>{
   const pct=Math.min(1,Math.max(0,actualPct||0));
   const meta=pacingStatusMeta(status,T);
   return(
-    <div style={{position:"relative",width:84,height:6,borderRadius:3,background:T.surfaceEl,flexShrink:0}}>
-      <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${pct*100}%`,background:meta.color,borderRadius:3,transition:"width 0.2s"}}/>
+    <div style={{position:"relative",width:84,height:6,borderRadius:T.r3,background:T.surfaceEl,flexShrink:0}}>
+      <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${pct*100}%`,background:meta.color,borderRadius:T.r3,transition:"width 0.2s"}}/>
       <div title="Expected pace" style={{position:"absolute",left:`${Math.min(1,Math.max(0,expectedPct))*100}%`,top:-2,bottom:-2,width:2,background:T.text,opacity:0.45}}/>
     </div>
   );
@@ -187,7 +187,7 @@ const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
           <input value={value} onChange={e=>setValue(e.target.value)} type="number"
             placeholder={field&&NUMERIC_FIELDS[field]?.isPct?"%":"$"}
             onKeyDown={e=>{if(e.key==="Enter")addFilter();if(e.key==="Escape")setOpen(false);}}
-            style={{width:76,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+            style={{width:76,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font}}/>
           <Btn onClick={addFilter} disabled={!field||value===""} variant="primary" size="sm" T={T}>Add</Btn>
           <Btn onClick={()=>{setOpen(false);setField("");setOperator(">");setValue("");}} variant="ghost" size="sm" T={T}>✕</Btn>
         </div>
@@ -576,7 +576,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
 
   const periodLabel=periodType==="monthly"?`${MONTHS.find(m=>m.key===month)?.label} ${year}`:periodType==="quarterly"?`${quarter} ${year}`:`FY ${year}`;
   const overallPct=pacing.totals.budget>0?pacing.totals.spend/pacing.totals.budget:null;
-  const TH={fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center"};
+  const TH={fontFamily:T.font,fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center"};
   const safeTextColor=c=>c===T.accent?T.text:c; // gold is a fine fill/border color but never body text, per the established house rule
 
   // Only block entirely when there's truly nothing to show — no budget structure AND no spend
@@ -606,12 +606,12 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             <SectionLabel T={T} style={{marginBottom:8}}>Period</SectionLabel>
             <div style={{display:"flex",gap:4,marginBottom:8}}>
               {[["monthly","Mo"],["quarterly","Qtr"],["annual","Yr"]].map(([k,l])=>(
-                <button key={k} className={periodType===k?undefined:"bhq-row"} onClick={()=>changePeriodType(k)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${periodType===k?T.accentHover:T.border}`,background:periodType===k?T.accentBg:"transparent",color:periodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:periodType===k?700:400,fontFamily:"'DM Sans',sans-serif"}}>{l}</button>
+                <button key={k} className={periodType===k?undefined:"bhq-row"} onClick={()=>changePeriodType(k)} style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1.5px solid ${periodType===k?T.accentHover:T.border}`,background:periodType===k?T.accentBg:"transparent",color:periodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:periodType===k?700:400,fontFamily:T.font}}>{l}</button>
               ))}
             </div>
             <div style={{display:"flex",gap:4,marginBottom:8}}>
               {years.map(y=>(
-                <button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>changeYear(y)} style={{flex:1,padding:"6px 0",borderRadius:6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:year===y?700:400,fontFamily:"'DM Sans',sans-serif"}}>{y}</button>
+                <button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>changeYear(y)} style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:year===y?700:400,fontFamily:T.font}}>{y}</button>
               ))}
             </div>
             {periodType==="monthly"&&(
@@ -640,7 +640,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             ].map(s=>(
               <PixelPanel key={s.label} T={T} contentStyle={{padding:"12px 14px",background:T.bg}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>{s.label}</div>
-                <div style={{fontSize:19,fontWeight:700,color:s.color,fontFamily:"'DM Sans',sans-serif"}}>{s.value}</div>
+                <div style={{fontSize:19,fontWeight:700,color:s.color,fontFamily:T.font}}>{s.value}</div>
               </PixelPanel>
             ))}
           </div>
@@ -660,7 +660,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               const fmtShort=d=>d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
               return(
                 <div key={platform} style={{display:"flex",flexDirection:"column",gap:1,padding:"3px 0"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:11,fontFamily:"'DM Sans',sans-serif"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:11,fontFamily:T.font}}>
                     <span style={{color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{platform}</span>
                     <span style={{color,fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>
                   </div>
@@ -692,7 +692,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             trendFilterDim,trendFilterValue,trendSeriesDim,
           }}/>
         {!budgetDims.length&&(
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:8,marginBottom:14,fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:12,color:T.text,fontFamily:T.font}}>
             No budget structure set up yet — showing spend by dimension only.{" "}
             <span onClick={()=>onNavigate?.("budget")} style={{color:T.accentText,fontWeight:600,cursor:"pointer"}}>Set up budgets →</span>
           </div>
@@ -705,7 +705,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           <div style={{display:"flex",gap:4}}>
             {[["budget","Budget Segments"],["custom","Custom"],["trend","Trend"]].map(([k,l])=>(
               <button key={k} onClick={()=>changeViewMode(k)}
-                style={{padding:"6px 12px",borderRadius:6,border:`1.5px solid ${viewMode===k?T.accentHover:T.border}`,background:viewMode===k?T.accentBg:"transparent",color:viewMode===k?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:viewMode===k?700:400,fontFamily:"'DM Sans',sans-serif"}}>{l}</button>
+                style={{padding:"6px 12px",borderRadius:T.r6,border:`1.5px solid ${viewMode===k?T.accentHover:T.border}`,background:viewMode===k?T.accentBg:"transparent",color:viewMode===k?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:viewMode===k?700:400,fontFamily:T.font}}>{l}</button>
             ))}
           </div>
           {viewMode==="custom"&&(
@@ -715,7 +715,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const active=customDims.includes(d);
                 return(
                   <button key={d} onClick={()=>toggleCustomDim(d)}
-                    style={{fontSize:11,padding:"4px 10px",borderRadius:14,border:`1.5px solid ${active?T.accentHover:T.border}`,background:active?T.accentBg:"transparent",color:active?T.text:T.textMuted,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:active?700:500}}>{d}</button>
+                    style={{fontSize:11,padding:"4px 10px",borderRadius:T.r14,border:`1.5px solid ${active?T.accentHover:T.border}`,background:active?T.accentBg:"transparent",color:active?T.text:T.textMuted,cursor:"pointer",fontFamily:T.font,fontWeight:active?700:500}}>{d}</button>
                 );
               })}
             </div>
@@ -725,10 +725,10 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <div style={{display:"flex",gap:4,alignItems:"center"}}>
                 <span style={{fontSize:11,color:T.textMuted}}>From</span>
                 <input type="month" value={trendStartMonth} onChange={e=>setTrendStartMonth(e.target.value)}
-                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font}}/>
                 <span style={{fontSize:11,color:T.textMuted}}>to</span>
                 <input type="month" value={trendEndMonth} onChange={e=>setTrendEndMonth(e.target.value)}
-                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font}}/>
               </div>
               <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
               <div style={{display:"flex",gap:4,alignItems:"center"}}>
@@ -750,7 +750,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 </Sel>
                 {trendFilterDim&&(
                   <input value={trendFilterValue} onChange={e=>setTrendFilterValue(e.target.value)} placeholder={`${trendFilterDim} contains…`}
-                    style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",width:150}}/>
+                    style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:150}}/>
                 )}
               </div>
               <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
@@ -777,16 +777,16 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             {savedViewsMenuOpen&&(
               <>
                 <div onClick={()=>setSavedViewsMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:99}}/>
-                <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:100,minWidth:240,maxHeight:320,overflow:"auto",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:6}}>
+                <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:100,minWidth:240,maxHeight:320,overflow:"auto",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6}}>
                   {!savedViews?.length&&<div style={{padding:"10px 8px",fontSize:12,color:T.textMuted}}>No saved views yet.</div>}
                   {(savedViews||[]).map(v=>(
                     <div key={v.id} style={{display:"flex",alignItems:"center",gap:2}}>
-                      <button onClick={()=>applySavedView(v)} className="bhq-row" style={{flex:1,display:"block",textAlign:"left",padding:"7px 8px",borderRadius:6,background:"transparent",border:"none",color:T.text,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.name}</button>
-                      <button onClick={()=>deleteSavedView(v.id,v.name)} title="Delete saved view" style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:13,flexShrink:0,fontFamily:"'DM Sans',sans-serif"}}>✕</button>
+                      <button onClick={()=>applySavedView(v)} className="bhq-row" style={{flex:1,display:"block",textAlign:"left",padding:"7px 8px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:12,cursor:"pointer",fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.name}</button>
+                      <button onClick={()=>deleteSavedView(v.id,v.name)} title="Delete saved view" style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:13,flexShrink:0,fontFamily:T.font}}>✕</button>
                     </div>
                   ))}
                   <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                  <button onClick={()=>{setSavedViewsMenuOpen(false);openSaveViewModal();}} className="bhq-row" style={{display:"flex",alignItems:"center",gap:6,width:"100%",textAlign:"left",padding:"7px 8px",borderRadius:6,background:"transparent",border:"none",color:T.accentText,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}><Icon name="plus" size={12} color={T.accentText}/> Save current view</button>
+                  <button onClick={()=>{setSavedViewsMenuOpen(false);openSaveViewModal();}} className="bhq-row" style={{display:"flex",alignItems:"center",gap:6,width:"100%",textAlign:"left",padding:"7px 8px",borderRadius:T.r6,background:"transparent",border:"none",color:T.accentText,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:T.font}}><Icon name="plus" size={12} color={T.accentText}/> Save current view</button>
                 </div>
               </>
             )}
@@ -797,7 +797,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <input autoFocus value={aiViewQuestion} onChange={e=>setAiViewQuestion(e.target.value)}
                 onKeyDown={e=>{if(e.key==="Enter"&&!aiViewLoading)runAiView();}}
                 placeholder={`e.g. "segments behind pace on Meta this quarter"`}
-                style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:T.font}}/>
               <Btn onClick={runAiView} disabled={aiViewLoading||!aiViewQuestion.trim()} variant="primary" size="sm" T={T}>{aiViewLoading?"Thinking…":"Go"}</Btn>
             </div>
           )}
@@ -805,13 +805,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
         </div>
         {savedViewModalOpen&&(
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setSavedViewModalOpen(false)}>
-            <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:380,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:20,boxShadow:T.shadowMd}}>
+            <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:380,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r10,padding:20,boxShadow:T.shadowMd}}>
               <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4}}>Save this view</div>
               <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>Saves the current View-by setup — mode, filters, and breakdown — for one-click recall later. Always reflects whatever period you're viewing when you reopen it.</div>
               <input autoFocus value={savedViewNameDraft} onChange={e=>setSavedViewNameDraft(e.target.value)}
                 onKeyDown={e=>{if(e.key==="Enter")saveCurrentView();if(e.key==="Escape")setSavedViewModalOpen(false);}}
                 placeholder="e.g. Meta segments behind pace"
-                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",marginBottom:14}}/>
+                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:T.font,marginBottom:14}}/>
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <Btn onClick={()=>setSavedViewModalOpen(false)} variant="ghost" size="sm" T={T}>Cancel</Btn>
                 <Btn onClick={saveCurrentView} disabled={!savedViewNameDraft.trim()} variant="primary" size="sm" T={T}>Save view</Btn>
@@ -831,7 +831,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
             {budgetDims.map(d=>(
               <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
-                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",width:120}}/>
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:120}}/>
             ))}
             <Sel value={statusFilter} onChange={setStatusFilter} T={T} style={{width:150}}>
               <option value="all">All statuses</option>
@@ -857,13 +857,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 Trend views group ad-hoc, not by budget segment, so there's no per-row model to
                 default for. */}
             <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Default forecast model:</span>
-            <div style={{display:"flex",alignItems:"center",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:2,gap:2}}>
+            <div style={{display:"flex",alignItems:"center",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,padding:2,gap:2}}>
               {[{mode:"auto",label:"Auto"},{mode:"manual",label:"Manual"},{mode:"committed",label:"Committed"}].map(o=>{
                 const active=forecastModeOf(defaultForecastModel)===o.mode;
                 return(
                   <button key={o.mode} onClick={()=>setDefaultForecastModelMode(o.mode)} disabled={!canEdit}
                     title={FORECAST_MODELS.find(fm=>fm.value===o.mode)?.hint||(o.mode==="manual"?"Projects from a trailing window of a specific number of days you choose.":"")}
-                    style={{border:"none",borderRadius:4,padding:"5px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",cursor:canEdit?"pointer":"default",background:active?T.accent:"transparent",color:active?T.onAccent:T.textSub,fontWeight:active?600:500,transition:"all 0.1s"}}>
+                    style={{border:"none",borderRadius:T.r4,padding:"5px 10px",fontSize:12,fontFamily:T.font,cursor:canEdit?"pointer":"default",background:active?T.accent:"transparent",color:active?T.onAccent:T.textSub,fontWeight:active?600:500,transition:"all 0.1s"}}>
                     {o.label}
                   </button>
                 );
@@ -874,7 +874,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 trailing
                 <input type="number" min={1} max={365} value={manualDaysOf(defaultForecastModel)} disabled={!canEdit}
                   onChange={e=>setDefaultForecastModelManualDays(e.target.value)}
-                  style={{width:48,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 6px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+                  style={{width:48,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 6px",fontSize:12,outline:"none",fontFamily:T.font}}/>
                 days
               </span>
             )}
@@ -936,41 +936,41 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     <td key={i} style={{padding:"8px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
                       {DERIVED_DIMS.includes(budgetDims[i])?(
                         // Derived, not stored — see the same guard in the Budget Panel's table.
-                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,borderRadius:6}} title="Derived from spend data — not editable">{v}</Pill>
+                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13,fontWeight:400,borderRadius:T.r6}} title="Derived from spend data — not editable">{v}</Pill>
                       ):editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(
                         <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                           onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
-                          style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:6,color:T.text,padding:"3px 8px",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",minWidth:80}}/>
+                          style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,color:T.text,padding:"3px 8px",fontSize:13,outline:"none",fontFamily:T.font,minWidth:80}}/>
                       ):(
-                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,cursor:"text",borderRadius:6}}
+                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13,fontWeight:400,cursor:"text",borderRadius:T.r6}}
                           onClick={()=>{setEditingSegVal({segKey:seg.segKey,dim:budgetDims[i]});setEditSegVal(v);}}>{v}</Pill>
                       )}
                       {i===seg.dims.length-1&&seg.budget>0&&seg.matchCount===0&&(
                         <WarnTip T={T} text="No tagged campaigns match this segment. Spend will always show as $0 here, regardless of period, until a campaign is tagged with this exact combination in the Tagger."/>
                       )}
                     </td>);})}
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.text}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.text}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
-                        <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:safeTextColor(meta.color)}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
+                        <span style={{fontFamily:T.font,fontSize:13,fontWeight:400,color:safeTextColor(meta.color)}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
                         <PacingBar actualPct={seg.actualPct} expectedPct={pacing.expectedPct} status={seg.status} T={T}/>
                       </div>
                     </td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
-                      <div style={{fontFamily:"'DM Sans',sans-serif",color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
+                      <div style={{fontFamily:T.font,color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
                         {seg.projected!=null?fmtFull(seg.projected):"—"}
                         {seg.projected!=null&&seg.budget>0&&<span style={{color:T.textMuted,marginLeft:6,fontSize:13}}>({Math.round((seg.projected/seg.budget)*100)}%)</span>}
                         {seg.lowConfidencePlatforms?.length>0&&(
                           <WarnTip T={T} text={`Projection may be unreliable — ${seg.lowConfidencePlatforms.join(", ")} only has a single as-of data point for this period, so its spend is being extrapolated across every day instead of an actual daily rate. Check that platform's Date/"Data accurate through" mapping.`}/>
                         )}
                       </div>
-                      {seg.projectedVariance!=null&&<div style={{fontSize:13,color:seg.projectedVariance>0?T.danger:T.success,fontFamily:"'DM Sans',sans-serif"}}>{fmtSigned(seg.projectedVariance)}</div>}
+                      {seg.projectedVariance!=null&&<div style={{fontSize:13,color:seg.projectedVariance>0?T.danger:T.success,fontFamily:T.font}}>{fmtSigned(seg.projectedVariance)}</div>}
                     </td>
                     <td style={{padding:"8px 14px",borderBottom:rbb,minWidth:200}}>
-                      <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,whiteSpace:"nowrap"}}>{meta.label}</Pill>
+                      <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border} style={{fontFamily:T.font,fontSize:13,fontWeight:400,whiteSpace:"nowrap"}}>{meta.label}</Pill>
                       {/* Capacity-vs-budget signal (item 45) — see detectCapacitySignal's doc
                           comment. Only ever shown for the "constrained" case; "growing" and null
                           are both non-findings, not worth a badge. */}
@@ -993,7 +993,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                       <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:2,maxWidth:168}}>
                         <select value={forecastModeOf(getForecastModelOverride(seg.segKey))} onChange={e=>setForecastModelMode(seg.segKey,e.target.value)} disabled={!canEdit}
                           title={`Forecast model — how this segment's spend is projected across the period. Currently: ${forecastModelLabel(getEffectiveForecastModel(seg.segKey))}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
-                          style={{display:"block",width:"100%",boxSizing:"border-box",fontSize:13,color:getForecastModelOverride(seg.segKey)?T.accent:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.accentBg:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.accentBorder:T.border}`,borderRadius:5,padding:"2px 4px",cursor:canEdit?"pointer":"default",fontFamily:"'DM Sans',sans-serif",outline:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          style={{display:"block",width:"100%",boxSizing:"border-box",fontSize:13,color:getForecastModelOverride(seg.segKey)?T.accent:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.accentBg:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.accentBorder:T.border}`,borderRadius:T.r5,padding:"2px 4px",cursor:canEdit?"pointer":"default",fontFamily:T.font,outline:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                           <option value={FORECAST_MODEL_INHERIT}>Use global ({forecastModelLabel(defaultForecastModel)})</option>
                           <option value="auto">Auto</option>
                           <option value="committed">Committed</option>
@@ -1002,13 +1002,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         {forecastModeOf(getForecastModelOverride(seg.segKey))==="manual"&&(
                           <input type="number" min={1} max={365} value={manualDaysOf(getForecastModelOverride(seg.segKey))} disabled={!canEdit}
                             onChange={e=>setForecastModelManualDays(seg.segKey,e.target.value)} title="Trailing window, in days"
-                            style={{width:52,fontSize:13,color:T.text,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:5,padding:"1px 3px",fontFamily:"'DM Sans',sans-serif",outline:"none"}}/>
+                            style={{width:52,fontSize:13,color:T.text,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r5,padding:"1px 3px",fontFamily:T.font,outline:"none"}}/>
                         )}
                       </div>
                     </td>
                     <td style={{padding:"8px 8px",borderBottom:rbb}}>
                       <button onClick={()=>deleteSegment(seg.segKey,label)} title="Delete segment"
-                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
+                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
                         onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>
                     </td>
@@ -1027,7 +1027,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     <td/><td/>
                     <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:13,color:T.textSub}}>↳ {b.value}</td>
                     <td style={{borderBottom:rbb}}/>
-                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13}}>
+                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13}}>
                       {fmtFull(b.spend)}<span style={{color:T.textMuted,marginLeft:6,fontSize:13}}>({Math.round(b.pct*100)}%)</span>
                     </td>
                     <td colSpan={6} style={{borderBottom:rbb}}/>
@@ -1053,17 +1053,17 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     <td style={{padding:"10px 4px"}}/>
                     <td style={{padding:"10px 8px"}}/>
                     {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredSegments.length})</SectionLabel>}</td>)}
-                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{ft.budget>0?fmtFull(ft.budget):"—"}</td>
-                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(ft.spend)}</td>
-                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{ftActualPct!=null?`${Math.round(ftActualPct*100)}%`:"—"}</td>
-                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
-                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(ft.dailyRate)}/day</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{ft.budget>0?fmtFull(ft.budget):"—"}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(ft.spend)}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{ftActualPct!=null?`${Math.round(ftActualPct*100)}%`:"—"}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(ft.dailyRate)}/day</td>
                     <td style={{padding:"10px 8px",textAlign:"right"}}>
-                      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
+                      <div style={{fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
                         {ft.hasProjected?fmtFull(ft.projected):"—"}
                         {ft.hasProjected&&ft.budget>0&&<span style={{color:T.textMuted,marginLeft:6,fontWeight:400,fontSize:13}}>({Math.round((ft.projected/ft.budget)*100)}%)</span>}
                       </div>
-                      {ftVariance!=null&&<div style={{fontSize:13,color:ftVariance>0?T.danger:T.success,fontFamily:"'DM Sans',sans-serif"}}>{fmtSigned(ftVariance)}</div>}
+                      {ftVariance!=null&&<div style={{fontSize:13,color:ftVariance>0?T.danger:T.success,fontFamily:T.font}}>{fmtSigned(ftVariance)}</div>}
                     </td>
                     <td/>
                     <td/>
@@ -1091,7 +1091,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
             {customDims.map(d=>(
               <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
-                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif",width:120}}/>
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:120}}/>
             ))}
             <NumericFilterChips numericFilters={numericFilters} setNumericFilters={setNumericFilters} mode="custom" T={T}/>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
@@ -1128,19 +1128,19 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     </td>
                     {seg.dims.map((v,i)=>{const dimMaxW=customDims[i]==="Product"?110:customDims[i]==="Module"?140:undefined;return(
                     <td key={i} style={{padding:"8px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
-                      <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,borderRadius:6}}>{v}</Pill>
+                      <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13,fontWeight:400,borderRadius:T.r6}}>{v}</Pill>
                     </td>);})}
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.text}}>{fmtFull(seg.spend)}</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
-                      <div style={{fontFamily:"'DM Sans',sans-serif",color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
+                      <div style={{fontFamily:T.font,color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
                         {seg.projected!=null?fmtFull(seg.projected):"—"}
                         {seg.lowConfidencePlatforms?.length>0&&(
                           <WarnTip T={T} text={`Projection may be unreliable — ${seg.lowConfidencePlatforms.join(", ")} only has a single as-of data point for this period, so its spend is being extrapolated across every day instead of an actual daily rate.`}/>
                         )}
                       </div>
                     </td>
-                    <td style={{padding:"8px 14px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.textMuted}}>{seg.campaignCount}</td>
+                    <td style={{padding:"8px 14px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{seg.campaignCount}</td>
                   </tr>
                 );
                 if(!isExpanded)return[parentRow];
@@ -1155,7 +1155,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   <tr key={seg.segKey+"-"+b.value}>
                     <td/>
                     <td colSpan={customDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:13,color:T.textSub}}>↳ {b.value}</td>
-                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13}}>
+                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13}}>
                       {fmtFull(b.spend)}<span style={{color:T.textMuted,marginLeft:6,fontSize:13}}>({Math.round(b.pct*100)}%)</span>
                     </td>
                     <td colSpan={2} style={{borderBottom:rbb}}/>
@@ -1175,10 +1175,10 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
                     <td style={{padding:"10px 4px"}}/>
                     {customDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredCustomSegments.length})</SectionLabel>}</td>)}
-                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(ft.spend)}</td>
-                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(ft.dailyRate)}/day</td>
-                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{ft.hasProjected?fmtFull(ft.projected):"—"}</td>
-                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.textMuted}}>{ft.campaignCount}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(ft.spend)}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(ft.dailyRate)}/day</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{ft.hasProjected?fmtFull(ft.projected):"—"}</td>
+                    <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.textMuted}}>{ft.campaignCount}</td>
                   </tr>
                 );
               })()}
@@ -1198,15 +1198,15 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             {(trendData.series.length>0||trendData.budgetValues)&&(
               <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
                 {trendData.budgetValues&&(
-                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
-                    <span style={{width:9,height:9,borderRadius:2,background:T.textMuted,opacity:0.35,flexShrink:0}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontFamily:T.font}}>
+                    <span style={{width:9,height:9,borderRadius:T.r2,background:T.textMuted,opacity:0.35,flexShrink:0}}/>
                     <span style={{color:T.text,fontWeight:600}}>Budget</span>
                     <span style={{color:T.textMuted}}>{fmtFull(trendData.budgetValues.reduce((s,v)=>s+v,0))} total</span>
                   </div>
                 )}
                 {trendData.series.map((s,i)=>(
-                  <div key={s.label} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
-                    <span style={{width:9,height:9,borderRadius:2,background:TREND_COLORS[i%TREND_COLORS.length],flexShrink:0}}/>
+                  <div key={s.label} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontFamily:T.font}}>
+                    <span style={{width:9,height:9,borderRadius:T.r2,background:TREND_COLORS[i%TREND_COLORS.length],flexShrink:0}}/>
                     <span style={{color:T.text,fontWeight:600}}>{s.label}</span>
                     <span style={{color:T.textMuted}}>{fmtFull(s.total)} total</span>
                   </div>
@@ -1214,10 +1214,10 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               </div>
             )}
             {trendData.budgetFilterNote&&(
-              <div style={{marginTop:8,fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{trendData.budgetFilterNote}</div>
+              <div style={{marginTop:8,fontSize:11,color:T.textMuted,fontFamily:T.font}}>{trendData.budgetFilterNote}</div>
             )}
             {trendData.spendProrationNote&&(
-              <div style={{marginTop:8,fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{trendData.spendProrationNote}</div>
+              <div style={{marginTop:8,fontSize:11,color:T.textMuted,fontFamily:T.font}}>{trendData.spendProrationNote}</div>
             )}
           </PixelPanel>
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13,marginTop:16,background:T.surface}}>
@@ -1230,32 +1230,32 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               {trendData.budgetValues&&(
                 <tr className="bhq-tr">
                   <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
-                    <Pill color={T.textMuted} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,borderRadius:6}}>Budget</Pill>
+                    <Pill color={T.textMuted} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13,fontWeight:400,borderRadius:T.r6}}>Budget</Pill>
                   </td>
-                  {trendData.budgetValues.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.textMuted}}>{v>0?fmtFull(v):"—"}</td>)}
-                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.textMuted}}>{fmtFull(trendData.budgetValues.reduce((s,v)=>s+v,0))}</td>
+                  {trendData.budgetValues.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{v>0?fmtFull(v):"—"}</td>)}
+                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.textMuted}}>{fmtFull(trendData.budgetValues.reduce((s,v)=>s+v,0))}</td>
                 </tr>
               )}
               {trendData.series.map(s=>(
                 <tr key={s.label} className="bhq-tr">
                   <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
-                    <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,borderRadius:6}}>{s.label}</Pill>
+                    <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13,fontWeight:400,borderRadius:T.r6}}>{s.label}</Pill>
                   </td>
-                  {s.values.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'DM Sans',sans-serif",color:T.text}}>{v>0?fmtFull(v):"—"}</td>)}
-                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(s.total)}</td>
+                  {s.values.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,color:T.text}}>{v>0?fmtFull(v):"—"}</td>)}
+                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(s.total)}</td>
                 </tr>
               ))}
               <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
                 <td style={{padding:"10px 14px"}}><SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Total</SectionLabel></td>
-                {trendData.periodTotals.map((v,i)=><td key={i} style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(v)}</td>)}
-                <td style={{padding:"10px 8px",textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(trendData.grandTotal)}</td>
+                {trendData.periodTotals.map((v,i)=><td key={i} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(v)}</td>)}
+                <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,color:T.text}}>{fmtFull(trendData.grandTotal)}</td>
               </tr>
             </tbody>
           </table>
           </>
         ))}
       </div>
-      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:"'DM Sans',sans-serif"}}>{notif}</div>}
+      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:T.r8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:T.font}}>{notif}</div>}
     </div>
   );
 }

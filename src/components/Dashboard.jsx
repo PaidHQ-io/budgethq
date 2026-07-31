@@ -150,15 +150,15 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                   <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:44,height:"auto"}}/>
                 </div>
                 <div>
-                  <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:"'DM Sans',sans-serif"}}>PaidHQ</h1>
-                  <div style={{fontSize:12,fontWeight:600,color:T.textSub,letterSpacing:"0.02em",fontFamily:"'DM Sans',sans-serif"}}>Paid media budget intelligence · by PaidHQ</div>
+                  <h1 style={{fontSize:30,fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:T.font}}>PaidHQ</h1>
+                  <div style={{fontSize:12,fontWeight:600,color:T.textSub,letterSpacing:"0.02em",fontFamily:T.font}}>Paid media budget intelligence · by PaidHQ</div>
                 </div>
               </div>
-              <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:"'DM Sans',sans-serif",position:"relative"}}>
+              <p style={{fontSize:15,color:T.textSub,lineHeight:1.7,maxWidth:560,fontFamily:T.font,position:"relative"}}>
                 Set budgets by custom segment, track pacing against actuals, and manage spend across every ad platform — without breaking a spreadsheet.
               </p>
-              <div style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:8,background:T.accentBg,border:`1px solid ${T.accentBorder}`,position:"relative"}}>
-                <span style={{fontSize:13,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
+              <div style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:T.r8,background:T.accentBg,border:`1px solid ${T.accentBorder}`,position:"relative"}}>
+                <span style={{fontSize:13,color:T.text,fontFamily:T.font}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
               </div>
             </div>
             <img src={spaceStationIcon} alt="" aria-hidden="true" className="bhq-hero-illustration" style={{width:150,height:"auto",flexShrink:0}}/>
@@ -172,12 +172,12 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                 style={{opacity:card.disabled?0.5:1}}
                 contentStyle={{padding:"24px 26px",background:cardBg,cursor:card.disabled?"default":"pointer",transition:"all 0.1s"}}>
                 <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
-                  <div style={{width:42,height:42,borderRadius:10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={19} color={card.disabled?T.textMuted:T.textSub}/></div>
+                  <div style={{width:42,height:42,borderRadius:T.r10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={19} color={card.disabled?T.textMuted:T.textSub}/></div>
                   {!card.disabled&&<span style={{fontSize:16,fontWeight:700,color:T.textMuted,lineHeight:1}}>→</span>}
                 </div>
-                <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>{card.title}</div>
-                <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14,fontFamily:"'DM Sans',sans-serif"}}>{card.desc}</div>
-                <div style={{fontSize:12,fontWeight:600,color:card.disabled?T.textMuted:T.text,fontFamily:"'DM Sans',sans-serif"}}>{card.action}</div>
+                <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:T.font}}>{card.title}</div>
+                <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14,fontFamily:T.font}}>{card.desc}</div>
+                <div style={{fontSize:12,fontWeight:600,color:card.disabled?T.textMuted:T.text,fontFamily:T.font}}>{card.action}</div>
               </PixelPanel>
             ))}
           </div>
@@ -214,8 +214,8 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
             <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:32,height:"auto"}}/>
           </div>
           <div>
-            <div style={{fontSize:20,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:"'DM Sans',sans-serif"}}>Dashboard</div>
-            <div style={{fontSize:11,fontWeight:600,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>{monthLabel} {year} · this workspace</div>
+            <div style={{fontSize:20,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Dashboard</div>
+            <div style={{fontSize:11,fontWeight:600,color:T.textSub,fontFamily:T.font}}>{monthLabel} {year} · this workspace</div>
           </div>
         </div>
 
@@ -225,7 +225,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
             mostly-empty vertical strip next to an already-full page just wasted width. These are
             all-time tallies across every campaign ever tagged, not scoped to "this month" like
             the pacing row below — labeled separately so the two scopes aren't confused. */}
-        <div style={{marginBottom:8,fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:"'DM Sans',sans-serif"}}>All campaigns</div>
+        <div style={{marginBottom:8,fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:T.font}}>All campaigns</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:22}}>
           <DashStatTile T={T} label="Total spend (all-time)" value={hasData?fmtFull(stats.totalSpend):"No data yet"}/>
           <DashStatTile T={T} label="Campaigns" value={hasData?stats.total.toLocaleString():"—"}/>
@@ -240,13 +240,13 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
             structure or actual spend to look at. */}
         {(budgetDims.length>0||hasData)&&(<>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-            <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:"'DM Sans',sans-serif"}}>
+            <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:T.font}}>
               {periodSectionLabel} <span style={{textTransform:"none",letterSpacing:0,fontWeight:500,color:T.textMuted}}>· {periodDateLabel}{daysLeftLabel?` · ${daysLeftLabel}`:""}</span>
             </div>
             <div style={{display:"flex",gap:2}}>
               {[["monthly","Mo"],["quarterly","Qtr"],["annual","Yr"]].map(([k,l])=>(
                 <button key={k} onClick={()=>changeDashPeriodType(k)} title={`View ${l==="Mo"?"month":l==="Qtr"?"quarter":"year"}-to-date pacing`}
-                  style={{padding:"3px 9px 5px",borderRadius:0,border:"none",borderBottom:`2px solid ${dashPeriodType===k?T.accent:"transparent"}`,background:"transparent",color:dashPeriodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:dashPeriodType===k?700:500,fontFamily:"'DM Sans',sans-serif",transition:"color 0.12s,border-color 0.12s"}}>{l}</button>
+                  style={{padding:"3px 9px 5px",borderRadius:T.r0,border:"none",borderBottom:`2px solid ${dashPeriodType===k?T.accent:"transparent"}`,background:"transparent",color:dashPeriodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11,fontWeight:dashPeriodType===k?700:500,fontFamily:T.font,transition:"color 0.12s,border-color 0.12s"}}>{l}</button>
               ))}
             </div>
           </div>
@@ -258,11 +258,11 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12,fontFamily:"'DM Sans',sans-serif"}}>Spend vs. budget · {periodDateLabel}</div>
+              <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12,fontFamily:T.font}}>Spend vs. budget · {periodDateLabel}</div>
               <SpendVsBudgetBar T={T} spend={totalSpend} budget={totalBudget} fmtFull={fmtFull}/>
             </PixelPanel>
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12,fontFamily:"'DM Sans',sans-serif"}}>Spend by platform · {periodDateLabel}</div>
+              <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12,fontFamily:T.font}}>Spend by platform · {periodDateLabel}</div>
               <PlatformSpendBars T={T} rows={platformSpend} fmtFull={fmtFull}/>
             </PixelPanel>
           </div>
@@ -272,27 +272,27 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
           {/* Needs attention */}
           <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Needs attention</div>
-              <span onClick={()=>onNavigate("pacing")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Open Reporting & Pacing →</span>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:T.font}}>Needs attention</div>
+              <span onClick={()=>onNavigate("pacing")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:T.font}}>Open Reporting & Pacing →</span>
             </div>
             {budgetDims.length===0?(
-              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>
+              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>
                 Set up a budget structure to see pacing here. <span onClick={()=>onNavigate("budget")} style={{color:T.accent,cursor:"pointer",fontWeight:600}}>Go to Budget Panel →</span>
               </div>
             ):!hasData?(
-              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>No spend data synced yet — pacing will show up here once spend is imported.</div>
+              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>No spend data synced yet — pacing will show up here once spend is imported.</div>
             ):attention.length===0?(
-              <div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>Nothing needs attention right now — every budgeted segment is on track or ahead.</div>
+              <div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:T.font}}>Nothing needs attention right now — every budgeted segment is on track or ahead.</div>
             ):(
               <div style={{display:"flex",flexDirection:"column",gap:2}}>
                 {attention.map(s=>{
                   const meta=pacingStatusMeta(s.status,T);
                   const label=budgetDims.map((d,i)=>s.dims[i]).join(" · ");
                   return(
-                    <div key={s.segKey} onClick={()=>onNavigate("pacing")} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 6px",borderRadius:6,cursor:"pointer",gap:10}}>
-                      <span style={{fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif",fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+                    <div key={s.segKey} onClick={()=>onNavigate("pacing")} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 6px",borderRadius:T.r6,cursor:"pointer",gap:10}}>
+                      <span style={{fontSize:12,color:T.text,fontFamily:T.font,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
                       <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-                        <span style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>{fmtSigned(s.projectedVariance)}</span>
+                        <span style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}>{fmtSigned(s.projectedVariance)}</span>
                         <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border}>{meta.label}</Pill>
                       </div>
                     </div>
@@ -309,20 +309,20 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                 problem is visible before it silently breaks a sync. */}
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Data source health</div>
-                <span onClick={()=>onNavigate("data")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Go to Data Sources →</span>
+                <div style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:T.font}}>Data source health</div>
+                <span onClick={()=>onNavigate("data")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:T.font}}>Go to Data Sources →</span>
               </div>
               {!connectionDetails||connectionDetails.length===0?(
-                <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>No connectors set up yet.</div>
+                <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,fontFamily:T.font}}>No connectors set up yet.</div>
               ):dataSourceIssues.length===0?(
-                <div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>All {connectionDetails.length} connected data source{connectionDetails.length===1?"":"s"} healthy.</div>
+                <div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:T.font}}>All {connectionDetails.length} connected data source{connectionDetails.length===1?"":"s"} healthy.</div>
               ):(
                 <div style={{display:"flex",flexDirection:"column",gap:2}}>
                   {dataSourceIssues.map(c=>{
                     const reason=c.needsReconnect?"Needs reconnect":c.needsAccountSelection?"Needs account selection":"Last sync failed";
                     return(
-                      <div key={c.provider} onClick={()=>onNavigate("data")} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 6px",borderRadius:6,cursor:"pointer",gap:10}}>
-                        <span style={{fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif",fontWeight:500,textTransform:"capitalize"}}>{c.provider}</span>
+                      <div key={c.provider} onClick={()=>onNavigate("data")} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 6px",borderRadius:T.r6,cursor:"pointer",gap:10}}>
+                        <span style={{fontSize:12,color:T.text,fontFamily:T.font,fontWeight:500,textTransform:"capitalize"}}>{c.provider}</span>
                         <Pill color={T.warning} bg={T.warning+"14"} border={T.warning+"55"}>{reason}</Pill>
                       </div>
                     );
@@ -332,9 +332,9 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
             </PixelPanel>
 
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10,fontFamily:"'DM Sans',sans-serif"}}>Data freshness</div>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10,fontFamily:T.font}}>Data freshness</div>
               {Object.keys(freshness).length===0?(
-                <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>No spend data synced yet.</div>
+                <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font}}>No spend data synced yet.</div>
               ):(
                 <div style={{display:"flex",flexDirection:"column"}}>
                   {Object.entries(freshness).map(([platform,date])=>(
@@ -348,7 +348,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
               {/* Renamed from "Quick actions" (2026-07-24) to make room for the new static Quick
                   Actions panel below without two panels sharing one name — this one is unchanged
                   otherwise, still the same contextual to-do nudges. */}
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:"'DM Sans',sans-serif"}}>Follow-ups</div>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:T.font}}>Follow-ups</div>
               <div style={{display:"flex",flexDirection:"column"}}>
                 {stats.untagged>0&&(
                   <DashQuickAction T={T} label={`${stats.untagged} campaign${stats.untagged===1?"":"s"} need tagging`} onClick={()=>onNavigate("tagger")}/>
@@ -357,7 +357,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                   <DashQuickAction T={T} label={`${noBudgetCount} segment${noBudgetCount===1?"":"s"} spending with no budget set`} onClick={()=>onNavigate("budget")}/>
                 )}
                 {stats.untagged===0&&noBudgetCount===0&&(
-                  <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>Nothing pending — you're all caught up.</div>
+                  <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font}}>Nothing pending — you're all caught up.</div>
                 )}
               </div>
             </PixelPanel>
@@ -368,7 +368,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                 your data" reuses the same exportTags() the Tagger sidebar's "Export tags CSV" button
                 already calls, rather than a new "coming soon" stub. */}
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:"'DM Sans',sans-serif"}}>Quick actions</div>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:T.font}}>Quick actions</div>
               <div style={{display:"flex",flexDirection:"column"}}>
                 <DashQuickAction T={T} label="Connect data sources" onClick={()=>onNavigate("data")}/>
                 <DashQuickAction T={T} label="Explore your data" onClick={()=>onNavigate("tagger")}/>
@@ -377,8 +377,8 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                   <DashQuickAction T={T} label="Export your data" onClick={exportTags}/>
                 ):(
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 8px",opacity:0.5}}>
-                    <span style={{fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>Export your data</span>
-                    <span style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>No data yet</span>
+                    <span style={{fontSize:12,color:T.text,fontFamily:T.font}}>Export your data</span>
+                    <span style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}>No data yet</span>
                   </div>
                 )}
               </div>
@@ -394,17 +394,17 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
               onClick={card.disabled?undefined:()=>onNavigate(card.key)}
               style={{opacity:card.disabled?0.5:1}}
               contentStyle={{padding:"12px 14px",background:cardBg,cursor:card.disabled?"default":"pointer",display:"flex",alignItems:"center",gap:10}}>
-              <div style={{width:28,height:28,borderRadius:7,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={14} color={card.disabled?T.textMuted:T.textSub}/></div>
-              <div style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{card.title}</div>
+              <div style={{width:28,height:28,borderRadius:T.r7,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={14} color={card.disabled?T.textMuted:T.textSub}/></div>
+              <div style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:T.font}}>{card.title}</div>
             </PixelPanel>
           ))}
         </div>
 
         {hasData&&stats.dateRange&&(
           <div style={{marginTop:20,padding:"10px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,display:"inline-flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>Data loaded:</span>
-            <span style={{fontSize:11,color:T.text,fontFamily:"'DM Sans',sans-serif",fontWeight:500}}>{stats.dateRange}</span>
-            <span style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>· {stats.totalRows.toLocaleString()} rows</span>
+            <span style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}>Data loaded:</span>
+            <span style={{fontSize:11,color:T.text,fontFamily:T.font,fontWeight:500}}>{stats.dateRange}</span>
+            <span style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}>· {stats.totalRows.toLocaleString()} rows</span>
           </div>
         )}
       </div>

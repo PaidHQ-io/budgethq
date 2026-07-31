@@ -116,8 +116,8 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
     return(
       <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:40}}>
         <div style={{textAlign:"center",maxWidth:420}}>
-          <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>No data yet</div>
-          <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>Connect a data source or upload a CSV/screenshot in Data Sources, or import a Dreamdata/PowerBI screenshot in Reporting Analyzer, then come back here to see coverage, gaps, and overlaps across everything that's been brought in.</div>
+          <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:T.font}}>No data yet</div>
+          <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6,fontFamily:T.font}}>Connect a data source or upload a CSV/screenshot in Data Sources, or import a Dreamdata/PowerBI screenshot in Reporting Analyzer, then come back here to see coverage, gaps, and overlaps across everything that's been brought in.</div>
         </div>
       </div>
     );
@@ -127,13 +127,13 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
     <div style={{flex:1,overflow:"auto",padding:isMobilePad()?"16px":"24px 28px"}}>
       <div style={{maxWidth:1040,margin:"0 auto"}}>
         <div style={{marginBottom:20}}>
-          <h2 style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Data Audit</h2>
-          <p style={{fontSize:13,color:T.textSub,fontFamily:"'DM Sans',sans-serif",maxWidth:640}}>Every spend row and every Dreamdata/PowerBI import currently stored in PaidHQ — where it came from, what date range it covers, and where there are gaps or overlapping coverage. CRM data is still future work.</p>
+          <h2 style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4,fontFamily:T.font}}>Data Audit</h2>
+          <p style={{fontSize:13,color:T.textSub,fontFamily:T.font,maxWidth:640}}>Every spend row and every Dreamdata/PowerBI import currently stored in PaidHQ — where it came from, what date range it covers, and where there are gaps or overlapping coverage. CRM data is still future work.</p>
         </div>
 
         <SectionLabel T={T} style={{marginBottom:8}}>Spend</SectionLabel>
         {!hasSpend?(
-          <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginBottom:24}}>No spend data imported yet — connect a source or upload a CSV/screenshot in Data Sources.</div>
+          <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font,marginBottom:24}}>No spend data imported yet — connect a source or upload a CSV/screenshot in Data Sources.</div>
         ):(<>
         {/* Overview */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:18}}>
@@ -145,7 +145,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
           <DashStatTile T={T} label="Campaigns" value={overview.campaignCount.toLocaleString()}/>
         </div>
         {overview.unparseableDates>0&&(
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:8,marginBottom:14,fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:12,color:T.text,fontFamily:T.font}}>
             <Icon name="alert" size={13} color={T.warning}/>
             {overview.unparseableDates.toLocaleString()} row{overview.unparseableDates===1?"":"s"} {overview.unparseableDates===1?"has":"have"} a date PaidHQ couldn't parse — excluded from every stat below (not from your actual data, just this audit's date math).
           </div>
@@ -169,7 +169,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
           </div>
         )}
         {platformsWithGaps.length===0&&platformsWithOverlap.length===0&&(
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:18,fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:18,fontSize:12,color:T.text,fontFamily:T.font}}>
             <Icon name="check" size={13} color={T.success}/>
             No date gaps or overlapping source coverage detected across any platform.
           </div>
@@ -182,7 +182,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
             <div>Source</div><div>Kind</div><div>Date range</div><div style={{textAlign:"right"}}>Rows</div><div style={{textAlign:"right"}}>Spend</div><div style={{textAlign:"right"}}>Campaigns</div>
           </div>
           {bySource.map((s,i)=>(
-            <div key={s.sourceKey} style={{display:"grid",gridTemplateColumns:isMobilePad()?undefined:"1.6fr 1fr 1.4fr 0.7fr 0.9fr 0.7fr",gap:8,padding:"10px 14px",borderTop:i>0?`1px solid ${T.border}`:"none",fontSize:12.5,color:T.text,alignItems:"center",fontFamily:"'DM Sans',sans-serif"}}>
+            <div key={s.sourceKey} style={{display:"grid",gridTemplateColumns:isMobilePad()?undefined:"1.6fr 1fr 1.4fr 0.7fr 0.9fr 0.7fr",gap:8,padding:"10px 14px",borderTop:i>0?`1px solid ${T.border}`:"none",fontSize:12.5,color:T.text,alignItems:"center",fontFamily:T.font}}>
               <div style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sourceLabel(s.sourceKey)}</div>
               <div>
                 <Pill color={sourceIsLive(s.sourceKey)?T.success:T.textSub} bg={sourceIsLive(s.sourceKey)?T.successBg:T.surfaceEl} border={sourceIsLive(s.sourceKey)?T.successBorder:T.border} style={{fontSize:10}}>
@@ -208,7 +208,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
                 <div onClick={()=>toggle(p.platform)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"12px 16px",cursor:"pointer"}}>
                   <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
                     <span style={{width:9,height:9,borderRadius:"50%",background:PLATFORM_COLORS[p.platform]||T.textMuted,flexShrink:0}}/>
-                    <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.platform}</span>
+                    <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.platform}</span>
                     {hasIssues&&(
                       <span style={{display:"flex",gap:5,flexShrink:0}}>
                         {p.gapDayCount>0&&<Pill color={T.danger} bg={T.dangerBg} border={T.dangerBorder} style={{fontSize:10}}>{p.gapDayCount} gap day{p.gapDayCount===1?"":"s"}</Pill>}
@@ -216,7 +216,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
                       </span>
                     )}
                   </div>
-                  <div style={{display:"flex",alignItems:"center",gap:16,flexShrink:0,fontSize:12,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:16,flexShrink:0,fontSize:12,color:T.textSub,fontFamily:T.font}}>
                     <span>{fmtRange(p.start,p.end)}</span>
                     <span style={{fontWeight:600,color:T.text}}>{fmtFull(p.spend)}</span>
                     <Icon name="chevronDown" size={14} color={T.textMuted} style={{transform:open?"rotate(180deg)":"none",transition:"transform 0.12s"}}/>
@@ -225,15 +225,15 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
                 {open&&(
                   <div style={{padding:"0 16px 16px",borderTop:`1px solid ${T.border}`}}>
                     <div style={{display:"flex",gap:24,flexWrap:"wrap",padding:"12px 0"}}>
-                      <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}><strong style={{color:T.text}}>{p.rows.toLocaleString()}</strong> rows</div>
-                      <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}><strong style={{color:T.text}}>{p.campaigns.toLocaleString()}</strong> campaigns</div>
-                      <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}><strong style={{color:T.text}}>{p.sources.length.toLocaleString()}</strong> source{p.sources.length===1?"":"s"}</div>
+                      <div style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}><strong style={{color:T.text}}>{p.rows.toLocaleString()}</strong> rows</div>
+                      <div style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}><strong style={{color:T.text}}>{p.campaigns.toLocaleString()}</strong> campaigns</div>
+                      <div style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}><strong style={{color:T.text}}>{p.sources.length.toLocaleString()}</strong> source{p.sources.length===1?"":"s"}</div>
                     </div>
 
                     <div style={{fontSize:11,fontWeight:700,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:6}}>Sources feeding this platform</div>
                     <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:14}}>
                       {p.sources.map(s=>(
-                        <div key={s.sourceKey} style={{display:"flex",justifyContent:"space-between",gap:10,fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>
+                        <div key={s.sourceKey} style={{display:"flex",justifyContent:"space-between",gap:10,fontSize:12,color:T.text,fontFamily:T.font}}>
                           <span>{sourceLabel(s.sourceKey)}</span>
                           <span style={{color:T.textSub,flexShrink:0}}>{fmtRange(s.start,s.end)} · {s.rows.toLocaleString()} rows · {fmtFull(s.spend)}</span>
                         </div>
@@ -243,7 +243,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
                     {p.gapRanges.length>0&&(
                       <>
                         <div style={{fontSize:11,fontWeight:700,color:T.danger,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:6}}>Missing days ({p.gapDayCount})</div>
-                        <div style={{fontSize:11,color:T.textMuted,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>No data from any source on these calendar days, within this platform's own {fmtRange(p.start,p.end)} span.</div>
+                        <div style={{fontSize:11,color:T.textMuted,marginBottom:6,fontFamily:T.font}}>No data from any source on these calendar days, within this platform's own {fmtRange(p.start,p.end)} span.</div>
                         <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:14}}>
                           {p.gapRanges.map((r,i)=>(
                             <Pill key={i} color={T.danger} bg={T.dangerBg} border={T.dangerBorder} style={{fontSize:10.5}}>
@@ -257,10 +257,10 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
                     {p.overlapRanges.length>0&&(
                       <>
                         <div style={{fontSize:11,fontWeight:700,color:T.warning,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:6}}>Overlapping coverage</div>
-                        <div style={{fontSize:11,color:T.textMuted,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>These sources both claim data for the same days — only one value is stored per campaign/day (the most recently synced or imported wins), so this doesn't necessarily mean the numbers disagreed, just that it was possible.</div>
+                        <div style={{fontSize:11,color:T.textMuted,marginBottom:6,fontFamily:T.font}}>These sources both claim data for the same days — only one value is stored per campaign/day (the most recently synced or imported wins), so this doesn't necessarily mean the numbers disagreed, just that it was possible.</div>
                         <div style={{display:"flex",flexDirection:"column",gap:5}}>
                           {p.overlapRanges.map((o,i)=>(
-                            <div key={i} style={{fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>
+                            <div key={i} style={{fontSize:12,color:T.text,fontFamily:T.font}}>
                               <strong>{sourceLabel(o.sourceA)}</strong> ↔ <strong>{sourceLabel(o.sourceB)}</strong>
                               <span style={{color:T.textSub}}> · {fmtRange(o.start,o.end)} ({o.days} day{o.days===1?"":"s"})</span>
                             </div>
@@ -279,11 +279,11 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
         {/* ── Reporting Analyzer / Dreamdata / PowerBI ────────────────────────────────────────── */}
         <SectionLabel T={T} style={{marginBottom:8}}>Reporting Analyzer (Dreamdata / PowerBI)</SectionLabel>
         {reportingLoading?(
-          <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginBottom:24}}>Loading…</div>
+          <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font,marginBottom:24}}>Loading…</div>
         ):reportingFactsError?(
-          <div style={{padding:"9px 12px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:8,fontSize:12,color:T.danger,fontFamily:"'DM Sans',sans-serif",marginBottom:24}}>{reportingFactsError}</div>
+          <div style={{padding:"9px 12px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:T.r8,fontSize:12,color:T.danger,fontFamily:T.font,marginBottom:24}}>{reportingFactsError}</div>
         ):!hasReporting?(
-          <div style={{fontSize:12,color:T.textMuted,fontFamily:"'DM Sans',sans-serif",marginBottom:24}}>Nothing imported yet — upload a Dreamdata/PowerBI screenshot in Reporting Analyzer.</div>
+          <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font,marginBottom:24}}>Nothing imported yet — upload a Dreamdata/PowerBI screenshot in Reporting Analyzer.</div>
         ):(<>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:18}}>
           <DashStatTile T={T} label="Reporting rows" value={rOverview.totalRows.toLocaleString()}/>
@@ -312,7 +312,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
           </div>
         )}
         {periodTypesWithGaps.length===0&&incompleteTagDims.length===0&&(
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:8,marginBottom:18,fontSize:12,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:18,fontSize:12,color:T.text,fontFamily:T.font}}>
             <Icon name="check" size={13} color={T.success}/>
             No period gaps or incomplete tagging detected.
           </div>
@@ -323,7 +323,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
             <SectionLabel T={T} style={{marginBottom:8}}>Tag completeness</SectionLabel>
             <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:24}}>
               {tagCompleteness.map(t=>(
-                <div key={t.dimension} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:T.surface,border:`1px solid ${t.missing>0?T.warningBorder:T.border}`,borderRadius:8,fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
+                <div key={t.dimension} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:T.surface,border:`1px solid ${t.missing>0?T.warningBorder:T.border}`,borderRadius:T.r8,fontSize:12,fontFamily:T.font}}>
                   <span style={{fontWeight:600,color:T.text}}>{t.dimension}</span>
                   <span style={{color:t.missing>0?T.warning:T.textMuted}}>{t.missing===0?"complete":`${fmtPct(t.missingPct)} missing`}</span>
                 </div>
@@ -339,7 +339,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
             <div>Source</div><div>Date range</div><div style={{textAlign:"right"}}>Rows</div><div style={{textAlign:"right"}}>Campaigns</div>
           </div>
           {rBySource.map((s,i)=>(
-            <div key={s.sourceKey} style={{display:"grid",gridTemplateColumns:isMobilePad()?undefined:"1.8fr 1.6fr 0.7fr 0.9fr",gap:8,padding:"10px 14px",borderTop:i>0?`1px solid ${T.border}`:"none",fontSize:12.5,color:T.text,alignItems:"center",fontFamily:"'DM Sans',sans-serif"}}>
+            <div key={s.sourceKey} style={{display:"grid",gridTemplateColumns:isMobilePad()?undefined:"1.8fr 1.6fr 0.7fr 0.9fr",gap:8,padding:"10px 14px",borderTop:i>0?`1px solid ${T.border}`:"none",fontSize:12.5,color:T.text,alignItems:"center",fontFamily:T.font}}>
               <div style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{reportingSourceLabel(s.sourceKey)}</div>
               <div style={{color:T.textSub}}>{fmtRange(s.start,s.end)}</div>
               <div style={{textAlign:"right"}}>{s.rows.toLocaleString()}</div>
@@ -358,12 +358,12 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
               <PixelPanel key={p.periodType} T={T} contentStyle={{background:T.surface,overflow:"hidden"}}>
                 <div onClick={()=>toggleReporting(p.periodType)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"12px 16px",cursor:"pointer"}}>
                   <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
-                    <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:"'DM Sans',sans-serif"}}>{PERIOD_TYPE_LABELS[p.periodType]||p.periodType}</span>
+                    <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:T.font}}>{PERIOD_TYPE_LABELS[p.periodType]||p.periodType}</span>
                     {hasIssues&&(
                       <Pill color={T.danger} bg={T.dangerBg} border={T.dangerBorder} style={{fontSize:10}}>{p.gapPeriodCount} missing period{p.gapPeriodCount===1?"":"s"}</Pill>
                     )}
                   </div>
-                  <div style={{display:"flex",alignItems:"center",gap:16,flexShrink:0,fontSize:12,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:16,flexShrink:0,fontSize:12,color:T.textSub,fontFamily:T.font}}>
                     <span>{fmtRange(p.start,p.end)}</span>
                     <span style={{fontWeight:600,color:T.text}}>{p.rows.toLocaleString()} rows</span>
                     <Icon name="chevronDown" size={14} color={T.textMuted} style={{transform:open?"rotate(180deg)":"none",transition:"transform 0.12s"}}/>
@@ -372,13 +372,13 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
                 {open&&(
                   <div style={{padding:"0 16px 16px",borderTop:`1px solid ${T.border}`}}>
                     <div style={{display:"flex",gap:24,flexWrap:"wrap",padding:"12px 0"}}>
-                      <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}><strong style={{color:T.text}}>{p.rows.toLocaleString()}</strong> rows</div>
-                      <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}><strong style={{color:T.text}}>{p.campaigns.toLocaleString()}</strong> campaigns</div>
+                      <div style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}><strong style={{color:T.text}}>{p.rows.toLocaleString()}</strong> rows</div>
+                      <div style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}><strong style={{color:T.text}}>{p.campaigns.toLocaleString()}</strong> campaigns</div>
                     </div>
                     {p.gapRanges.length>0?(
                       <>
                         <div style={{fontSize:11,fontWeight:700,color:T.danger,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:6}}>Missing periods ({p.gapPeriodCount})</div>
-                        <div style={{fontSize:11,color:T.textMuted,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>No {(PERIOD_TYPE_LABELS[p.periodType]||p.periodType).toLowerCase()} row for these periods, within this grain's own {fmtRange(p.start,p.end)} span.</div>
+                        <div style={{fontSize:11,color:T.textMuted,marginBottom:6,fontFamily:T.font}}>No {(PERIOD_TYPE_LABELS[p.periodType]||p.periodType).toLowerCase()} row for these periods, within this grain's own {fmtRange(p.start,p.end)} span.</div>
                         <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
                           {p.gapRanges.map((r,i)=>(
                             <Pill key={i} color={T.danger} bg={T.dangerBg} border={T.dangerBorder} style={{fontSize:10.5}}>
@@ -388,7 +388,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
                         </div>
                       </>
                     ):(
-                      <div style={{fontSize:11,color:T.textMuted,fontFamily:"'DM Sans',sans-serif"}}>No gaps within this grain's own span.</div>
+                      <div style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}>No gaps within this grain's own span.</div>
                     )}
                   </div>
                 )}
