@@ -3776,12 +3776,17 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                       <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"'DM Sans',sans-serif"}}>Existing Google Search/Display/Demand Gen budget rows were merged into "Google" when this was turned on.</div>
                     )}
                   </div>
-                  <label style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,cursor:canEdit?"pointer":"default",opacity:canEdit?1:0.5}} title={canEdit?undefined:"View-only access"}>
-                    <input type="checkbox" checked={combineGoogleChannels} disabled={!canEdit}
-                      onChange={e=>handleToggleCombineGoogleChannels(e.target.checked)}
-                      style={{cursor:canEdit?"pointer":"default",accentColor:T.accent,width:16,height:16}}/>
-                    <span style={{fontSize:12,color:T.textSub,fontFamily:"'DM Sans',sans-serif"}}>{combineGoogleChannels?"Combined":"Separate"}</span>
-                  </label>
+                  <div style={{display:"flex",alignItems:"center",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:2,gap:2,flexShrink:0,opacity:canEdit?1:0.5}} title={canEdit?undefined:"View-only access"}>
+                    {[{val:false,label:"Separate"},{val:true,label:"Combined"}].map(o=>{
+                      const active=combineGoogleChannels===o.val;
+                      return(
+                        <button key={String(o.val)} onClick={()=>handleToggleCombineGoogleChannels(o.val)} disabled={!canEdit}
+                          style={{border:"none",borderRadius:4,padding:"5px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",cursor:canEdit?"pointer":"default",background:active?T.accent:"transparent",color:active?T.onAccent:T.textSub,fontWeight:active?600:500,transition:"all 0.1s"}}>
+                          {o.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 {canEdit&&platformBreakdown.length>0&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
