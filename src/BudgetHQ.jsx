@@ -16,7 +16,7 @@ import {
   TAG_DIM_COLORS, NAV, autoDetect, derivePlatform, localISODate, fmt$, downloadCSV,
   groupVersionsByDay, fmtFileSize, normalizeRows, spendRowKey, mergeRows, detectSpendConflicts,
   parseSpendDate, consolidateBudgetSegKeys, computePlatformFreshness,
-  renameDimensionValue, GOOGLE_SUBCHANNELS,
+  renameDimensionValue, GOOGLE_SUBCHANNELS, groupGooglePlatform, migrateGoogleChannelGrouping,
 } from "./lib/core.js";
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
@@ -253,14 +253,18 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // redesign — see FORECAST_MODELS in lib/core.js) — the same default computePacing itself falls
   // back to, so an unconfigured workspace gets the adaptive model out of the box.
   const[defaultForecastModel,setDefaultForecastModel]=useState("auto");
-  // Workspace-wide "combine Google sub-channels" toggle (2026-07-30, per Mo — some workspaces
-  // want Google Search/Display/Demand Gen reported as one "Google" line, others want them broken
-  // out; different workspaces, different preferences, so this lives here rather than as a fixed
-  // app-wide behavior). Same tier as defaultForecastModel above — a workspace-shared setting, not
-  // per-tab UI state. Defaults to false (today's existing granular behavior) so no workspace's
-  // reporting silently changes shape on its own. See resolveDimValue's Platform branch in
+  // Workspace-wide "combine Google sub-channels" setting (2026-07-30, per Mo; reshaped 2026-07-31
+  // from a single on/off toggle to a per-channel choice — some workspaces want everything folded
+  // into one "Google" line, others want everything broken out, others want some mix like "combine
+  // everything except YouTube"; different workspaces, different preferences, so this lives here
+  // rather than as a fixed app-wide behavior). Same tier as defaultForecastModel above — a
+  // workspace-shared setting, not per-tab UI state. Shape is {channelName: true} for each
+  // GOOGLE_SUBCHANNELS entry the workspace has chosen to combine — see migrateGoogleChannelGrouping
+  // for how a legacy boolean or brand-new workspace becomes this shape on load. Applies everywhere
+  // Platform shows up as a grouping/breakdown dimension: Budget Panel, Reporting & Pacing, Ask AI,
+  // Campaign Tagger, and the Data Sources "Spend by platform" widget — see groupGooglePlatform in
   // lib/core.js for where this actually takes effect.
-  const[combineGoogleChannels,setCombineGoogleChannels]=useState(false);
+  const[combineGoogleChannels,setCombineGoogleChannels]=useState(()=>migrateGoogleChannelGrouping(false));
 
   // Tag-value autocomplete sources: values already used in the Budget Panel for each dimension,
   // unioned with values already used on other campaigns' tags — either one matching exactly is
@@ -723,7 +727,11 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         setBudgetImportMeta(config.budgetImportMeta||{});
         setSavedViews(config.savedViews||[]);
         setDefaultForecastModel(config.defaultForecastModel||"auto");
-        setCombineGoogleChannels(!!config.combineGoogleChannels);
+        // Migrates a legacy boolean (the old all-or-nothing toggle) to the new per-channel object
+        // shape, or fills in any channel added to GOOGLE_SUBCHANNELS since this workspace last
+        // saved — see migrateGoogleChannelGrouping's own doc comment for exactly what each case
+        // preserves. Safe to run on every load; a no-op once a workspace is already on the new shape.
+        setCombineGoogleChannels(migrateGoogleChannelGrouping(config.combineGoogleChannels));
         const dedupedRows=mergeRows([],rows||[]);
         const rowsDeduped=dedupedRows.length!==(rows||[]).length;
         setMergedNormRows(dedupedRows);
@@ -1563,6 +1571,12 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // "key" is the composite identity (campaign group + campaign) used everywhere tags/selection
   // are looked up — ad set/ad group names often repeat across different campaigns, so the leaf
   // name alone isn't a safe identity. "name" (leaf) and "groupName" stay separate for display.
+  //
+  // platform runs through groupGooglePlatform (2026-07-31, per Mo — Campaign Tagger used to call
+  // derivePlatform() raw here, meaning the combineGoogleChannels setting had zero effect on Tagger's
+  // own Platform filter/grouping even though Budget Panel/Pacing/Ask AI all already respected it;
+  // this is what makes it a genuinely universal, workspace-wide setting instead of one that only
+  // applied downstream of Tagger).
   const campaigns=useMemo(()=>{
     if(!visibleNormRows.length)return[];
     const map={};
@@ -1570,13 +1584,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
       const name=row.campaign_name;if(!name)return;
       const groupName=row.campaign_group_name||name;
       const key=campaignKey(groupName,name);
-      const platform=derivePlatform(groupName,name,row.platform,row.campaign_type);
+      const platform=groupGooglePlatform(derivePlatform(groupName,name,row.platform,row.campaign_type),combineGoogleChannels);
       if(!map[key])map[key]={key,name,groupName,platform,spend:0,rows:0};
       map[key].spend+=row.spend;
       map[key].rows++;
     });
     return Object.values(map);
-  },[visibleNormRows]);
+  },[visibleNormRows,combineGoogleChannels]);
   const allPlats=useMemo(()=>[...new Set(campaigns.map(c=>c.platform))].sort(),[campaigns]);
   const stats=useMemo(()=>{
     const totalSpend=campaigns.reduce((s,c)=>s+c.spend,0);
@@ -1633,28 +1647,28 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
   // an error message) by passing "error" as the second arg; every existing single-arg call site
   // keeps behaving exactly as before (green, 3s).
   const showNotif=(msg,type="success")=>{setNotif({msg,type});setTimeout(()=>setNotif(null),type==="error"?6000:3000);};
-  // Toggling Google channel combining on (2026-07-30, per Mo) — when Platform is one of the
-  // Budget By dimensions, any existing "Google Search"/"Google Display"/"Demand Gen" budget rows
-  // are immediately folded into a single "Google" row (merging monthly amounts, not overwriting —
-  // same renameDimensionValue merge-on-collision behavior the inline segment-rename UI already
-  // uses), so the Budget Panel/Pacing tables don't end up showing a stray combined "Google" segment
-  // with $0 budget sitting alongside the old sub-channel rows still holding the real numbers.
-  // Turning it back off deliberately does NOT reverse the merge — there's no way to un-sum a
-  // combined row back into its original three amounts, so Google budget rows just stay combined
-  // until someone manually re-splits them.
-  const handleToggleCombineGoogleChannels=next=>{
+  // Toggling ONE Google channel's combine setting on (2026-07-30, per Mo; reshaped 2026-07-31 from
+  // a single all-or-nothing toggle to per-channel — see combineGoogleChannels' own doc comment) —
+  // when Platform is one of the Budget By dimensions, that ONE channel's existing budget rows are
+  // immediately folded into a single "Google" row (merging monthly amounts, not overwriting — same
+  // renameDimensionValue merge-on-collision behavior the inline segment-rename UI already uses), so
+  // the Budget Panel/Pacing tables don't end up showing a stray combined "Google" segment with $0
+  // budget sitting alongside the old sub-channel row still holding the real numbers. Every OTHER
+  // channel's combine setting (and its budget rows) is untouched — checking "Demand Gen" doesn't
+  // also fold in Search unless Search is checked too. Unchecking a channel deliberately does NOT
+  // reverse a previous merge — there's no way to un-sum a combined "Google" row back into its
+  // original per-channel amounts, so a channel that was already merged stays merged until someone
+  // manually re-splits it; unchecking only stops that channel from joining future merges.
+  const handleToggleGoogleChannel=(channel,checked)=>{
     if(!canEdit)return;
-    if(next&&!combineGoogleChannels&&budgetDims.includes("Platform")){
-      let cur={budgets,budgetRowMeta,tags};
-      GOOGLE_SUBCHANNELS.forEach(subChannel=>{
-        cur=renameDimensionValue({budgets:cur.budgets,budgetRowMeta:cur.budgetRowMeta,tags:cur.tags,budgetDims,dim:"Platform",oldVal:subChannel,newVal:"Google"});
-      });
-      setBudgets(cur.budgets);
-      setBudgetRowMeta(cur.budgetRowMeta);
-      setTags(cur.tags);
-      showNotif("Combined Google Search/Display/Demand Gen budget rows into \"Google\"");
+    if(checked&&!combineGoogleChannels[channel]&&budgetDims.includes("Platform")){
+      const merged=renameDimensionValue({budgets,budgetRowMeta,tags,budgetDims,dim:"Platform",oldVal:channel,newVal:"Google"});
+      setBudgets(merged.budgets);
+      setBudgetRowMeta(merged.budgetRowMeta);
+      setTags(merged.tags);
+      showNotif(`Combined "${channel}" budget rows into "Google"`);
     }
-    setCombineGoogleChannels(next);
+    setCombineGoogleChannels(prev=>({...prev,[channel]:checked}));
   };
   const pushHistory=useCallback(currentTags=>{setTagsHistory(h=>[...h.slice(-49),currentTags]);},[]);
   const undoTags=useCallback(()=>{if(!tagsHistory.length)return;setTags(tagsHistory[tagsHistory.length-1]);setTagsHistory(h=>h.slice(0,-1));showNotif("Undone");},[tagsHistory]);
@@ -2538,13 +2552,17 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
               <Divider T={T}/>
               {/* Spend by platform — a quick "where's the money going" split using every imported
                   row (not date-filtered by the Range picker above, same scope as the Data rows
-                  stat above it), same derivePlatform grouping Settings' own breakdown uses. */}
+                  stat above it). Runs through groupGooglePlatform (2026-07-31) so this reporting
+                  widget reflects the same combineGoogleChannels choice as Tagger/Budget Panel/
+                  Pacing/Ask AI — Settings' OWN breakdown further down intentionally does NOT (see
+                  that section's comment — it needs the real underlying platform for per-channel
+                  data deletion). */}
               <div style={{padding:"12px 0"}}>
                 <SectionLabel T={T} style={{fontSize:11}}>Spend by platform</SectionLabel>
                 {(()=>{
                   const map={};
                   visibleNormRows.forEach(r=>{
-                    const p=derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type);
+                    const p=groupGooglePlatform(derivePlatform(r.campaign_group_name,r.campaign_name,r.platform,r.campaign_type),combineGoogleChannels);
                     map[p]=(map[p]||0)+(r.spend||0);
                   });
                   const arr=Object.entries(map).map(([platform,spend])=>({platform,spend})).sort((a,b)=>b.spend-a.spend);
@@ -3702,6 +3720,13 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
         // "last import" here always agrees with what Pacing already tells you, rather than a
         // second, subtly different definition of "how current is this platform."
         const platformFreshness=computePlatformFreshness(visibleNormRows);
+        // Deliberately does NOT run through groupGooglePlatform (2026-07-31) even though the Data
+        // Sources sidebar's own "Spend by platform" widget now does — this table drives "Clear
+        // Tagger data by channel" below, a real DELETE action against whichever underlying
+        // sub-channel actually has the rows. Showing/deleting by the combined "Google" label would
+        // make it impossible to isolate and undo just one bad Search import without also nuking
+        // Display/Demand Gen data that was fine, so this one intentionally stays raw/granular
+        // regardless of the workspace's combine setting.
         const platformBreakdown=(()=>{
           const map={};
           visibleNormRows.forEach(r=>{
@@ -3926,27 +3951,29 @@ export default function BudgetHQ({session,onSignOut,workspace,workspaces,onSwitc
                   stat:`${mergedNormRows.length.toLocaleString()} spend rows · ${Object.keys(tags).length.toLocaleString()} tagged campaigns`,
                   action:clearTaggerData,label:"Clear Tagger data",disabled:!mergedNormRows.length&&!Object.keys(tags).length,
                 })}
-                <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
-                  <div>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Combine Google channels</div>
-                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:480}}>
-                      Report Google Search, Google Display, and Demand Gen as a single "Google" channel across the Budget Panel, Reporting &amp; Pacing, and Ask AI, instead of breaking them out separately. Forecasting stays accurate per sub-channel behind the scenes — only budgeting/reporting grouping is affected.
-                    </div>
-                    {combineGoogleChannels&&budgetDims.includes("Platform")&&(
-                      <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:"'DM Sans',sans-serif"}}>Existing Google Search/Display/Demand Gen budget rows were merged into "Google" when this was turned on.</div>
-                    )}
+                <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>
+                  <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>Combine Google channels</div>
+                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",maxWidth:560,marginBottom:12}}>
+                    {/* 2026-07-31, per Mo: "they need to have the flexibility to combine or separate
+                        whatever they want, not just a toggle on or off" — replaced the old single
+                        Separate/Combined switch (all 3 sub-channels or none) with a per-channel
+                        checkbox, so e.g. "combine everything except YouTube" or "just keep Search
+                        separate" are both one click away instead of impossible. */}
+                    Check any Google sub-channels that should report as a single "Google" line instead of their own separate line — any combination works, from all of them down to just one. Applies everywhere Platform is used for grouping or breakdowns: Campaign Tagger, Budget Panel, Reporting &amp; Pacing, and Ask AI. Forecasting stays accurate per sub-channel behind the scenes either way — only budgeting/reporting grouping is affected.
                   </div>
-                  <div style={{display:"flex",alignItems:"center",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:6,padding:2,gap:2,flexShrink:0,opacity:canEdit?1:0.5}} title={canEdit?undefined:"View-only access"}>
-                    {[{val:false,label:"Separate"},{val:true,label:"Combined"}].map(o=>{
-                      const active=combineGoogleChannels===o.val;
-                      return(
-                        <button key={String(o.val)} onClick={()=>handleToggleCombineGoogleChannels(o.val)} disabled={!canEdit}
-                          style={{border:"none",borderRadius:4,padding:"5px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",cursor:canEdit?"pointer":"default",background:active?T.accent:"transparent",color:active?T.onAccent:T.textSub,fontWeight:active?600:500,transition:"all 0.1s"}}>
-                          {o.label}
-                        </button>
-                      );
-                    })}
+                  <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                    {GOOGLE_SUBCHANNELS.map(channel=>(
+                      <label key={channel} style={{display:"flex",alignItems:"center",gap:9,padding:"6px 4px",cursor:canEdit?"pointer":"default",opacity:canEdit?1:0.5,fontSize:13,color:T.text,fontFamily:"'DM Sans',sans-serif"}} title={canEdit?undefined:"View-only access"}>
+                        <input type="checkbox" checked={!!combineGoogleChannels[channel]} disabled={!canEdit}
+                          onChange={e=>handleToggleGoogleChannel(channel,e.target.checked)}
+                          style={{width:14,height:14,cursor:canEdit?"pointer":"default",accentColor:T.accent,flexShrink:0}}/>
+                        {channel}
+                      </label>
+                    ))}
                   </div>
+                  {GOOGLE_SUBCHANNELS.some(c=>combineGoogleChannels[c])&&budgetDims.includes("Platform")&&(
+                    <div style={{fontSize:12,color:T.textMuted,marginTop:10,fontFamily:"'DM Sans',sans-serif"}}>Existing budget rows for a checked channel are merged into "Google" the moment it's checked — unchecking it later doesn't split them back apart.</div>
+                  )}
                 </div>
                 {canEdit&&platformBreakdown.length>0&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,padding:"20px 22px"}}>

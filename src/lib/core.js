@@ -1023,24 +1023,65 @@ export function projectPlatformSegment(platformSpendMap,platformFreshness,{start
   return{projectedSum:platformProjectedSum,dailyRate:totalDays?platformProjectedSum/totalDays:0,lowConfidencePlatforms};
 }
 
-// Google sub-channels collapsible into one "Google" label when a workspace turns on
-// combineGoogleChannels (2026-07-30, per Mo). Exported so the Settings toggle's one-time budget-row
-// migration (see renameDimensionValue call sites in BudgetHQ.jsx) uses this exact same list instead
-// of a second, easily-drifting copy of "which values count as Google."
-export const GOOGLE_SUBCHANNELS=["Google Search","Google Display","Demand Gen"];
-// Collapses a derived platform label to "Google" when combine is on and it's one of
-// GOOGLE_SUBCHANNELS — deliberately NOT touching "Performance Max" or "YouTube" (also Google
-// products, but distinct enough campaign types that lumping them in wasn't what was asked for; easy
-// to widen GOOGLE_SUBCHANNELS later if that turns out to be wanted too). Pure display/grouping
+// Every Google-family sub-channel derivePlatform() can produce — the full menu a workspace can
+// choose to fold into a combined "Google" line, one channel at a time (2026-07-31, per Mo).
+// Exported so both the Settings UI's per-channel checkboxes and the one-time budget-row migration
+// (see renameDimensionValue call sites in BudgetHQ.jsx) iterate this exact same list instead of a
+// second, easily-drifting copy of "which values count as Google."
+//
+// WIDENED (2026-07-31) from a fixed 3-item list (Search/Display/Demand Gen) that used to be
+// hardcoded into a single all-or-nothing toggle — Performance Max and YouTube were deliberately
+// left out of THAT version since it was all-or-nothing and lumping every Google product together
+// wasn't what was asked for. Now that combining is opt-in PER channel (see combineGoogleChannels'
+// new shape below), there's no reason not to offer every channel — a workspace that wants Search
+// and YouTube kept separate but everything else combined just leaves those two unchecked.
+export const GOOGLE_SUBCHANNELS=["Google Search","Google Display","Demand Gen","Performance Max","YouTube"];
+// combineGoogleChannels (2026-07-30, per Mo; reshaped 2026-07-31) used to be a single boolean —
+// Search/Display/Demand Gen either ALL combined into "Google" or all separate, no in-between. Per
+// Mo: "they need to have the flexibility to combine or separate whatever they want, not just a
+// toggle on or off" — e.g. combine everything except YouTube, or keep only Search separate. It's
+// now an object, {channelName: true} meaning "fold this one into Google" — any channel absent or
+// false stays under its own real label. Every caller across the codebase (BudgetHQ.jsx,
+// PacingDashboard.jsx, BudgetManager.jsx, AskAI.jsx, Dashboard.jsx, askAI.js, reports.js) just
+// threads this value through by the same prop name without interpreting it themselves, so none of
+// them needed to change — only groupGooglePlatform (the one place that actually reads it) did.
+// A plain `false` (every existing default={false} prop across those files) still behaves exactly
+// like "nothing combined" below, so nothing broke by leaving those defaults alone.
+//
+// Collapses a derived platform label to "Google" when it's one of GOOGLE_SUBCHANNELS AND this
+// workspace has that specific channel checked (combine[platform] is truthy). Pure display/grouping
 // mapping only — derivePlatform() itself is untouched, so computePlatformFreshness/
-// computePlatformDayOfWeekIndex/platformSpendMap (the actual forecasting engine) keep tracking
-// Search/Display/Demand Gen as separate real platforms regardless of this setting, each with its
-// own accurate freshness and day-of-week seasonality — see projectPlatformSegment, which already
-// sums every platform within a segment together. Combining only changes which BUDGET SEGMENT/
-// BREAKDOWN ROW a campaign's spend counts toward, never how accurately any individual platform's
-// own spend is forecast.
-function groupGooglePlatform(platform,combine){
-  return combine&&GOOGLE_SUBCHANNELS.includes(platform)?"Google":platform;
+// computePlatformDayOfWeekIndex/platformSpendMap (the actual forecasting engine) keep tracking every
+// sub-channel separately regardless of this setting, each with its own accurate freshness and
+// day-of-week seasonality — see projectPlatformSegment, which already sums every platform within a
+// segment together. Combining only changes which BUDGET SEGMENT/BREAKDOWN ROW a campaign's spend
+// counts toward, never how accurately any individual platform's own spend is forecast.
+//
+// `combine` accepts the per-channel object described above, or a plain falsy value (the default
+// used across every caller) meaning "nothing combined." Exported (2026-07-31) — Campaign Tagger and
+// the Data Sources "Spend by platform" widget call this directly (not through resolveDimValue,
+// which needs a rowTags object they don't have handy) so the SAME grouping choice is visible
+// everywhere Platform shows up, not just Budget Panel/Pacing/Ask AI.
+export function groupGooglePlatform(platform,combine){
+  return combine&&combine[platform]?"Google":platform;
+}
+// One-time shape migration for a workspace's saved combineGoogleChannels, run on every config load
+// (2026-07-31, per Mo's reshape from boolean to per-channel object — see the doc comment above
+// GOOGLE_SUBCHANNELS). Three cases:
+//   - already the new {channel:bool} shape → keep every existing choice, just fill in any channel
+//     added to GOOGLE_SUBCHANNELS since this workspace last saved (Performance Max/YouTube, both
+//     brand new) as false/separate, since that's what "not chosen yet" should mean, not silently
+//     opting a workspace into combining a channel it never asked about.
+//   - legacy `true` (the old all-or-nothing toggle, ON) → preserves EXACTLY what was already
+//     combined under the old rules: Search/Display/Demand Gen (the old hardcoded 3), nothing else —
+//     a workspace that had this on yesterday sees the identical grouping today, just now editable
+//     per channel instead of all-or-nothing.
+//   - legacy `false`/missing/anything else → nothing combined, same as a brand new workspace.
+export function migrateGoogleChannelGrouping(saved){
+  const base=Object.fromEntries(GOOGLE_SUBCHANNELS.map(c=>[c,false]));
+  if(saved&&typeof saved==="object")return{...base,...saved};
+  if(saved===true)return{...base,"Google Search":true,"Google Display":true,"Demand Gen":true};
+  return base;
 }
 // Resolves a single dimension's value for a spend row — "Platform"/"Campaign"/"Ad Group" (see
 // DERIVED_DIMS) are all derived straight from the row itself (not a manual tag): Platform via
