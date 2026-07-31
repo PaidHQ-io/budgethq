@@ -80,10 +80,35 @@ export async function putWorkspaceConfig(session, workspaceId, config, fetchOpts
   });
 }
 
-export function getSpendRows(session, workspaceId) {
-  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/spend-rows`).then(
-    (d) => d.rows || []
-  );
+// Page size for the loop below — matches the server's own DEFAULT_PAGE_LIMIT (spend-rows.js), kept
+// as a separate constant here rather than imported since this is a client bundle and that file is
+// server-only; not load-bearing that the two numbers match exactly, just keeps request counts sane.
+const SPEND_ROWS_PAGE_SIZE = 10000;
+
+// Loops the paginated GET (see spend-rows.js's GET doc comment for the 507 incident this fixes —
+// an unfiltered fetch of a large workspace's full history used to exceed Neon's ~64MiB HTTP
+// response cap and take the ENTIRE app down on load, not just this one fetch) until the server
+// reports no `nextCursor`, concatenating every page. Callers still see one flat array, same
+// contract as before — this is the only call site (BudgetHQ.jsx's initial workspace-data load), so
+// no other code needed to change.
+export async function getSpendRows(session, workspaceId) {
+  let rows = [];
+  let cursor = null;
+  for (;;) {
+    const params = new URLSearchParams({ limit: String(SPEND_ROWS_PAGE_SIZE) });
+    if (cursor) {
+      params.set("afterDate", cursor.afterDate);
+      params.set("afterId", cursor.afterId);
+    }
+    const d = await apiFetch(
+      session,
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/spend-rows?${params.toString()}`
+    );
+    rows = rows.concat(d.rows || []);
+    if (!d.nextCursor) break;
+    cursor = d.nextCursor;
+  }
+  return rows;
 }
 
 // Leaves real headroom below Vercel's hard 4.5MB Serverless Function request body limit — not

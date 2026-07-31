@@ -2,8 +2,20 @@
  * /api/workspaces/[id]/spend-rows
  *
  * GET    ?start=YYYY-MM-DD&end=YYYY-MM-DD&platform=Google — list rows, optionally filtered.
- *        No filters returns everything for the workspace (fine at current data volumes; add
- *        pagination if a workspace's history grows large enough for this to matter).
+ *        Always paginated server-side (see PAGE_LIMIT/MAX_PAGE_LIMIT below) via a
+ *        `(date,id)`-cursor — `?limit=N&afterDate=...&afterId=...` continues from the last row
+ *        of the previous page; response includes `nextCursor` (null once exhausted). Workspace-
+ *        scoped, so the client can just loop until `nextCursor` is null and concatenate — see
+ *        workspaceApi.js's getSpendRows for that loop.
+ *
+ *        INCIDENT (2026-07-31, per Mo): this used to have no limit at all — "no filters returns
+ *        everything for the workspace" — which was fine until an active workspace's history grew
+ *        past the point where the serialized response exceeded Neon's ~64MiB HTTP response cap.
+ *        Past that point EVERY unfiltered GET 507'd outright, which meant BudgetHQ's initial
+ *        workspace-data load (getSpendRows, called with no filters) failed unconditionally — the
+ *        whole app was stuck on the "couldn't load this workspace's data" screen, not just one
+ *        view. Pagination removes the ceiling entirely: no single page can ever approach the
+ *        response-size cap regardless of how large a workspace's total history gets.
  * POST   Body: { rows: [...] } — bulk insert. Pure append, no merge/de-dupe server-side.
  * PUT    Body: { rows: [...], append? } — whole-dataset replace (delete everything for this
  *        workspace, then bulk insert the given array), run as one transaction so a mid-insert
@@ -32,6 +44,13 @@ import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi, readJsonBody } from "../../lib/http.js";
 import { toColumns } from "../../lib/spendRowsColumns.js";
+
+// ~400 bytes/row is a generous per-row JSON estimate (uuid id, several text columns, a handful of
+// numerics) — DEFAULT_PAGE_LIMIT keeps a typical page comfortably under 5MB, MAX_PAGE_LIMIT (the
+// most a caller can ask for via ?limit=) keeps even a maximally-abused request under ~10MB, both
+// with wide margin below Neon's ~64MiB response cap that this pagination exists to never hit.
+const DEFAULT_PAGE_LIMIT = 10000;
+const MAX_PAGE_LIMIT = 20000;
 
 // Body parsing is manual (readJsonBody) instead of Vercel's automatic JSON parser — see
 // readJsonBody's doc comment in lib/http.js. PUT here sends a workspace's ENTIRE spend-rows
@@ -67,16 +86,36 @@ export default withApi(async (req, res) => {
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
-    const { start, end, platform } = req.query;
+    const { start, end, platform, afterDate, afterId } = req.query;
+    // Clamp rather than reject an out-of-range `limit` — a page-load loop asking for one page too
+    // many/few isn't worth a hard 400, just give it something sane on either side of the range.
+    const parsedLimit = parseInt(req.query.limit, 10);
+    const pageLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, MAX_PAGE_LIMIT)
+      : DEFAULT_PAGE_LIMIT;
+    // afterDate/afterId form one cursor, not two independent filters — only meaningful together
+    // (a lone afterId without its paired date can't be compared against the (date,id) ordering
+    // below), so this only activates once both are actually present.
+    const hasCursor = Boolean(afterDate && afterId);
     const rows = await sql`
       select * from core.spend_rows
       where workspace_id = ${workspaceId}
         and (${start || null}::date is null or date >= ${start || null}::date)
         and (${end || null}::date is null or date <= ${end || null}::date)
         and (${platform || null}::text is null or platform = ${platform || null})
-      order by date asc
+        and (
+          ${hasCursor ? afterDate : null}::date is null
+          or (date, id) > (${hasCursor ? afterDate : null}::date, ${hasCursor ? afterId : null}::uuid)
+        )
+      order by date asc, id asc
+      limit ${pageLimit}
     `;
-    return res.status(200).json({ rows: rows.map(toCamel) });
+    // Exactly a full page back is the only ambiguous case (workspace's data could end there, or
+    // there could be more) — re-querying with this row as the cursor resolves it next call, same
+    // as any keyset-pagination scheme. A short page unambiguously means "that's everything".
+    const last = rows.length === pageLimit ? rows[rows.length - 1] : null;
+    const nextCursor = last ? { afterDate: last.date, afterId: last.id } : null;
+    return res.status(200).json({ rows: rows.map(toCamel), nextCursor });
   }
 
   if (req.method === "POST") {
