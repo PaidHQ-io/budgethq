@@ -86,6 +86,13 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[newMetaDim,setNewMetaDim]=useState("");
   const[editingSegVal,setEditingSegVal]=useState(null); // {segKey, dim}
   const[editSegVal,setEditSegVal]=useState("");
+  // Grid paste (2026-07-31, per Mo — "copy a row or column in Sheets/Excel and paste it into
+  // the Budget Panel"). Tracks which month cell last had focus so a paste event (which only
+  // tells you WHAT was on the clipboard, not where the user "meant" to drop it beyond the single
+  // focused element) knows where to start filling. A ref, not state — updating it on every
+  // month-cell focus shouldn't trigger a re-render, it's only ever read at the moment a paste
+  // actually happens.
+  const pasteAnchorRef=useRef(null); // {segIdx, monthIdx}
 
   // Import state
   const[iStep,setIStep]=useState("upload");
@@ -455,6 +462,66 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     }
     setIHeaderRow(headerIdx);
     setIStep("header");
+  };
+  // Grid paste (2026-07-31, per Mo — "copy a row or column in Sheets/Excel and paste it into
+  // the Budget Panel"). Lives on the scrollable table wrapper so a paste bubbles up to it
+  // regardless of which cell had focus. Two branches, chosen by WHAT was focused when the paste
+  // landed, not by inspecting clipboard content up front (a segKey Pill and a month amount cell
+  // demand very different handling and there's no reliable way to tell them apart from the text
+  // alone — e.g. "1200" is a plausible product name in some org's naming and a plausible dollar
+  // figure, so the anchor is the source of truth, not a heuristic over the pasted text):
+  //   - Pasting into a segment's dimension cell (editingSegVal is set — see the Pill's onClick a
+  //     few hundred lines down) almost always means "these are new Brand/Product rows copied
+  //     straight out of Sheets," not "rename this one cell" — a single-value paste still renames
+  //     in place (falls through, does nothing here, browser handles it), but a multi-cell block
+  //     gets routed into the exact same reviewed import pipeline a CSV/XLSX upload uses
+  //     (ingestRawRows → header detection → dimension mapping → preview → merge-review dedup)
+  //     rather than this handler trying to guess column mapping itself.
+  //   - Pasting into a month amount cell (pasteAnchorRef, set by that cell's onFocus below) fills
+  //     across months and down segment rows starting there, Excel-style — but ONLY into rows that
+  //     already exist. A pure-numbers paste has no Brand/Product info to create a new row from, so
+  //     rows past the end of the table are silently skipped (with a toast explaining why) rather
+  //     than guessed at.
+  const handleGridPaste=e=>{
+    const text=e.clipboardData?.getData("text")||"";
+    if(!text.includes("\t")&&!text.includes("\n"))return; // single value — let the browser paste it normally
+    const rows=text.replace(/\r/g,"").split("\n");
+    while(rows.length&&rows[rows.length-1]===""){rows.pop();}
+    if(!rows.length)return;
+    const grid=rows.map(r=>r.split("\t"));
+
+    if(editingSegVal){
+      e.preventDefault();
+      setEditingSegVal(null);setEditSegVal("");
+      setImportOpen(true);
+      ingestRawRows("Pasted from clipboard",grid);
+      return;
+    }
+
+    const anchor=pasteAnchorRef.current;
+    if(!anchor)return; // paste didn't land on a recognized cell — leave default behavior alone
+    e.preventDefault();
+    let filled=0,overflowRows=0,hasText=false;
+    grid.forEach((rowCells,ri)=>{
+      const seg=filteredSegs[anchor.segIdx+ri];
+      if(!seg){if(rowCells.some(c=>c.trim()))overflowRows++;return;}
+      rowCells.forEach((cellVal,ci)=>{
+        const month=MONTHS[anchor.monthIdx+ci];
+        if(!month)return; // pasted past December — ignore rather than spilling into quarter/cap columns
+        const v=String(cellVal).trim();
+        if(v==="")return;
+        if(v!=="-"&&isNaN(parseMoney(v))){hasText=true;return;}
+        setMV(seg.key,month.key,v);
+        filled++;
+      });
+    });
+    if(hasText){
+      showNotif("That paste included text, not just numbers — to add new Brand/Product rows, paste starting on a dimension cell instead.");
+    }else if(overflowRows>0){
+      showNotif(`Pasted into ${filled} cell${filled===1?"":"s"} — ${overflowRows} row${overflowRows===1?"":"s"} past the end of the table were skipped.`);
+    }else if(filled){
+      showNotif(`Pasted ${filled} value${filled===1?"":"s"}.`);
+    }
   };
   // Google Sheets manual connect — same downstream pipeline as the file/screenshot imports above,
   // fed by a live fetch of the sheet's grid instead. Connection logic itself lives in the shared
@@ -908,8 +975,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const canMap=iFmt==="transposed"?!!iSegDim:((tagDimensions||[]).filter(d=>dimMap[d]).length>0||customDims.some(c=>c.name&&c.col))&&(iFmt==="wide"||(iFmt==="flat"?!!amtCol&&iFlatMonths.length>0:(periodCol&&amtCol)));
   const IMPORT_STEPS=["upload","header","map","preview"];
 
-  const cellIn=(val,onChange,over=false,cap=false)=>(
+  // pasteCtx ({segIdx, monthIdx}) is only ever passed for the month grid's own cells (not
+  // quarterly-cap/annual-cap, which are deliberately out of scope for grid paste — see
+  // handleGridPaste's doc comment) — it just records "the last cell of this kind that had focus"
+  // into pasteAnchorRef so a paste event, which fires on whatever's focused with no positional
+  // info of its own, knows where to start filling.
+  const cellIn=(val,onChange,over=false,cap=false,pasteCtx=null)=>(
     <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
+      onFocus={pasteCtx?()=>{pasteAnchorRef.current=pasteCtx;}:undefined}
       style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:T.r5,color:over?T.danger:cap?T.warning:"#272727",padding:"4px 6px",fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",width:"100%",boxSizing:"border-box",fontFamily:T.font,textAlign:"right",outline:"none",display:"block"}}/>
   );
   const TH={fontFamily:T.font,fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center"};
@@ -996,7 +1069,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       )}
 
       {/* Table */}
-      <div style={{flex:1,overflow:"auto",minWidth:0}}>
+      <div style={{flex:1,overflow:"auto",minWidth:0}} onPaste={handleGridPaste}>
         {!budgetDims.length?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
             {/* Surface-base-habitat illustration (2026-07-26, per Mo, licensed "Geometric Space
@@ -1124,7 +1197,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   <span onClick={()=>{clearSegFilters();setHideNotBudgeted(false);}} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>{hideNotBudgeted&&!hasSegFilters?"Show them":"Clear filters"}</span>
                 </td></tr>
               )}
-              {filteredSegs.map((seg)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=T.surface;const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
+              {filteredSegs.map((seg,segIdx)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=T.surface;const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
                 <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:rb,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -1167,7 +1240,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                       </td>
                     );
                   })}
-                  {MONTHS.map(m=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo)}</td>;})}
+                  {MONTHS.map((m,monthIdx)=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo,false,{segIdx,monthIdx})}</td>;})}
                   {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727",background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
                   <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:ao?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
                   {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
