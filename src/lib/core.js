@@ -1457,7 +1457,28 @@ export function computePacing({mergedNormRows,tags,budgetDims,budgets,year,perio
       if(spend>budget)status="over";
       else if(committed)status="committed";
       else if(!hasData)status="no-data";
-      else{
+      // ahead/behind/on-track (2026-08-01 fix, per Mo — Q3 selected, "Lease" and "Spreadsheet
+      // Server" were both clearly trending over budget in the Projected column [116%/122% of
+      // budget] but the Status pill said "On track") — this used to compare actualPct (spend so
+      // far ÷ budget) against expectedPct (days elapsed ÷ total days), a PURELY LINEAR read that's
+      // blind to both the forecast model and, in effect, the period shape: it assumes every day
+      // spends the same amount. `projected` above already gets this right (it's projectPlatformSegment
+      // reading each platform's actual recent run-rate under whichever forecastModel — auto,
+      // trailing-N, full-period — applies to THIS segment, over the exact start/end this period
+      // resolved to), so a segment that spent slowly early on and is now ramping hard shows an
+      // accurate forward-looking overage there well before the linear actualPct/expectedPct delta
+      // would ever notice. Status now reads off that same projected number instead of duplicating
+      // a cruder version of the same math — "ahead"/"behind"/"on-track" describe where you're
+      // headed by period end, not just where you happen to sit today. Same ±10%-of-budget band as
+      // every other pace threshold in the app (see e.g. Dashboard's own paceDelta>0.1 check).
+      else if(projected!=null){
+        const projDelta=(projected-budget)/budget;
+        if(projDelta>0.1)status="ahead";
+        else if(projDelta<-0.1)status="behind";
+        else status="on-track";
+      }else{
+        // No usable projection yet (period hasn't started, or elapsedDays is 0) — fall back to the
+        // old linear delta rather than leaving status stuck on a stale/undefined read.
         const delta=(actualPct??0)-expectedPct;
         if(delta>0.1)status="ahead";
         else if(delta<-0.1)status="behind";
