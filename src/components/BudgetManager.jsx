@@ -533,7 +533,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       const seg=filteredSegs[anchor.segIdx+ri];
       if(!seg){if(rowCells.some(c=>c.trim()))overflowRows++;return;}
       rowCells.forEach((cellVal,ci)=>{
-        const month=MONTHS[anchor.monthIdx+ci];
+        const month=MONTHS[anchor.colIdx+ci];
         if(!month)return; // pasted past December — ignore rather than spilling into quarter/cap columns
         const v=String(cellVal).trim();
         if(v==="")return;
@@ -1032,58 +1032,101 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
 
   // Excel-grid interaction handlers (2026-07-31, per Mo — "as much Excel functionality as I can
   // get"). Placed here rather than up with the state block near pasteAnchorRef because these all
-  // need filteredSegs/getMV/setMV in scope, which aren't declared until above this point.
-  const cellKey=(segIdx,monthIdx)=>`${segIdx}-${monthIdx}`;
-  const focusCell=(segIdx,monthIdx)=>{
-    if(!filteredSegs[segIdx]||!MONTHS[monthIdx])return false;
-    const el=cellRefs.current[cellKey(segIdx,monthIdx)];
+  // need filteredSegs/getMV/setMV/getQC/setQC/getAC/setAC in scope, which aren't declared until
+  // above this point.
+  //
+  // Generalized (2026-07-31, same session, per Mo's follow-up ask to also cover the quarterly-cap
+  // and annual-cap columns) from a month-only {segIdx,monthIdx} model to {segIdx,colType,colIdx},
+  // where colType is "month"|"quarter"|"annual". Selection/keyboard-nav/fill-down deliberately
+  // stay WITHIN one colType — a range or a fill-drag can't span from, say, December into a
+  // quarterly cap column, since those are different kinds of values (spend vs. a cap), not
+  // adjacent cells of the same series. Paste stays month-only regardless (see handleGridPaste's
+  // doc comment) — pasteAnchorRef is only ever set when focus is on a month cell.
+  const colCount=colType=>colType==="month"?MONTHS.length:colType==="quarter"?QUARTERS.length:1;
+  const getColVal=(colType,seg,colIdx)=>{
+    if(!seg)return"";
+    if(colType==="month")return getMV(seg.key,MONTHS[colIdx].key);
+    if(colType==="quarter")return getQC(seg.key,QUARTERS[colIdx].key);
+    return getAC(seg.key);
+  };
+  const setColVal=useCallback((colType,seg,colIdx,v)=>{
+    if(colType==="month")setMV(seg.key,MONTHS[colIdx].key,v);
+    else if(colType==="quarter")setQC(seg.key,QUARTERS[colIdx].key,v);
+    else setAC(seg.key,v);
+  },[setMV,setQC,setAC]);
+  const cellKey=(segIdx,colType,colIdx)=>`${segIdx}-${colType}-${colIdx}`;
+  const focusCell=ctx=>{
+    if(!filteredSegs[ctx.segIdx]||ctx.colIdx<0||ctx.colIdx>=colCount(ctx.colType))return false;
+    const el=cellRefs.current[cellKey(ctx.segIdx,ctx.colType,ctx.colIdx)];
     if(el)el.focus();
     return true;
   };
-  // Normalizes anchor+end into a rectangle, or null if there's no real multi-cell range (either
-  // nothing's been shift-extended yet, or a shift gesture landed back on its own starting cell).
+  // Normalizes anchor+end into a rectangle, or null if there's no real multi-cell range (nothing
+  // shift-extended yet, a shift gesture landed back on its own starting cell, or the anchor/end
+  // ended up on different colTypes — which shouldn't normally happen since nav/shift-click both
+  // keep the pair on one colType, but this is the defensive fallback if it ever does).
   const selRect=()=>{
     const a=selAnchor,b=selEnd;
-    if(!a||!b)return null;
-    if(a.segIdx===b.segIdx&&a.monthIdx===b.monthIdx)return null;
-    return{segIdx0:Math.min(a.segIdx,b.segIdx),segIdx1:Math.max(a.segIdx,b.segIdx),monthIdx0:Math.min(a.monthIdx,b.monthIdx),monthIdx1:Math.max(a.monthIdx,b.monthIdx)};
+    if(!a||!b||a.colType!==b.colType)return null;
+    if(a.segIdx===b.segIdx&&a.colIdx===b.colIdx)return null;
+    return{colType:a.colType,segIdx0:Math.min(a.segIdx,b.segIdx),segIdx1:Math.max(a.segIdx,b.segIdx),colIdx0:Math.min(a.colIdx,b.colIdx),colIdx1:Math.max(a.colIdx,b.colIdx)};
   };
-  const isCellSelected=(segIdx,monthIdx)=>{
+  const isCellSelected=(segIdx,colType,colIdx)=>{
     const r=selRect();
-    return!!r&&segIdx>=r.segIdx0&&segIdx<=r.segIdx1&&monthIdx>=r.monthIdx0&&monthIdx<=r.monthIdx1;
+    return!!r&&r.colType===colType&&segIdx>=r.segIdx0&&segIdx<=r.segIdx1&&colIdx>=r.colIdx0&&colIdx<=r.colIdx1;
   };
   const handleCellFocus=ctx=>{
-    pasteAnchorRef.current=ctx;
+    pasteAnchorRef.current=ctx.colType==="month"?ctx:null;
     setActiveCell(ctx);
     if(suppressAnchorResetRef.current){suppressAnchorResetRef.current=false;}
     else{setSelAnchor(ctx);setSelEnd(null);}
   };
   const handleCellMouseDown=(e,ctx)=>{
-    if(e.shiftKey&&selAnchor){suppressAnchorResetRef.current=true;setSelEnd(ctx);}
+    if(e.shiftKey&&selAnchor&&selAnchor.colType===ctx.colType){suppressAnchorResetRef.current=true;setSelEnd(ctx);}
     else{setSelAnchor(ctx);setSelEnd(null);}
   };
   const handleCellMouseEnter=ctx=>{
-    if(!fillDrag||ctx.monthIdx!==fillDrag.monthIdx||ctx.segIdx<fillDrag.segIdx)return;
-    setFillDrag(fd=>fd&&fd.dragToSegIdx===ctx.segIdx?fd:(fd?{...fd,dragToSegIdx:ctx.segIdx}:fd));
+    if(!fillDrag||ctx.colType!==fillDrag.colType)return;
+    const dSeg=ctx.segIdx-fillDrag.segIdx,dCol=ctx.colIdx-fillDrag.colIdx;
+    // Locks to whichever axis the drag has moved further along — matches the "drag mostly down"
+    // vs. "drag mostly right" feel of a real fill handle, rather than requiring a perfectly
+    // straight drag. Down-only/right-only (see startFillDrag's doc comment).
+    if(Math.abs(dSeg)>=Math.abs(dCol)){
+      if(dSeg>=0)setFillDrag(fd=>fd?{...fd,dragToSegIdx:ctx.segIdx,dragToColIdx:fd.colIdx}:fd);
+    }else if(dCol>=0){
+      setFillDrag(fd=>fd?{...fd,dragToColIdx:ctx.colIdx,dragToSegIdx:fd.segIdx}:fd);
+    }
   };
   const handleCellKeyDown=(e,ctx)=>{
-    const{segIdx,monthIdx}=ctx;
+    const{segIdx,colType,colIdx}=ctx;
     const input=e.currentTarget;
     const atStart=input.selectionStart===0&&input.selectionEnd===0;
     const atEnd=input.selectionStart===input.value.length&&input.selectionEnd===input.value.length;
-    const moveTo=(nSegIdx,nMonthIdx,extend)=>{
-      if(!filteredSegs[nSegIdx]||!MONTHS[nMonthIdx])return;
+    const moveTo=(nSegIdx,nColIdx,extend)=>{
+      if(!filteredSegs[nSegIdx]||nColIdx<0||nColIdx>=colCount(colType))return;
       e.preventDefault();
-      if(extend){suppressAnchorResetRef.current=true;setSelEnd({segIdx:nSegIdx,monthIdx:nMonthIdx});}
-      focusCell(nSegIdx,nMonthIdx);
+      const nCtx={segIdx:nSegIdx,colType,colIdx:nColIdx};
+      if(extend){suppressAnchorResetRef.current=true;setSelEnd(nCtx);}
+      focusCell(nCtx);
     };
     // Left/Right only move cells when the caret is already at that edge of the text — otherwise
     // they're just normal cursor movement while editing a multi-digit number.
-    if(e.key==="ArrowDown"){moveTo(segIdx+1,monthIdx,e.shiftKey);return;}
-    if(e.key==="ArrowUp"){moveTo(segIdx-1,monthIdx,e.shiftKey);return;}
-    if(e.key==="ArrowRight"&&atEnd){moveTo(segIdx,monthIdx+1,e.shiftKey);return;}
-    if(e.key==="ArrowLeft"&&atStart){moveTo(segIdx,monthIdx-1,e.shiftKey);return;}
-    if(e.key==="Enter"){moveTo(segIdx+(e.shiftKey?-1:1),monthIdx,false);return;}
+    if(e.key==="ArrowDown"){moveTo(segIdx+1,colIdx,e.shiftKey);return;}
+    if(e.key==="ArrowUp"){moveTo(segIdx-1,colIdx,e.shiftKey);return;}
+    if(e.key==="ArrowRight"&&atEnd){moveTo(segIdx,colIdx+1,e.shiftKey);return;}
+    if(e.key==="ArrowLeft"&&atStart){moveTo(segIdx,colIdx-1,e.shiftKey);return;}
+    if(e.key==="Enter"){moveTo(segIdx+(e.shiftKey?-1:1),colIdx,false);return;}
+    // Select-all (2026-07-31) — scoped to the current colType's full grid (every row, every
+    // column of that one type), not literally everything on screen at once. Selecting "all of
+    // months + all of quarterly caps + the annual cap" in one rectangle doesn't mean anything
+    // (they're different units), so Ctrl/Cmd+A selects the block you're currently in.
+    if((e.metaKey||e.ctrlKey)&&(e.key==="a"||e.key==="A")){
+      if(!filteredSegs.length)return;
+      e.preventDefault();
+      setSelAnchor({segIdx:0,colType,colIdx:0});
+      setSelEnd({segIdx:filteredSegs.length-1,colType,colIdx:colCount(colType)-1});
+      return;
+    }
     if(e.key==="Delete"||e.key==="Backspace"){
       const r=selRect();
       if(!r)return; // single cell — let the browser's own text-delete behavior handle it
@@ -1091,7 +1134,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       for(let si=r.segIdx0;si<=r.segIdx1;si++){
         const seg=filteredSegs[si];
         if(!seg)continue;
-        for(let mi=r.monthIdx0;mi<=r.monthIdx1;mi++){const month=MONTHS[mi];if(month)setMV(seg.key,month.key,"");}
+        for(let ci=r.colIdx0;ci<=r.colIdx1;ci++){setColVal(r.colType,seg,ci,"");}
       }
     }
   };
@@ -1107,62 +1150,69 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     for(let si=r.segIdx0;si<=r.segIdx1;si++){
       const seg=filteredSegs[si];
       const cells=[];
-      for(let mi=r.monthIdx0;mi<=r.monthIdx1;mi++){const month=MONTHS[mi];cells.push(seg&&month?String(getMV(seg.key,month.key)??""):"");}
+      for(let ci=r.colIdx0;ci<=r.colIdx1;ci++){cells.push(seg?String(getColVal(r.colType,seg,ci)??""):"");}
       lines.push(cells.join("\t"));
     }
     e.clipboardData.setData("text/plain",lines.join("\n"));
   };
-  // Fill-down drag handle: mirrors Excel's little square at a cell's bottom-right corner. Drag
-  // vertically within one month column to replicate that cell's value into every row the drag
-  // passes over — deliberately single-column/copy-only (no smart series detection, no horizontal
-  // drag), the highest-value slice of Excel's fill-down for a budget grid where "repeat this
-  // month's figure down these segments" is the actual common case.
+  // Fill drag handle: mirrors Excel's little square at a cell's bottom-right corner. Drag down
+  // within one column, or right within one row, to replicate that cell's value into every
+  // cell the drag passes over — deliberately copy-only (no smart series detection) and one
+  // direction at a time (see handleCellMouseEnter's axis-lock above), and always confined to a
+  // single colType, same reasoning as selection above.
   const startFillDrag=(e,ctx)=>{
     e.preventDefault();e.stopPropagation();
     const seg=filteredSegs[ctx.segIdx];
-    const month=MONTHS[ctx.monthIdx];
-    if(!seg||!month)return;
-    setFillDrag({segIdx:ctx.segIdx,monthIdx:ctx.monthIdx,value:getMV(seg.key,month.key),dragToSegIdx:ctx.segIdx});
+    if(!seg||ctx.colIdx<0||ctx.colIdx>=colCount(ctx.colType))return;
+    setFillDrag({segIdx:ctx.segIdx,colType:ctx.colType,colIdx:ctx.colIdx,value:getColVal(ctx.colType,seg,ctx.colIdx),dragToSegIdx:ctx.segIdx,dragToColIdx:ctx.colIdx});
   };
   useEffect(()=>{
     if(!fillDrag)return;
     const onUp=()=>{
-      if(fillDrag.dragToSegIdx>fillDrag.segIdx){
-        const month=MONTHS[fillDrag.monthIdx];
-        for(let si=fillDrag.segIdx+1;si<=fillDrag.dragToSegIdx;si++){
-          const seg=filteredSegs[si];
-          if(seg&&month)setMV(seg.key,month.key,fillDrag.value);
+      const seg0=filteredSegs[fillDrag.segIdx];
+      if(seg0){
+        if(fillDrag.dragToSegIdx>fillDrag.segIdx){
+          for(let si=fillDrag.segIdx+1;si<=fillDrag.dragToSegIdx;si++){
+            const seg=filteredSegs[si];
+            if(seg)setColVal(fillDrag.colType,seg,fillDrag.colIdx,fillDrag.value);
+          }
+        }else if(fillDrag.dragToColIdx>fillDrag.colIdx){
+          for(let ci=fillDrag.colIdx+1;ci<=fillDrag.dragToColIdx;ci++){setColVal(fillDrag.colType,seg0,ci,fillDrag.value);}
         }
       }
       setFillDrag(null);
     };
     document.addEventListener("mouseup",onUp);
     return()=>document.removeEventListener("mouseup",onUp);
-  },[fillDrag,filteredSegs,setMV]);
+  },[fillDrag,filteredSegs,setColVal]);
 
-  // pasteCtx ({segIdx, monthIdx}) is only ever passed for the month grid's own cells (not
-  // quarterly-cap/annual-cap, which are deliberately out of scope for grid paste, keyboard nav,
-  // range-select, and fill-down alike — see handleGridPaste's doc comment for why the month grid
-  // specifically is the one place all of this Excel-ish behavior lives). When present, it wires
-  // up the full set: a DOM ref (so keyboard nav can .focus() a specific cell), focus/mousedown/
-  // keydown/mouseenter handlers (see the big state block above cellIn's declaration for what each
-  // does), a highlight when the cell's inside an active shift-selected range, and — only on the
-  // cell that's currently focused — a small drag handle at its bottom-right corner for fill-down.
-  const cellIn=(val,onChange,over=false,cap=false,pasteCtx=null)=>{
-    const selected=pasteCtx&&isCellSelected(pasteCtx.segIdx,pasteCtx.monthIdx);
-    const isActive=pasteCtx&&activeCell&&activeCell.segIdx===pasteCtx.segIdx&&activeCell.monthIdx===pasteCtx.monthIdx;
-    const inFillPreview=pasteCtx&&fillDrag&&pasteCtx.monthIdx===fillDrag.monthIdx&&pasteCtx.segIdx>fillDrag.segIdx&&pasteCtx.segIdx<=fillDrag.dragToSegIdx;
+  // gridCtx ({segIdx, colType, colIdx}) is passed for every cell in the month grid AND the
+  // quarterly-cap/annual-cap columns (colType "month"|"quarter"|"annual") — keyboard nav,
+  // range-select, and fill-down all work across all three; paste alone stays month-only (see
+  // handleGridPaste's doc comment and handleCellFocus's pasteAnchorRef line). When present, it
+  // wires up the full set: a DOM ref (so keyboard nav can .focus() a specific cell), focus/
+  // mousedown/keydown/mouseenter handlers (see the big state block above cellIn's declaration for
+  // what each does), a highlight when the cell's inside an active shift-selected range, and — only
+  // on the cell that's currently focused — a small drag handle at its bottom-right corner for
+  // fill-down/fill-right.
+  const cellIn=(val,onChange,over=false,cap=false,gridCtx=null)=>{
+    const selected=gridCtx&&isCellSelected(gridCtx.segIdx,gridCtx.colType,gridCtx.colIdx);
+    const isActive=gridCtx&&activeCell&&activeCell.segIdx===gridCtx.segIdx&&activeCell.colType===gridCtx.colType&&activeCell.colIdx===gridCtx.colIdx;
+    const inFillPreview=gridCtx&&fillDrag&&gridCtx.colType===fillDrag.colType&&(
+      (fillDrag.dragToSegIdx>fillDrag.segIdx&&gridCtx.colIdx===fillDrag.colIdx&&gridCtx.segIdx>fillDrag.segIdx&&gridCtx.segIdx<=fillDrag.dragToSegIdx)||
+      (fillDrag.dragToColIdx>fillDrag.colIdx&&gridCtx.segIdx===fillDrag.segIdx&&gridCtx.colIdx>fillDrag.colIdx&&gridCtx.colIdx<=fillDrag.dragToColIdx)
+    );
     return(<>
       <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
-        ref={pasteCtx?el=>{cellRefs.current[cellKey(pasteCtx.segIdx,pasteCtx.monthIdx)]=el;}:undefined}
-        onFocus={pasteCtx?()=>handleCellFocus(pasteCtx):undefined}
-        onMouseDown={pasteCtx?e=>handleCellMouseDown(e,pasteCtx):undefined}
-        onKeyDown={pasteCtx?e=>handleCellKeyDown(e,pasteCtx):undefined}
-        onMouseEnter={pasteCtx?()=>handleCellMouseEnter(pasteCtx):undefined}
+        ref={gridCtx?el=>{cellRefs.current[cellKey(gridCtx.segIdx,gridCtx.colType,gridCtx.colIdx)]=el;}:undefined}
+        onFocus={gridCtx?()=>handleCellFocus(gridCtx):undefined}
+        onMouseDown={gridCtx?e=>handleCellMouseDown(e,gridCtx):undefined}
+        onKeyDown={gridCtx?e=>handleCellKeyDown(e,gridCtx):undefined}
+        onMouseEnter={gridCtx?()=>handleCellMouseEnter(gridCtx):undefined}
         style={{background:inFillPreview?T.accentBg:selected?T.rowSelected:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:T.r5,color:over?T.danger:cap?T.warning:"#272727",padding:"4px 6px",fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",width:"100%",boxSizing:"border-box",fontFamily:T.font,textAlign:"right",outline:isActive?`1px solid ${T.accent}`:"none",outlineOffset:-1,display:"block"}}/>
       {isActive&&(
-        <div onMouseDown={e=>startFillDrag(e,pasteCtx)} title="Drag down to fill this value into the segments below"
-          style={{position:"absolute",bottom:-3,right:-3,width:7,height:7,background:T.accent,border:`1px solid ${T.surface}`,borderRadius:1,cursor:"ns-resize",zIndex:2}}/>
+        <div onMouseDown={e=>startFillDrag(e,gridCtx)} title="Drag down or right to fill this value into other cells"
+          style={{position:"absolute",bottom:-3,right:-3,width:7,height:7,background:T.accent,border:`1px solid ${T.surface}`,borderRadius:1,cursor:"crosshair",zIndex:2}}/>
       )}
     </>);
   };
@@ -1426,11 +1476,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                       </td>
                     );
                   })}
-                  {MONTHS.map((m,monthIdx)=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb,position:"relative"}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo,false,{segIdx,monthIdx})}</td>;})}
+                  {MONTHS.map((m,monthIdx)=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb,position:"relative"}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo,false,{segIdx,colType:"month",colIdx:monthIdx})}</td>;})}
                   {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727",background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
                   <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:ao?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
-                  {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
-                  {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true)}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
+                  {showQ&&QUARTERS.map((q,qIdx)=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true,{segIdx,colType:"quarter",colIdx:qIdx})}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
+                  {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true,{segIdx,colType:"annual",colIdx:0})}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
                   <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
                     <div style={{display:"flex",alignItems:"center",gap:2}}>
                       <button onClick={()=>toggleNotBudgeted(seg.key)} title={nb?"Unmark — this segment does need a budget":"Mark as not budgeted — hides the missing-budget signal for this segment"}
