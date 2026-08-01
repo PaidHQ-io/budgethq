@@ -72,6 +72,17 @@ export function upsertReportingFacts(session, workspaceId, rows) {
   });
 }
 
+// updates: [{ id, tags }] — tags fully REPLACES that row's tags object (send the merged
+// {...oldTags,...newValue}, same convention Campaign Tagger's own tag-apply uses). Returns
+// { updated, skipped: [{id,reason}] } — see reporting-facts.js's PATCH doc comment for why a
+// per-row collision doesn't fail the whole batch.
+export function patchReportingFactsTags(session, workspaceId, updates) {
+  return api(session, workspaceId, "", {
+    method: "PATCH",
+    body: JSON.stringify({ updates }),
+  });
+}
+
 // This workspace's current tag dimension NAMES (same list as Campaign Tagger — e.g. Product,
 // Region, Funnel, Pillar, Branded Search, Module, Brand, user-editable per workspace) plus known
 // VALUES for each, and known Campaign values — pulled from this workspace's own reporting_facts

@@ -41,6 +41,11 @@ const AskAI = lazy(() => import("./components/AskAI.jsx"));
 // codebases). Covers Dreamdata/PowerBI funnel/pipeline performance data (core.reporting_facts) —
 // distinct from this tab's own Data Sources connectors, which already cover ad-platform spend.
 const ReportingAnalyzer = lazy(() => import("./components/ReportingAnalyzer.jsx"));
+// Pipeline Tagger (2026-08-01, per Mo — a Campaign-Tagger-equivalent for reporting_facts data:
+// tag every imported PowerBI/Dreamdata/HubSpot/Salesforce row with the same tag_dims vocabulary
+// Campaign Tagger uses, kept entirely separate from that spend data — see the component's own doc
+// comment for why this never touches platform spend/budget).
+const PipelineTagger = lazy(() => import("./components/PipelineTagger.jsx"));
 // Data Audit tab (2026-07-31, per Mo — "I need a new tab where I can review in detail what data
 // has been brought into PaidHQ and from where"). Read-only view over mergedNormRows; no data of
 // its own to fetch, so lazy-loading it costs nothing beyond the chunk itself.
@@ -3753,6 +3758,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace}/></Suspense>}
+      {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} campaignTags={tags} tagDims={tagDims} canEdit={canEdit}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
           been imported, including anything a user has since hidden from the dashboards. */}

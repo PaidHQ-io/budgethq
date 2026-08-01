@@ -413,7 +413,7 @@ export const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","
 // NOTE (2026-07-30, per Mo): the "reportingAnalyzer" key/route is unchanged (matches the tab's
 // component/file name, PaidHQ.jsx's view-state, and API doc-comments) — only the user-facing
 // label was renamed, from "Reporting Analyzer" to "Performance Intelligence".
-export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Performance Intelligence",icon:"search"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
+export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Performance Intelligence",icon:"search"},{key:"pipelineTagger",label:"Pipeline Tagger",icon:"tag"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 export function autoDetect(h){

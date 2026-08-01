@@ -42,6 +42,22 @@
  * DELETE ?period_type=...&start=...&end=...&campaign_name=...&tags={...} — corrections/undo. At
  *        least one filter required (mirrors spend-rows.js's DELETE guard against an accidental
  *        full wipe).
+ * PATCH  Body: { updates: [{ id, tags }] } — Pipeline Tagger (2026-08-01, per Mo — a dedicated
+ *        tagging tab for reporting_facts, mirroring Campaign Tagger's UX). Retags an ALREADY-STORED
+ *        row in place by primary key. Deliberately separate from POST's upsert: `tags` is part of
+ *        reporting_facts' own unique key (workspace_id, period_type, period_start, campaign_name,
+ *        tags), so changing a row's tags via upsert would just INSERT a second, duplicate-looking
+ *        row instead of correcting the existing one — a plain `UPDATE ... WHERE id = ...` is the
+ *        only safe way to retag without leaving an orphaned untagged copy behind. Each update fully
+ *        REPLACES that row's tags object (the caller is expected to send the merged
+ *        {...oldTags,...newValue} object, same convention as Campaign Tagger's own tag-apply
+ *        merging) — not a partial patch. If a retag would collide with another existing row's exact
+ *        (period_type, period_start, campaign_name, tags) combination, Postgres raises a unique
+ *        violation (23505) for that one update; the loop catches it per-row so one collision
+ *        doesn't fail the rest of the batch, and the response's `skipped` array reports which ids
+ *        failed and why (this is the "two rows for the same period should actually be merged into
+ *        one" edge case — not handled automatically in v1, surfaced to the user instead of silently
+ *        dropped).
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
@@ -159,6 +175,38 @@ export default withApi(async (req, res) => {
     return res.status(201).json({ upserted, skipped });
   }
 
+  if (req.method === "PATCH") {
+    requireEditAccess(myRole);
+    const inputUpdates = (await readJsonBody(req)).updates;
+    if (!Array.isArray(inputUpdates) || !inputUpdates.length) {
+      return res.status(400).json({ error: "updates must be a non-empty array" });
+    }
+
+    let updated = 0;
+    const skipped = [];
+    for (const u of inputUpdates) {
+      if (!u || !u.id || typeof u.tags !== "object" || u.tags === null) {
+        skipped.push({ id: u?.id, reason: "invalid" });
+        continue;
+      }
+      try {
+        const result = await sql`
+          update core.reporting_facts
+          set tags = ${JSON.stringify(u.tags)}::jsonb, updated_at = now()
+          where id = ${u.id} and workspace_id = ${workspaceId}
+          returning id
+        `;
+        if (result.length) updated++;
+        else skipped.push({ id: u.id, reason: "not found" });
+      } catch (err) {
+        // 23505 = unique_violation — this retag would collide with another row sharing the same
+        // (period_type, period_start, campaign_name, tags). See the doc comment above.
+        skipped.push({ id: u.id, reason: err?.code === "23505" ? "conflict" : (err?.message || "error") });
+      }
+    }
+    return res.status(200).json({ updated, skipped });
+  }
+
   if (req.method === "DELETE") {
     requireEditAccess(myRole);
     const { period_type, start, end, campaign_name, tags } = req.query;
@@ -179,6 +227,6 @@ export default withApi(async (req, res) => {
     return res.status(200).json({ deleted: result.length });
   }
 
-  res.setHeader("Allow", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Allow", "GET, POST, PATCH, DELETE, OPTIONS");
   return res.status(405).json({ error: "Method not allowed" });
 });
