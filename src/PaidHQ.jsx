@@ -4430,8 +4430,15 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         *{box-sizing:border-box;margin:0;padding:0;}
         html,body{height:100%;width:100%;overflow:hidden;}
         #root{height:100%;width:100%;display:flex;flex-direction:column;}
-        body{font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;}
-        input,select,button,textarea{font-family:'DM Sans',sans-serif;}
+        /* Was hardcoded to 'DM Sans' regardless of theme (2026-08-01 fix, per Mo — "are you sure
+           we're using Poppins in Aida? It looks like DM Sans still"). Elements that set their own
+           fontFamily:T.font inline already overrode this, but any bare <input>/<select>/<button>/
+           <textarea> or text node without its own inline font-family fell back to this rule no
+           matter what theme was active. Now uses T.font, which is 'DM Sans',sans-serif for
+           Classic/Midnight anyway (this template literal already closes over T two lines below) —
+           so this is a no-op for those two and Aida-only in effect, per Mo's "Aida only" instruction. */
+        body{font-family:${T.font};-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;}
+        input,select,button,textarea{font-family:${T.font};}
         input::placeholder{color:${T.textMuted};}
         select option{background:${T.surface};color:${T.text};}
         ::-webkit-scrollbar{width:5px;height:5px;}
