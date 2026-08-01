@@ -31,10 +31,29 @@ import { usePersistentState } from "../lib/persist.js";
 
 const CAMPAIGN_TAG_ROW_LIMIT = 20000; // sanity cap so a runaway import can't hang this tab's group-by
 
+// Rows with no campaign_name (2026-08-01 — Source A's daily-by-product export and Source C's
+// Goals & Pacing PDF both have no per-row campaign identity, only tag columns like Business
+// Unit/Pillar/Product Line) used to all collapse into one meaningless "(untitled)" group here,
+// hiding every distinct product/pillar combination behind a single bucket. Fall back to a
+// readable label built from the row's own tag values instead, so e.g. "EPM / Reporting /
+// Spreadsheet Server" and "D&A / Tools / Jet Reports" group and tag separately. Only a row with
+// no campaign_name AND no tags at all (shouldn't normally happen) still falls into "(untitled)".
+// Known tradeoff: since the label is derived from CURRENT tags, applying a new dimension to a
+// group in this tab (e.g. adding Region) changes every affected row's label together on the next
+// refresh — the rows stay correctly merged as one group, but `selected`/dismissed-suggestion state
+// (keyed by this label) can reset for that group, same as reselecting after any rename would.
+function campaignGroupLabel(r) {
+  const campaignName = (r.campaignName || "").trim();
+  if (campaignName) return campaignName;
+  const tags = r.tags || {};
+  const label = Object.keys(tags).sort().map((d) => tags[d]).filter(Boolean).join(" / ");
+  return label || "(untitled)";
+}
+
 function groupByCampaign(rows) {
   const map = new Map();
   (rows || []).slice(0, CAMPAIGN_TAG_ROW_LIMIT).forEach((r) => {
-    const key = (r.campaignName || "").trim() || "(untitled)";
+    const key = campaignGroupLabel(r);
     if (!map.has(key)) map.set(key, { campaignName: key, rows: [], sources: new Set() });
     const g = map.get(key);
     g.rows.push(r);

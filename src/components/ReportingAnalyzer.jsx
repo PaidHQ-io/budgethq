@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Btn, Icon, PixelPanel, SectionLabel, Pill, TagAutocompleteInput } from "./shared.jsx";
-import { extractReportingRowsFromImage } from "../lib/reportingAI.js";
+import { extractReportingRowsFromImage, extractReportingRowsFromPdf } from "../lib/reportingAI.js";
+import { parseCampaignReportFile } from "../lib/reportingImport.js";
 import { listReportingFacts, upsertReportingFacts, getDimensionValues } from "../lib/reportingApi.js";
 import { PERIOD_TYPES, PERIOD_TYPE_LABELS, normalizePeriodStart, labelForPeriod, defaultPeriodStart } from "../lib/reportingPeriods.js";
 
@@ -30,6 +31,7 @@ function fileToDataUrl(file) {
 // a glance. Matches the metric names reportingAI.js's tool schema uses.
 const SUMMARY_METRICS = [
   { key: "spend", label: "Spend", money: true },
+  { key: "budget_goal", label: "Budget Goal", money: true },
   { key: "mqls", label: "MQL" },
   { key: "sqls", label: "SQL" },
   { key: "sql_pipeline", label: "SQL Pipeline", money: true },
@@ -145,8 +147,10 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
   // name directly (campaignName, or a tag dimension name like "Product").
   const [batchTags, setBatchTags] = useState({});
 
-  // Ref to the hidden file input, so the visible "Upload screenshot" button can trigger it directly.
-  const fileInputRef = useRef(null);
+  // Refs to the hidden file inputs, so the visible upload buttons can trigger them directly.
+  const fileInputRef = useRef(null); // screenshot (AI-vision)
+  const pdfInputRef = useRef(null); // Source C: Goals & Pacing PDF (AI, native PDF document block)
+  const campaignReportInputRef = useRef(null); // Source B: campaign-level Excel/CSV (deterministic, no AI)
 
   const refreshHistory = useCallback(() => {
     listReportingFacts(session, workspace.id)
@@ -233,6 +237,71 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
     [handleImage]
   );
 
+  // Source C: Goals & Pacing PDF. Same AI extraction shape as a screenshot (same review table,
+  // same tag-dims-driven prompt), just a native PDF document block instead of an image — see
+  // reportingAI.js's PDF EXTRACTION doc comment.
+  const handlePdfInput = useCallback(
+    async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      setExtracting(true);
+      setExtractError("");
+      try {
+        const dataUrl = await fileToDataUrl(file);
+        const rows = await extractReportingRowsFromPdf({
+          dataUrl,
+          token: session?.access_token,
+          tagDims: dimensionValues.tagDims || [],
+        });
+        const normalized = rows.map((r) => ({
+          source: "powerbi_pdf_goals_pacing",
+          periodType: r.period_type || "unknown",
+          periodStart:
+            r.period_type && r.period_type !== "unknown"
+              ? normalizePeriodStart(r.period_type, r.period_start) || undefined
+              : undefined,
+          campaignName: r.campaign_name || "",
+          tags: r.tags || {},
+          metrics: r.metrics || {},
+        }));
+        setPendingRows((prev) => [...prev, ...normalized]);
+      } catch (err) {
+        setExtractError(err.message || "Couldn't read that PDF.");
+      } finally {
+        setExtracting(false);
+      }
+    },
+    [session, dimensionValues.tagDims]
+  );
+
+  // Source B: campaign-level Excel/CSV export. Deterministic column-mapped parse, no AI call — see
+  // reportingImport.js. The file has no period column, so every row lands with periodType
+  // "unknown" and gets the same manual period-picker the AI paths already show for that case.
+  const handleCampaignReportInput = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setExtracting(true);
+    setExtractError("");
+    try {
+      const parsed = await parseCampaignReportFile(file);
+      const normalized = parsed.map((r) => ({
+        source: "powerbi_campaign_export",
+        periodType: "unknown",
+        periodStart: undefined,
+        campaignName: r.campaignName || "",
+        tags: {},
+        metrics: r.metrics || {},
+      }));
+      setPendingRows((prev) => [...prev, ...normalized]);
+    } catch (err) {
+      setExtractError(err.message || "Couldn't read that file.");
+    } finally {
+      setExtracting(false);
+    }
+  }, []);
+
   const handlePaste = useCallback(
     async (e) => {
       const item = Array.from(e.clipboardData?.items || []).find((i) => i.type.startsWith("image/"));
@@ -276,10 +345,11 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
       <SectionLabel T={T}>Performance Intelligence</SectionLabel>
       <div style={{ fontSize:16*(T.fsScale||1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Import Dreamdata / PowerBI data</div>
       <div style={{ fontSize:13*(T.fsScale||1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
-        Screenshot a table from your Dreamdata/PowerBI dashboard and drop it below, or paste
-        directly (Cmd/Ctrl+V) anywhere on this page. Re-importing a period that's already stored
-        overwrites it with the new numbers — nothing is duplicated. Channel spend connections live
-        in the Data Sources tab; this is specifically for funnel/pipeline performance data.
+        Screenshot a table from your Dreamdata/PowerBI dashboard and drop it below, paste directly
+        (Cmd/Ctrl+V) anywhere on this page, upload the campaign-level PowerBI export (Excel/CSV), or
+        upload a Goals &amp; Pacing PDF export. Re-importing a period that's already stored overwrites
+        it with the new numbers — nothing is duplicated. Channel spend connections live in the Data
+        Sources tab; this is specifically for funnel/pipeline performance data.
       </div>
 
       <PixelPanel T={T} contentStyle={{ padding: 20, marginBottom: 20 }}>
@@ -287,6 +357,14 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileInput} style={{ display: "none" }} />
           <Btn T={T} variant="primary" size="md" onClick={() => fileInputRef.current?.click()}>
             <Icon name="paperclip" size={14} /> Upload screenshot
+          </Btn>
+          <input ref={campaignReportInputRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleCampaignReportInput} style={{ display: "none" }} />
+          <Btn T={T} variant="ghost" size="md" onClick={() => campaignReportInputRef.current?.click()}>
+            <Icon name="paperclip" size={14} /> Upload campaign report (Excel/CSV)
+          </Btn>
+          <input ref={pdfInputRef} type="file" accept="application/pdf,.pdf" onChange={handlePdfInput} style={{ display: "none" }} />
+          <Btn T={T} variant="ghost" size="md" onClick={() => pdfInputRef.current?.click()}>
+            <Icon name="paperclip" size={14} /> Upload Goals &amp; Pacing PDF
           </Btn>
           <span style={{ fontSize:12*(T.fsScale||1), color: T.textMuted }}>or paste a screenshot anywhere on this page</span>
           {extracting && (

@@ -28,6 +28,15 @@
  * current dimension list is, and the model is told to use those exact names when a value for one
  * is visible (e.g. in a filter dropdown shown above the table) — campaign_name stays the one fixed
  * identity field, everything else is arbitrary.
+ *
+ * PDF EXTRACTION (2026-08-01, per Mo — "Source C", a Goals & Pacing PDF export with no per-row
+ * campaign identity, only Business Unit/Product Pillar/Product Line columns): extractReportingRowsFromPdf
+ * reuses this exact same system prompt + tool schema, sending Anthropic a native `document` content
+ * block instead of an `image` one — /api/analyze is a dumb pass-through (see its own doc comment),
+ * so no server change was needed, and Claude reads embedded-text PDFs directly without needing this
+ * app to run its own PDF-to-text extraction step. The Business Unit/Product Pillar/Product Line
+ * columns get picked up by the existing "a column literally labeled with one of these [dimension]
+ * names" instruction below — same mechanism a per-row breakdown column already used for images.
  */
 const REPORTING_METRICS_HELP = `
 Known metrics (use these exact keys in the "metrics" object; omit any not shown in this image — do
@@ -35,6 +44,13 @@ not invent numbers). Strip "$", ",", and "%" — store as plain numbers (percent
 0.7%, i.e. the number as shown, not divided by 100 unless the source itself is a plain fraction):
 spend, impressions, clicks, ctr, cpc, all_conversions, cp_all_conv, cvr, inquiries, cp_inquiry,
 cvr_inquiry, leads, cp_lead, mqls, cp_mql, sqls, sql_pipeline, all_conv_to_mql_rate, mql_to_sql_rate
+
+Goals & Pacing metrics (2026-08-01 — a "Goals & Pacing" report shows targets/attainment/forecast
+alongside actuals; "Total Spend" still maps to the plain "spend" key above, do not use budget_goal
+for it):
+mql_goal, mql_attainment_pct, mql_forecast_pct, budget_goal, spend_pct_of_budget, spend_pacing_pct,
+mkt_mql_actuals, mkt_mql_goal, mkt_mql_attainment_pct, mkt_mql_forecast_pct, mkt_pipeline_actuals,
+mkt_pipeline_goal, mkt_pipeline_attainment_pct, mkt_pipeline_forecast_pct
 `.trim();
 
 function buildSystemPrompt(tagDims) {
@@ -113,6 +129,20 @@ function buildRecordTool(tagDims) {
                   sql_pipeline: { type: "number" },
                   all_conv_to_mql_rate: { type: "number" },
                   mql_to_sql_rate: { type: "number" },
+                  mql_goal: { type: "number" },
+                  mql_attainment_pct: { type: "number" },
+                  mql_forecast_pct: { type: "number" },
+                  budget_goal: { type: "number" },
+                  spend_pct_of_budget: { type: "number" },
+                  spend_pacing_pct: { type: "number" },
+                  mkt_mql_actuals: { type: "number" },
+                  mkt_mql_goal: { type: "number" },
+                  mkt_mql_attainment_pct: { type: "number" },
+                  mkt_mql_forecast_pct: { type: "number" },
+                  mkt_pipeline_actuals: { type: "number" },
+                  mkt_pipeline_goal: { type: "number" },
+                  mkt_pipeline_attainment_pct: { type: "number" },
+                  mkt_pipeline_forecast_pct: { type: "number" },
                 },
               },
             },
@@ -125,16 +155,14 @@ function buildRecordTool(tagDims) {
   };
 }
 
-// dataUrl: "data:image/png;base64,...." (or jpeg) — whatever the browser's FileReader/paste
-// handler produced. token: session.access_token, forwarded as a Bearer header (see api/analyze.js
-// AUTH doc comment — any logged-in PaidHQ user, no workspace check needed for this stateless proxy).
-// tagDims: this workspace's current tag dimension names (from dimension-values.js's `tagDims`) —
-// used to build the extraction prompt/schema so the model tags with the right vocabulary.
-export async function extractReportingRowsFromImage({ dataUrl, token, tagDims = [] }) {
-  const match = /^data:(image\/\w+);base64,(.+)$/.exec(dataUrl || "");
-  if (!match) throw new Error("Expected a base64 image data URL");
-  const [, mediaType, base64] = match;
-
+// Shared by both extraction entry points below — builds the same system prompt/tool schema,
+// sends one `sourceBlock` content block (an image or a document) plus an instruction text block to
+// /api/analyze, and parses the record_reporting_rows tool_use result out of the response. token:
+// session.access_token, forwarded as a Bearer header (see api/analyze.js's AUTH doc comment — any
+// logged-in PaidHQ user, no workspace check needed for this stateless proxy). tagDims: this
+// workspace's current tag dimension names (from dimension-values.js's `tagDims`) — used to build
+// the extraction prompt/schema so the model tags with the right vocabulary.
+async function runExtraction({ sourceBlock, instruction, token, tagDims, notFoundMessage }) {
   const res = await fetch("/api/analyze", {
     method: "POST",
     headers: {
@@ -148,10 +176,7 @@ export async function extractReportingRowsFromImage({ dataUrl, token, tagDims = 
       messages: [
         {
           role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-            { type: "text", text: "Extract every reporting row from this screenshot using the record_reporting_rows tool." },
-          ],
+          content: [sourceBlock, { type: "text", text: instruction }],
         },
       ],
     }),
@@ -160,8 +185,38 @@ export async function extractReportingRowsFromImage({ dataUrl, token, tagDims = 
   if (!res.ok) throw new Error(data?.error || `Extraction failed (${res.status})`);
 
   const toolUse = (data.content || []).find((b) => b.type === "tool_use" && b.name === "record_reporting_rows");
-  if (!toolUse) {
-    throw new Error("Couldn't read a structured table from that image — try a clearer screenshot of just the table.");
-  }
+  if (!toolUse) throw new Error(notFoundMessage);
   return toolUse.input?.rows || [];
+}
+
+// dataUrl: "data:image/png;base64,...." (or jpeg) — whatever the browser's FileReader/paste
+// handler produced.
+export async function extractReportingRowsFromImage({ dataUrl, token, tagDims = [] }) {
+  const match = /^data:(image\/\w+);base64,(.+)$/.exec(dataUrl || "");
+  if (!match) throw new Error("Expected a base64 image data URL");
+  const [, mediaType, base64] = match;
+  return runExtraction({
+    sourceBlock: { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+    instruction: "Extract every reporting row from this screenshot using the record_reporting_rows tool.",
+    token,
+    tagDims,
+    notFoundMessage: "Couldn't read a structured table from that image — try a clearer screenshot of just the table.",
+  });
+}
+
+// dataUrl: "data:application/pdf;base64,...." — whatever the browser's FileReader produced for an
+// uploaded PDF (e.g. a "Goals & Pacing" export). Sends Anthropic a native `document` content block
+// so Claude reads the PDF's own embedded text/tables directly — no client- or server-side PDF text
+// extraction step needed, see the PDF EXTRACTION doc comment at the top of this file.
+export async function extractReportingRowsFromPdf({ dataUrl, token, tagDims = [] }) {
+  const match = /^data:application\/pdf;base64,(.+)$/.exec(dataUrl || "");
+  if (!match) throw new Error("Expected a base64 PDF data URL");
+  const [, base64] = match;
+  return runExtraction({
+    sourceBlock: { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+    instruction: "Extract every reporting row from every table in this PDF using the record_reporting_rows tool.",
+    token,
+    tagDims,
+    notFoundMessage: "Couldn't read a structured table from that PDF.",
+  });
 }
