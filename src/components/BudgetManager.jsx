@@ -6,10 +6,11 @@ import {
   campaignKey, parseMoney, fmtFull, fmt$, isMonthHdr, getMonthKey,
   parsePeriod, findFlatMonthlyCol, parseFileToRows, forwardFillGroups, downloadCSV,
   computeActualsByMonth, computePacing, pacingStatusMeta, MONTHS, QUARTERS,
+  splitFilterTerms, matchesTerms,
 } from "../lib/core.js";
 import {
   SectionLabel, Pill, Btn, Inp, Sel, Tog, Chk, StatRow, Divider, Icon,
-  PixelPanel, WarnTip, AISummaryCard,
+  PixelPanel, WarnTip, AISummaryCard, MatchModeToggle, IconField,
 } from "./shared.jsx";
 import { useGoogleSheetConnect } from "../hooks/useGoogleSheetConnect.js";
 import { pickSpreadsheet, appendRowsToGoogleSheet } from "../lib/googleSheets.js";
@@ -88,7 +89,25 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[contractionNewDims,setContractionNewDims]=useState([]); // this import's active dims — for display only, kept in state (not read from the ref) since refs can't be read during render
   // Budget row tagging
   const[selRows,setSelRows]=useState(new Set());
-  const[segFilters,setSegFilters]=usePersistentState("paidhq_budget_segFilters",{}); // {dim: filterText} — substring match, ANDed across dims
+  // Filter/sort (2026-07-31, per Mo — "stronger filter and sort... at the top, like the campaign
+  // tagger"). Generalized across whatever budgetDims/budgetMetaDims are active (unlike Tagger's
+  // fixed Campaign/Group/Platform/Tag fields), so this is keyed by dimension name rather than one
+  // named state var per field: {[dim]: "term1, term2"} for both include and exclude, each with its
+  // own AND/OR match mode, reusing the exact same splitFilterTerms/matchesTerms helpers and
+  // MatchModeToggle component Tagger's filters already use — same comma-separated-terms UX in
+  // both places. segFilters kept as the include-filter variable name (was already persisted under
+  // this key as a plain substring filter; upgrading it in place to comma-separated multi-term
+  // matching is a strict superset of the old single-substring behavior, not a breaking shape
+  // change for anyone's already-saved filter text).
+  const[segFilters,setSegFilters]=usePersistentState("paidhq_budget_segFilters",{}); // {dim: "term1, term2"} — include
+  const[segFiltersExclude,setSegFiltersExclude]=usePersistentState("paidhq_budget_segFiltersExclude",{});
+  const[segFilterInclMode,setSegFilterInclMode]=usePersistentState("paidhq_budget_segFilterInclMode",{}); // {dim:"or"|"and"}
+  const[segFilterExclMode,setSegFilterExclMode]=usePersistentState("paidhq_budget_segFilterExclMode",{});
+  const[totalMin,setTotalMin]=usePersistentState("paidhq_budget_totalMin","");
+  const[totalMax,setTotalMax]=usePersistentState("paidhq_budget_totalMax","");
+  const[budgetSortCol,setBudgetSortCol]=usePersistentState("paidhq_budget_sortCol",""); // "" (unsorted/import order) | a dim/meta-dim name | "_total"
+  const[budgetSortDir,setBudgetSortDir]=usePersistentState("paidhq_budget_sortDir","desc");
+  const[filtersOpen,setFiltersOpen]=usePersistentState("paidhq_budget_filtersOpen",false);
   const[applyMetaDim,setApplyMetaDim]=useState("");
   const[applyMetaVal,setApplyMetaVal]=useState("");
   const[bulkPct,setBulkPct]=useState("");
@@ -516,24 +535,6 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     return out.sort((a,b)=>a.key.localeCompare(b.key));
   },[budgetDims,campaignTags,budgets,year,mergedNormRows,platformIndex]);
 
-  // Segments filtered by per-dimension substring match (ANDed) — drives what's visible,
-  // what "select all" selects, and what a bulk delete targets. Covers both the primary
-  // budgetDims (e.g. Product, stored on the segment itself) and any annotation dimensions
-  // added as budgetMetaDims (e.g. Region, Pillar, Funnel — stored in budgetRowMeta per segment).
-  const filteredSegs=useMemo(()=>segs.filter(seg=>{
-    const meta=budgetRowMeta[seg.key]||{};
-    if(hideNotBudgeted&&meta._notBudgeted)return false;
-    return budgetDims.every(d=>{
-      const f=(segFilters[d]||"").trim().toLowerCase();
-      return!f||(seg[d]||"").toLowerCase().includes(f);
-    })&&budgetMetaDims.every(d=>{
-      const f=(segFilters[d]||"").trim().toLowerCase();
-      return!f||(meta[d]||"").toLowerCase().includes(f);
-    });
-  }),[segs,budgetDims,budgetMetaDims,budgetRowMeta,segFilters,hideNotBudgeted]);
-  const hasSegFilters=Object.values(segFilters).some(v=>(v||"").trim());
-  const clearSegFilters=()=>setSegFilters({});
-
   const getMV=useCallback((sk,mk)=>budgets[year]?.[sk]?.monthly?.[mk]??"",[budgets,year]);
   const getQC=useCallback((sk,qk)=>budgets[year]?.[sk]?.quarterly?.[qk]??"",[budgets,year]);
   const getAC=useCallback(sk=>budgets[year]?.[sk]?.annual??"",[budgets,year]);
@@ -541,6 +542,58 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const setQC=useCallback((sk,qk,v)=>{if(!canEdit)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(!nx[year][sk].quarterly)nx[year][sk].quarterly={};if(n===null)delete nx[year][sk].quarterly[qk];else nx[year][sk].quarterly[qk]=n;return nx;});},[year,canEdit]);
   const setAC=useCallback((sk,v)=>{if(!canEdit)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(n===null)delete nx[year][sk].annual;else nx[year][sk].annual=n;return nx;});},[year,canEdit]);
   const rowTotal=useCallback(sk=>Object.values(budgets[year]?.[sk]?.monthly||{}).reduce((s,v)=>s+(v||0),0),[budgets,year]);
+  // Segments filtered + sorted (2026-07-31, per Mo — "stronger filter and sort... like the
+  // campaign tagger"). Drives what's visible, what "select all" selects, and what a bulk
+  // delete/adjust targets. Covers both the primary budgetDims (e.g. Product, stored on the
+  // segment itself) and any annotation dimensions added as budgetMetaDims (e.g. Region, Pillar —
+  // stored in budgetRowMeta per segment) uniformly, since both are just "a named field on this
+  // row" from the filter/sort's point of view. Placed after rowTotal (rather than up where the
+  // old plain-substring version lived) since sorting/filtering by "Total" needs it.
+  //
+  // Include/exclude use the exact same splitFilterTerms/matchesTerms comma-separated-terms +
+  // AND/OR-mode matching Campaign Tagger's filters already use, not a fresh implementation —
+  // same UX in both places, and "row1, row2" style multi-value filtering that a plain substring
+  // match couldn't do.
+  const filteredSegs=useMemo(()=>{
+    const allDims=[...budgetDims,...budgetMetaDims];
+    let r=segs.filter(seg=>{
+      const meta=budgetRowMeta[seg.key]||{};
+      if(hideNotBudgeted&&meta._notBudgeted)return false;
+      for(const d of allDims){
+        const val=(budgetDims.includes(d)?seg[d]:meta[d])||"";
+        const valLower=val.toLowerCase();
+        const incl=(segFilters[d]||"").trim();
+        if(incl){
+          const terms=splitFilterTerms(incl);
+          if(terms.length&&!matchesTerms(valLower,terms,segFilterInclMode[d]||"or"))return false;
+        }
+        const excl=(segFiltersExclude[d]||"").trim();
+        if(excl){
+          const terms=splitFilterTerms(excl);
+          if(terms.length&&matchesTerms(valLower,terms,segFilterExclMode[d]||"or"))return false;
+        }
+      }
+      if(totalMin&&rowTotal(seg.key)<parseFloat(totalMin))return false;
+      if(totalMax&&rowTotal(seg.key)>parseFloat(totalMax))return false;
+      return true;
+    });
+    if(budgetSortCol){
+      r=[...r].sort((a,b)=>{
+        if(budgetSortCol==="_total"){
+          const av=rowTotal(a.key),bv=rowTotal(b.key);
+          return budgetSortDir==="asc"?av-bv:bv-av;
+        }
+        const aMeta=budgetRowMeta[a.key]||{},bMeta=budgetRowMeta[b.key]||{};
+        const av=(budgetDims.includes(budgetSortCol)?a[budgetSortCol]:aMeta[budgetSortCol])||"";
+        const bv=(budgetDims.includes(budgetSortCol)?b[budgetSortCol]:bMeta[budgetSortCol])||"";
+        return budgetSortDir==="asc"?av.localeCompare(bv):bv.localeCompare(av);
+      });
+    }
+    return r;
+  },[segs,budgetDims,budgetMetaDims,budgetRowMeta,segFilters,segFiltersExclude,segFilterInclMode,segFilterExclMode,totalMin,totalMax,hideNotBudgeted,budgetSortCol,budgetSortDir,rowTotal]);
+  const hasSegFilters=Object.values(segFilters).some(v=>(v||"").trim())||Object.values(segFiltersExclude).some(v=>(v||"").trim())||!!totalMin||!!totalMax;
+  const clearSegFilters=()=>{setSegFilters({});setSegFiltersExclude({});setTotalMin("");setTotalMax("");};
+  const doBudgetSort=col=>{setBudgetSortDir(budgetSortCol===col&&budgetSortDir==="desc"?"asc":"desc");setBudgetSortCol(col);};
   const qTotal=useCallback((sk,q)=>q.months.reduce((s,m)=>s+(budgets[year]?.[sk]?.monthly?.[m]||0),0),[budgets,year]);
   const qOver=useCallback((sk,q)=>{const c=parseMoney(getQC(sk,q.key));return c!==null&&qTotal(sk,q)>c;},[getQC,qTotal]);
   const aOver=useCallback(sk=>{const c=parseMoney(getAC(sk));return c!==null&&rowTotal(sk)>c;},[getAC,rowTotal]);
@@ -1410,6 +1463,23 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // sticky header cell scrolling underneath them in both directions at once.
   const TH={fontFamily:T.font,fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center",position:"sticky",top:0,zIndex:2};
 
+  // Sortable column-header label (2026-07-31, per Mo) — same click-to-toggle-direction affordance
+  // as Campaign Tagger's own SH component (underline + ▾/▴/⇅ indicator), reimplemented locally
+  // rather than imported since Tagger's SH is wired to Tagger's fixed column set (col is one of
+  // "campaign"/"group"/"spend"/"platform"/"tags") where this one takes any dim name or "_total".
+  // A plain function returning JSX (called as budgetHeader(...), not rendered as <BH/>) rather
+  // than a component defined inline in the render body — the latter trips
+  // react-hooks/static-components (React remounts a fresh component identity every render,
+  // losing DOM/focus state), which a directly-invoked helper function doesn't.
+  const budgetHeader=(col,label)=>(
+    <span onClick={()=>doBudgetSort(col)} title="Click to sort" style={{cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3,textDecoration:budgetSortCol===col?"underline":"none",textUnderlineOffset:2}}>
+      {label}<span style={{opacity:0.7,fontSize:9}}>{budgetSortCol===col?(budgetSortDir==="desc"?"▾":"▴"):"⇅"}</span>
+    </span>
+  );
+  // Same filter-input style Tagger's own `fIn` constant uses, redefined locally rather than
+  // shared since it's a plain style object, not worth extracting a component for.
+  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,color:T.text,padding:"6px 9px",fontSize:11,outline:"none",fontFamily:T.font,width:"100%",height:30,boxSizing:"border-box"};
+
   // Manual "type a row in by hand" control (2026-07-31, per Mo — a blank starting canvas for
   // workspaces that don't want to import a file or wait on Tagger data). Was already fully built
   // as addManualRow/newRowVals, but only ever rendered in the bottom bar below a table that
@@ -1563,6 +1633,54 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           </div>
         ):(
           <>
+          {/* Filters panel (2026-07-31, per Mo — "stronger filter and sort... at the top, like
+              the campaign tagger"). Same collapsible-toggle + include/exclude-with-match-mode UX
+              as Tagger's own Filters bar, generalized across whatever budgetDims/budgetMetaDims
+              are active plus a Year Total range, instead of Tagger's fixed Campaign/Group/
+              Platform/Tag fields. */}
+          <div style={{borderBottom:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px"}}>
+              <button onClick={()=>setFiltersOpen(o=>!o)} title={filtersOpen?"Hide filters":"Show filters"}
+                style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"3px 8px",cursor:"pointer",fontFamily:T.font,fontSize:11,fontWeight:600,color:T.text,outline:"none"}}>
+                <Icon name="filter" size={12} color={T.text}/>
+                Filters
+                {hasSegFilters&&<span style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>}
+              </button>
+              {!filtersOpen&&hasSegFilters&&<button onClick={clearSegFilters} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:T.font,textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
+              <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
+            </div>
+            {filtersOpen&&(
+              <div style={{padding:"0 16px 12px",display:"flex",flexWrap:"wrap",gap:12,alignItems:"flex-end"}}>
+                {[...budgetDims,...budgetMetaDims].map(d=>(
+                  <div key={d} style={{display:"flex",flexDirection:"column",gap:3,width:170}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>{d}</div>
+                    <div style={{display:"flex",gap:3}}>
+                      <IconField icon="search" color={T.textMuted}>
+                        <input value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder="Contains… (a, b)"
+                          title={`Comma-separate multiple terms — ${(segFilterInclMode[d]||"or")==="and"?"row must contain ALL of them":"matches ANY of them"}`}
+                          style={{...fIn,paddingLeft:26}}/>
+                      </IconField>
+                      <MatchModeToggle mode={segFilterInclMode[d]||"or"} onChange={m=>setSegFilterInclMode(p=>({...p,[d]:m}))} T={T}/>
+                    </div>
+                    <div style={{display:"flex",gap:3}}>
+                      <input value={segFiltersExclude[d]||""} onChange={e=>setSegFiltersExclude(p=>({...p,[d]:e.target.value}))} placeholder="≠ excludes… (a, b)"
+                        title={`Comma-separate multiple terms — ${(segFilterExclMode[d]||"or")==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`}
+                        style={{...fIn,flex:1}}/>
+                      <MatchModeToggle mode={segFilterExclMode[d]||"or"} onChange={m=>setSegFilterExclMode(p=>({...p,[d]:m}))} T={T}/>
+                    </div>
+                  </div>
+                ))}
+                <div style={{display:"flex",flexDirection:"column",gap:3,width:130}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>Year Total</div>
+                  <div style={{display:"flex",gap:4}}>
+                    <input value={totalMin} onChange={e=>setTotalMin(e.target.value)} placeholder="Min" style={{...fIn,width:"50%"}}/>
+                    <input value={totalMax} onChange={e=>setTotalMax(e.target.value)} placeholder="Max" style={{...fIn,width:"50%"}}/>
+                  </div>
+                </div>
+                {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T} style={{alignSelf:"flex-end"}}>Clear all filters</Btn>}
+              </div>
+            )}
+          </div>
           <div style={{padding:"14px 16px 0"}}>
             <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} combineGoogleChannels={combineGoogleChannels} mode="budget"/>
           </div>
@@ -1653,12 +1771,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               <th style={{...TH,width:32,padding:"15px 8px 9px 16px",left:0,zIndex:6,background:T.headerBg}}>
                 <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title="Select all rows — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
-              {budgetDims.map((d,i)=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:dcw,left:32+i*dcw,zIndex:5,background:T.headerBg}}>{d}</th>)}
-              {budgetMetaDims.map(d=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:110}}>{d}</th>)}
+              {budgetDims.map((d,i)=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:dcw,left:32+i*dcw,zIndex:5,background:T.headerBg}}>{budgetHeader(d,d)}</th>)}
+              {budgetMetaDims.map(d=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:110}}>{budgetHeader(d,d)}</th>)}
               {showCurrency&&<th style={{...TH,padding:"15px 14px 9px",minWidth:76}}>Currency</th>}
               {MONTHS.map(m=><th key={m.key} style={{...TH,textAlign:"center",minWidth:76}}>{m.label}</th>)}
               {QUARTERS.map(q=><th key={"qt-"+q.key} style={{...TH,textAlign:"center",minWidth:90}}>{q.key}</th>)}
-              <th style={{...TH,textAlign:"center",minWidth:100}}>Year Total</th>
+              <th style={{...TH,textAlign:"center",minWidth:100}}>{budgetHeader("_total","Year Total")}</th>
               {showQ&&QUARTERS.map(q=><th key={"qc-"+q.key} style={{...TH,color:T.warning,minWidth:96}}>{q.label}</th>)}
               {showA&&<th style={{...TH,color:T.warning,minWidth:96}}>Annual Cap</th>}
             </tr></thead>
@@ -1754,15 +1872,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
             </tbody>
           </table>
 
-          {/* Bottom bar — filters + add row, sharing one footer */}
+          {/* Bottom bar — add row + not-budgeted toggle, sharing one footer. Filtering itself
+              moved to the top Filters panel (2026-07-31, per Mo — "like the campaign tagger"). */}
           <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              <span style={{fontSize:11,color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
-              {[...budgetDims,...budgetMetaDims].map(d=>(
-                <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
-                  style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:120}}/>
-              ))}
-              {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
               {segs.some(sg=>isNotBudgeted(sg.key))&&(
                 <label style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:T.textSub,cursor:"pointer"}}>
                   <input type="checkbox" checked={hideNotBudgeted} onChange={e=>setHideNotBudgeted(e.target.checked)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
