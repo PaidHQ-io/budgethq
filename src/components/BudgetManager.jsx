@@ -147,6 +147,13 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[selEnd,setSelEnd]=useState(null); // {segIdx,monthIdx} | null
   const suppressAnchorResetRef=useRef(false);
   const[fillDrag,setFillDrag]=useState(null); // {segIdx,monthIdx,value,dragToSegIdx} | null
+  // Progressive Ctrl/Cmd+A (2026-07-31, per Mo — matches Excel/Sheets' own escalating behavior):
+  // 0 = next press selects just this cell's text (native browser behavior, not intercepted at
+  // all); 1 = next press selects the rest of this row (same colType); 2+ = next press selects
+  // the whole colType grid. Resets to 0 on any other key or a focus/click move to a different
+  // cell (handleCellFocus) — only a run of repeated Ctrl/Cmd+A presses on the SAME cell without
+  // any other interaction in between climbs the stages.
+  const selectAllStageRef=useRef(0);
   // Undo/redo (2026-07-31, per Mo). Scoped to `budgets` (the money values) specifically, not the
   // segment structure/tags/annotation metadata a row delete also touches — same reasoning as grid
   // paste/selection/fill-down staying scoped to values rather than trying to be a full app-wide
@@ -1310,6 +1317,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     if(suppressAnchorResetRef.current){suppressAnchorResetRef.current=false;}
     else{setSelAnchor(ctx);setSelEnd(null);}
     historySnapshotTakenRef.current=false; // moving to a new cell starts a fresh undo "burst"
+    selectAllStageRef.current=0; // moving to a new cell restarts the Ctrl/Cmd+A progression
   };
   const handleCellMouseDown=(e,ctx)=>{
     if(e.shiftKey&&selAnchor&&selAnchor.colType===ctx.colType){suppressAnchorResetRef.current=true;setSelEnd(ctx);}
@@ -1332,6 +1340,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     const input=e.currentTarget;
     const atStart=input.selectionStart===0&&input.selectionEnd===0;
     const atEnd=input.selectionStart===input.value.length&&input.selectionEnd===input.value.length;
+    const isSelectAll=(e.metaKey||e.ctrlKey)&&(e.key==="a"||e.key==="A");
+    // Any key other than a repeated Ctrl/Cmd+A restarts the progressive select-all below at
+    // stage 0 — only an unbroken run of Ctrl/Cmd+A presses on the same cell climbs the stages.
+    if(!isSelectAll)selectAllStageRef.current=0;
     const moveTo=(nSegIdx,nColIdx,extend)=>{
       if(!filteredSegs[nSegIdx]||nColIdx<0||nColIdx>=colCount(colType))return;
       e.preventDefault();
@@ -1346,15 +1358,32 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     if(e.key==="ArrowRight"&&atEnd){moveTo(segIdx,colIdx+1,e.shiftKey);return;}
     if(e.key==="ArrowLeft"&&atStart){moveTo(segIdx,colIdx-1,e.shiftKey);return;}
     if(e.key==="Enter"){moveTo(segIdx+(e.shiftKey?-1:1),colIdx,false);return;}
-    // Select-all (2026-07-31) — scoped to the current colType's full grid (every row, every
-    // column of that one type), not literally everything on screen at once. Selecting "all of
-    // months + all of quarterly caps + the annual cap" in one rectangle doesn't mean anything
-    // (they're different units), so Ctrl/Cmd+A selects the block you're currently in.
-    if((e.metaKey||e.ctrlKey)&&(e.key==="a"||e.key==="A")){
+    // Progressive select-all (2026-07-31, per Mo — match Excel/Sheets' escalating Ctrl/Cmd+A):
+    // 1st press selects just this cell's text (native browser behavior — don't intercept it at
+    // all), 2nd press selects the rest of the current row, 3rd+ press selects the whole colType
+    // grid (every row, every column of that one type — not literally everything on screen, since
+    // "all of months + all of quarterly caps + the annual cap" in one rectangle doesn't mean
+    // anything, they're different units). Stage resets on any other key or a focus/click move to
+    // a different cell (handleCellFocus), so this only escalates on an unbroken run of presses.
+    if(isSelectAll){
       if(!filteredSegs.length)return;
+      const stage=selectAllStageRef.current;
+      if(stage===0){
+        // Let the browser's own "select all text in this input" happen; just advance the stage
+        // so the NEXT press (still on this same cell) escalates to row-select instead.
+        selectAllStageRef.current=1;
+        return;
+      }
       e.preventDefault();
+      if(stage===1){
+        setSelAnchor({segIdx,colType,colIdx:0});
+        setSelEnd({segIdx,colType,colIdx:colCount(colType)-1});
+        selectAllStageRef.current=2;
+        return;
+      }
       setSelAnchor({segIdx:0,colType,colIdx:0});
       setSelEnd({segIdx:filteredSegs.length-1,colType,colIdx:colCount(colType)-1});
+      selectAllStageRef.current=3;
       return;
     }
     if(e.key==="Delete"||e.key==="Backspace"){
