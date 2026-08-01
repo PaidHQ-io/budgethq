@@ -4,7 +4,6 @@ import {
   stepPeriodBack, pacingStatusMeta, fmtFull, fmtSigned, MONTHS,
 } from "../lib/core.js";
 import { Icon, Pill, StatRow, DashStatTile, SpendVsBudgetBar, PlatformSpendBars, DashQuickAction, PixelPanel, Breadcrumb } from "./shared.jsx";
-import spaceStationIcon from "../assets/icons/space-station.png";
 
 // src/components/Dashboard.jsx — Dashboard tab (2026-07-25 split, per Mo).
 
@@ -142,12 +141,11 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
           <div style={{marginBottom:40,position:"relative",display:"flex",alignItems:"center",justifyContent:"space-between",gap:24}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,position:"relative"}}>
-                <div style={{width:48,height:48,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  {/* Space-station mark (2026-07-26, per Mo) replaces the house/bolt line icon —
-                      "HQ" is literally headquarters, and a station is exactly that: a home base
-                      other things connect to. Reuses the same asset as the hero image below on
-                      purpose, reinforcing rather than duplicating. */}
-                  <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:44,height:"auto"}}/>
+                <div style={{width:48,height:48,borderRadius:T.r10,background:T.accentBg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {/* 2026-08-01, per Mo — dropped the space-station illustration (see below for the
+                      hero image removal too); back to the plain line-icon set the rest of the app
+                      already uses everywhere else. */}
+                  <Icon name="bolt" size={22} color={T.accent}/>
                 </div>
                 <div>
                   <h1 style={{fontSize:30*(T.fsScale||1),fontWeight:800,color:T.text,letterSpacing:"-0.6px",marginBottom:2,fontFamily:T.font}}>PaidHQ</h1>
@@ -161,7 +159,6 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                 <span style={{fontSize:13*(T.fsScale||1),color:T.text,fontFamily:T.font}}>Start with spend data <strong>or</strong> a budget file — connect them later for pacing.</span>
               </div>
             </div>
-            <img src={spaceStationIcon} alt="" aria-hidden="true" className="bhq-hero-illustration" style={{width:150,height:"auto",flexShrink:0}}/>
           </div>
 
           {/* Cards */}
@@ -221,8 +218,8 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
           </div>
         ):(
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:26}}>
-            <div style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-              <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:32,height:"auto"}}/>
+            <div style={{width:36,height:36,borderRadius:T.r8,background:T.accentBg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <Icon name="bolt" size={17} color={T.accent}/>
             </div>
             <div>
               <div style={{fontSize:T.fsPageTitle,fontWeight:T.fsPageTitleWeight,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Dashboard</div>

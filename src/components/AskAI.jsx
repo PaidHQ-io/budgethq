@@ -5,7 +5,6 @@ import * as XLSX from "xlsx";
 import { askAIRun, askAIBuildView, aiConfigToViewConfig, ASK_AI_MODELS, ASK_AI_DEFAULT_MODEL } from "../lib/askAI.js";
 import { Inp, Btn, Sel, Icon, SectionLabel, MarkdownLite } from "./shared.jsx";
 import { usePersistentState } from "../lib/persist.js";
-import aiScienceDroneIcon from "../assets/icons/ai-science-drone.png";
 
 // Persisted across chats/sessions (2026-07-28, per Mo's model-picker request) — a per-browser
 // preference, not a per-workspace/server one, same tier as e.g. a UI theme choice would be. Reads
@@ -745,9 +744,6 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
         <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
           <div style={{width:"100%",maxWidth:640}}>
             <div style={{textAlign:"center",marginBottom:24}}>
-              {/* AI-science-drone illustration (2026-07-26, per Mo, licensed "Geometric Space
-                  Collection 2.0" set) — a literal AI-themed bot for the AI-themed empty state. */}
-              <img src={aiScienceDroneIcon} alt="" aria-hidden="true" style={{width:110,height:"auto",marginBottom:14}}/>
               <div style={{fontSize:22*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:6,fontFamily:T.font}}>Ask AI about your spend data</div>
               <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>Ask in plain language — answers are pulled from your actual tagged campaigns, not guessed.</div>
             </div>
