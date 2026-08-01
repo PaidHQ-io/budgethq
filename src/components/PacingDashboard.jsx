@@ -11,6 +11,8 @@ import {
 import { askAIBuildView, aiConfigToViewConfig } from "../lib/askAI.js";
 import { Icon, Btn, SectionLabel, Sel, Divider, PixelPanel, AISummaryCard, Pill, WarnTip, InfoTip } from "./shared.jsx";
 import { usePersistentState } from "../lib/persist.js";
+import { EXPORT_FORMATS, downloadReport } from "../lib/reports.js";
+import { exportReportToGoogleSheets } from "../lib/googleSheets";
 
 // Forecast-model "mode" — the 3 user-facing choices (Auto/Committed/Manual) — vs. the raw stored
 // string (see FORECAST_MODELS in lib/core.js): Manual doesn't have one fixed stored value, it's
@@ -423,6 +425,72 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   const hasSegFilters=statusFilter!=="all"||numericFilters.length>0||Object.values(segFilters).some(v=>(v||"").trim());
   const clearSegFilters=()=>{setSegFilters({});setStatusFilter("all");setNumericFilters([]);};
 
+  // Export (2026-08-01, per Mo — "export function from the budget pacing tab to csv, excel, pdf,
+  // google sheets"). Builds from filteredSegments/filteredCustomSegments — the exact same rows
+  // the table on screen already computes — so the export always matches whatever period (Mo/Qtr/
+  // Yr) and filters are currently active. This replaces the old top-rail "More" menu's export for
+  // this tab (see reports.js's doc comment on the removed buildPacingReport): that one had no way
+  // to see this component's own period-selection state, so it was hardcoded to a full-year rollup
+  // regardless of what was actually on screen. Only meaningful for the two table view modes;
+  // Trend is a chart, so the Export control is simply hidden there (see the JSX below).
+  const buildPacingExportReport=()=>{
+    const isCustom=viewMode==="custom";
+    const dims=isCustom?customDims:budgetDims;
+    const segs=isCustom?filteredCustomSegments:filteredSegments;
+    const expectedPct=isCustom?(customPacing?.expectedPct??0):pacing.expectedPct;
+    const headers=isCustom
+      ?[...dims,"Spend","Daily Burn","Projected"]
+      :[...dims,"Budget","Spend PTD","Pacing","Expected","Daily Burn","Projected","Projected %","Variance","Status"];
+    const rows=segs.map(seg=>isCustom?[
+      ...seg.dims,
+      fmtFull(seg.spend),
+      `${fmtFull(seg.dailyRate)}/day`,
+      seg.projected!=null?fmtFull(seg.projected):"—",
+    ]:[
+      ...seg.dims,
+      seg.budget>0?fmtFull(seg.budget):"—",
+      fmtFull(seg.spend),
+      seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—",
+      `${Math.round(expectedPct*100)}%`,
+      `${fmtFull(seg.dailyRate)}/day`,
+      seg.projected!=null?fmtFull(seg.projected):"—",
+      seg.projected!=null&&seg.budget>0?`${Math.round((seg.projected/seg.budget)*100)}%`:"—",
+      seg.projectedVariance!=null?fmtSigned(seg.projectedVariance):"—",
+      pacingStatusMeta(seg.status,T).label,
+    ]);
+    return{
+      title:"Budget Pacing export",
+      subtitle:`${periodLabel} · ${pacing.elapsedDays} of ${pacing.totalDays} days elapsed · Generated ${new Date().toLocaleString()}`,
+      sections:[{heading:`${isCustom?"Custom":"Budget"} segments — ${periodLabel}`,headers,rows}],
+    };
+  };
+  const[exportMenuOpen,setExportMenuOpen]=useState(false);
+  const[sheetsExporting,setSheetsExporting]=useState(false);
+  const handleExportDownload=format=>{
+    downloadReport(buildPacingExportReport(),format,"paidhq-budget-pacing");
+    setExportMenuOpen(false);
+  };
+  const handleExportToGoogleSheets=async()=>{
+    setExportMenuOpen(false);
+    // Same synchronous-blank-tab pattern as the rail's Google Sheets export (see PaidHQ.jsx) —
+    // opening the tab here, before the awaited API call, keeps it inside the click's "user
+    // gesture" window so browsers don't pop-up-block it.
+    const preOpened=window.open("","_blank","noopener,noreferrer");
+    if(preOpened)preOpened.document.write("<title>Exporting…</title><body style=\"font-family:sans-serif;color:#666;padding:40px\">Creating your Google Sheet…</body>");
+    setSheetsExporting(true);
+    try{
+      const url=await exportReportToGoogleSheets(buildPacingExportReport());
+      if(preOpened&&!preOpened.closed)preOpened.location.href=url;
+      else window.open(url,"_blank","noopener,noreferrer");
+    }catch(e){
+      console.error("[budget pacing google sheets export]",e);
+      if(preOpened&&!preOpened.closed)preOpened.close();
+      window.alert(e.message||"Couldn't export to Google Sheets. Try again.");
+    }finally{
+      setSheetsExporting(false);
+    }
+  };
+
   // "Ask AI about this view →" (2026-07-28, per Mo's scope-awareness ask) — templates the
   // currently active View-by mode + filters into a plain-English question and hands it to
   // onAskAboutView (wired up in PaidHQ.jsx to stash it and switch to the Ask AI tab). This is
@@ -786,6 +854,35 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               </>
             )}
           </div>
+          {/* Export (2026-08-01, per Mo). Hidden on Trend — that view is a chart, not a table, so
+              there's nothing here to export; switch to Budget Segments or Custom first. */}
+          {viewMode!=="trend"&&(
+            <div style={{position:"relative"}}>
+              <Btn onClick={()=>setExportMenuOpen(p=>!p)} variant="ghost" size="sm" T={T}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="download" size={12} color={T.textSub}/> Export <Icon name="chevronDown" size={11} color={T.textMuted}/></span>
+              </Btn>
+              {exportMenuOpen&&(
+                <>
+                  <div onClick={()=>setExportMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:99}}/>
+                  <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:100,minWidth:200,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+                    <div style={{padding:"5px 10px 5px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Export {periodLabel}</div>
+                    <div style={{display:"flex",gap:4,padding:"0 6px 6px"}}>
+                      {EXPORT_FORMATS.map(f=>(
+                        <button key={f.key} className="bhq-row" onClick={()=>handleExportDownload(f.key)}
+                          style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font}}>
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                    <button className="bhq-row" disabled={sheetsExporting} onClick={handleExportToGoogleSheets}
+                      style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:T.font,textAlign:"left"}}>
+                      <Icon name="export" size={14} color={T.textSub}/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <Btn onClick={()=>setAiViewOpen(p=>!p)} variant="ghost" size="sm" T={T}>✨ Ask AI to build a view</Btn>
           {aiViewOpen&&(
             <div style={{display:"flex",gap:6,alignItems:"center",flex:"1 1 320px",minWidth:260}}>

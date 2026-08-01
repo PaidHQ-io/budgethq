@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { THEME } from "./core.js";
-import { campaignKey, derivePlatform, computePacing, pacingStatusMeta, fmtSigned } from "./core.js";
+import { campaignKey, derivePlatform, computePacing, pacingStatusMeta } from "./core.js";
 
 // src/lib/reports.js — Export report builders (2026-07-25 split, per Mo). Every exportable
 // view (Dashboard, Campaign Tagger, Budget Panel, Reporting & Pacing) is first turned into one
@@ -117,37 +117,20 @@ export function buildBudgetReport({budgets,budgetDims,budgetRowMeta,defaultForec
   };
 }
 
-export function buildPacingReport({budgets,budgetDims,mergedNormRows,tags,budgetRowMeta,defaultForecastModel,combineGoogleChannels=false}){
-  const years=Object.keys(budgets||{}).sort();
-  const headers=[...(budgetDims||[]),"Year","Budget","Actual Spend","% Used","Daily Run Rate","Projected Year-End","Variance","Status"];
-  const rows=[];
-  years.forEach(year=>{
-    if(!(budgetDims||[]).length)return;
-    const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel,combineGoogleChannels});
-    pacing.segments.forEach(s=>{
-      rows.push([...s.dims,year,
-        `$${Math.round(s.budget).toLocaleString()}`,
-        `$${Math.round(s.spend).toLocaleString()}`,
-        s.actualPct!=null?`${Math.round(s.actualPct*100)}%`:"—",
-        `$${Math.round(s.dailyRate).toLocaleString()}`,
-        s.projected!=null?`$${Math.round(s.projected).toLocaleString()}`:"—",
-        s.projectedVariance!=null?fmtSigned(s.projectedVariance):"—",
-        pacingStatusMeta(s.status,THEME).label,
-      ]);
-    });
-  });
-  return{
-    title:"Reporting & Pacing export",
-    subtitle:`Generated ${new Date().toLocaleString()}`,
-    sections:[{heading:"Pacing by segment",headers,rows:rows.length?rows:[]}],
-  };
-}
+// buildPacingReport lived here until 2026-08-01 (per Mo — "export function from the budget
+// pacing tab"). Removed rather than fixed: it hardcoded periodType:"annual" and looped every
+// year in `budgets`, which was always wrong once Budget Pacing became its own tab with its own
+// Mo/Qtr/Yr period picker (that period selection is local state inside PacingDashboard.jsx —
+// this top-level EXPORTABLE_VIEWS/handleExportDownload machinery in PaidHQ.jsx has no way to
+// see it). A period-aware export now lives directly in PacingDashboard's own toolbar instead,
+// built from the exact same filteredSegments/customPacing the visible table already computes —
+// see buildPacingExportReport there. "pacing" was removed from EXPORTABLE_VIEWS below so the
+// rail's "More" menu doesn't offer a second, disagreeing, non-period-aware export for that tab.
 
 export const EXPORTABLE_VIEWS={
   dashboard:{label:"Dashboard",build:buildDashboardReport,filenameBase:"paidhq-dashboard"},
   tagger:{label:"Campaign Tagger",build:buildTaggerReport,filenameBase:"paidhq-campaign-tagger"},
   budget:{label:"Budget Panel",build:buildBudgetReport,filenameBase:"paidhq-budget-panel"},
-  pacing:{label:"Reporting & Pacing",build:buildPacingReport,filenameBase:"paidhq-reporting-pacing"},
 };
 export const EXPORT_FORMATS=[{key:"csv",label:"CSV",mime:"text/csv;charset=utf-8"},{key:"xlsx",label:"Excel",mime:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},{key:"pdf",label:"PDF",mime:"application/pdf"},{key:"html",label:"HTML",mime:"text/html;charset=utf-8"}];
 
