@@ -20,6 +20,13 @@ import surfaceBaseHabitatIcon from "../assets/icons/surface-base-habitat.png";
 // four tab components out of the PaidHQ.jsx monolith into their own files so each tab's code
 // can be lazy-loaded instead of every tab shipping in one bundle on every page load).
 
+// Per-segment currency LABEL only (2026-07-31, per Mo — "currency label only to start", no FX
+// conversion). Every number in the grid stays exactly as typed; this just tags a row with which
+// currency those numbers are actually denominated in, for clients with international budgets on
+// different currencies. Stored in budgetRowMeta under an underscore-prefixed key, same pattern
+// as _notBudgeted — never added to budgetMetaDims, so it never becomes a real dimension column.
+const CURRENCIES=["USD","EUR","GBP","CAD","AUD","JPY","CHF","MXN","BRL","INR"];
+
 export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true,combineGoogleChannels=false}){
   const yr=new Date().getFullYear();
   // year/showQ/showA/segFilters persisted (2026-07-30, per Mo — "whatever screen with whatever
@@ -28,6 +35,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[year,setYear]=usePersistentState("paidhq_budget_year",yr.toString());
   const[showQ,setShowQ]=usePersistentState("paidhq_budget_showQ",false);
   const[showA,setShowA]=usePersistentState("paidhq_budget_showA",false);
+  const[showCurrency,setShowCurrency]=usePersistentState("paidhq_budget_showCurrency",false);
   // Persisted to localStorage (like the top-level view/askChats prefs) rather than plain useState
   // — BudgetManager itself now stays mounted across tab switches (see the display:none wrapper in
   // PaidHQ's render), so this survives that on its own, but persisting it too means the toggle
@@ -211,7 +219,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     const pacingBySeg={};
     pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
     const actualsByMonth=(includeMonthly||includeQuarterly)?computeActualsByMonth({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,year,combineGoogleChannels}):{};
-    const header=[...budgetDims,...budgetMetaDims,...MONTHS.map(m=>m.label),"Total",
+    const header=[...budgetDims,...budgetMetaDims,"Currency",...MONTHS.map(m=>m.label),"Total",
       ...(includeMonthly?MONTHS.map(m=>`${m.label} Actual`):[]),
       ...(includeQuarterly?QUARTERS.map(q=>`${q.key} Actual`):[]),
       "Actual Spend","% of Budget Used","Daily Run Rate","Projected Year-End Spend","Projected Variance ($)","Pacing Status"];
@@ -233,7 +241,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         p&&p.projectedVariance!=null?Math.round(p.projectedVariance*100)/100:"—",
         p?pacingStatusMeta(p.status,T).label:pacingStatusMeta("no-budget",T).label,
       ];
-      rows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),...amts,total||"",...monthlyActualCols,...quarterlyActualCols,...pacingCols]);
+      rows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),meta._currency||"USD",...amts,total||"",...monthlyActualCols,...quarterlyActualCols,...pacingCols]);
     });
     downloadCSV(rows,`paidhq-budgets-pacing-${year}.csv`);
     showNotif("Budgets + pacing snapshot exported");
@@ -350,6 +358,17 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       const nx={...p};
       const cur={...(nx[segKey]||{})};
       if(cur._notBudgeted)delete cur._notBudgeted;else cur._notBudgeted=true;
+      nx[segKey]=cur;
+      return nx;
+    });
+  };
+  const getRowCurrency=segKey=>(budgetRowMeta[segKey]||{})._currency||"";
+  const setRowCurrency=(segKey,code)=>{
+    if(!canEdit)return;
+    setBudgetRowMeta(p=>{
+      const nx={...p};
+      const cur={...(nx[segKey]||{})};
+      if(code)cur._currency=code;else delete cur._currency;
       nx[segKey]=cur;
       return nx;
     });
@@ -1417,8 +1436,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           </div>
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
-            <SectionLabel T={T}>Optional Caps</SectionLabel>
-            {[{label:"Quarterly caps",v:showQ,s:setShowQ},{label:"Annual cap",v:showA,s:setShowA}].map(({label,v,s})=>(
+            <SectionLabel T={T}>Optional Columns</SectionLabel>
+            {[{label:"Quarterly caps",v:showQ,s:setShowQ},{label:"Annual cap",v:showA,s:setShowA},{label:"Currency labels",v:showCurrency,s:setShowCurrency}].map(({label,v,s})=>(
               <div key={label} onClick={()=>s(x=>!x)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",cursor:"pointer"}}>
                 <span style={{fontSize:12,color:T.textSub}}>{label}</span><Tog value={v} onChange={s} T={T}/>
               </div>
@@ -1555,6 +1574,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               </th>
               {budgetDims.map((d,i)=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:dcw,left:32+i*dcw,zIndex:5,background:T.headerBg}}>{d}</th>)}
               {budgetMetaDims.map(d=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:110}}>{d}</th>)}
+              {showCurrency&&<th style={{...TH,padding:"15px 14px 9px",minWidth:76}}>Currency</th>}
               {MONTHS.map(m=><th key={m.key} style={{...TH,textAlign:"center",minWidth:76}}>{m.label}</th>)}
               {QUARTERS.map(q=><th key={"qt-"+q.key} style={{...TH,textAlign:"center",minWidth:90}}>{q.key}</th>)}
               <th style={{...TH,textAlign:"center",minWidth:100}}>Year Total</th>
@@ -1563,7 +1583,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
             </tr></thead>
             <tbody>
               {filteredSegs.length===0&&segs.length>0&&(
-                <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+QUARTERS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>
+                <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+QUARTERS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)+(showCurrency?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>
                   {hideNotBudgeted&&!hasSegFilters?"All matching segments are marked not budgeted. ":"No segments match your filters. "}
                   <span onClick={()=>{clearSegFilters();setHideNotBudgeted(false);}} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>{hideNotBudgeted&&!hasSegFilters?"Show them":"Clear filters"}</span>
                 </td></tr>
@@ -1611,6 +1631,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                       </td>
                     );
                   })}
+                  {showCurrency&&(
+                    <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
+                      <Sel value={getRowCurrency(seg.key)} onChange={v=>setRowCurrency(seg.key,v)} T={T} disabled={!canEdit} style={{width:"100%",fontSize:12}}>
+                        <option value="">—</option>
+                        {CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}
+                      </Sel>
+                    </td>
+                  )}
                   {MONTHS.map((m,monthIdx)=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb,position:"relative"}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo,false,{segIdx,colType:"month",colIdx:monthIdx})}</td>;})}
                   {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727",background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
                   <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:ao?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
