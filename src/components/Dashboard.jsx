@@ -3,7 +3,7 @@ import {
   derivePlatform, parseSpendDate, computePacing, computePlatformFreshness,
   stepPeriodBack, pacingStatusMeta, fmtFull, fmtSigned, MONTHS,
 } from "../lib/core.js";
-import { Icon, Pill, StatRow, DashStatTile, SpendVsBudgetBar, PlatformSpendBars, DashQuickAction, PixelPanel } from "./shared.jsx";
+import { Icon, Pill, StatRow, DashStatTile, SpendVsBudgetBar, PlatformSpendBars, DashQuickAction, PixelPanel, Breadcrumb } from "./shared.jsx";
 import spaceStationIcon from "../assets/icons/space-station.png";
 
 // src/components/Dashboard.jsx — Dashboard tab (2026-07-25 split, per Mo).
@@ -168,9 +168,10 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
           <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:22}}>
             {cards.map(card=>(
               <PixelPanel key={card.key} T={T}
+                variant={card.primary?"featured":undefined}
                 onClick={card.disabled?undefined:()=>onNavigate(card.key)}
                 style={{opacity:card.disabled?0.5:1}}
-                contentStyle={{padding:"24px 26px",background:cardBg,cursor:card.disabled?"default":"pointer",transition:"all 0.1s"}}>
+                contentStyle={{padding:"24px 26px",cursor:card.disabled?"default":"pointer",transition:"all 0.1s"}}>
                 <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
                   <div style={{width:42,height:42,borderRadius:T.r10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={19} color={card.disabled?T.textMuted:T.textSub}/></div>
                   {!card.disabled&&<span style={{fontSize:16*(T.fsScale||1),fontWeight:700,color:T.textMuted,lineHeight:1}}>→</span>}
@@ -207,17 +208,28 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
 
   return(
     <div style={{flex:1,overflow:"auto",background:T.bg}}>
-      <div style={{maxWidth:1040,margin:"0 auto",padding:"32px 32px 48px"}}>
-        {/* Compact header — not onboarding anymore, so it doesn't need to sell the product */}
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:26}}>
-          <div style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:32,height:"auto"}}/>
+      <div style={{maxWidth:T.wideLayout?"none":1040,margin:"0 auto",padding:"32px 32px 48px"}}>
+        {/* 2026-08-01 (per Mo — "add the breadcrumb and big page-title header"): T.wideLayout
+            branch matches the reference's own header composition (breadcrumb trail above a bare,
+            large h1 — no icon, no subtitle line) instead of the original compact icon+title+
+            subtitle row. Classic/Midnight (T.wideLayout undefined) keep that original compact
+            header exactly as it was. */}
+        {T.wideLayout?(
+          <div style={{marginBottom:26}}>
+            <Breadcrumb T={T} items={["Home",`${monthLabel} ${year}`,"Dashboard"]}/>
+            <h1 style={{fontSize:36,fontWeight:600,color:T.text,letterSpacing:"-0.6px",fontFamily:T.font,margin:0}}>Dashboard</h1>
           </div>
-          <div>
-            <div style={{fontSize:T.fsPageTitle,fontWeight:T.fsPageTitleWeight,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Dashboard</div>
-            <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textSub,fontFamily:T.font}}>{monthLabel} {year} · this workspace</div>
+        ):(
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:26}}>
+            <div style={{width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:32,height:"auto"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:T.fsPageTitle,fontWeight:T.fsPageTitleWeight,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Dashboard</div>
+              <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textSub,fontFamily:T.font}}>{monthLabel} {year} · this workspace</div>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Workspace/campaign totals — folded in from what used to be a separate persistent
             sidebar column (Total spend/Campaigns/Tagged/Needs review). That column no longer

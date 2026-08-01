@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { computeDataAudit, computeReportingAudit, PLATFORM_COLORS, fmtFull } from "../lib/core.js";
 import { listReportingFacts } from "../lib/reportingApi.js";
 import { PERIOD_TYPE_LABELS, labelForPeriod } from "../lib/reportingPeriods.js";
-import { Icon, PixelPanel, DashStatTile, Pill, SectionLabel } from "./shared.jsx";
+import { Icon, PixelPanel, DashStatTile, Pill, SectionLabel, Breadcrumb } from "./shared.jsx";
 
 // src/components/DataAudit.jsx — Data Audit tab (2026-07-31, per Mo; PowerBI/reporting_facts
 // section added 2026-08-01, per Mo — "let's add the powerBI data to it").
@@ -125,9 +125,12 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
 
   return(
     <div style={{flex:1,overflow:"auto",padding:isMobilePad()?"16px":"24px 28px"}}>
-      <div style={{maxWidth:1040,margin:"0 auto"}}>
+      <div style={{maxWidth:T.wideLayout?"none":1040,margin:"0 auto"}}>
+        {/* 2026-08-01 (per Mo) — same T.wideLayout breadcrumb+big-title pattern as Dashboard.jsx;
+            see its header for the full reasoning. Classic/Midnight unaffected. */}
         <div style={{marginBottom:20}}>
-          <h2 style={{fontSize:20*(T.fsScale||1),fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4,fontFamily:T.font}}>Data Audit</h2>
+          {T.wideLayout&&<Breadcrumb T={T} items={["Home","Data Audit"]}/>}
+          <h2 style={{fontSize:T.wideLayout?36:20*(T.fsScale||1),fontWeight:T.wideLayout?600:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4,fontFamily:T.font}}>Data Audit</h2>
           <p style={{fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font,maxWidth:640}}>Every spend row and every Dreamdata/PowerBI import currently stored in PaidHQ — where it came from, what date range it covers, and where there are gaps or overlapping coverage. CRM data is still future work.</p>
         </div>
 

@@ -440,9 +440,35 @@ export const Icon=({name,size=18,color="currentColor",style})=>{
 // Classic/Midnight's shadowCard is "none" (their prior PixelPanel behavior — flat cards), so this
 // is a no-op there; the visual change is Aida-only. borderRadius uses the dedicated T.rCard token
 // (not T.r10) — see its definition in core.js for why cards get their own radius scale.
-export const PixelPanel=({T,children,style={},contentStyle={},onClick})=>(
-  <div onClick={onClick} style={{borderRadius:T.rCard,border:`1px solid ${T.borderCard}`,background:T.surface,boxShadow:T.shadowCard,cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
-    {children}
+// variant (2026-08-01, per Mo — "vary card backgrounds with featured/accent variants") — optional
+// "featured" (soft gradient) or "accent" (mint highlight) background, both sourced from tokens
+// that are only defined on THEME_AIDA (cardBgFeatured; "accent" reuses the existing accentSoft
+// token rather than a new one). Falls back to the normal T.surface on Classic/Midnight and on
+// Aida itself when no variant is passed, so this is purely additive — no existing call site
+// changes behavior just from this prop existing.
+export const PixelPanel=({T,children,style={},contentStyle={},onClick,variant})=>{
+  const bg=variant==="featured"&&T.cardBgFeatured?T.cardBgFeatured:variant==="accent"&&T.accentSoft?T.accentSoft:T.surface;
+  return(
+    <div onClick={onClick} style={{borderRadius:T.rCard,border:`1px solid ${T.borderCard}`,background:bg,boxShadow:T.shadowCard,cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
+      {children}
+    </div>
+  );
+};
+// Breadcrumb (2026-08-01, per Mo — "add the breadcrumb and big page-title header") — matches the
+// reference's "Home Page > Dashboard" trail above its big h1. Plain text "›" separators rather
+// than an SVG chevron — no chevron-right glyph exists in the Icon set above yet and a text
+// separator is a one-line addition instead of a new icon case for something this small. Only
+// meant to be rendered when T.wideLayout is on; callers gate on that themselves (see Dashboard.jsx/
+// DataAudit.jsx/PaidHQ.jsx's Settings view) rather than this component checking it internally, so
+// it stays a plain, reusable "list of crumbs" primitive.
+export const Breadcrumb=({T,items})=>(
+  <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13*(T.fsScale||1),color:T.textMuted,marginBottom:10,fontFamily:T.font}}>
+    {items.map((item,i)=>(
+      <span key={i} style={{display:"flex",alignItems:"center",gap:8}}>
+        {i>0&&<span style={{opacity:0.6}}>›</span>}
+        <span style={i===items.length-1?{color:T.text,fontWeight:600}:undefined}>{item}</span>
+      </span>
+    ))}
   </div>
 );
 

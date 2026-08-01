@@ -21,7 +21,7 @@ import {
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
   SectionLabel, Pill, GoogleAdsMark, BingMark, CsvMark, ScreenshotMark, BudgetFileMark, PlatformLogo, Btn, Inp, Sel, StatRow,
-  MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip,
+  MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip, Breadcrumb,
 } from "./components/shared.jsx";
 import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
 import { usePersistentState } from "./lib/persist.js";
@@ -2268,18 +2268,28 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           theme's own accent color — every icon here gets a native `title` tooltip in place of
           a label. Dropdowns for the workspace/account/"more" triggers open to the RIGHT of the
           rail, since there's a fixed-width column to their left instead of open space above
-          them. ── */}
-      <div style={{width:64,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",background:T.accent,zIndex:30,position:"relative",overflowY:"auto"}}>
+          them.
+
+          2026-08-01 fix (per Mo, "fix the vertical icon rail"): the reference's own `<aside>`
+          rail has NO background fill at all — transparent, sitting directly on the app frame's
+          own background, with a thin right-border divider and individual circular
+          (`rounded-full`) buttons that only turn solid black when active; everything else here
+          was originally built assuming a colored bar (solid T.accent fill, white icons, square
+          buttons), which is a real structural mismatch, not just a token gap. All of the
+          T.wideLayout-conditional values below are Aida-only in effect (T.wideLayout is
+          undefined/falsy on Classic/Midnight, so every ternary's `else` branch is the exact
+          original hardcoded value — zero visual change for those two). ── */}
+      <div style={{width:64,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",background:T.wideLayout?"transparent":T.accent,borderRight:T.wideLayout?`1px solid ${T.border}`:"none",zIndex:30,position:"relative",overflowY:"auto"}}>
         <div style={{flex:1}}/>
 
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,paddingBottom:14,width:"100%",flexShrink:0}}>
           {workspace&&workspaces&&(
             <div style={{position:"relative"}}>
               <button title={workspace.name} onClick={()=>setWorkspaceMenuOpen(o=>!o)}
-                onMouseEnter={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background="rgba(255,255,255,0.12)";}}
+                onMouseEnter={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background=T.wideLayout?T.surface:"rgba(255,255,255,0.12)";}}
                 onMouseLeave={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background="transparent";}}
-                style={{width:40,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:"none",borderRadius:T.r8,background:workspaceMenuOpen?"rgba(255,255,255,0.22)":"transparent",cursor:"pointer",transition:"background 0.12s",fontFamily:T.font}}>
-                <div style={{width:22,height:22,borderRadius:T.r6,background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10*(T.fsScale||1),fontWeight:700,color:"#FFFFFF",flexShrink:0}}>
+                style={{width:40,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:"none",borderRadius:T.wideLayout?"50%":T.r8,background:workspaceMenuOpen?(T.wideLayout?T.surface:"rgba(255,255,255,0.22)"):"transparent",cursor:"pointer",transition:"background 0.12s",fontFamily:T.font}}>
+                <div style={{width:22,height:22,borderRadius:"50%",background:T.wideLayout?T.accent:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10*(T.fsScale||1),fontWeight:700,color:T.wideLayout?T.onAccent:"#FFFFFF",flexShrink:0}}>
                   {(workspace.name||"?")[0].toUpperCase()}
                 </div>
               </button>
@@ -2306,7 +2316,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           {session&&(
             <div style={{position:"relative"}}>
               <button title={session.user?.email} onClick={()=>setAccountMenuOpen(o=>!o)}
-                style={{width:30,height:30,borderRadius:"50%",background:accountMenuOpen?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11*(T.fsScale||1),fontWeight:700,color:"#FFFFFF",fontFamily:T.font}}>
+                style={{width:30,height:30,borderRadius:"50%",background:T.wideLayout?T.accent:(accountMenuOpen?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)"),border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11*(T.fsScale||1),fontWeight:700,color:T.wideLayout?T.onAccent:"#FFFFFF",fontFamily:T.font}}>
                 {(session.user?.email||"?")[0].toUpperCase()}
               </button>
               {accountMenuOpen&&(<>
@@ -2343,17 +2353,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             </div>
           )}
           <button title="Settings" onClick={()=>setView("settings")}
-            onMouseEnter={e=>{if(view!=="settings")e.currentTarget.style.background="rgba(255,255,255,0.12)";}}
+            onMouseEnter={e=>{if(view!=="settings")e.currentTarget.style.background=T.wideLayout?T.surfaceHover:"rgba(255,255,255,0.12)";}}
             onMouseLeave={e=>{if(view!=="settings")e.currentTarget.style.background="transparent";}}
-            style={{width:40,height:40,borderRadius:T.r10,background:view==="settings"?"rgba(255,255,255,0.22)":"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
-            <Icon name="gear" size={16} color="rgba(255,255,255,0.8)"/>
+            style={{width:40,height:40,borderRadius:T.wideLayout?"50%":T.r10,background:view==="settings"?(T.wideLayout?T.accent:"rgba(255,255,255,0.22)"):"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
+            <Icon name="gear" size={16} color={T.wideLayout?(view==="settings"?T.onAccent:T.textMuted):"rgba(255,255,255,0.8)"}/>
           </button>
           <div style={{position:"relative"}}>
             <button title="More" onClick={()=>setFileMenuOpen(o=>!o)}
-              onMouseEnter={e=>{if(!fileMenuOpen)e.currentTarget.style.background="rgba(255,255,255,0.12)";}}
+              onMouseEnter={e=>{if(!fileMenuOpen)e.currentTarget.style.background=T.wideLayout?T.surfaceHover:"rgba(255,255,255,0.12)";}}
               onMouseLeave={e=>{if(!fileMenuOpen)e.currentTarget.style.background="transparent";}}
-              style={{width:40,height:40,borderRadius:T.r10,background:fileMenuOpen?"rgba(255,255,255,0.22)":"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
-              <Icon name="dots" size={16} color="rgba(255,255,255,0.8)"/>
+              style={{width:40,height:40,borderRadius:T.wideLayout?"50%":T.r10,background:fileMenuOpen?(T.wideLayout?T.accent:"rgba(255,255,255,0.22)"):"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
+              <Icon name="dots" size={16} color={T.wideLayout?(fileMenuOpen?T.onAccent:T.textMuted):"rgba(255,255,255,0.8)"}/>
             </button>
             {fileMenuOpen&&(<>
               <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
@@ -3797,11 +3807,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         );
         return(
           <div style={{flex:1,overflow:"auto",background:T.bg}}>
-            <div style={{maxWidth:760,margin:"0 auto",padding:"48px 32px"}}>
+            <div style={{maxWidth:T.wideLayout?"none":760,margin:"0 auto",padding:"48px 32px"}}>
+              {/* 2026-08-01 (per Mo) — same T.wideLayout breadcrumb+big-title pattern as
+                  Dashboard.jsx/DataAudit.jsx; see Dashboard's header for the full reasoning.
+                  Classic/Midnight unaffected. */}
               <div style={{marginBottom:32}}>
+                {T.wideLayout?(
+                  <Breadcrumb T={T} items={["Home","Settings"]}/>
+                ):null}
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                  <div style={{width:36,height:36,borderRadius:T.r10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="gear" size={17} color={T.text}/></div>
-                  <h1 style={{fontSize:22*(T.fsScale||1),fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Settings</h1>
+                  {!T.wideLayout&&<div style={{width:36,height:36,borderRadius:T.r10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="gear" size={17} color={T.text}/></div>}
+                  <h1 style={{fontSize:T.wideLayout?36:22*(T.fsScale||1),fontWeight:T.wideLayout?600:800,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Settings</h1>
                 </div>
                 <p style={{fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>Manage the data stored in this PaidHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
               </div>
