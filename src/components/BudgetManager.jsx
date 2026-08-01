@@ -82,6 +82,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[applyMetaDim,setApplyMetaDim]=useState("");
   const[applyMetaVal,setApplyMetaVal]=useState("");
   const[bulkPct,setBulkPct]=useState("");
+  const[cloneTargetYear,setCloneTargetYear]=useState("");
   const[editingMeta,setEditingMeta]=useState(null); // {segKey, dim}
   const[editMetaVal,setEditMetaVal]=useState("");
   const[newMetaDim,setNewMetaDim]=useState("");
@@ -402,6 +403,32 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     });
     showNotif(`${pct>=0?"Increased":"Decreased"} ${selRows.size} row${selRows.size>1?"s":""} by ${Math.abs(pct)}%`);
     setBulkPct("");
+  };
+  // Clone a year's budget structure + values into a new year (2026-07-31, per Mo — "instead of
+  // rebuilding from scratch"). Deep-copies the whole per-year object (monthly, quarterly cap,
+  // annual cap for every segment) as-is; pairs naturally with the bulk-% adjuster above for the
+  // common "start from last year, then trim/pad by X%" workflow. `toYear` isn't restricted to the
+  // 3-button year switcher — it's a free-typed 4-digit year, since planning often runs ahead of
+  // the fixed prev/current/next window that switcher shows.
+  const cloneYearInto=(fromYear,toYearRaw)=>{
+    if(!canEdit)return;
+    const toYear=(toYearRaw||"").trim();
+    if(!/^\d{4}$/.test(toYear)){showNotif("Enter a valid 4-digit year to clone into");return;}
+    if(toYear===fromYear){showNotif("Pick a different year to clone into");return;}
+    const fromData=budgets[fromYear];
+    const fromCount=fromData?Object.keys(fromData).length:0;
+    if(!fromCount){showNotif(`${fromYear} has no budget data to clone`);return;}
+    const existingCount=budgets[toYear]?Object.keys(budgets[toYear]).length:0;
+    if(existingCount>0&&!window.confirm(`${toYear} already has ${existingCount} budgeted row${existingCount>1?"s":""}. Overwrite it with a copy of ${fromYear}'s budget (${fromCount} row${fromCount>1?"s":""})?`))return;
+    commitHistorySnapshot();
+    setBudgets(p=>{
+      const nx=JSON.parse(JSON.stringify(p));
+      nx[toYear]=JSON.parse(JSON.stringify(fromData));
+      return nx;
+    });
+    showNotif(`Cloned ${fromYear}'s budget into ${toYear} — ${fromCount} row${fromCount>1?"s":""}`);
+    setCloneTargetYear("");
+    setYear(toYear);
   };
 
   const segs=useMemo(()=>{
@@ -1361,6 +1388,13 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget Year</SectionLabel>
             <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:T.r6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?700:400,fontFamily:T.font}}>{y}</button>)}</div>
+            {canEdit&&(
+              <div style={{marginTop:8,display:"flex",gap:4,alignItems:"center"}}>
+                <input value={cloneTargetYear} onChange={e=>setCloneTargetYear(e.target.value)} placeholder={`Clone into ${Number(year)+1}…`} onKeyDown={e=>e.key==="Enter"&&cloneYearInto(year,cloneTargetYear||String(Number(year)+1))}
+                  title={`Copy every segment's monthly/quarterly/annual budget from ${year} into another year`} style={{flex:1,minWidth:0,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font}}/>
+                <Btn onClick={()=>cloneYearInto(year,cloneTargetYear||String(Number(year)+1))} variant="subtle" size="sm" T={T}>Clone</Btn>
+              </div>
+            )}
           </div>
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
