@@ -208,7 +208,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
 
   return(
     <div style={{flex:1,overflow:"auto",background:T.bg}}>
-      <div style={{maxWidth:T.wideLayout?"none":1040,margin:"0 auto",padding:"32px 32px 48px"}}>
+      <div style={{maxWidth:1040,margin:"0 auto",padding:"32px 32px 48px"}}>
         {/* 2026-08-01 (per Mo — "add the breadcrumb and big page-title header"): T.wideLayout
             branch matches the reference's own header composition (breadcrumb trail above a bare,
             large h1 — no icon, no subtitle line) instead of the original compact icon+title+

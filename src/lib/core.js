@@ -167,14 +167,14 @@ export const THEME_AIDA = {
   // shadow along with it. Value is Tailwind's real shadow-md formula, sampled from its source.
   shadowCard:"0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -2px rgba(0,0,0,0.1)",
   shadowLg:"0 20px 48px rgba(0,0,0,0.10),0 6px 16px rgba(0,0,0,0.05)",
-  // wideLayout (2026-08-01, per Mo — "make Dashboard/Data Audit/Settings full width" + "add
-  // breadcrumb and big page-title header") is a single boolean gating both: the reference's
-  // full-bleed content grid and its breadcrumb+36px-title header are one cohesive pattern
-  // together in the mockup, not two independent choices, so one flag drives both rather than
-  // risking them drifting out of sync. Undefined (falsy) on Classic/Midnight — every call site
-  // branches on this with a plain `T.wideLayout ? ... : ...`, so those two keep their exact prior
-  // per-view maxWidth/compact-header behavior untouched (no equivalent token needed on their
-  // theme objects at all).
+  // wideLayout (2026-08-01, per Mo — "add breadcrumb and big page-title header") gates the
+  // breadcrumb-trail + bare 36px/600 h1 treatment on Dashboard/Data Audit/Settings, replacing
+  // their compact icon+title header. Originally also drove those same views' content maxWidth
+  // (full-bleed vs. capped at 1040/760), but Mo asked for that part reverted while keeping the
+  // breadcrumb/title change — so maxWidth is back to its original fixed per-view value on every
+  // theme now, and this flag only affects the header treatment. Undefined (falsy) on
+  // Classic/Midnight — every call site branches on this with a plain `T.wideLayout ? ... : ...`,
+  // so those two keep their exact prior compact header untouched.
   wideLayout:true,
   // cardBgFeatured (2026-08-01, per Mo — "vary card backgrounds with featured/accent variants")
   // is PixelPanel's optional `variant="featured"` background (see shared.jsx) — a soft gradient

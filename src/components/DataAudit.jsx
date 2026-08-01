@@ -125,7 +125,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
 
   return(
     <div style={{flex:1,overflow:"auto",padding:isMobilePad()?"16px":"24px 28px"}}>
-      <div style={{maxWidth:T.wideLayout?"none":1040,margin:"0 auto"}}>
+      <div style={{maxWidth:1040,margin:"0 auto"}}>
         {/* 2026-08-01 (per Mo) — same T.wideLayout breadcrumb+big-title pattern as Dashboard.jsx;
             see its header for the full reasoning. Classic/Midnight unaffected. */}
         <div style={{marginBottom:20}}>

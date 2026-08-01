@@ -3807,7 +3807,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         );
         return(
           <div style={{flex:1,overflow:"auto",background:T.bg}}>
-            <div style={{maxWidth:T.wideLayout?"none":760,margin:"0 auto",padding:"48px 32px"}}>
+            <div style={{maxWidth:760,margin:"0 auto",padding:"48px 32px"}}>
               {/* 2026-08-01 (per Mo) — same T.wideLayout breadcrumb+big-title pattern as
                   Dashboard.jsx/DataAudit.jsx; see Dashboard's header for the full reasoning.
                   Classic/Midnight unaffected. */}
