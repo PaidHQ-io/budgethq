@@ -2256,7 +2256,18 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   }
 
   return(
-    <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"row",background:T.bg,color:T.text,fontFamily:T.font,overflow:"hidden",position:"relative"}}>
+    // ── PAGE ── (2026-08-01, per Mo — outer "framed app" wrapper matching the Aida reference's
+    // own composition: a padded page background behind a single rounded, bordered, shadowed
+    // frame holding the whole app, instead of the app filling the viewport edge-to-edge. Frame
+    // background stays T.bg (same token the app row always used) rather than switching to
+    // T.surface — reference's own frame color (#F5F5F7) is nearly identical to its page
+    // background (#F5F6F8) too, so the definition here comes from the border+shadow, not a
+    // color-contrast, and nothing inside (rail/sidebar/main) needed to change. Padding/radius/
+    // shadow are subtle-to-invisible on Classic and Midnight (both have T.shadow:"none" and a
+    // modest T.rCard), so this reads as a light modernization there and the full reference match
+    // on Aida — see T.rCard's own doc comment in core.js for the same reasoning applied to cards.
+    <div style={{height:"100vh",width:"100vw",display:"flex",background:T.bg,padding:"clamp(6px,1.2vw,16px)",boxSizing:"border-box",overflow:"hidden"}}>
+    <div style={{flex:1,display:"flex",flexDirection:"row",background:T.bg,color:T.text,fontFamily:T.font,overflow:"hidden",position:"relative",borderRadius:T.rCard,border:`1px solid ${T.border}`,boxShadow:T.shadow}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
 
       {/* ── VERTICAL RAIL ── (2026-07-31, per Mo, restructured 2026-08-01: the primary tab
@@ -4465,6 +4476,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .bhq-tr:hover td{background:${T.rowHover} !important;}
       `}</style>
       </div>
+    </div>
     </div>
   );
 }

@@ -430,8 +430,10 @@ export const Icon=({name,size=18,color="currentColor",style})=>{
 // shared card primitive silently discarded that on every card in the app, on every theme, no
 // matter what T.shadow said. Classic's own T.shadow is "none" already, so this is a no-op there
 // — only Aida/Midnight (which do define a real shadow) actually change visually from this fix.
+// borderRadius uses the dedicated T.rCard token (not T.r10) — see its definition in core.js for
+// why cards get their own radius scale instead of reusing the general-purpose one.
 export const PixelPanel=({T,children,style={},contentStyle={},onClick})=>(
-  <div onClick={onClick} style={{borderRadius:T.r10,border:`1px solid ${T.border}`,background:T.surface,boxShadow:T.shadow,cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
+  <div onClick={onClick} style={{borderRadius:T.rCard,border:`1px solid ${T.border}`,background:T.surface,boxShadow:T.shadow,cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
     {children}
   </div>
 );

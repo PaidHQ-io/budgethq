@@ -41,8 +41,16 @@ import { stepPeriodStart } from "./reportingPeriods.js";
 // avatar/icon button where the radius already equals exactly half the element's own
 // width/height, so they're already perfect circles; the visual "pill-ness" Aida wants instead
 // comes from ordinary buttons/inputs/cards moving from r6-r10 up into genuinely pill territory.
-const RADIUS_CLASSIC = {r0:0,r2:2,r3:3,r4:4,r5:5,r6:6,r7:7,r8:8,r9:9,r10:10,r12:12,r14:14,r20:20,r22:22};
-const RADIUS_AIDA = {r0:0,r2:6,r3:8,r4:10,r5:12,r6:14,r7:16,r8:18,r9:20,r10:22,r12:26,r14:30,r20:20,r22:22};
+// rCard (2026-08-01, per Mo's Aida-vs-reference comparison) is a dedicated radius for top-level
+// content cards (PixelPanel), kept separate from r10 rather than bumping r10 itself — r10 is
+// shared with plenty of small elements (badges, 40px icon buttons, dropzones) that the reference
+// doesn't round nearly this far (its own small stat pills use rounded-xl/16px, not rounded-3xl).
+// Classic/Midnight keep rCard equal to their existing r10 (10px) — no visual change intended for
+// either, since Mo's complaint was specifically about Aida's fidelity to the purchased mockup.
+// Aida's rCard is tuned to the mockup's own main-card class (`rounded-3xl` = 2rem = 32px, sampled
+// directly from its Tailwind markup — the outer app frame and every primary content card use it).
+const RADIUS_CLASSIC = {r0:0,r2:2,r3:3,r4:4,r5:5,r6:6,r7:7,r8:8,r9:9,r10:10,r12:12,r14:14,r20:20,r22:22,rCard:10};
+const RADIUS_AIDA = {r0:0,r2:6,r3:8,r4:10,r5:12,r6:14,r7:16,r8:18,r9:20,r10:22,r12:26,r14:30,r20:20,r22:22,rCard:32};
 
 export const THEME_CLASSIC = {
   font:"'DM Sans',sans-serif",
