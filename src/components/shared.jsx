@@ -424,8 +424,14 @@ export const Icon=({name,size=18,color="currentColor",style})=>{
 // panel" surface now that the app is moving back to a conventional, easier-to-read look.
 // Kept the same component name and prop shape (notch/border/shadowOffset are accepted
 // but no longer used) so the many existing call sites across the app didn't need to change.
+// boxShadow was hardcoded to "none" here regardless of theme (2026-08-01 fix, per Mo — "PaidHQ
+// doesn't look like the [Aida reference] png"). Aida's whole card language leans on soft shadows
+// for the "floating card" depth the reference has (shadow: "0 4px 20px rgba(0,0,0,0.03)"); this
+// shared card primitive silently discarded that on every card in the app, on every theme, no
+// matter what T.shadow said. Classic's own T.shadow is "none" already, so this is a no-op there
+// — only Aida/Midnight (which do define a real shadow) actually change visually from this fix.
 export const PixelPanel=({T,children,style={},contentStyle={},onClick})=>(
-  <div onClick={onClick} style={{borderRadius:T.r8,border:`1px solid ${T.border}`,background:T.surface,boxShadow:"none",cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
+  <div onClick={onClick} style={{borderRadius:T.r10,border:`1px solid ${T.border}`,background:T.surface,boxShadow:T.shadow,cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
     {children}
   </div>
 );

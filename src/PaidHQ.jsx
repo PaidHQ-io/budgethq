@@ -2259,53 +2259,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"row",background:T.bg,color:T.text,fontFamily:T.font,overflow:"hidden",position:"relative"}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
 
-      {/* ── VERTICAL RAIL ── (2026-07-31, per Mo — replaced the old horizontal top bar entirely.
-          Icon-only, filled with the active theme's own accent color rather than a neutral
-          surface — every icon here gets a native `title` tooltip in place of the label text
-          that used to sit next to it. The sidebar-resize toggle that used to live next to the
-          wordmark is gone with no replacement needed: the small edge-mounted collapse handle
-          further down (search "Collapse handle for the stats column") already does the exact
-          same job and was already rendered independently of this bar. Dropdowns for the
-          workspace/account/"more" triggers now open to the RIGHT of the rail instead of
-          below-and-right, since there's a fixed-width column to their left instead of open
-          space above them. ── */}
+      {/* ── VERTICAL RAIL ── (2026-07-31, per Mo, restructured 2026-08-01: the primary tab
+          nav moved OUT to a new horizontal top bar above the content — per Mo, matching the
+          Aida reference's two-surface nav (a pill-tab top bar plus a slim utility rail),
+          instead of collapsing everything into this one bar the way the 2026-07-31 pass did.
+          This rail now holds only the secondary/utility cluster: workspace switcher, account
+          menu, settings, and the file/export "more" menu. Icon-only, filled with the active
+          theme's own accent color — every icon here gets a native `title` tooltip in place of
+          a label. Dropdowns for the workspace/account/"more" triggers open to the RIGHT of the
+          rail, since there's a fixed-width column to their left instead of open space above
+          them. ── */}
       <div style={{width:64,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",background:T.accent,zIndex:30,position:"relative",overflowY:"auto"}}>
-        <div style={{width:64,height:48,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-          <Icon name="bolt" size={19} color="#FFFFFF"/>
-        </div>
-        <div style={{width:32,height:1,background:"rgba(255,255,255,0.25)",marginBottom:10,flexShrink:0}}/>
-
-        <div style={{display:"flex",flexDirection:"column",gap:6,width:"100%",alignItems:"center",flexShrink:0}}>
-          {NAV.map(item=>{
-            const active=view===item.key;
-            return <button key={item.key} title={item.label} onClick={()=>{
-                // Add Data now lives at view==="data" (2026-07-24) instead of nested under Campaign
-                // Tagger's own step==="upload" — clicking Tagger with no data yet sends you to Data
-                // Sources first, matching "connect data before tagging it." Clicking Data Sources
-                // itself always resets to the upload step, same reasoning as the old Tagger branch.
-                //
-                // BUG FIX (2026-07-24): this used to branch on `step!=="tag"` instead of whether data
-                // actually exists. `step` is a transient UI-flow flag other buttons leave sitting on
-                // "upload" long after the fact — e.g. the Tagger toolbar's "↑ Add data" button, or
-                // simply visiting Data Sources — and nothing ever resets it back to "tag" unless you
-                // complete a new import. Once that happened, clicking this tab while already on Data
-                // Sources (view==="data", step==="upload") called setStep("upload") and
-                // setView("data") — both no-ops — so literally nothing happened, even though tagged
-                // data was sitting right there. Branching on mergedNormRows.length instead makes this
-                // tab always land you on the Tagger table whenever there's data to show, no matter
-                // what step some earlier click left behind.
-                if(item.key==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}
-                else if(item.key==="data"){setStep("upload");setView("data");}
-                else setView(item.key);
-              }}
-              onMouseEnter={e=>{if(!active)e.currentTarget.style.background="rgba(255,255,255,0.12)";}}
-              onMouseLeave={e=>{if(!active)e.currentTarget.style.background="transparent";}}
-              style={{width:44,height:40,display:"flex",alignItems:"center",justifyContent:"center",border:"none",borderRadius:T.r10,background:active?"rgba(255,255,255,0.22)":"transparent",cursor:"pointer",transition:"background 0.12s",flexShrink:0}}>
-              <Icon name={item.icon} size={17} color={active?"#FFFFFF":"rgba(255,255,255,0.65)"}/>
-            </button>;
-          })}
-        </div>
-
         <div style={{flex:1}}/>
 
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,paddingBottom:14,width:"100%",flexShrink:0}}>
@@ -2431,6 +2395,38 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {/* ── RIGHT COLUMN ── everything that used to sit below the old horizontal top bar now
           lives in its own flex column beside the rail instead of below it. */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0,position:"relative"}}>
+
+      {/* ── TOP BAR ── (2026-08-01, per Mo — restoring a horizontal pill nav above the content,
+          alongside the utility rail, matching the Aida reference's two-surface nav instead of
+          the single full-height rail the 2026-07-31 pass collapsed everything into). Primary
+          tab-switching lives here now; the rail (see above) keeps workspace/account/settings/
+          file-menu. Logo mark moved here from the top of the rail, matching the reference's
+          layout (logo + pill tabs together on one bar). overflowX:auto rather than wrapping —
+          8 tabs at comfortable pill width is wider than the reference's 3-tab bar, so this can
+          need to scroll on a narrower window instead of collapsing into two rows. */}
+      <div style={{display:"flex",alignItems:"center",gap:6,padding:"12px 20px",borderBottom:`1px solid ${T.border}`,background:T.topbarBg,flexShrink:0,overflowX:"auto"}}>
+        <div style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginRight:6}}>
+          <Icon name="bolt" size={18} color={T.accent}/>
+        </div>
+        {NAV.map(item=>{
+          const active=view===item.key;
+          return <button key={item.key} onClick={()=>{
+              // Same routing as before (see the rail's prior version of this loop, in git
+              // history) — Tagger/Data Sources still branch on whether data already exists
+              // rather than on the transient `step` flag. See that history for the full
+              // "BUG FIX (2026-07-24)" reasoning; unchanged here, just relocated.
+              if(item.key==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}
+              else if(item.key==="data"){setStep("upload");setView("data");}
+              else setView(item.key);
+            }}
+            onMouseEnter={e=>{if(!active)e.currentTarget.style.background=T.surfaceHover;}}
+            onMouseLeave={e=>{if(!active)e.currentTarget.style.background="transparent";}}
+            style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:T.r20,border:"none",background:active?T.accent:"transparent",color:active?T.onAccent:T.textMuted,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:T.font,whiteSpace:"nowrap",transition:"background 0.12s,color 0.12s",flexShrink:0}}>
+            <Icon name={item.icon} size={14} color={active?T.onAccent:T.textMuted}/>
+            {item.label}
+          </button>;
+        })}
+      </div>
 
       {/* View-only banner — "member" role can see every tab but every product API route rejects
           their writes server-side (requireEditAccess). This is the one place that surfaces that
