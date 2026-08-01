@@ -1647,10 +1647,22 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       const passes=Object.entries(dimMap).every(([dim,vals])=>vals.has((ts[dim]||"").toLowerCase()));
       if(!passes)return false;
     }
-    if(fStatus==="tagged"&&Object.keys(tags[c.key]||{}).length===0)return false;
-    if(fStatus==="untagged"&&Object.keys(tags[c.key]||{}).length>0)return false;
+    // Selected rows are exempt from the tagged/untagged status filter (2026-08-01, per Mo — bulk-
+    // tagging a "needs review" batch across several dimensions in one sitting: Platform, then
+    // Pillar, then Product, all against the same selected rows). Without this, the instant a
+    // selected row picks up its FIRST tag it flips from untagged→tagged and the "needs review"
+    // filter yanks it out of `filtered` mid-session — even though `selected` (see toggleSel/
+    // applyTags) deliberately keeps holding it precisely so the next dimension can be applied to
+    // the same batch. A row only gets re-evaluated against fStatus once it's no longer selected —
+    // deselecting it (or hitting the toolbar's "Clear") is the natural "I'm done with this one"
+    // signal. This only affects what's rendered here; the app-wide tagged/untagged definition used
+    // by Dashboard stats etc. is untouched.
+    if(!selected.has(c.key)){
+      if(fStatus==="tagged"&&Object.keys(tags[c.key]||{}).length===0)return false;
+      if(fStatus==="untagged"&&Object.keys(tags[c.key]||{}).length>0)return false;
+    }
     return true;
-  });return[...r].sort((a,b)=>{if(sortCol==="spend")return sortDir==="asc"?a.spend-b.spend:b.spend-a.spend;if(sortCol==="campaign")return sortDir==="asc"?a.name.localeCompare(b.name):b.name.localeCompare(a.name);if(sortCol==="group")return sortDir==="asc"?a.groupName.localeCompare(b.groupName):b.groupName.localeCompare(a.groupName);if(sortCol==="platform")return sortDir==="asc"?a.platform.localeCompare(b.platform):b.platform.localeCompare(a.platform);const at=Object.keys(tags[a.key]||{}).length;const bt=Object.keys(tags[b.key]||{}).length;return sortDir==="asc"?at-bt:bt-at;});},[campaigns,fCamp,fCampExclude,fCampInclMode,fCampExclMode,fGroup,fGroupExclude,fGroupInclMode,fGroupExclMode,fPlat,fSMin,fSMax,fTag,fTagExclude,fTagInclMode,fTagExclMode,selectedTagFilters,fStatus,sortCol,sortDir,tags]);
+  });return[...r].sort((a,b)=>{if(sortCol==="spend")return sortDir==="asc"?a.spend-b.spend:b.spend-a.spend;if(sortCol==="campaign")return sortDir==="asc"?a.name.localeCompare(b.name):b.name.localeCompare(a.name);if(sortCol==="group")return sortDir==="asc"?a.groupName.localeCompare(b.groupName):b.groupName.localeCompare(a.groupName);if(sortCol==="platform")return sortDir==="asc"?a.platform.localeCompare(b.platform):b.platform.localeCompare(a.platform);const at=Object.keys(tags[a.key]||{}).length;const bt=Object.keys(tags[b.key]||{}).length;return sortDir==="asc"?at-bt:bt-at;});},[campaigns,fCamp,fCampExclude,fCampInclMode,fCampExclMode,fGroup,fGroupExclude,fGroupInclMode,fGroupExclMode,fPlat,fSMin,fSMax,fTag,fTagExclude,fTagInclMode,fTagExclMode,selectedTagFilters,fStatus,sortCol,sortDir,tags,selected]);
 
   const suggestions=useMemo(()=>{if(!fCamp||fCamp.length<3)return[];const term=fCamp.toLowerCase();const seen=new Set();const out=[];tagDims.forEach(dim=>{Object.entries(tags).forEach(([cn,ts])=>{if(ts[dim]&&cn.toLowerCase().includes(term)){const key=`${dim}:${ts[dim]}`;if(!seen.has(key)){seen.add(key);const count=filtered.filter(c=>!(tags[c.key]?.[dim])).length;if(count>0)out.push({key,dim,val:ts[dim],count});}}});});return out.slice(0,3);},[fCamp,filtered,tags,tagDims]);
 
