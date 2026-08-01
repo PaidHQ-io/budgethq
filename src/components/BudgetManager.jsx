@@ -1410,6 +1410,35 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // sticky header cell scrolling underneath them in both directions at once.
   const TH={fontFamily:T.font,fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center",position:"sticky",top:0,zIndex:2};
 
+  // Manual "type a row in by hand" control (2026-07-31, per Mo — a blank starting canvas for
+  // workspaces that don't want to import a file or wait on Tagger data). Was already fully built
+  // as addManualRow/newRowVals, but only ever rendered in the bottom bar below a table that
+  // already has at least one row — meaning a brand-new workspace with dimensions picked but zero
+  // segments yet had no visible way to just start typing, only "import a file" or "go tag
+  // campaigns first." Extracted here so the exact same control can render in that empty state
+  // too, instead of duplicating the JSX in two places and risking drift.
+  const addSegmentControl=budgetDims.length>0&&canEdit&&(!showAddRow?(
+    <Btn onClick={()=>setShowAddRow(true)} variant="ghost" size="sm" T={T} style={{alignSelf:"flex-start"}}>+ Add segment manually</Btn>
+  ):(
+    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      {budgetDims.map(d=>DERIVED_DIMS.includes(d)?(
+        // Constrained to values actually present in spend data — a free-typed value here
+        // ("google" vs the canonical "Google Search", or a mistyped campaign/ad group name)
+        // would silently create a segment that never matches real spend, unlike ordinary tag
+        // dimensions where that risk is more visible/correctable in the Tagger itself.
+        <Sel key={d} value={newRowVals[d]||""} onChange={v=>setNewRowVals(p=>({...p,[d]:v}))} T={T} style={{width:150}}>
+          <option value="">{d}…</option>
+          {(d==="Platform"?platformValues:d==="Campaign"?campaignGroupValues:campaignNameValues).map(p=><option key={p} value={p}>{p}</option>)}
+        </Sel>
+      ):(
+        <input key={d} value={newRowVals[d]||""} onChange={e=>setNewRowVals(p=>({...p,[d]:e.target.value}))} placeholder={d}
+          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:130}}/>
+      ))}
+      <Btn onClick={addManualRow} disabled={budgetDims.some(d=>!newRowVals[d]?.trim())} variant="primary" size="sm" T={T}>Add</Btn>
+      <Btn onClick={()=>{setShowAddRow(false);setNewRowVals({});}} variant="ghost" size="sm" T={T}>Cancel</Btn>
+    </div>
+  ));
+
   return(
     <div style={{display:"flex",height:"100%",background:T.bg,overflow:"hidden"}}>
       {/* Sidebar content now renders via portal into the app-shell's stats sidebar (see sidebarEl) */}
@@ -1530,6 +1559,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                 <>Tag campaigns with <strong style={{color:T.text}}>{budgetDims.join(" + ")}</strong> in the Tagger first.</>
               )}
             </div>
+            {addSegmentControl&&<div style={{marginTop:16}}>{addSegmentControl}</div>}
           </div>
         ):(
           <>
@@ -1741,28 +1771,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               )}
               <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
             </div>
-            {budgetDims.length>0&&(!showAddRow?(
-                <Btn onClick={()=>setShowAddRow(true)} variant="ghost" size="sm" T={T} style={{alignSelf:"flex-start"}}>+ Add segment manually</Btn>
-              ):(
-                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                  {budgetDims.map(d=>DERIVED_DIMS.includes(d)?(
-                    // Constrained to values actually present in spend data — a free-typed value
-                    // here ("google" vs the canonical "Google Search", or a mistyped campaign/ad
-                    // group name) would silently create a segment that never matches real spend,
-                    // unlike ordinary tag dimensions where that risk is more visible/correctable
-                    // in the Tagger itself.
-                    <Sel key={d} value={newRowVals[d]||""} onChange={v=>setNewRowVals(p=>({...p,[d]:v}))} T={T} style={{width:150}}>
-                      <option value="">{d}…</option>
-                      {(d==="Platform"?platformValues:d==="Campaign"?campaignGroupValues:campaignNameValues).map(p=><option key={p} value={p}>{p}</option>)}
-                    </Sel>
-                  ):(
-                    <input key={d} value={newRowVals[d]||""} onChange={e=>setNewRowVals(p=>({...p,[d]:e.target.value}))} placeholder={d}
-                      style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:130}}/>
-                  ))}
-                  <Btn onClick={addManualRow} disabled={budgetDims.some(d=>!newRowVals[d]?.trim())} variant="primary" size="sm" T={T}>Add</Btn>
-                  <Btn onClick={()=>{setShowAddRow(false);setNewRowVals({});}} variant="ghost" size="sm" T={T}>Cancel</Btn>
-                </div>
-              ))}
+            {addSegmentControl}
           </div>
           </>
         )}
