@@ -116,6 +116,21 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[selEnd,setSelEnd]=useState(null); // {segIdx,monthIdx} | null
   const suppressAnchorResetRef=useRef(false);
   const[fillDrag,setFillDrag]=useState(null); // {segIdx,monthIdx,value,dragToSegIdx} | null
+  // Undo/redo (2026-07-31, per Mo). Scoped to `budgets` (the money values) specifically, not the
+  // segment structure/tags/annotation metadata a row delete also touches — same reasoning as grid
+  // paste/selection/fill-down staying scoped to values rather than trying to be a full app-wide
+  // undo system. Snapshots are the WHOLE `budgets` object (all years), not just the current one,
+  // so undo still works correctly right after a year switch. Capped at 50 steps each way so this
+  // can't grow unbounded over a long editing session.
+  //
+  // historySnapshotTakenRef coalesces a "burst" of plain keystroke edits (typing "12000" fires
+  // onChange 5 times) into ONE undo step — it's set the first time a snapshot is pushed, checked
+  // (not pushed again) on every subsequent keystroke, and reset back to false whenever focus moves
+  // to a different cell (handleCellFocus) or a discrete action (paste/fill/delete/bulk edit) runs
+  // and pushes its own always-fresh snapshot.
+  const[undoStack,setUndoStack]=useState([]); // budgets snapshots, oldest first
+  const[redoStack,setRedoStack]=useState([]);
+  const historySnapshotTakenRef=useRef(false);
   // The handler functions that actually DO something with this state (focusCell, handleCellKeyDown,
   // handleGridCopy, startFillDrag, and the fill-drag useEffect) live further down, right before
   // cellIn — they need filteredSegs/getMV/setMV in scope, which aren't declared until later in
@@ -310,6 +325,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey,platformIndex);
     const tagNote=matchCount>0?` This also un-tags ${matchCount} matching campaign${matchCount>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
     if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this row.${tagNote}`))return;
+    commitHistorySnapshot(); // undo restores the budget amounts; the un-tag/metadata cleanup below isn't covered
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])delete nx[year][segKey];return nx;});
     setBudgetRowMeta(p=>{const nx={...p};delete nx[segKey];return nx;});
     setTags?.(p=>untagSegmentCampaigns(p,budgetDims,segKey,platformIndex));
@@ -350,6 +366,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k,platformIndex),0);
     const tagNote=totalMatches>0?` This also un-tags ${totalMatches} matching campaign${totalMatches>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
     if(!window.confirm(`Delete ${n} segment${n>1?"s":""}?\n\nThis removes all monthly budget values for ${n>1?"these rows":"this row"}.${tagNote}`))return;
+    commitHistorySnapshot(); // undo restores the budget amounts; the un-tag/metadata cleanup below isn't covered
     setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(nx[year])selRows.forEach(k=>{delete nx[year][k];});return nx;});
     setBudgetRowMeta(p=>{const nx={...p};selRows.forEach(k=>delete nx[k]);return nx;});
     setTags?.(p=>{let nt=p;selRows.forEach(k=>{nt=untagSegmentCampaigns(nt,budgetDims,k,platformIndex);});return nt;});
@@ -528,6 +545,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     const anchor=pasteAnchorRef.current;
     if(!anchor)return; // paste didn't land on a recognized cell — leave default behavior alone
     e.preventDefault();
+    commitHistorySnapshot(); // one undo step for the whole paste, not one per cell it fills
     let filled=0,overflowRows=0,hasText=false;
     grid.forEach((rowCells,ri)=>{
       const seg=filteredSegs[anchor.segIdx+ri];
@@ -1042,6 +1060,38 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // quarterly cap column, since those are different kinds of values (spend vs. a cap), not
   // adjacent cells of the same series. Paste stays month-only regardless (see handleGridPaste's
   // doc comment) — pasteAnchorRef is only ever set when focus is on a month cell.
+  // Pushes the CURRENT `budgets` (pre-edit) onto the undo stack and clears the redo stack (a new
+  // edit invalidates whatever was previously redoable — standard undo/redo semantics). Called
+  // right before a mutation, not after, so what's on the stack is always "what to restore to get
+  // back to before this edit."
+  const commitHistorySnapshot=useCallback(()=>{
+    setUndoStack(s=>[...s.slice(-49),budgets]);
+    setRedoStack([]);
+    historySnapshotTakenRef.current=true;
+  },[budgets]);
+  const handleUndo=()=>{
+    if(!undoStack.length||!canEdit)return;
+    const prev=undoStack[undoStack.length-1];
+    setUndoStack(s=>s.slice(0,-1));
+    setRedoStack(s=>[...s,budgets]);
+    setBudgets(prev);
+  };
+  const handleRedo=()=>{
+    if(!redoStack.length||!canEdit)return;
+    const next=redoStack[redoStack.length-1];
+    setRedoStack(s=>s.slice(0,-1));
+    setUndoStack(s=>[...s,budgets]);
+    setBudgets(next);
+  };
+  // Catches Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z bubbling up from anywhere in the grid area (a focused
+  // cell, the bulk-action bar's buttons, etc.) rather than a document-level listener — scopes undo
+  // to "while working in this panel" for free, without needing to track whether this tab is the
+  // currently-active one (BudgetManager stays mounted across tab switches).
+  const handleGridKeyDown=e=>{
+    if(!(e.metaKey||e.ctrlKey)||(e.key!=="z"&&e.key!=="Z"))return;
+    e.preventDefault();
+    if(e.shiftKey)handleRedo();else handleUndo();
+  };
   const colCount=colType=>colType==="month"?MONTHS.length:colType==="quarter"?QUARTERS.length:1;
   const getColVal=(colType,seg,colIdx)=>{
     if(!seg)return"";
@@ -1080,6 +1130,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     setActiveCell(ctx);
     if(suppressAnchorResetRef.current){suppressAnchorResetRef.current=false;}
     else{setSelAnchor(ctx);setSelEnd(null);}
+    historySnapshotTakenRef.current=false; // moving to a new cell starts a fresh undo "burst"
   };
   const handleCellMouseDown=(e,ctx)=>{
     if(e.shiftKey&&selAnchor&&selAnchor.colType===ctx.colType){suppressAnchorResetRef.current=true;setSelEnd(ctx);}
@@ -1131,6 +1182,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       const r=selRect();
       if(!r)return; // single cell — let the browser's own text-delete behavior handle it
       e.preventDefault();
+      commitHistorySnapshot(); // one undo step for the whole cleared range
       for(let si=r.segIdx0;si<=r.segIdx1;si++){
         const seg=filteredSegs[si];
         if(!seg)continue;
@@ -1170,13 +1222,15 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     if(!fillDrag)return;
     const onUp=()=>{
       const seg0=filteredSegs[fillDrag.segIdx];
-      if(seg0){
-        if(fillDrag.dragToSegIdx>fillDrag.segIdx){
+      const draggedDown=fillDrag.dragToSegIdx>fillDrag.segIdx,draggedRight=fillDrag.dragToColIdx>fillDrag.colIdx;
+      if(seg0&&(draggedDown||draggedRight)){
+        commitHistorySnapshot(); // one undo step for the whole fill, not one per cell it touches
+        if(draggedDown){
           for(let si=fillDrag.segIdx+1;si<=fillDrag.dragToSegIdx;si++){
             const seg=filteredSegs[si];
             if(seg)setColVal(fillDrag.colType,seg,fillDrag.colIdx,fillDrag.value);
           }
-        }else if(fillDrag.dragToColIdx>fillDrag.colIdx){
+        }else{
           for(let ci=fillDrag.colIdx+1;ci<=fillDrag.dragToColIdx;ci++){setColVal(fillDrag.colType,seg0,ci,fillDrag.value);}
         }
       }
@@ -1184,7 +1238,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     };
     document.addEventListener("mouseup",onUp);
     return()=>document.removeEventListener("mouseup",onUp);
-  },[fillDrag,filteredSegs,setColVal]);
+  },[fillDrag,filteredSegs,setColVal,commitHistorySnapshot]);
 
   // gridCtx ({segIdx, colType, colIdx}) is passed for every cell in the month grid AND the
   // quarterly-cap/annual-cap columns (colType "month"|"quarter"|"annual") — keyboard nav,
@@ -1202,8 +1256,15 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       (fillDrag.dragToSegIdx>fillDrag.segIdx&&gridCtx.colIdx===fillDrag.colIdx&&gridCtx.segIdx>fillDrag.segIdx&&gridCtx.segIdx<=fillDrag.dragToSegIdx)||
       (fillDrag.dragToColIdx>fillDrag.colIdx&&gridCtx.segIdx===fillDrag.segIdx&&gridCtx.colIdx>fillDrag.colIdx&&gridCtx.colIdx<=fillDrag.dragToColIdx)
     );
+    // First keystroke in a cell-edit "burst" snapshots pre-edit `budgets` for undo; subsequent
+    // keystrokes in the same burst (still the same focused cell) don't push again — see
+    // historySnapshotTakenRef's doc comment up at its declaration.
+    const handleChange=v=>{
+      if(gridCtx&&!historySnapshotTakenRef.current)commitHistorySnapshot();
+      onChange(v);
+    };
     return(<>
-      <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
+      <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>handleChange(e.target.value)} placeholder="—"
         ref={gridCtx?el=>{cellRefs.current[cellKey(gridCtx.segIdx,gridCtx.colType,gridCtx.colIdx)]=el;}:undefined}
         onFocus={gridCtx?()=>handleCellFocus(gridCtx):undefined}
         onMouseDown={gridCtx?e=>handleCellMouseDown(e,gridCtx):undefined}
@@ -1231,6 +1292,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:12}}>
           <Btn onClick={()=>setImportOpen(true)} disabled={!canEdit} title={canEdit?undefined:"View-only access"} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:T.font}}>↑ Import CSV / Excel</Btn>
           <Btn onClick={openExportPreview} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:T.font}}>↓ Export budgets + pacing</Btn>
+          {canEdit&&(
+            <div style={{display:"flex",gap:6}}>
+              <Btn onClick={handleUndo} disabled={!undoStack.length} title={`Undo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Z)`} variant="ghost" size="sm" T={T} style={{flex:1,justifyContent:"center",fontFamily:T.font}}>↶ Undo</Btn>
+              <Btn onClick={handleRedo} disabled={!redoStack.length} title={`Redo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Shift+Z)`} variant="ghost" size="sm" T={T} style={{flex:1,justifyContent:"center",fontFamily:T.font}}>↷ Redo</Btn>
+            </div>
+          )}
 
           {/* Metadata dimensions */}
           <div style={{borderTop:`1px solid ${T.border}`,marginTop:10,paddingTop:12}}>
@@ -1305,7 +1372,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       )}
 
       {/* Table */}
-      <div style={{flex:1,overflow:"auto",minWidth:0}} onPaste={handleGridPaste} onCopy={handleGridCopy}>
+      <div style={{flex:1,overflow:"auto",minWidth:0}} onPaste={handleGridPaste} onCopy={handleGridCopy} onKeyDown={handleGridKeyDown}>
         {!budgetDims.length?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
             {/* Surface-base-habitat illustration (2026-07-26, per Mo, licensed "Geometric Space
