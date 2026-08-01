@@ -53,7 +53,7 @@ const DataAudit = lazy(() => import("./components/DataAudit.jsx"));
 // Minimal, theme-matched fallback while a lazily-loaded tab chunk is still fetching — deliberately
 // plain (no logo/branding) since this only ever shows for a moment on a cold chunk load.
 const TabLoadingFallback = () => (
-  <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:60,color:THEME.textMuted,fontSize:13,fontFamily:THEME.font}}>
+  <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:60,color:THEME.textMuted,fontSize:13*(THEME.fsScale||1),fontFamily:THEME.font}}>
     <span style={{width:14,height:14,border:`2px solid ${THEME.border}`,borderTopColor:THEME.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block",marginRight:8}}/>
     Loading…
   </div>
@@ -2179,11 +2179,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // Per Mo's request (2026-07-24): headers used to fade to T.textMuted (grey) until actively
   // sorted, and only turn T.text (dark) on the active sort column. Now always T.text — active sort
   // is still shown via the underline below, just no longer via color.
-  const SH=({col,label,center})=>(<span onClick={()=>doSort(col)} style={{fontFamily:T.font,fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3,...(center?{justifyContent:"center",width:"100%"}:{})}}>{label}<span style={{opacity:0.7,fontSize:9}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
+  const SH=({col,label,center})=>(<span onClick={()=>doSort(col)} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,textDecoration:sortCol===col?"underline":"none",textUnderlineOffset:2,cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3,...(center?{justifyContent:"center",width:"100%"}:{})}}>{label}<span style={{opacity:0.7,fontSize:9*(T.fsScale||1)}}>{sortCol===col?(sortDir==="desc"?"▾":"▴"):"⇅"}</span></span>);
   // White fill, same as the toolbar behind it — Vercel's filter pills are white-on-white with
   // just a border for separation, not a gray fill. paddingLeft is bumped separately on the three
   // primary "contains" fields to make room for the search icon from IconField.
-  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,color:T.text,padding:"6px 9px",fontSize:11,outline:"none",fontFamily:T.font,width:"100%",marginTop:3,height:30,boxSizing:"border-box"};
+  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,color:T.text,padding:"6px 9px",fontSize:11*(T.fsScale||1),outline:"none",fontFamily:T.font,width:"100%",marginTop:3,height:30,boxSizing:"border-box"};
 
   // Persistent stats sidebar (middle column) — shown regardless of which tab is active.
   // Falls back to labeled sample numbers before any real data is loaded, same treatment
@@ -2241,7 +2241,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // lands, or silently losing data if a save effect fired against the pre-load empty state.
   if(workspace&&workspaceDataLoading){
     return(
-      <div style={{height:"100vh",width:"100vw",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.textMuted,fontFamily:T.font,fontSize:13}}>
+      <div style={{height:"100vh",width:"100vw",display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.textMuted,fontFamily:T.font,fontSize:13*(T.fsScale||1)}}>
         Loading {workspace.name}…
       </div>
     );
@@ -2249,8 +2249,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   if(workspace&&workspaceDataError){
     return(
       <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,background:T.bg,fontFamily:T.font,padding:24}}>
-        <div style={{padding:"12px 16px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:T.r8,color:T.danger,fontSize:13,maxWidth:420,textAlign:"center"}}>{workspaceDataError}</div>
-        <button onClick={()=>window.location.reload()} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"7px 16px",fontSize:12,color:T.text,cursor:"pointer",fontFamily:T.font}}>Reload</button>
+        <div style={{padding:"12px 16px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:T.r8,color:T.danger,fontSize:13*(T.fsScale||1),maxWidth:420,textAlign:"center"}}>{workspaceDataError}</div>
+        <button onClick={()=>window.location.reload()} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"7px 16px",fontSize:12*(T.fsScale||1),color:T.text,cursor:"pointer",fontFamily:T.font}}>Reload</button>
       </div>
     );
   }
@@ -2279,24 +2279,24 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 onMouseEnter={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background="rgba(255,255,255,0.12)";}}
                 onMouseLeave={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background="transparent";}}
                 style={{width:40,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:"none",borderRadius:T.r8,background:workspaceMenuOpen?"rgba(255,255,255,0.22)":"transparent",cursor:"pointer",transition:"background 0.12s",fontFamily:T.font}}>
-                <div style={{width:22,height:22,borderRadius:T.r6,background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#FFFFFF",flexShrink:0}}>
+                <div style={{width:22,height:22,borderRadius:T.r6,background:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10*(T.fsScale||1),fontWeight:700,color:"#FFFFFF",flexShrink:0}}>
                   {(workspace.name||"?")[0].toUpperCase()}
                 </div>
               </button>
               {workspaceMenuOpen&&(<>
                 <div onClick={()=>setWorkspaceMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
                 <div style={{position:"absolute",bottom:0,left:"calc(100% + 8px)",zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                  <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Workspaces</div>
+                  <div style={{padding:"5px 10px 6px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Workspaces</div>
                   {workspaces.map(w=>(
                     <button key={w.id} className="bhq-row" onClick={()=>{setWorkspaceMenuOpen(false);onSwitchWorkspace&&onSwitchWorkspace(w.id);}}
-                      style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 10px",borderRadius:T.r6,background:w.id===workspace.id?T.accentBg:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
+                      style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 10px",borderRadius:T.r6,background:w.id===workspace.id?T.accentBg:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
                       <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
                       {w.id===workspace.id&&<Icon name="check" size={13} color={T.accent}/>}
                     </button>
                   ))}
                   <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
                   <button className="bhq-row" onClick={()=>{setWorkspaceMenuOpen(false);onCreateWorkspace&&onCreateWorkspace();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
                     + New workspace
                   </button>
                 </div>
@@ -2306,16 +2306,16 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           {session&&(
             <div style={{position:"relative"}}>
               <button title={session.user?.email} onClick={()=>setAccountMenuOpen(o=>!o)}
-                style={{width:30,height:30,borderRadius:"50%",background:accountMenuOpen?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11,fontWeight:700,color:"#FFFFFF",fontFamily:T.font}}>
+                style={{width:30,height:30,borderRadius:"50%",background:accountMenuOpen?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11*(T.fsScale||1),fontWeight:700,color:"#FFFFFF",fontFamily:T.font}}>
                 {(session.user?.email||"?")[0].toUpperCase()}
               </button>
               {accountMenuOpen&&(<>
                 <div onClick={()=>setAccountMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
                 <div style={{position:"absolute",bottom:0,left:"calc(100% + 8px)",zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                  <div style={{padding:"7px 10px 8px",fontSize:12,color:T.text,fontWeight:600,wordBreak:"break-all"}}>{session.user?.email}</div>
+                  <div style={{padding:"7px 10px 8px",fontSize:12*(T.fsScale||1),color:T.text,fontWeight:600,wordBreak:"break-all"}}>{session.user?.email}</div>
                   <div style={{height:1,background:T.border,margin:"2px 4px 6px"}}/>
                   <button className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onSignOut&&onSignOut();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.danger,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
                     Sign out
                   </button>
                   {/* Other accounts held in this browser (e.g. a client's login alongside your
@@ -2324,18 +2324,18 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       the background. */}
                   {accounts&&accounts.filter(a=>a.storageKey!==activeAccountKey).length>0&&(<>
                     <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
-                    <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Switch account</div>
+                    <div style={{padding:"5px 10px 6px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Switch account</div>
                     {accounts.filter(a=>a.storageKey!==activeAccountKey).map(a=>(
                       <button key={a.storageKey} className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onSwitchAccount&&onSwitchAccount(a.storageKey);}}
-                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left",overflow:"hidden"}}>
-                        <span style={{width:18,height:18,borderRadius:"50%",background:T.accentBg,color:T.accent,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{(a.email||"?")[0].toUpperCase()}</span>
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left",overflow:"hidden"}}>
+                        <span style={{width:18,height:18,borderRadius:"50%",background:T.accentBg,color:T.accent,fontSize:10*(T.fsScale||1),fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{(a.email||"?")[0].toUpperCase()}</span>
                         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.email}</span>
                       </button>
                     ))}
                   </>)}
                   <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
                   <button className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onAddAccount&&onAddAccount();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
                     + Add account
                   </button>
                 </div>
@@ -2359,31 +2359,31 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
               <div style={{position:"absolute",bottom:0,left:"calc(100% + 8px)",zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
                 {exportableView&&(<>
-                  <div style={{padding:"5px 10px 5px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Export {exportableView.label}</div>
+                  <div style={{padding:"5px 10px 5px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Export {exportableView.label}</div>
                   <div style={{display:"flex",gap:4,padding:"0 6px 6px"}}>
                     {EXPORT_FORMATS.map(f=>(
                       <button key={f.key} className="bhq-row" onClick={()=>{setFileMenuOpen(false);handleExportDownload(f.key);}}
-                        style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:T.font}}>
+                        style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font}}>
                         {f.label}
                       </button>
                     ))}
                   </div>
                   <button className="bhq-row" disabled={sheetsExporting} onClick={()=>{setFileMenuOpen(false);handleExportToGoogleSheets();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:T.font,textAlign:"left"}}>
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:T.font,textAlign:"left"}}>
                     <Icon name="export" size={14} color={T.textSub}/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
                   </button>
                   <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);openEmailExport();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
                     <Icon name="mail" size={14} color={T.textSub}/> Email a copy…
                   </button>
                   <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
                 </>)}
                 {canEdit&&<button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
-                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
+                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
                   <Icon name="save" size={14} color={T.textSub}/> Name current version…
                 </button>}
                 {canEdit&&<button className="bhq-row" onClick={openVersionHistory}
-                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
+                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
                   <Icon name="clock" size={14} color={T.textSub}/> Version history
                 </button>}
               </div>
@@ -2421,7 +2421,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             }}
             onMouseEnter={e=>{if(!active)e.currentTarget.style.background=T.surfaceHover;}}
             onMouseLeave={e=>{if(!active)e.currentTarget.style.background="transparent";}}
-            style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:T.r20,border:"none",background:active?T.accent:"transparent",color:active?T.onAccent:T.textMuted,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:T.font,whiteSpace:"nowrap",transition:"background 0.12s,color 0.12s",flexShrink:0}}>
+            style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:T.r20,border:"none",background:active?T.accent:"transparent",color:active?T.onAccent:T.textMuted,fontSize:13*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font,whiteSpace:"nowrap",transition:"background 0.12s,color 0.12s",flexShrink:0}}>
             <Icon name={item.icon} size={14} color={active?T.onAccent:T.textMuted}/>
             {item.label}
           </button>;
@@ -2433,7 +2433,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           plainly regardless of which tab you're on, rather than only finding out via a failed
           save. Owners/admins never see this. */}
       {!canEdit&&(
-        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.accentBorder}`,fontSize:12,color:T.text,fontFamily:T.font,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.accentBorder}`,fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font,flexShrink:0}}>
           <Icon name="lock" size={12} color={T.textSub}/>
           You have view-only access to this workspace — ask an owner or admin for edit access.
         </div>
@@ -2464,11 +2464,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             // the Dashboard's "Data source health" card both already read — one source of truth,
             // three places it's summarized.
             <div className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}>
-              <SectionLabel T={T} style={{marginBottom:8,fontSize:11}}>Data source health</SectionLabel>
+              <SectionLabel T={T} style={{marginBottom:8,fontSize:11*(T.fsScale||1)}}>Data source health</SectionLabel>
               {(()=>{
                 const issues=(connectionDetails||[]).filter(c=>c.needsReconnect||c.needsAccountSelection||c.lastAutoSyncStatus==="error");
-                if(!connectionDetails||connectionDetails.length===0)return<div style={{fontSize:12,color:T.textMuted,lineHeight:1.6,fontFamily:T.font,marginBottom:14}}>No connectors set up yet — connect one below.</div>;
-                if(issues.length===0)return<div style={{fontSize:12,color:T.success,lineHeight:1.6,fontFamily:T.font,marginBottom:14}}>All {connectionDetails.length} connected source{connectionDetails.length===1?"":"s"} healthy.</div>;
+                if(!connectionDetails||connectionDetails.length===0)return<div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,lineHeight:1.6,fontFamily:T.font,marginBottom:14}}>No connectors set up yet — connect one below.</div>;
+                if(issues.length===0)return<div style={{fontSize:12*(T.fsScale||1),color:T.success,lineHeight:1.6,fontFamily:T.font,marginBottom:14}}>All {connectionDetails.length} connected source{connectionDetails.length===1?"":"s"} healthy.</div>;
                 return(
                   <div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:14}}>
                     {/* Maintenance-robot illustration (2026-07-26, per Mo, licensed set) — only
@@ -2478,8 +2478,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       const reason=c.needsReconnect?"Reconnect":c.needsAccountSelection?"Pick account":"Sync failed";
                       return(
                         <div key={c.provider} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",gap:8}}>
-                          <span style={{fontSize:12,color:T.text,fontFamily:T.font,textTransform:"capitalize"}}>{c.provider}</span>
-                          <Pill color={T.warning} bg={T.warning+"14"} border={T.warning+"55"} style={{fontSize:10}}>{reason}</Pill>
+                          <span style={{fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font,textTransform:"capitalize"}}>{c.provider}</span>
+                          <Pill color={T.warning} bg={T.warning+"14"} border={T.warning+"55"} style={{fontSize:10*(T.fsScale||1)}}>{reason}</Pill>
                         </div>
                       );
                     })}
@@ -2488,7 +2488,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               })()}
               <Divider T={T}/>
               <div style={{padding:"12px 0"}}>
-                <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
+                <SectionLabel T={T} style={{fontSize:11*(T.fsScale||1)}}>Overview</SectionLabel>
                 <StatRow T={T} size={11} label="Live connectors" value={PLATFORMS.filter(p=>p.status==="live").length.toString()}/>
                 <StatRow T={T} size={11} label="Connected" value={Object.keys(connectedProviders).length.toString()}/>
                 <StatRow T={T} size={11} label="Platforms with data" value={[...new Set(visibleNormRows.map(r=>r.platform))].filter(Boolean).length.toString()}/>
@@ -2499,7 +2499,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   "Sync all" fires the same syncPlatform() every per-row Sync button already uses,
                   just once per connected-and-not-paused provider instead of one at a time. */}
               <div style={{padding:"12px 0"}}>
-                <SectionLabel T={T} style={{fontSize:11}}>Quick actions</SectionLabel>
+                <SectionLabel T={T} style={{fontSize:11*(T.fsScale||1)}}>Quick actions</SectionLabel>
                 {(()=>{
                   const syncablePlatforms=connectionDetails.filter(c=>!c.paused&&PLATFORMS.some(p=>p.key===c.provider));
                   const anySyncing=Object.values(syncState).some(s=>s==="loading");
@@ -2524,7 +2524,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   importDateRangeByProvider (manual) — both already computed for the Connections
                   table below, no new state needed. */}
               <div style={{padding:"12px 0"}}>
-                <SectionLabel T={T} style={{fontSize:11}}>Data freshness</SectionLabel>
+                <SectionLabel T={T} style={{fontSize:11*(T.fsScale||1)}}>Data freshness</SectionLabel>
                 {(()=>{
                   const relTime=iso=>{
                     const mins=Math.round((Date.now()-new Date(iso).getTime())/60000);
@@ -2561,15 +2561,15 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     }
                     return{key:c.provider,label:pl.label,domain:pl.domain,platColor:pl.color,mark:pl.mark,text,color,bucket,sortTime};
                   }).filter(Boolean).sort((a,b)=>a.bucket-b.bucket||b.sortTime-a.sortTime);
-                  if(rows.length===0)return<div style={{border:`1px dashed ${T.border}`,borderRadius:T.r6,padding:"8px 10px",backgroundColor:T.surfaceEl,backgroundImage:T.hatchBg,fontSize:12,color:T.textMuted,fontFamily:T.font}}>Nothing connected yet.</div>;
+                  if(rows.length===0)return<div style={{border:`1px dashed ${T.border}`,borderRadius:T.r6,padding:"8px 10px",backgroundColor:T.surfaceEl,backgroundImage:T.hatchBg,fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>Nothing connected yet.</div>;
                   return(
                     <div style={{display:"flex",flexDirection:"column",gap:7}}>
                       {rows.map(r=>(
                         <div key={r.key} style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
                           <PlatformLogo domain={r.domain} color={r.platColor} mark={r.mark} size={16} T={T}/>
                           <div style={{minWidth:0,flex:1}}>
-                            <div style={{fontSize:11,fontWeight:600,color:T.text,fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</div>
-                            <div style={{fontSize:11,color:r.color,fontFamily:T.font}}>{r.text}</div>
+                            <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.label}</div>
+                            <div style={{fontSize:11*(T.fsScale||1),color:r.color,fontFamily:T.font}}>{r.text}</div>
                           </div>
                         </div>
                       ))}
@@ -2586,7 +2586,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   that section's comment — it needs the real underlying platform for per-channel
                   data deletion). */}
               <div style={{padding:"12px 0"}}>
-                <SectionLabel T={T} style={{fontSize:11}}>Spend by platform</SectionLabel>
+                <SectionLabel T={T} style={{fontSize:11*(T.fsScale||1)}}>Spend by platform</SectionLabel>
                 {(()=>{
                   const map={};
                   visibleNormRows.forEach(r=>{
@@ -2594,13 +2594,13 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     map[p]=(map[p]||0)+(r.spend||0);
                   });
                   const arr=Object.entries(map).map(([platform,spend])=>({platform,spend})).sort((a,b)=>b.spend-a.spend);
-                  if(arr.length===0)return<div style={{border:`1px dashed ${T.border}`,borderRadius:T.r6,padding:"8px 10px",backgroundColor:T.surfaceEl,backgroundImage:T.hatchBg,fontSize:12,color:T.textMuted,fontFamily:T.font}}>No spend data yet.</div>;
+                  if(arr.length===0)return<div style={{border:`1px dashed ${T.border}`,borderRadius:T.r6,padding:"8px 10px",backgroundColor:T.surfaceEl,backgroundImage:T.hatchBg,fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>No spend data yet.</div>;
                   const max=arr[0].spend||1;
                   return(
                     <div style={{display:"flex",flexDirection:"column",gap:8}}>
                       {arr.slice(0,5).map(p=>(
                         <div key={p.platform}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,marginBottom:3,gap:6}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11*(T.fsScale||1),marginBottom:3,gap:6}}>
                             <span style={{display:"flex",alignItems:"center",gap:5,minWidth:0,overflow:"hidden"}}>
                               <span style={{width:6,height:6,borderRadius:"50%",background:PLATFORM_COLORS[p.platform]||T.textMuted,flexShrink:0}}/>
                               <span style={{color:T.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.platform}</span>
@@ -2621,7 +2621,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             // Lives directly in this component (unlike Budget/Pacing, the Tagger flow isn't a
             // separate child component) so no portal is needed — just render it here in place.
             <div className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}>
-              <SectionLabel T={T} style={{marginBottom:8,fontSize:11}}>Tag Dimensions</SectionLabel>
+              <SectionLabel T={T} style={{marginBottom:8,fontSize:11*(T.fsScale||1)}}>Tag Dimensions</SectionLabel>
               <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
                 {tagDims.map(dim=>(
                   /* Padding/weights aligned to StatRow (2026-07-24, per Mo) — "4px 0" instead of
@@ -2631,45 +2631,45 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                      × moved before the count (rather than after) so the count itself, not the
                      button, is the flush-right element — same right edge as Overview's values. */
                   <div key={dim} className={applyDim===dim?undefined:"bhq-row"} onClick={()=>setApplyDim(dim)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 0",borderRadius:T.r6,cursor:"pointer",background:applyDim===dim?T.accentBg:"transparent",border:applyDim===dim?`1px solid ${T.accentBorder}`:"1px solid transparent"}}>
-                    <span style={{fontSize:11,color:T.text}}>{dim}</span>
+                    <span style={{fontSize:11*(T.fsScale||1),color:T.text}}>{dim}</span>
                     <span style={{display:"flex",alignItems:"center",gap:6}}>
                       <button onClick={e=>{e.stopPropagation();deleteDimension(dim);}} title={`Delete "${dim}" dimension`}
-                        style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14,lineHeight:1,padding:0,opacity:0.5,transition:"opacity 0.1s, color 0.1s"}}
+                        style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:14*(T.fsScale||1),lineHeight:1,padding:0,opacity:0.5,transition:"opacity 0.1s, color 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.color=T.danger;}}
                         onMouseLeave={e=>{e.currentTarget.style.opacity=0.5;e.currentTarget.style.color=T.textMuted;}}>×</button>
-                      <span style={{fontSize:11,fontWeight:600,color:T.textMuted,fontFamily:T.font}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
+                      <span style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textMuted,fontFamily:T.font}}>{Object.values(tags).filter(t=>t[dim]).length}</span>
                     </span>
                   </div>
                 ))}
               </div>
               <div style={{display:"flex",gap:5,marginBottom:12}}>
-                <Inp value={newDim} onChange={setNewDim} placeholder="New dimension…" T={T} onKeyDown={e=>e.key==="Enter"&&addDim()} style={{fontSize:12,padding:"5px 8px"}}/>
+                <Inp value={newDim} onChange={setNewDim} placeholder="New dimension…" T={T} onKeyDown={e=>e.key==="Enter"&&addDim()} style={{fontSize:12*(T.fsScale||1),padding:"5px 8px"}}/>
                 <Btn onClick={addDim} variant="subtle" size="sm" T={T}>+</Btn>
               </div>
               <Divider T={T}/>
               <div style={{padding:"12px 0",flex:1}}>
-                <SectionLabel T={T} style={{fontSize:11}}>Overview</SectionLabel>
+                <SectionLabel T={T} style={{fontSize:11*(T.fsScale||1)}}>Overview</SectionLabel>
                 {[{l:"Campaigns",v:stats.total.toString()},{l:"Platforms",v:[...new Set(visibleNormRows.map(r=>r.platform))].filter(Boolean).join(", ")||"—"},{l:"Showing",v:filtered.length.toString(),c:T.text},{l:"Filtered spend",v:"$"+Math.round(filtered.reduce((s,c)=>s+c.spend,0)).toLocaleString(),c:T.text},{l:"Tagged",v:stats.tagged.toString(),c:T.success},{l:"Needs review",v:stats.untagged.toString(),c:stats.untagged>0?T.warning:T.success},{l:"Total spend",v:fmt$(stats.totalSpend)},{l:"Data rows",v:stats.totalRows.toLocaleString()}].map(s=><StatRow key={s.l} label={s.l} value={s.v} color={s.c} T={T} size={11}/>)}
-                {stats.dateRange&&<div style={{fontSize:11,color:T.textMuted,marginTop:8,fontFamily:T.font,lineHeight:1.6}}>{stats.dateRange}</div>}
+                {stats.dateRange&&<div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:8,fontFamily:T.font,lineHeight:1.6}}>{stats.dateRange}</div>}
                 <div style={{marginTop:10,height:3,background:T.border,borderRadius:T.r2,overflow:"hidden"}}><div style={{height:"100%",width:`${stats.total?(stats.tagged/stats.total)*100:0}%`,background:T.accent,transition:"width 0.4s",borderRadius:T.r2}}/></div>
-                <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
+                <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:4}}>{stats.total?Math.round((stats.tagged/stats.total)*100):0}% tagged</div>
                 <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
                   <Btn onClick={exportTags} disabled={!campaigns.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export tags CSV</Btn>
                   <Btn onClick={()=>importTagsRef.current?.click()} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import tags CSV</Btn>
                   <input ref={importTagsRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{importTagsFromCSV(e.target.files[0]);e.target.value="";}} />
                   <Btn onClick={()=>!tagScreenshotImporting&&importTagsScreenshotRef.current?.click()} disabled={tagScreenshotImporting} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{tagScreenshotImporting?"Reading screenshot…":"📷 Import tags from screenshot"}</Btn>
                   <input ref={importTagsScreenshotRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{importTagsFromScreenshot(e.target.files[0]);e.target.value="";}} />
-                  {tagScreenshotError&&<div style={{fontSize:11,color:T.danger}}>{tagScreenshotError}</div>}
+                  {tagScreenshotError&&<div style={{fontSize:11*(T.fsScale||1),color:T.danger}}>{tagScreenshotError}</div>}
                   <Btn onClick={()=>setGsheetTagOpen(o=>!o)} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>🔗 Connect Google Sheet</Btn>
                   {gsheetTagOpen&&(
                     <div style={{padding:"10px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r8}}>
                       {gsTags.tabs?.length>1?(
                         <div>
-                          <div style={{fontSize:11,color:T.textSub,marginBottom:6}}>Which tab has the tagging table?</div>
+                          <div style={{fontSize:11*(T.fsScale||1),color:T.textSub,marginBottom:6}}>Which tab has the tagging table?</div>
                           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
                             {gsTags.tabs.map(t=>(
                               <button key={t.sheetId} disabled={gsTags.fetching} onClick={()=>gsTags.fetchTab(gsTags.spreadsheetId,t.title)}
-                                style={{padding:"4px 9px",borderRadius:T.r6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsTags.fetching?"default":"pointer",fontSize:11,fontFamily:T.font,opacity:gsTags.fetching?0.6:1}}>{t.title}</button>
+                                style={{padding:"4px 9px",borderRadius:T.r6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsTags.fetching?"default":"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,opacity:gsTags.fetching?0.6:1}}>{t.title}</button>
                             ))}
                           </div>
                           <Btn onClick={gsTags.cancelTabs} variant="ghost" size="sm" T={T}>Cancel</Btn>
@@ -2678,7 +2678,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         <Btn onClick={gsTags.openPicker} disabled={gsTags.fetching} variant="primary" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{gsTags.fetching?"Connecting…":"Choose from Google Drive"}</Btn>
                       )}
                       {gsTags.error&&(
-                        <div style={{marginTop:6,fontSize:11,color:T.danger}}>
+                        <div style={{marginTop:6,fontSize:11*(T.fsScale||1),color:T.danger}}>
                           {gsTags.error}
                           {/(permission|forbidden|403)/i.test(gsTags.error)&&(
                             <div style={{marginTop:4}}>
@@ -2695,28 +2695,28 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 {tagDims.some(d=>Object.keys(tagValueMap[d]||{}).length>0)&&(
                   <div style={{marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:14}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                      <SectionLabel T={T} style={{marginBottom:0,fontSize:11}}>Filter by tag</SectionLabel>
-                      {selectedTagFilters.size>0&&<span style={{fontSize:10,color:T.text,fontWeight:600,fontFamily:T.font}}>{selectedTagFilters.size} active</span>}
+                      <SectionLabel T={T} style={{marginBottom:0,fontSize:11*(T.fsScale||1)}}>Filter by tag</SectionLabel>
+                      {selectedTagFilters.size>0&&<span style={{fontSize:10*(T.fsScale||1),color:T.text,fontWeight:600,fontFamily:T.font}}>{selectedTagFilters.size} active</span>}
                     </div>
                     {tagDims.map(dim=>{
                       const vals=Object.entries(tagValueMap[dim]||{}).sort((a,b)=>b[1]-a[1]);
                       if(!vals.length)return null;
                       return(
                         <div key={dim} style={{marginBottom:12}}>
-                          <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:T.font}}>{dim}</div>
+                          <div style={{fontSize:11*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,marginBottom:5,fontFamily:T.font}}>{dim}</div>
                           <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                             {vals.map(([val,count])=>{
                               const key=`${dim}:${val}`;
                               const active=selectedTagFilters.has(key);
                               return(
                                 <button key={val} onClick={()=>toggleTagFilter(dim,val)}
-                                  style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:T.r14,fontSize:11,fontWeight:500,cursor:"pointer",fontFamily:T.font,
+                                  style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:T.r14,fontSize:11*(T.fsScale||1),fontWeight:500,cursor:"pointer",fontFamily:T.font,
                                     background:active?T.accent:T.surfaceEl,
                                     color:T.text,
                                     border:`1px solid ${active?T.accentHover:T.border}`,
                                     transition:"all 0.12s"}}>
                                   {val}
-                                  <span style={{fontSize:10,opacity:0.7,background:active?"rgba(0,0,0,0.12)":T.border,borderRadius:T.r8,padding:"0 4px"}}>{count}</span>
+                                  <span style={{fontSize:10*(T.fsScale||1),opacity:0.7,background:active?"rgba(0,0,0,0.12)":T.border,borderRadius:T.r8,padding:"0 4px"}}>{count}</span>
                                 </button>
                               );
                             })}
@@ -2725,9 +2725,9 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       );
                     })}
                     {selectedTagFilters.size>0&&(
-                      <div style={{fontSize:11,color:T.textMuted,marginTop:4,fontFamily:T.font}}>
+                      <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:4,fontFamily:T.font}}>
                         AND across dimensions · OR within
-                        <button onClick={()=>setSelectedTagFilters(new Set())} style={{display:"block",fontSize:11,color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:T.font}}>Clear tag filters ×</button>
+                        <button onClick={()=>setSelectedTagFilters(new Set())} style={{display:"block",fontSize:11*(T.fsScale||1),color:T.danger,background:"transparent",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:T.font}}>Clear tag filters ×</button>
                       </div>
                     )}
                   </div>
@@ -2736,22 +2736,22 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             </div>
           ):(<>
           <PixelPanel T={T} style={{opacity:hasSidebarData?1:0.7}} contentStyle={{padding:"14px 16px",background:T.accentBg}}>
-            <div style={{fontSize:10,fontWeight:700,color:T.textSub,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>Total spend</div>
-            <div style={{fontSize:20,fontWeight:800,color:T.text,fontFamily:T.font}}>{hasSidebarData?"$"+Math.round(stats.totalSpend).toLocaleString():"No data yet"}</div>
+            <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,color:T.textSub,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>Total spend</div>
+            <div style={{fontSize:20*(T.fsScale||1),fontWeight:800,color:T.text,fontFamily:T.font}}>{hasSidebarData?"$"+Math.round(stats.totalSpend).toLocaleString():"No data yet"}</div>
           </PixelPanel>
           {!hasSidebarData&&(
             <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 10px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r20,alignSelf:"flex-start"}}>
               <span style={{width:6,height:6,borderRadius:"50%",background:T.textMuted,flexShrink:0}}/>
-              <span style={{fontSize:9,fontWeight:600,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase"}}>No data yet</span>
+              <span style={{fontSize:9*(T.fsScale||1),fontWeight:600,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase"}}>No data yet</span>
             </div>
           )}
           {sidebarStatRows.map(s=>(
             <PixelPanel key={s.label} T={T} style={{opacity:hasSidebarData?1:0.7}} contentStyle={{padding:"12px 14px"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
                 <span style={{width:7,height:7,borderRadius:"50%",background:s.dot,flexShrink:0}}/>
-                <span style={{fontSize:10,fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>{s.label}</span>
+                <span style={{fontSize:10*(T.fsScale||1),fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>{s.label}</span>
               </div>
-              <div style={{fontSize:19,fontWeight:700,color:T.text,fontFamily:T.font}}>{s.value}</div>
+              <div style={{fontSize:19*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>{s.value}</div>
             </PixelPanel>
           ))}
           </>)}
@@ -2768,7 +2768,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         {/* Collapse handle for the stats column — same reasoning, hidden on Dashboard */}
         {view!=="dashboard"&&(
           <button className="bhq-iconbtn" onClick={()=>setStatsOpen(o=>!o)} title={statsOpen?"Hide stats":"Show stats"}
-            style={{position:"absolute",top:"50%",left:(statsOpen?statsWidth:0)-9,transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:T.surface,border:`1px solid ${T.border}`,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontWeight:700,fontSize:9,lineHeight:1,zIndex:40,boxShadow:T.shadow,transition:statsResizing.current?"none":"left 0.15s, background 0.12s"}}>
+            style={{position:"absolute",top:"50%",left:(statsOpen?statsWidth:0)-9,transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:T.surface,border:`1px solid ${T.border}`,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontWeight:700,fontSize:9*(T.fsScale||1),lineHeight:1,zIndex:40,boxShadow:T.shadow,transition:statsResizing.current?"none":"left 0.15s, background 0.12s"}}>
             {statsOpen?"‹":"›"}
           </button>
         )}
@@ -2777,7 +2777,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {/* ── MAIN ── */}
       <main style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
 
-      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:notif.type==="error"?T.danger:T.success,color:"#fff",padding:"10px 16px",borderRadius:T.r8,fontSize:13,fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:T.font,maxWidth:420}}>{notif.msg}</div>}
+      {notif&&<div style={{position:"fixed",bottom:20,right:20,background:notif.type==="error"?T.danger:T.success,color:"#fff",padding:"10px 16px",borderRadius:T.r8,fontSize:13*(T.fsScale||1),fontWeight:600,zIndex:100,boxShadow:T.shadowMd,fontFamily:T.font,maxWidth:420}}>{notif.msg}</div>}
 
       {/* ── UPLOAD ── (moved 2026-07-24 from view==="tagger" to its own view==="data" — see NAV) */}
       {step==="upload"&&view==="data"&&(
@@ -2799,35 +2799,35 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 return(
                   <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r8,maxWidth:hasPairField?560:(isGSheet&&sheetPreview?520:420)}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                      <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:T.font}}>Connect {pl.label}</div>
-                      <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                      <div style={{fontSize:12*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>Connect {pl.label}</div>
+                      <span onClick={()=>setConnectPanelKey(null)} style={{fontSize:12*(T.fsScale||1),color:T.textMuted,cursor:"pointer"}}>✕</span>
                     </div>
-                    {pl.connectNote&&<div style={{fontSize:11,color:T.textSub,lineHeight:1.5,marginBottom:10,fontFamily:T.font}}>{pl.connectNote}</div>}
-                    {pl.key==="googlesheets"&&<div onClick={()=>setGoogleSheetsGuideOpen(true)} style={{fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",marginBottom:10,fontFamily:T.font}}>Need help getting Google Ads spend into a Sheet? Setup guide →</div>}
+                    {pl.connectNote&&<div style={{fontSize:11*(T.fsScale||1),color:T.textSub,lineHeight:1.5,marginBottom:10,fontFamily:T.font}}>{pl.connectNote}</div>}
+                    {pl.key==="googlesheets"&&<div onClick={()=>setGoogleSheetsGuideOpen(true)} style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.accent,cursor:"pointer",marginBottom:10,fontFamily:T.font}}>Need help getting Google Ads spend into a Sheet? Setup guide →</div>}
                     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                       {(pl.connectFields||[]).map(f=>{
                         if(f.type==="keyvaluelist"){
                           const rows=pairRowsFor(f.key);
                           return(
                             <div key={f.key}>
-                              {f.label&&<div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>{f.label}</div>}
+                              {f.label&&<div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>{f.label}</div>}
                               <div style={{display:"flex",flexDirection:"column",gap:5}}>
                                 {rows.map((row,idx)=>(
                                   <div key={idx} style={{display:"flex",gap:5,alignItems:"center"}}>
                                     <input value={row.label} placeholder={f.pairLabelPlaceholder}
                                       onChange={e=>setPairRow(f.key,idx,{label:e.target.value})}
                                       onPaste={e=>handlePairPaste(f.key,e)}
-                                      style={{flex:"1 1 45%",minWidth:0,boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:T.font}}/>
+                                      style={{flex:"1 1 45%",minWidth:0,boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                                     <input value={row.value} placeholder={f.pairValuePlaceholder}
                                       onChange={e=>setPairRow(f.key,idx,{value:e.target.value})}
                                       onPaste={e=>handlePairPaste(f.key,e)}
-                                      style={{flex:"1 1 45%",minWidth:0,boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
-                                    <span onClick={()=>removePairRow(f.key,idx)} title="Remove this row" style={{fontSize:13,color:T.textMuted,cursor:"pointer",padding:"0 2px",flexShrink:0}}>✕</span>
+                                      style={{flex:"1 1 45%",minWidth:0,boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
+                                    <span onClick={()=>removePairRow(f.key,idx)} title="Remove this row" style={{fontSize:13*(T.fsScale||1),color:T.textMuted,cursor:"pointer",padding:"0 2px",flexShrink:0}}>✕</span>
                                   </div>
                                 ))}
                               </div>
-                              <span onClick={()=>addPairRow(f.key)} style={{display:"inline-block",marginTop:6,fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",fontFamily:T.font}}>+ Add another {f.pairLabelName?.toLowerCase()||"row"}</span>
-                              <div style={{fontSize:11,color:T.textMuted,marginTop:5,fontFamily:T.font}}>Tip: paste a whole "{f.pairLabelName||"name"}: {f.pairValueName||"key"}" list into any {f.pairLabelName?.toLowerCase()||"name"} box to fill every row at once.</div>
+                              <span onClick={()=>addPairRow(f.key)} style={{display:"inline-block",marginTop:6,fontSize:11*(T.fsScale||1),fontWeight:600,color:T.accent,cursor:"pointer",fontFamily:T.font}}>+ Add another {f.pairLabelName?.toLowerCase()||"row"}</span>
+                              <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:5,fontFamily:T.font}}>Tip: paste a whole "{f.pairLabelName||"name"}: {f.pairValueName||"key"}" list into any {f.pairLabelName?.toLowerCase()||"name"} box to fill every row at once.</div>
                             </div>
                           );
                         }
@@ -2836,13 +2836,13 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                           <div key={f.key}>
                             <input value={val} placeholder={f.placeholder}
                               onChange={e=>setConnectValues(v=>({...v,[f.key]:e.target.value}))}
-                              style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:T.font}}/>
+                              style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                           </div>
                         );
                       })}
                     </div>
                     {isGSheet&&sheetPreviewLoading&&(
-                      <div style={{fontSize:11,color:T.textMuted,marginBottom:10,fontFamily:T.font}}>Reading sheet…</div>
+                      <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginBottom:10,fontFamily:T.font}}>Reading sheet…</div>
                     )}
                     {/* Column mapping review — the actual point of this step (2026-07-31, per Mo):
                         show the user exactly what PaidHQ found in their sheet (real headers + a
@@ -2853,33 +2853,33 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         step, not a from-scratch mapping chore. */}
                     {isGSheet&&sheetPreview&&(
                       <div style={{marginBottom:10}}>
-                        <div style={{fontSize:11,fontWeight:600,color:T.text,marginBottom:2,fontFamily:T.font}}>
+                        <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.text,marginBottom:2,fontFamily:T.font}}>
                           Column mapping{sheetPreview.rowCount!=null&&<span style={{fontWeight:400,color:T.textMuted}}> · {sheetPreview.rowCount} data row{sheetPreview.rowCount===1?"":"s"} found</span>}
                         </div>
-                        <div style={{fontSize:11,color:T.textMuted,marginBottom:8,fontFamily:T.font}}>Auto-detected from your sheet's headers — check these are right, or change any of them.</div>
+                        <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginBottom:8,fontFamily:T.font}}>Auto-detected from your sheet's headers — check these are right, or change any of them.</div>
                         <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:260,overflowY:"auto",paddingRight:2}}>
                           {GSHEET_FIELDS.map(f=>{
                             const chosen=sheetColumnMap[f.key]||"";
                             const sample=chosen&&sheetPreview.sampleRow?sheetPreview.sampleRow[chosen]:null;
                             return(
                               <div key={f.key} style={{display:"flex",alignItems:"center",gap:6}}>
-                                <div style={{width:132,flexShrink:0,fontSize:11,color:T.textSub,fontFamily:T.font}}>{f.label}{f.required&&<span style={{color:T.danger}}> *</span>}</div>
+                                <div style={{width:132,flexShrink:0,fontSize:11*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>{f.label}{f.required&&<span style={{color:T.danger}}> *</span>}</div>
                                 <select value={chosen} onChange={e=>setSheetColumnMap(m=>({...m,[f.key]:e.target.value}))}
-                                  style={{flex:1,minWidth:0,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 7px",fontSize:11.5,outline:"none",fontFamily:T.font}}>
+                                  style={{flex:1,minWidth:0,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 7px",fontSize:11.5*(T.fsScale||1),outline:"none",fontFamily:T.font}}>
                                   <option value="">{f.required?"— Select a column —":"— Not in this sheet —"}</option>
                                   {sheetPreview.headers.map(h=><option key={h} value={h}>{h}</option>)}
                                 </select>
                                 {sample!=null&&String(sample).trim()!==""&&(
-                                  <div title={String(sample)} style={{width:84,flexShrink:0,fontSize:10.5,color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}>{String(sample)}</div>
+                                  <div title={String(sample)} style={{width:84,flexShrink:0,fontSize:10.5*(T.fsScale||1),color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}>{String(sample)}</div>
                                 )}
                               </div>
                             );
                           })}
                         </div>
-                        <span onClick={()=>{setSheetPreview(null);setSheetColumnMap({});}} style={{display:"inline-block",marginTop:8,fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",fontFamily:T.font}}>← Use a different sheet</span>
+                        <span onClick={()=>{setSheetPreview(null);setSheetColumnMap({});}} style={{display:"inline-block",marginTop:8,fontSize:11*(T.fsScale||1),fontWeight:600,color:T.accent,cursor:"pointer",fontFamily:T.font}}>← Use a different sheet</span>
                       </div>
                     )}
-                    {connectError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{connectError}</div>}
+                    {connectError&&<div style={{fontSize:11*(T.fsScale||1),color:T.danger,marginBottom:8}}>{connectError}</div>}
                     {isGSheet&&!sheetPreview?(
                       <Btn onClick={handlePreviewSheet} disabled={sheetPreviewLoading||!(connectValues.sheetUrl||"").trim()}
                         variant="primary" size="sm" T={T}>{sheetPreviewLoading?"Reading sheet…":"Preview sheet"}</Btn>
@@ -2899,12 +2899,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               {oauthPicker&&(
                 <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r8,maxWidth:420}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:T.font}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
-                    <span onClick={()=>{setOauthPicker(null);setOauthManualId("");setOauthManualName("");setOauthManualLoginCustomerId("");}} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                    <div style={{fontSize:12*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>Which {OAUTH_PROVIDER_LABELS[oauthPicker.provider]||oauthPicker.provider} account?</div>
+                    <span onClick={()=>{setOauthPicker(null);setOauthManualId("");setOauthManualName("");setOauthManualLoginCustomerId("");}} style={{fontSize:12*(T.fsScale||1),color:T.textMuted,cursor:"pointer"}}>✕</span>
                   </div>
                   {oauthPicker.accounts.length===0?(
                     <div>
-                      <div style={{fontSize:11,color:T.textMuted,marginBottom:10,lineHeight:1.5}}>
+                      <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginBottom:10,lineHeight:1.5}}>
                         {oauthPicker.provider==="google"
                           ?"Couldn't auto-discover accounts — this happens when your Google login only has access via a manager (MCC) account rather than directly on the ad account itself. Paste the Customer ID instead (top-right corner of the Google Ads UI, format 123-456-7890)."
                           :"Connected, but couldn't load your accounts. Try Sync — if it fails, reconnect."}
@@ -2912,12 +2912,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       {oauthPicker.provider==="google"&&(
                         <div style={{display:"flex",flexDirection:"column",gap:6}}>
                           <input value={oauthManualId} onChange={e=>setOauthManualId(e.target.value)} placeholder="Customer ID, e.g. 123-456-7890"
-                            style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
+                            style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
                           <input value={oauthManualLoginCustomerId} onChange={e=>setOauthManualLoginCustomerId(e.target.value)} placeholder="Manager account ID (only if accessed via an MCC — leave blank otherwise)"
-                            style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
+                            style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace"}}/>
                           <input value={oauthManualName} onChange={e=>setOauthManualName(e.target.value)} placeholder="Account name (optional, for display only)"
-                            style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12,outline:"none",fontFamily:T.font}}/>
-                          <div style={{fontSize:10,color:T.textMuted,lineHeight:1.4}}>Getting "PERMISSION_DENIED" on sync after entering just the Customer ID above? You're almost certainly reaching this account through a manager account — switch into that manager account in the Google Ads UI, copy ITS Customer ID (top-right corner), and paste it here too.</div>
+                            style={{width:"100%",boxSizing:"border-box",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
+                          <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,lineHeight:1.4}}>Getting "PERMISSION_DENIED" on sync after entering just the Customer ID above? You're almost certainly reaching this account through a manager account — switch into that manager account in the Google Ads UI, copy ITS Customer ID (top-right corner), and paste it here too.</div>
                           <Btn T={T} variant="primary" size="sm"
                             disabled={oauthPickerSaving||!oauthManualId.replace(/[^0-9]/g,"").trim()}
                             onClick={()=>{
@@ -2937,8 +2937,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                           style={{textAlign:"left",padding:"7px 10px",borderRadius:T.r6,
                             border:`1px solid ${a.id===oauthPicker.selectedAccountId?T.accentBorder:T.border}`,
                             background:a.id===oauthPicker.selectedAccountId?T.accentBg:T.surface,
-                            color:T.text,cursor:oauthPickerSaving?"default":"pointer",fontSize:12,fontFamily:T.font,opacity:oauthPickerSaving?0.6:1}}>
-                          {a.name} <span style={{color:T.textMuted,fontSize:10}}>({a.id})</span>
+                            color:T.text,cursor:oauthPickerSaving?"default":"pointer",fontSize:12*(T.fsScale||1),fontFamily:T.font,opacity:oauthPickerSaving?0.6:1}}>
+                          {a.name} <span style={{color:T.textMuted,fontSize:10*(T.fsScale||1)}}>({a.id})</span>
                         </button>
                       ))}
                     </div>
@@ -2948,16 +2948,16 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               {gsheetSpendOpen&&(
                 <div style={{marginBottom:14,padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r8,maxWidth:420}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                    <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:T.font}}>Pull spend from Google Sheets</div>
-                    <span onClick={()=>setGsheetSpendOpen(false)} style={{fontSize:12,color:T.textMuted,cursor:"pointer"}}>✕</span>
+                    <div style={{fontSize:12*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>Pull spend from Google Sheets</div>
+                    <span onClick={()=>setGsheetSpendOpen(false)} style={{fontSize:12*(T.fsScale||1),color:T.textMuted,cursor:"pointer"}}>✕</span>
                   </div>
                   {gsSpend.tabs?.length>1?(
                     <div>
-                      <div style={{fontSize:11,color:T.textSub,marginBottom:6}}>Which tab has the spend data?</div>
+                      <div style={{fontSize:11*(T.fsScale||1),color:T.textSub,marginBottom:6}}>Which tab has the spend data?</div>
                       <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
                         {gsSpend.tabs.map(t=>(
                           <button key={t.sheetId} disabled={gsSpend.fetching} onClick={()=>gsSpend.fetchTab(gsSpend.spreadsheetId,t.title)}
-                            style={{padding:"4px 9px",borderRadius:T.r6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsSpend.fetching?"default":"pointer",fontSize:11,fontFamily:T.font,opacity:gsSpend.fetching?0.6:1}}>{t.title}</button>
+                            style={{padding:"4px 9px",borderRadius:T.r6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsSpend.fetching?"default":"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,opacity:gsSpend.fetching?0.6:1}}>{t.title}</button>
                         ))}
                       </div>
                     </div>
@@ -2965,7 +2965,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     <Btn onClick={gsSpend.openPicker} disabled={gsSpend.fetching} variant="primary" size="sm" T={T}>{gsSpend.fetching?"Connecting…":"Choose from Google Drive"}</Btn>
                   )}
                   {gsSpend.error&&(
-                    <div style={{marginTop:8,fontSize:11,color:T.danger}}>
+                    <div style={{marginTop:8,fontSize:11*(T.fsScale||1),color:T.danger}}>
                       {gsSpend.error}
                       {/(permission|forbidden|403)/i.test(gsSpend.error)&&(
                         <>{" "}<span onClick={gsSpend.retryWithNewAccount} style={{color:T.accent,cursor:"pointer",fontWeight:600,textDecoration:"underline"}}>Try a different Google account</span></>
@@ -2990,14 +2990,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 what's already connected. CSV/Screenshot/Budget file are cards here too, alongside
                 the live connectors, per his call when scoping this.) */
             <div style={{flex:1,padding:isMobile?16:"24px 32px",overflow:"auto"}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,fontSize:12,fontFamily:T.font}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,fontSize:12*(T.fsScale||1),fontFamily:T.font}}>
                 <span onClick={()=>setDataSourcesSubView("connections")} style={{color:T.accent,cursor:"pointer",fontWeight:600}}>Data Sources</span>
                 <span style={{color:T.textMuted}}>/</span>
                 <span style={{color:T.textSub}}>Add data source</span>
               </div>
               <h1 style={{fontSize:isMobile?20:24,fontWeight:700,color:T.text,letterSpacing:"-0.4px",margin:"6px 0 14px"}}>Add data source</h1>
               <input value={dataSourceSearch} onChange={e=>setDataSourceSearch(e.target.value)} placeholder="Search data sources…"
-                style={{width:"100%",maxWidth:360,boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r8,color:T.text,padding:"8px 12px",fontSize:13,outline:"none",fontFamily:T.font,marginBottom:20}}/>
+                style={{width:"100%",maxWidth:360,boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r8,color:T.text,padding:"8px 12px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font,marginBottom:20}}/>
               {(()=>{
                 const cards=[
                   ...PLATFORMS.map(pl=>{
@@ -3035,18 +3035,18 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         style={{border:`1px solid ${isDropTarget&&dragOver?T.accent:T.border}`,borderRadius:T.r10,background:isDropTarget&&dragOver?T.accentBg:T.surface,padding:"16px",cursor:"pointer",transition:"all 0.15s"}}>
                         <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
                           <PlatformLogo domain={c.domain} color={c.color} mark={c.mark} T={T}/>
-                          <span style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:T.font}}>{c.label}</span>
-                          {c.isConnected&&!c.warn&&<Pill color={T.success} bg={T.successBg} border={T.successBorder} style={{fontSize:9}}>Connected</Pill>}
-                          {c.warn&&<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder} style={{fontSize:9}}>Needs attention</Pill>}
+                          <span style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>{c.label}</span>
+                          {c.isConnected&&!c.warn&&<Pill color={T.success} bg={T.successBg} border={T.successBorder} style={{fontSize:9*(T.fsScale||1)}}>Connected</Pill>}
+                          {c.warn&&<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder} style={{fontSize:9*(T.fsScale||1)}}>Needs attention</Pill>}
                         </div>
-                        <div style={{fontSize:12,color:T.textMuted,lineHeight:1.5,marginBottom:c.key==="_screenshot"&&screenshotError?6:14,minHeight:32}}>{c.desc}</div>
-                        {c.key==="_screenshot"&&screenshotError&&<div style={{fontSize:11,color:T.danger,marginBottom:8}}>{screenshotError}</div>}
-                        <div style={{fontSize:12,fontWeight:600,color:T.accent}}>{c.key==="_screenshot"&&screenshotProcessing?"Reading screenshot…":`${c.actionLabel} →`}</div>
+                        <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,lineHeight:1.5,marginBottom:c.key==="_screenshot"&&screenshotError?6:14,minHeight:32}}>{c.desc}</div>
+                        {c.key==="_screenshot"&&screenshotError&&<div style={{fontSize:11*(T.fsScale||1),color:T.danger,marginBottom:8}}>{screenshotError}</div>}
+                        <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.accent}}>{c.key==="_screenshot"&&screenshotProcessing?"Reading screenshot…":`${c.actionLabel} →`}</div>
                       </div>
                       );
                     })}
                     {cards.length===0&&(
-                      <div style={{gridColumn:"1/-1",fontSize:13,color:T.textMuted,fontFamily:T.font,padding:"20px 0"}}>No data sources match "{dataSourceSearch}".</div>
+                      <div style={{gridColumn:"1/-1",fontSize:13*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,padding:"20px 0"}}>No data sources match "{dataSourceSearch}".</div>
                     )}
                   </div>
                 );
@@ -3061,7 +3061,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <div style={{position:"relative"}}>
                     <button onClick={()=>setSyncRangePickerOpen(o=>!o)}
-                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 9px",borderRadius:T.r6,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,cursor:"pointer",fontSize:11,fontFamily:T.font}}>
+                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 9px",borderRadius:T.r6,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font}}>
                       <span style={{color:T.textMuted}}>Range:</span> {syncDateRange.start} → {syncDateRange.end}
                     </button>
                     {syncRangePickerOpen&&(
@@ -3069,30 +3069,30 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         <div style={{display:"flex",gap:14,marginBottom:12,borderBottom:`1px solid ${T.border}`}}>
                           {["recommended","custom"].map(tab=>(
                             <span key={tab} onClick={()=>setSyncRangeTab(tab)}
-                              style={{fontSize:12,fontWeight:600,paddingBottom:8,cursor:"pointer",color:syncRangeTab===tab?T.accent:T.textMuted,borderBottom:syncRangeTab===tab?`2px solid ${T.accent}`:"2px solid transparent",textTransform:"capitalize",fontFamily:T.font}}>{tab}</span>
+                              style={{fontSize:12*(T.fsScale||1),fontWeight:600,paddingBottom:8,cursor:"pointer",color:syncRangeTab===tab?T.accent:T.textMuted,borderBottom:syncRangeTab===tab?`2px solid ${T.accent}`:"2px solid transparent",textTransform:"capitalize",fontFamily:T.font}}>{tab}</span>
                           ))}
                         </div>
                         {syncRangeTab==="recommended"?(
                           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                             {SYNC_RANGE_PRESETS.map(p=>(
                               <button key={p.label} onClick={()=>applySyncRangePreset(p)}
-                                style={{padding:"5px 10px",borderRadius:T.r20,border:`1px solid ${T.border}`,background:T.surfaceEl,color:T.text,cursor:"pointer",fontSize:11,fontFamily:T.font}}>{p.label}</button>
+                                style={{padding:"5px 10px",borderRadius:T.r20,border:`1px solid ${T.border}`,background:T.surfaceEl,color:T.text,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font}}>{p.label}</button>
                             ))}
                           </div>
                         ):(
                           <div>
-                            <div style={{fontSize:11,color:T.textMuted,marginBottom:8,fontFamily:T.font}}>Pick an exact start and end date — useful for redoing a specific past window a preset doesn't cover.</div>
+                            <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginBottom:8,fontFamily:T.font}}>Pick an exact start and end date — useful for redoing a specific past window a preset doesn't cover.</div>
                             <div style={{display:"flex",gap:6,alignItems:"center"}}>
                               <input type="date" value={syncDateRange.start} onChange={e=>setSyncDateRange(p=>({...p,start:e.target.value}))}
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
-                              <span style={{fontSize:11,color:T.textMuted}}>→</span>
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,padding:"5px 7px",fontSize:11*(T.fsScale||1),outline:"none"}}/>
+                              <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>→</span>
                               <input type="date" value={syncDateRange.end} max={localISODate(new Date())}
                                 title="Can't pull spend data for dates that haven't happened yet"
                                 onChange={e=>{
                                   const todayStr=localISODate(new Date());
                                   setSyncDateRange(p=>({...p,end:e.target.value>todayStr?todayStr:e.target.value}));
                                 }}
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,padding:"5px 7px",fontSize:11*(T.fsScale||1),outline:"none"}}/>
                             </div>
                             <Btn onClick={()=>setSyncRangePickerOpen(false)} variant="primary" size="sm" T={T} style={{marginTop:10}}>Done</Btn>
                           </div>
@@ -3105,11 +3105,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   </Btn>
                 </div>
               </div>
-              <div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:620,marginBottom:10}}>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:620,marginBottom:10}}>
                 Every ad account this workspace pulls live spend from — see who connected each one, when it last imported, and manage it from the ⋯ menu.
               </div>
               {Object.entries(syncState).filter(([,s])=>s.startsWith("error:")).map(([k,s])=>(
-                <div key={k} style={{marginBottom:6,fontSize:11,color:T.danger}}>{k}: {s.replace("error:","")}</div>
+                <div key={k} style={{marginBottom:6,fontSize:11*(T.fsScale||1),color:T.danger}}>{k}: {s.replace("error:","")}</div>
               ))}
               {(()=>{
                 const GRID="150px minmax(140px,1.4fr) minmax(140px,1fr) 130px 96px 100px 92px 92px 32px";
@@ -3121,8 +3121,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                           Collection" set, background stripped) — a rover goes out and gathers data,
                           same job this empty state is asking the user to do for the first time. */}
                       <img src={lunarRoverIcon} alt="" aria-hidden="true" style={{width:120,height:"auto",marginBottom:10}}/>
-                      <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.font,marginBottom:4}}>No data sources connected yet</div>
-                      <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font,marginBottom:14}}>Connect LinkedIn, Bing, Funnel.io and more — or upload a CSV/screenshot directly.</div>
+                      <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,marginBottom:4}}>No data sources connected yet</div>
+                      <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,marginBottom:14}}>Connect LinkedIn, Bing, Funnel.io and more — or upload a CSV/screenshot directly.</div>
                       <Btn onClick={()=>setDataSourcesSubView("add")} variant="primary" size="sm" T={T}>+ Add data source</Btn>
                     </div>
                   );
@@ -3132,7 +3132,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   {!isMobile&&(
                     <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"7px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
                       {["Connector","Data source name","Credentials","Status","Sync","Connected","Import start","Import end",""].map(h=>(
-                        <SectionLabel key={h} T={T} style={{marginBottom:0,fontSize:13,fontWeight:700,color:T.text,textAlign:"center"}}>{h}</SectionLabel>
+                        <SectionLabel key={h} T={T} style={{marginBottom:0,fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,textAlign:"center"}}>{h}</SectionLabel>
                       ))}
                     </div>
                   )}
@@ -3166,35 +3166,35 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     const menuOpen=connActionsMenuProvider===pl.key;
                     const syncing=(syncState[pl.key]||"idle")==="loading";
                     const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key||syncing;
-                    const cell=(content,extra)=><div style={{fontSize:13,color:T.textSub,fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
+                    const cell=(content,extra)=><div style={{fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
                     const actionsMenu=menuOpen&&connActionsMenuAnchorRect&&createPortal(
                       <>
                         <div onClick={closeConnActionsMenu} style={{position:"fixed",inset:0,zIndex:999}}/>
                         <div style={{position:"fixed",top:connActionsMenuAnchorRect.bottom+6,left:Math.max(8,connActionsMenuAnchorRect.right-220),zIndex:1000,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
                           {!conn.paused&&!conn.needsReconnect&&!conn.needsAccountSelection&&(
-                            <button onClick={()=>{closeConnActionsMenu();syncPlatform(pl.key);}} disabled={!canEdit||syncing} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!syncing?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!syncing?1:0.5}}>{syncing?"Syncing…":"Sync now"}</button>
+                            <button onClick={()=>{closeConnActionsMenu();syncPlatform(pl.key);}} disabled={!canEdit||syncing} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit&&!syncing?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!syncing?1:0.5}}>{syncing?"Syncing…":"Sync now"}</button>
                           )}
                           {conn.needsAccountSelection&&(
-                            <button onClick={()=>{closeConnActionsMenu();openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
+                            <button onClick={()=>{closeConnActionsMenu();openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
                           )}
                           {conn.needsReconnect&&(
-                            <button onClick={()=>{closeConnActionsMenu();startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
+                            <button onClick={()=>{closeConnActionsMenu();startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
                           )}
                           {!conn.needsAccountSelection&&!conn.needsReconnect&&(
-                            <button onClick={()=>{closeConnActionsMenu();pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
+                            <button onClick={()=>{closeConnActionsMenu();pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
                           )}
                           {/* Google Sheets-only (2026-07-31, per Mo) — re-opens the connect panel
                               pre-filled with this sheet's URL and re-fetches its headers, so a
                               sheet whose columns changed (or a mapping picked wrong the first time)
                               can be fixed without disconnecting and reconnecting from scratch. */}
                           {pl.key==="googlesheets"&&!conn.needsAccountSelection&&!conn.needsReconnect&&(
-                            <button onClick={()=>{closeConnActionsMenu();openAdjustMapping(conn);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Adjust mapping</button>
+                            <button onClick={()=>{closeConnActionsMenu();openAdjustMapping(conn);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Adjust mapping</button>
                           )}
                           {!warn&&(
                             <div style={{padding:"6px 10px 4px"}} onClick={e=>e.stopPropagation()}>
-                              <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,marginBottom:5}}>Sync schedule</div>
+                              <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,marginBottom:5}}>Sync schedule</div>
                               <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                                <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                                <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11*(T.fsScale||1),padding:"4px 7px"}}
                                   onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;v==="manual"
                                     ?updateSyncSchedule(pl.key,{syncMode:"manual"})
                                     :updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:conn.rollingWindowDays||14});}}>
@@ -3203,7 +3203,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                                   <option value="weekly">Weekly</option>
                                 </Sel>
                                 {conn.syncMode==="rolling"&&(
-                                  <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11,padding:"4px 7px"}}
+                                  <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11*(T.fsScale||1),padding:"4px 7px"}}
                                     onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:conn.syncFrequency,rollingWindowDays:Number(v)});}}>
                                     <option value="7">Last 7 days</option>
                                     <option value="14">Last 14 days</option>
@@ -3214,7 +3214,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                                 )}
                               </div>
                               {conn.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
-                                <div style={{fontSize:10,color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:T.font,marginTop:5}}>
+                                <div style={{fontSize:10*(T.fsScale||1),color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:T.font,marginTop:5}}>
                                   {conn.lastAutoSyncStatus==="error"
                                     ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
                                     :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
@@ -3223,10 +3223,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                             </div>
                           )}
                           <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
-                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in PaidHQ":"Don't use this data in PaidHQ"}</button>
+                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit&&!saving?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
+                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit&&!saving?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in PaidHQ":"Don't use this data in PaidHQ"}</button>
                           <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                          <button onClick={()=>{closeConnActionsMenu();disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.danger,fontSize:13,cursor:canEdit&&!saving?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
+                          <button onClick={()=>{closeConnActionsMenu();disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.danger,fontSize:13*(T.fsScale||1),cursor:canEdit&&!saving?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
                         </div>
                       </>,
                       document.body
@@ -3238,7 +3238,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                             setConnActionsMenuAnchorRect(e.currentTarget.getBoundingClientRect());
                             setConnActionsMenuProvider(pl.key);
                           }} title="Actions" disabled={saving}
-                          style={{width:24,height:24,borderRadius:T.r6,background:menuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:saving?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.5:1,fontSize:13,color:T.textSub,fontFamily:T.font,lineHeight:1}}>⋯</button>
+                          style={{width:24,height:24,borderRadius:T.r6,background:menuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:saving?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.5:1,fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font,lineHeight:1}}>⋯</button>
                         {actionsMenu}
                       </div>
                     );
@@ -3248,17 +3248,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
                             <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
                               <PlatformLogo domain={pl.domain} color={pl.color} mark={pl.mark} size={18} T={T}/>
-                              <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.font}}>{pl.label}</span>
-                              <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
-                              <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10}} title={syncTitle}>{syncLabel}</Pill>
+                              <span style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font}}>{pl.label}</span>
+                              <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10*(T.fsScale||1)}}>{statusLabel}</Pill>
+                              <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10*(T.fsScale||1)}} title={syncTitle}>{syncLabel}</Pill>
                               {syncFailed&&(
                                 <WarnTip T={T} text={`Auto-sync failed ${conn.lastAutoSyncAt?new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"}):"recently"}: ${conn.lastAutoSyncError||"unknown error"}`}/>
                               )}
                             </div>
                             {dotsButton}
                           </div>
-                          <div style={{fontSize:13,color:T.textSub,fontFamily:T.font}}>{summaryText}</div>
-                          <div style={{fontSize:13,color:T.textMuted,fontFamily:T.font,marginTop:3}}>
+                          <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>{summaryText}</div>
+                          <div style={{fontSize:13*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,marginTop:3}}>
                             {connectedByEmail||"—"} · connected {fmtShort(conn.connectedAt)} · imported {fmtShort(importRange?.start)}–{fmtShort(importRange?.end)}
                           </div>
                         </div>
@@ -3268,13 +3268,13 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       <div key={pl.key} style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 10px",alignItems:"center",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                         <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
                           <PlatformLogo domain={pl.domain} color={pl.color} mark={pl.mark} size={18} T={T}/>
-                          <span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
+                          <span style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
                         </div>
                         {cell(summaryText,{color:T.text})}
                         {cell(connectedByEmail||"—")}
                         <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-                          <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10}}>{statusLabel}</Pill>
-                          {conn.excludedFromData&&<Pill color={T.textMuted} bg={T.surfaceEl} border={T.border} style={{fontSize:10}}>Hidden</Pill>}
+                          <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10*(T.fsScale||1)}}>{statusLabel}</Pill>
+                          {conn.excludedFromData&&<Pill color={T.textMuted} bg={T.surfaceEl} border={T.border} style={{fontSize:10*(T.fsScale||1)}}>Hidden</Pill>}
                         </div>
                         {/* Sync frequency column (2026-07-25, per Mo — this was previously only
                             visible by opening the ⋯ menu's "Sync schedule" section, which meant the
@@ -3290,7 +3290,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                             a WarnTip carrying the actual error message and date, same copy already
                             used in the ⋯ menu's own failure note. */}
                         <div style={{display:"flex",alignItems:"center",gap:4}}>
-                          <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10}} title={syncTitle}>{syncLabel}</Pill>
+                          <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10*(T.fsScale||1)}} title={syncTitle}>{syncLabel}</Pill>
                           {syncFailed&&(
                             <WarnTip T={T} text={`Auto-sync failed ${conn.lastAutoSyncAt?new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"}):"recently"}: ${conn.lastAutoSyncError||"unknown error"}`}/>
                           )}
@@ -3315,8 +3315,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         <div style={{flex:1,overflow:"auto"}}>
           <div style={{maxWidth:720,margin:"0 auto",padding:isMobile?"16px":"32px 24px"}}>
             <div style={{marginBottom:22}}>
-              <h2 style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4}}>Review extracted data</h2>
-              <p style={{fontSize:13,color:T.textSub}}><strong style={{color:T.text,fontWeight:600}}>{screenshotFileName}</strong> · {screenshotPreview.length.toLocaleString()} rows found — check these against the screenshot before adding.</p>
+              <h2 style={{fontSize:20*(T.fsScale||1),fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4}}>Review extracted data</h2>
+              <p style={{fontSize:13*(T.fsScale||1),color:T.textSub}}><strong style={{color:T.text,fontWeight:600}}>{screenshotFileName}</strong> · {screenshotPreview.length.toLocaleString()} rows found — check these against the screenshot before adding.</p>
             </div>
             <PixelPanel T={T} style={{marginBottom:18}} contentStyle={{background:T.surface,overflow:"hidden"}}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 90px 90px 90px",padding:"8px 16px",borderBottom:`1px solid ${T.border}`,background:T.headerBg}}>
@@ -3329,11 +3329,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               <div style={{maxHeight:420,overflow:"auto"}}>
                 {screenshotPreview.map((r,i)=>(
                   <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 90px 90px 90px",padding:"7px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",gap:4}}>
-                    <div style={{fontSize:11,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaign_group_name}</div>
-                    <div style={{fontSize:11,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaign_name}</div>
-                    <div style={{fontSize:11,color:T.textSub}}>{r.platform}</div>
-                    <div style={{fontSize:11,color:T.textSub}}>{r.date}</div>
-                    <div style={{fontSize:12,fontWeight:600,color:T.text}}>{fmt$(r.spend)}</div>
+                    <div style={{fontSize:11*(T.fsScale||1),color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaign_group_name}</div>
+                    <div style={{fontSize:11*(T.fsScale||1),color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaign_name}</div>
+                    <div style={{fontSize:11*(T.fsScale||1),color:T.textSub}}>{r.platform}</div>
+                    <div style={{fontSize:11*(T.fsScale||1),color:T.textSub}}>{r.date}</div>
+                    <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.text}}>{fmt$(r.spend)}</div>
                   </div>
                 ))}
               </div>
@@ -3355,18 +3355,18 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   }
                 }} style={{marginTop:2,cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
                 <div>
-                  <span style={{fontSize:13,fontWeight:500,color:T.text}}>This screenshot shows one number per month, not per day</span>
-                  <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>A monthly dashboard/report screenshot (e.g. Google/Bing's manual view) reports the whole month's total, not a real daily figure. Checked automatically when every extracted row's date looks like the 1st of a month; uncheck if this screenshot actually showed real per-day numbers.</div>
+                  <span style={{fontSize:13*(T.fsScale||1),fontWeight:500,color:T.text}}>This screenshot shows one number per month, not per day</span>
+                  <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:2}}>A monthly dashboard/report screenshot (e.g. Google/Bing's manual view) reports the whole month's total, not a real daily figure. Checked automatically when every extracted row's date looks like the 1st of a month; uncheck if this screenshot actually showed real per-day numbers.</div>
                 </div>
               </label>
               {screenshotIsMonthly&&(
                 <div style={{marginTop:10,display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",alignItems:"center"}}>
                   <div>
-                    <span style={{fontSize:12,fontWeight:500,color:T.text}}>Data accurate through</span>
-                    <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Each row's full-month spend is treated as current through this date — adjust if the screenshot is from a different day than today.</div>
+                    <span style={{fontSize:12*(T.fsScale||1),fontWeight:500,color:T.text}}>Data accurate through</span>
+                    <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:2}}>Each row's full-month spend is treated as current through this date — adjust if the screenshot is from a different day than today.</div>
                   </div>
                   <input type="date" value={screenshotAsOf} onChange={e=>setScreenshotAsOf(e.target.value)}
-                    style={{background:T.inputBg,border:`1px solid ${screenshotIsMonthly&&!screenshotAsOf?T.dangerBorder:T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:T.font}}/>
+                    style={{background:T.inputBg,border:`1px solid ${screenshotIsMonthly&&!screenshotAsOf?T.dangerBorder:T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                 </div>
               )}
               {/* Soft nudge, not a requirement (2026-07-30, per Mo) — monthly-grain data is fully
@@ -3375,12 +3375,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   blocks or requires anything — screenshots of monthly-only sources (a client's
                   monthly report, an exec dashboard) are a completely normal, supported case. */}
               {screenshotIsMonthly&&(
-                <div style={{marginTop:8,fontSize:11,color:T.textMuted}}>💡 For a smoother day-by-day Trend view later, a per-day export or screenshot works even better than monthly — but monthly totals work fine too if that's what's available.</div>
+                <div style={{marginTop:8,fontSize:11*(T.fsScale||1),color:T.textMuted}}>💡 For a smoother day-by-day Trend view later, a per-day export or screenshot works even better than monthly — but monthly totals work fine too if that's what's available.</div>
               )}
             </PixelPanel>
-            <div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>
+            <div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:13*(T.fsScale||1),color:T.success,fontWeight:500}}>
               ✓ <strong>{screenshotPreview.length}</strong> rows · <strong>{fmt$(screenshotPreview.reduce((s,r)=>s+r.spend,0))}</strong> total spend — this was read by AI and may contain mistakes, double-check against the source before confirming.
-              {screenshotIsMonthly&&<div style={{fontWeight:400,marginTop:2,fontSize:12}}>Each row treated as one month's total, accurate through {screenshotAsOf||"—"}.</div>}
+              {screenshotIsMonthly&&<div style={{fontWeight:400,marginTop:2,fontSize:12*(T.fsScale||1)}}>Each row treated as one month's total, accurate through {screenshotAsOf||"—"}.</div>}
             </div>
             <div style={{display:"flex",justifyContent:"space-between"}}>
               <Btn onClick={()=>{setScreenshotPreview([]);setScreenshotFileName("");setScreenshotIsMonthly(false);setScreenshotAsOf("");setStep("upload");}} variant="ghost" T={T}>← Cancel</Btn>
@@ -3395,8 +3395,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         <div style={{flex:1,overflow:"auto"}}>
           <div style={{maxWidth:660,margin:"0 auto",padding:isMobile?"16px":"32px 24px"}}>
             <div style={{marginBottom:22}}>
-              <h2 style={{fontSize:20,fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4}}>Map your columns</h2>
-              <p style={{fontSize:13,color:T.textSub}}><strong style={{color:T.text,fontWeight:600}}>{fileName}</strong> · {rawRows.length.toLocaleString()} rows</p>
+              <h2 style={{fontSize:20*(T.fsScale||1),fontWeight:700,color:T.text,letterSpacing:"-0.3px",marginBottom:4}}>Map your columns</h2>
+              <p style={{fontSize:13*(T.fsScale||1),color:T.textSub}}><strong style={{color:T.text,fontWeight:600}}>{fileName}</strong> · {rawRows.length.toLocaleString()} rows</p>
             </div>
             <PixelPanel T={T} style={{marginBottom:18}} contentStyle={{background:T.surface,overflow:"hidden"}}>
               {/* Channels — single platform override, or multiple channels read per-row from a
@@ -3406,14 +3406,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`,background:T.accentBg}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:isMobile?"wrap":"nowrap"}}>
                   <div>
-                    <span style={{fontSize:13,fontWeight:500,color:T.text}}>Channels in this file</span>
-                    <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{uploadPlatform==="auto"?"Map the Platform column below — every distinct value becomes its own channel.":"Every row will be labeled as this one platform."}</div>
+                    <span style={{fontSize:13*(T.fsScale||1),fontWeight:500,color:T.text}}>Channels in this file</span>
+                    <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:2}}>{uploadPlatform==="auto"?"Map the Platform column below — every distinct value becomes its own channel.":"Every row will be labeled as this one platform."}</div>
                   </div>
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
                     <button type="button" onClick={()=>setUploadPlatform("auto")}
-                      style={{padding:"6px 12px",borderRadius:T.r6,border:`1px solid ${uploadPlatform==="auto"?T.accent:T.border}`,background:uploadPlatform==="auto"?T.accent:T.surface,color:uploadPlatform==="auto"?"#fff":T.text,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:T.font}}>Multiple channels</button>
+                      style={{padding:"6px 12px",borderRadius:T.r6,border:`1px solid ${uploadPlatform==="auto"?T.accent:T.border}`,background:uploadPlatform==="auto"?T.accent:T.surface,color:uploadPlatform==="auto"?"#fff":T.text,fontSize:12*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font}}>Multiple channels</button>
                     <button type="button" onClick={()=>setUploadPlatform(p=>p==="auto"?"Google":p)}
-                      style={{padding:"6px 12px",borderRadius:T.r6,border:`1px solid ${uploadPlatform!=="auto"?T.accent:T.border}`,background:uploadPlatform!=="auto"?T.accent:T.surface,color:uploadPlatform!=="auto"?"#fff":T.text,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:T.font}}>Single channel</button>
+                      style={{padding:"6px 12px",borderRadius:T.r6,border:`1px solid ${uploadPlatform!=="auto"?T.accent:T.border}`,background:uploadPlatform!=="auto"?T.accent:T.surface,color:uploadPlatform!=="auto"?"#fff":T.text,fontSize:12*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font}}>Single channel</button>
                   </div>
                 </div>
                 {uploadPlatform!=="auto"&&(
@@ -3426,12 +3426,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 {uploadPlatform==="auto"&&channelPreview.length>0&&(
                   <div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:6}}>
                     {channelPreview.map(([name,count])=>(
-                      <span key={name} style={{fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:T.r20,background:T.surface,border:`1px solid ${T.border}`,color:T.text}}>{name} · {count.toLocaleString()}</span>
+                      <span key={name} style={{fontSize:11*(T.fsScale||1),fontWeight:600,padding:"3px 9px",borderRadius:T.r20,background:T.surface,border:`1px solid ${T.border}`,color:T.text}}>{name} · {count.toLocaleString()}</span>
                     ))}
                   </div>
                 )}
                 {uploadPlatform==="auto"&&!colMap.platform&&rawRows.length>0&&(
-                  <div style={{marginTop:10,fontSize:11,color:T.danger,fontWeight:600}}>Map the Platform column below to continue.</div>
+                  <div style={{marginTop:10,fontSize:11*(T.fsScale||1),color:T.danger,fontWeight:600}}>Map the Platform column below to continue.</div>
                 )}
               </div>
               {/* Monthly-grain confirmation — previously a silent heuristic driving uploadAsOf's
@@ -3447,18 +3447,18 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     }
                   }} style={{marginTop:2,cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
                   <div>
-                    <span style={{fontSize:13,fontWeight:500,color:T.text}}>This file has one row per month, not per day</span>
-                    <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Google/Bing's manual exports report one row per campaign PER MONTH (e.g. "Jul-26") with the month's total spend — not a real daily date. Checked automatically when every date in the file looks like the 1st of a month; uncheck if this file actually has real per-day rows.</div>
+                    <span style={{fontSize:13*(T.fsScale||1),fontWeight:500,color:T.text}}>This file has one row per month, not per day</span>
+                    <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:2}}>Google/Bing's manual exports report one row per campaign PER MONTH (e.g. "Jul-26") with the month's total spend — not a real daily date. Checked automatically when every date in the file looks like the 1st of a month; uncheck if this file actually has real per-day rows.</div>
                   </div>
                 </label>
                 {uploadIsMonthly&&(
                   <div style={{marginTop:10,display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",alignItems:"center"}}>
                     <div>
-                      <span style={{fontSize:12,fontWeight:500,color:T.text}}>Data accurate through</span>
-                      <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>Each row's full-month spend is treated as current through this date — adjust if you pulled the export on a different day than today.</div>
+                      <span style={{fontSize:12*(T.fsScale||1),fontWeight:500,color:T.text}}>Data accurate through</span>
+                      <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:2}}>Each row's full-month spend is treated as current through this date — adjust if you pulled the export on a different day than today.</div>
                     </div>
                     <input type="date" value={uploadAsOf} onChange={e=>setUploadAsOf(e.target.value)}
-                      style={{background:T.inputBg,border:`1px solid ${uploadIsMonthly&&!uploadAsOf?T.dangerBorder:T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:T.font}}/>
+                      style={{background:T.inputBg,border:`1px solid ${uploadIsMonthly&&!uploadAsOf?T.dangerBorder:T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                   </div>
                 )}
                 {/* Soft nudge, not a requirement (2026-07-30, per Mo) — monthly-grain data is fully
@@ -3468,7 +3468,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     monthly report, a platform whose manual export only rolls up to month) are a
                     completely normal, supported case. */}
                 {uploadIsMonthly&&(
-                  <div style={{marginTop:8,fontSize:11,color:T.textMuted}}>💡 For a smoother day-by-day Trend view later, a per-day export works even better than monthly — but monthly totals work fine too if that's what's available.</div>
+                  <div style={{marginTop:8,fontSize:11*(T.fsScale||1),color:T.textMuted}}>💡 For a smoother day-by-day Trend view later, a per-day export works even better than monthly — but monthly totals work fine too if that's what's available.</div>
                 )}
               </div>
               {[...REQUIRED_COLS,...OPTIONAL_COLS].map((field,i)=>{
@@ -3477,16 +3477,16 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 const isRequired=REQUIRED_COLS.includes(field)||(field==="platform"&&uploadPlatform==="auto");
                 return(
                 <div key={field} style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?"5px":"12px",padding:"10px 16px",borderBottom:i<REQUIRED_COLS.length+OPTIONAL_COLS.length-1?`1px solid ${T.border}`:"none",alignItems:"center",background:isRequired&&!colMap[field]?T.dangerBg:"transparent"}}>
-                  <div><span style={{fontSize:13,fontWeight:500,color:T.text}}>{COL_LABELS[field]}</span>{isRequired&&<span style={{fontSize:10,color:T.danger,marginLeft:6,fontWeight:600}}>required</span>}{!isRequired&&<span style={{fontSize:10,color:T.textMuted,marginLeft:6}}>optional</span>}</div>
+                  <div><span style={{fontSize:13*(T.fsScale||1),fontWeight:500,color:T.text}}>{COL_LABELS[field]}</span>{isRequired&&<span style={{fontSize:10*(T.fsScale||1),color:T.danger,marginLeft:6,fontWeight:600}}>required</span>}{!isRequired&&<span style={{fontSize:10*(T.fsScale||1),color:T.textMuted,marginLeft:6}}>optional</span>}</div>
                   <Sel value={colMap[field]||""} onChange={v=>setColMap(p=>({...p,[field]:v||undefined}))} T={T}><option value="">— not mapped —</option>{headers.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
                 </div>
                 );
               })}
             </PixelPanel>
             {canProceed&&(
-              <div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:13,color:T.success,fontWeight:500}}>
+              <div style={{padding:"10px 14px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:13*(T.fsScale||1),color:T.success,fontWeight:500}}>
                 ✓ Found <strong>{campaigns.length}</strong> campaigns · <strong>{fmt$(campaigns.reduce((s,c)=>s+c.spend,0))}</strong> total spend
-                <div style={{fontWeight:400,marginTop:2,fontSize:12}}>{uploadIsMonthly?`Each row treated as one month's total, accurate through ${uploadAsOf||"—"}.`:"Each row treated as a single day's spend."} {uploadPlatform==="auto"?`Channels read per-row from "${colMap.platform}".`:`All rows labeled "${uploadPlatform}".`}</div>
+                <div style={{fontWeight:400,marginTop:2,fontSize:12*(T.fsScale||1)}}>{uploadIsMonthly?`Each row treated as one month's total, accurate through ${uploadAsOf||"—"}.`:"Each row treated as a single day's spend."} {uploadPlatform==="auto"?`Channels read per-row from "${colMap.platform}".`:`All rows labeled "${uploadPlatform}".`}</div>
               </div>
             )}
             <div style={{display:"flex",justifyContent:"space-between"}}>
@@ -3532,17 +3532,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
             {suggestions.length>0&&(
               <div style={{padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.border}`,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
-                <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text}}>Suggest</span>
-                {suggestions.map(s=><button key={s.key} onClick={()=>applySug(s.dim,s.val)} style={{fontSize:12,background:T.surface,border:`1px solid ${T.border}`,color:T.text,borderRadius:T.r14,padding:"3px 10px",cursor:"pointer",fontFamily:T.font,fontWeight:500}}>Apply {s.dim}: {s.val} to {s.count} untagged</button>)}
+                <span style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text}}>Suggest</span>
+                {suggestions.map(s=><button key={s.key} onClick={()=>applySug(s.dim,s.val)} style={{fontSize:12*(T.fsScale||1),background:T.surface,border:`1px solid ${T.border}`,color:T.text,borderRadius:T.r14,padding:"3px 10px",cursor:"pointer",fontFamily:T.font,fontWeight:500}}>Apply {s.dim}: {s.val} to {s.count} untagged</button>)}
               </div>
             )}
             {selected.size>0&&(
               <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
                 <Pill color={T.text} bg={T.accent} border={T.text}>{selected.size} selected</Pill>
-                <span style={{color:T.textMuted,fontSize:13}}>→</span>
-                <Sel value={applyDim} onChange={setApplyDim} T={T} style={{width:130,fontSize:12}}><option value="">Dimension…</option>{tagDims.map(d=><option key={d} value={d}>{d}</option>)}</Sel>
+                <span style={{color:T.textMuted,fontSize:13*(T.fsScale||1)}}>→</span>
+                <Sel value={applyDim} onChange={setApplyDim} T={T} style={{width:130,fontSize:12*(T.fsScale||1)}}><option value="">Dimension…</option>{tagDims.map(d=><option key={d} value={d}>{d}</option>)}</Sel>
                 <TagAutocompleteInput T={T} value={applyVal} onChange={setApplyVal} suggestions={dimSuggestions(applyDim)} onEnter={applyTags} placeholder="Tag value…" style={{width:130}}
-                  inputStyle={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:T.font,transition:"border-color 0.12s"}}/>
+                  inputStyle={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"6px 10px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,transition:"border-color 0.12s"}}/>
                 <Btn onClick={applyTags} disabled={!applyDim||!applyVal} variant="primary" size="sm" T={T}>Apply</Btn>
                 <Btn onClick={()=>bulkRemoveTag(applyDim)} disabled={!applyDim} variant="danger" size="sm" T={T}>Remove</Btn>
                 <div style={{width:1,height:16,background:T.border}}/>
@@ -3558,12 +3558,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             <div style={{borderBottom:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0}}>
               <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px 0"}}>
                 <button onClick={()=>setFiltersOpen(o=>!o)} title={filtersOpen?"Hide filters":"Show filters"}
-                  style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"3px 8px",cursor:"pointer",fontFamily:T.font,fontSize:11,fontWeight:600,color:T.text,outline:"none"}}>
+                  style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"3px 8px",cursor:"pointer",fontFamily:T.font,fontSize:11*(T.fsScale||1),fontWeight:600,color:T.text,outline:"none"}}>
                   <Icon name="filter" size={12} color={T.text}/>
                   Filters
                   {hasF&&<span style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>}
                 </button>
-                {!filtersOpen&&hasF&&<button onClick={clearF} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:T.font,textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
+                {!filtersOpen&&hasF&&<button onClick={clearF} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
                 {/* Replaces the top bar's old "↑ Add data" button (removed 2026-07-24, see the
                     doc comment where it used to live) — same destination, just living down here
                     with the rest of this table's own controls instead of the crowded global bar. */}
@@ -3585,7 +3585,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 {!isMobile&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                   <SH col="tags" label="Tags"/>
                   {tagsHistory.length>0&&<button onClick={undoTags} title="Undo last tag action (⌘Z)"
-                    style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,cursor:"pointer",fontSize:10,padding:"1px 6px",fontFamily:T.font,whiteSpace:"nowrap"}}>
+                    style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,cursor:"pointer",fontSize:10*(T.fsScale||1),padding:"1px 6px",fontFamily:T.font,whiteSpace:"nowrap"}}>
                     ↩ Undo ({tagsHistory.length})
                   </button>}
                 </div>}
@@ -3625,7 +3625,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     </IconField>
                     <MatchModeToggle mode={fTagInclMode} onChange={setFTagInclMode} T={T}/>
                     <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{...fIn,width:120,cursor:"pointer",marginTop:0}}><option value="all">All</option><option value="tagged">Tagged</option><option value="untagged">Needs review</option></select>
-                    {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.danger}`,color:T.danger,borderRadius:T.r6,padding:"0 8px",cursor:"pointer",fontSize:11,fontFamily:T.font,whiteSpace:"nowrap"}}>Clear ×</button>}
+                    {hasF&&<button onClick={clearF} style={{background:T.dangerBg,border:`1px solid ${T.danger}`,color:T.danger,borderRadius:T.r6,padding:"0 8px",cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,whiteSpace:"nowrap"}}>Clear ×</button>}
                   </div>
                   <div style={{display:"flex",gap:4}}>
                     <input value={fTagExclude} onChange={e=>setFTagExclude(e.target.value)} placeholder="≠ tag excludes… (a, b)" title={`Comma-separate multiple terms — ${fTagExclMode==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`} style={{...fIn,flex:1,marginTop:0}}/>
@@ -3646,33 +3646,33 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         of a muted-vs-bold pair — Vercel's row title and metadata fields read at the
                         same visual weight, just differing in which column they sit in. Weight
                         dropped to 400 (2026-07-24, per Mo) — no benefit to bolding row data. */}
-                    {!isMobile&&<div title={c.groupName} style={{fontSize:13,fontWeight:400,fontFamily:T.font,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
+                    {!isMobile&&<div title={c.groupName} style={{fontSize:13*(T.fsScale||1),fontWeight:400,fontFamily:T.font,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.groupName}</div>}
                     {/* Status dot mirrors the "Ready"-style indicator on a Vercel deployment row —
                         here it means tagged (accent) vs needs review (neutral grey), so the row list
                         reads at a glance without scanning all the way over to the Tags column. */}
                     <div style={{minWidth:0,display:"flex",alignItems:"center",gap:11}}>
                       <span title={tc>0?"Tagged":"Needs review"} style={{width:9,height:9,borderRadius:"50%",background:tc>0?T.accent:"#A1A1AA",flexShrink:0}}/>
-                      <span title={c.name} style={{minWidth:0,fontSize:13,fontWeight:400,fontFamily:T.font,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                      <span title={c.name} style={{minWidth:0,fontSize:13*(T.fsScale||1),fontWeight:400,fontFamily:T.font,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                     </div>
-                    <div style={{fontSize:13,fontFamily:T.font,fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
+                    <div style={{fontSize:13*(T.fsScale||1),fontFamily:T.font,fontWeight:400,color:T.text}}>{fmt$(c.spend)}</div>
                     {!isMobile&&<div onClick={e=>e.stopPropagation()}>
                       {editingPlatform===c.key?(
                         <select autoFocus value={c.platform}
                           onChange={e=>{if(!canEdit)return;const plat=e.target.value;setMergedNormRows(prev=>prev.map(r=>campaignKey(r.campaign_group_name,r.campaign_name)===c.key?{...r,platform:plat}:r));setEditingPlatform(null);}}
                           onBlur={()=>setEditingPlatform(null)}
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,fontSize:13,padding:"2px 6px",outline:"none",fontFamily:T.font,cursor:"pointer"}}>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,fontSize:13*(T.fsScale||1),padding:"2px 6px",outline:"none",fontFamily:T.font,cursor:"pointer"}}>
                           {PLATFORM_OPTIONS.filter(p=>p!=="auto").map(p=><option key={p} value={p}>{p}</option>)}
                         </select>
                       ):(
                         <span onClick={()=>canEdit&&setEditingPlatform(c.key)} title={canEdit?"Click to change platform":"View-only access"}
-                          style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:13,fontWeight:400,padding:"3px 8px",borderRadius:T.r6,background:pc+"14",color:pc,border:`1px solid ${pc}55`,whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>
+                          style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:13*(T.fsScale||1),fontWeight:400,padding:"3px 8px",borderRadius:T.r6,background:pc+"14",color:pc,border:`1px solid ${pc}55`,whiteSpace:"nowrap",cursor:canEdit?"pointer":"default"}}>
                           <span style={{width:5,height:5,borderRadius:"50%",background:pc,flexShrink:0}}/>
                           {c.platform}
                         </span>
                       )}
                     </div>}
                     {!isMobile&&<div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                      {tc===0?<Pill color={T.text} bg={T.surfaceEl} border={T.border} style={{fontFamily:T.font,fontSize:13,fontWeight:400,borderRadius:T.r6}}>needs review</Pill>:
+                      {tc===0?<Pill color={T.text} bg={T.surfaceEl} border={T.border} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,borderRadius:T.r6}}>needs review</Pill>:
                         // Ordered by tagDims (the canonical dimension order), not Object.entries(ts) —
                         // a plain object's key order follows INSERTION order, which is whatever
                         // sequence that specific campaign happened to get tagged in (BU-then-Product
@@ -3684,30 +3684,30 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                           const dimIdx=tagDims.indexOf(dim);
                           const dc=TAG_DIM_COLORS[(dimIdx>=0?dimIdx:0)%TAG_DIM_COLORS.length];
                           return(
-                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:13,fontWeight:400,padding:"2px 4px 2px 8px",borderRadius:T.r6,background:dc+"14",color:dc,border:`1px solid ${dc}40`,gap:2,fontFamily:T.font}}>
+                          <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:13*(T.fsScale||1),fontWeight:400,padding:"2px 4px 2px 8px",borderRadius:T.r6,background:dc+"14",color:dc,border:`1px solid ${dc}40`,gap:2,fontFamily:T.font}}>
                             <span style={{opacity:0.75,marginRight:1}}>{dim}:</span>
                             {editingTag?.campaign===c.key&&editingTag?.dim===dim?(
                               <TagAutocompleteInput T={T} autoFocus value={editVal} onChange={setEditVal} suggestions={dimSuggestions(dim)}
                                 onEnter={saveEdit} onEscape={()=>{setEditingTag(null);setEditVal("");}} onBlur={saveEdit}
                                 style={{width:Math.max(60,editVal.length*7+20)+"px"}}
-                                inputStyle={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:400,width:"100%",fontFamily:T.font,padding:0}}/>
+                                inputStyle={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13*(T.fsScale||1),fontWeight:400,width:"100%",fontFamily:T.font,padding:0}}/>
                             ):(
                               <span onClick={e=>{e.stopPropagation();if(!canEdit)return;setEditingTag({campaign:c.key,dim});setEditVal(val);}} style={{cursor:canEdit?"text":"default",fontWeight:400}}>{val}</span>
                             )}
-                            {canEdit&&<span onClick={e=>{e.stopPropagation();removeTag(c.key,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13,lineHeight:1,marginLeft:1,padding:"0 2px"}}>×</span>}
+                            {canEdit&&<span onClick={e=>{e.stopPropagation();removeTag(c.key,dim);}} style={{color:T.textMuted,cursor:"pointer",fontSize:13*(T.fsScale||1),lineHeight:1,marginLeft:1,padding:"0 2px"}}>×</span>}
                           </span>
                           );
                         })
                       }
                     </div>}
                     {!isMobile&&canEdit&&<button onClick={e=>{e.stopPropagation();if(window.confirm(`Remove "${c.name}" from this dataset?\n\nThis only affects the current session — your tags are kept. You can re-sync or re-upload to restore it.`)){setMergedNormRows(prev=>prev.filter(r=>campaignKey(r.campaign_group_name,r.campaign_name)!==c.key));}}} title="Remove this campaign"
-                      style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
+                      style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                       onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
                       onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>}
                   </div>
                 );
               })}
-              {filtered.length===0&&<div style={{padding:"40px 20px 52px",textAlign:"center",color:T.textMuted,fontSize:13}}>
+              {filtered.length===0&&<div style={{padding:"40px 20px 52px",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>
                 {/* Exploration-rover illustration (2026-07-26, per Mo, licensed set) — a rover
                     searching empty terrain reads as "nothing found," the exact state of a filtered-
                     to-zero campaign list. */}
@@ -3788,9 +3788,9 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         const rowSection=({title,desc,stat,action,label,disabled})=>(
           <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
             <div>
-              <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>{title}</div>
-              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:480}}>{desc}</div>
-              <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:T.font}}>{stat}</div>
+              <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>{title}</div>
+              <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:480}}>{desc}</div>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginTop:8,fontFamily:T.font}}>{stat}</div>
             </div>
             <Btn onClick={action} variant="danger" size="sm" T={T} disabled={disabled||!canEdit} title={canEdit?undefined:"View-only access"} style={{flexShrink:0}}>{label}</Btn>
           </div>
@@ -3801,14 +3801,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               <div style={{marginBottom:32}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
                   <div style={{width:36,height:36,borderRadius:T.r10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="gear" size={17} color={T.text}/></div>
-                  <h1 style={{fontSize:22,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Settings</h1>
+                  <h1 style={{fontSize:22*(T.fsScale||1),fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Settings</h1>
                 </div>
-                <p style={{fontSize:13,color:T.textSub,fontFamily:T.font}}>Manage the data stored in this PaidHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
+                <p style={{fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>Manage the data stored in this PaidHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Appearance</div>
-                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Device-only preference — doesn't affect anyone else on this workspace, and switching back is instant.</div>
+                  <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Appearance</div>
+                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Device-only preference — doesn't affect anyone else on this workspace, and switching back is instant.</div>
                   <div style={{display:"flex",gap:10}}>
                     {[
                       {key:"classic",label:"Classic",desc:"Current look — DM Sans, compact corners",swatch:THEME_CLASSIC},
@@ -3828,8 +3828,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                             </div>
                             {active&&<div style={{width:16,height:16,borderRadius:T.r20,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="check" size={10} color={T.onAccent}/></div>}
                           </div>
-                          <div style={{fontSize:13,fontWeight:700,color:opt.swatch.text,fontFamily:opt.swatch.font,marginBottom:2}}>{opt.label}</div>
-                          <div style={{fontSize:11,color:opt.swatch.textMuted,fontFamily:opt.swatch.font}}>{opt.desc}</div>
+                          <div style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:opt.swatch.text,fontFamily:opt.swatch.font,marginBottom:2}}>{opt.label}</div>
+                          <div style={{fontSize:11*(T.fsScale||1),color:opt.swatch.textMuted,fontFamily:opt.swatch.font}}>{opt.desc}</div>
                         </div>
                       );
                     })}
@@ -3837,20 +3837,20 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 </div>
                 {canManageTeam&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Workspace</div>
-                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Rename this workspace, or permanently delete it below.</div>
+                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Workspace</div>
+                    <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Rename this workspace, or permanently delete it below.</div>
                     <div style={{display:"flex",gap:6,marginBottom:workspaceNameError?6:0}}>
                       <input value={workspaceNameInput} onChange={e=>{setWorkspaceNameInput(e.target.value);setWorkspaceNameError("");}}
                         onKeyDown={e=>e.key==="Enter"&&saveWorkspaceName()}
-                        style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:T.font}}/>
+                        style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                       <Btn onClick={saveWorkspaceName} variant="primary" size="sm" T={T} disabled={workspaceNameSaving||!workspaceNameInput.trim()||workspaceNameInput.trim()===workspace?.name}>{workspaceNameSaving?"Saving…":"Save"}</Btn>
                     </div>
-                    {workspaceNameError&&<div style={{fontSize:11,color:T.danger}}>{workspaceNameError}</div>}
+                    {workspaceNameError&&<div style={{fontSize:11*(T.fsScale||1),color:T.danger}}>{workspaceNameError}</div>}
                     {isOwner&&(
                       <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
                         <div>
-                          <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.font}}>Delete this workspace</div>
-                          <div style={{fontSize:12,color:T.textMuted,marginTop:2,fontFamily:T.font}}>Permanently removes all spend data, tags, budgets, files, version history, and AI chats. There's no undo.</div>
+                          <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font}}>Delete this workspace</div>
+                          <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginTop:2,fontFamily:T.font}}>Permanently removes all spend data, tags, budgets, files, version history, and AI chats. There's no undo.</div>
                         </div>
                         <Btn onClick={()=>{setDeleteWorkspaceOpen(true);setDeleteWorkspaceConfirmText("");setDeleteWorkspaceError("");}} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Delete workspace</Btn>
                       </div>
@@ -3859,10 +3859,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 )}
                 <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:T.font}}>Team</div>
-                    <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:11}}>Your access: {myRole==="owner"?"Owner":myRole==="admin"?"Admin":"Member (view only)"}</Pill>
+                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>Team</div>
+                    <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:11*(T.fsScale||1)}}>Your access: {myRole==="owner"?"Owner":myRole==="admin"?"Admin":"Member (view only)"}</Pill>
                   </div>
-                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>
+                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>
                     {canManageTeam?"Invite people to this workspace and control what they can do. Members can view every tab but can't edit tags, budgets, or spend data — Admins and Owners have full edit access.":"Owners and admins manage who has access here and what they can do."}
                   </div>
                   {canManageTeam&&(
@@ -3871,7 +3871,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         <input value={inviteEmail} onChange={e=>{setInviteEmail(e.target.value);setInviteError("");}}
                           onKeyDown={e=>e.key==="Enter"&&!inviteSending&&inviteEmail.trim()&&sendInvite()}
                           placeholder="Email address" type="email"
-                          style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:T.font}}/>
+                          style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                         <div style={{width:130}}>
                           <Sel value={inviteRole} onChange={setInviteRole} T={T}>
                             <option value="member">Member</option>
@@ -3881,11 +3881,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         </div>
                         <Btn onClick={sendInvite} variant="primary" size="sm" T={T} disabled={inviteSending||!inviteEmail.trim()}>{inviteSending?"Sending…":"Invite"}</Btn>
                       </div>
-                      {inviteError&&<div style={{marginTop:6,fontSize:11,color:T.danger}}>{inviteError}</div>}
+                      {inviteError&&<div style={{marginTop:6,fontSize:11*(T.fsScale||1),color:T.danger}}>{inviteError}</div>}
                     </div>
                   )}
                   {teamMembersLoading?(
-                    <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font,padding:"8px 0"}}>Loading…</div>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,padding:"8px 0"}}>Loading…</div>
                   ):(
                     <div>
                       {teamMembers.map((m,i)=>{
@@ -3893,25 +3893,25 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         return(
                           <div key={m.userId} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"9px 4px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                             <div style={{minWidth:0,display:"flex",alignItems:"center",gap:8}}>
-                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.font,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280}}>{m.email||m.userId}</div>
-                              {isMe&&<span style={{fontSize:11,color:T.textMuted}}>(you)</span>}
-                              {!m.acceptedAt&&<Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:10}}>pending</Pill>}
+                              <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280}}>{m.email||m.userId}</div>
+                              {isMe&&<span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>(you)</span>}
+                              {!m.acceptedAt&&<Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:10*(T.fsScale||1)}}>pending</Pill>}
                             </div>
                             <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
                               {canManageTeam&&!isMe?(
                                 <div style={{width:110}}>
-                                  <Sel value={m.role} onChange={r=>changeTeamRole(m.userId,r)} T={T} style={{fontSize:11,padding:"4px 8px"}}>
+                                  <Sel value={m.role} onChange={r=>changeTeamRole(m.userId,r)} T={T} style={{fontSize:11*(T.fsScale||1),padding:"4px 8px"}}>
                                     <option value="member">Member</option>
                                     <option value="admin">Admin</option>
                                     <option value="owner">Owner</option>
                                   </Sel>
                                 </div>
                               ):(
-                                <Pill color={T.text} bg={T.surfaceEl} border={T.border} style={{fontSize:11}}>{m.role==="owner"?"Owner":m.role==="admin"?"Admin":"Member"}</Pill>
+                                <Pill color={T.text} bg={T.surfaceEl} border={T.border} style={{fontSize:11*(T.fsScale||1)}}>{m.role==="owner"?"Owner":m.role==="admin"?"Admin":"Member"}</Pill>
                               )}
                               {canManageTeam&&!isMe&&(
                                 <button onClick={()=>removeTeamMember(m.userId,m.email||"this person")} title="Remove"
-                                  style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12,padding:0}}
+                                  style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),padding:0}}
                                   onMouseEnter={e=>{e.currentTarget.style.color=T.danger;}}
                                   onMouseLeave={e=>{e.currentTarget.style.color=T.textMuted;}}>✕</button>
                               )}
@@ -3923,41 +3923,41 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   )}
                   {canManageTeam&&teamInvites.length>0&&(
                     <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
-                      <div style={{fontSize:11,fontWeight:700,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Pending invites</div>
+                      <div style={{fontSize:11*(T.fsScale||1),fontWeight:700,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Pending invites</div>
                       {teamInvites.map((inv,i)=>(
                         <div key={inv.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"7px 4px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                          <div style={{fontSize:12,color:T.textSub,fontFamily:T.font}}>{inv.email} <span style={{color:T.textMuted}}>· {inv.role==="owner"?"Owner":inv.role==="admin"?"Admin":"Member"}</span></div>
-                          <span onClick={()=>revokeTeamInvite(inv.email)} style={{fontSize:11,color:T.textMuted,cursor:"pointer"}}>Revoke</span>
+                          <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>{inv.email} <span style={{color:T.textMuted}}>· {inv.role==="owner"?"Owner":inv.role==="admin"?"Admin":"Member"}</span></div>
+                          <span onClick={()=>revokeTeamInvite(inv.email)} style={{fontSize:11*(T.fsScale||1),color:T.textMuted,cursor:"pointer"}}>Revoke</span>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
                 <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Connections</div>
-                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:560,marginBottom:14}}>
+                  <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Connections</div>
+                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:560,marginBottom:14}}>
                     Connecting and managing ad accounts (LinkedIn, Microsoft Advertising, Funnel.io, Supermetrics, Capterra) now lives in Data Sources — sync schedules, reconnects, and disconnects included.
                   </div>
                   <Btn onClick={()=>{setStep("upload");setView("data");}} variant="primary" size="sm" T={T}>Go to Data Sources →</Btn>
                 </div>
                 {canEdit&&<div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:T.font}}>File Store</div>
+                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>File Store</div>
                     <Btn onClick={()=>manualFileRef.current?.click()} variant="subtle" size="sm" T={T}>
                       <Icon name="plus" size={12} color={T.text}/> Add file
                     </Btn>
                     <input ref={manualFileRef} type="file" style={{display:"none"}} onChange={e=>{addManualFile(e.target.files[0]);e.target.value="";}}/>
                   </div>
-                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Every spend CSV you import and every tag CSV you import or export is automatically archived here as a backup copy. Add anything else you want to keep on hand — PDFs, insertion orders, whatever — with "Add file". These are just stored for reference; nothing here is read by the rest of the app.</div>
+                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Every spend CSV you import and every tag CSV you import or export is automatically archived here as a backup copy. Add anything else you want to keep on hand — PDFs, insertion orders, whatever — with "Add file". These are just stored for reference; nothing here is read by the rest of the app.</div>
                   {fileStoreLoading?(
-                    <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font,padding:"12px 0"}}>Loading…</div>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,padding:"12px 0"}}>Loading…</div>
                   ):fileStoreList.length===0?(
                     <div style={{textAlign:"center",padding:"12px 0"}}>
                       {/* Geological-sample-collection-box illustration (2026-07-26, per Mo,
                           licensed "Geometric Space Collection 2.0" set) — a sample case is a
                           storage/archive metaphor, same job File Store does for uploaded files. */}
                       <img src={geologicalSampleBoxIcon} alt="" aria-hidden="true" style={{width:56,height:"auto",marginBottom:6}}/>
-                      <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font}}>No files saved yet.</div>
+                      <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>No files saved yet.</div>
                     </div>
                   ):(
                     <div style={{maxHeight:320,overflow:"auto"}}>
@@ -3966,9 +3966,9 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
                             <Icon name="file" size={14} color={T.textMuted}/>
                             <div style={{minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.font,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:340}}>{f.name}</div>
-                              <div style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}>
-                                <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{marginRight:6,fontSize:10}}>{f.category}</Pill>
+                              <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:340}}>{f.name}</div>
+                              <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>
+                                <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{marginRight:6,fontSize:10*(T.fsScale||1)}}>{f.category}</Pill>
                                 {fmtFileSize(f.size)} · {new Date(f.createdAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
                               </div>
                             </div>
@@ -3991,10 +3991,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                                   <>
                                     <div onClick={()=>setCopyMenuOpenId(null)} style={{position:"fixed",inset:0,zIndex:999}}/>
                                     <div style={{position:"fixed",top:copyMenuAnchorRect.bottom+6,left:Math.max(8,copyMenuAnchorRect.right-200),zIndex:1000,minWidth:200,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                                      <div style={{padding:"5px 10px 6px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Copy to workspace</div>
+                                      <div style={{padding:"5px 10px 6px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Copy to workspace</div>
                                       {copyTargetWorkspaces.map(w=>(
                                         <button key={w.id} className="bhq-row" onClick={()=>copyFileToOtherWorkspace(f.id,w.id,w.name)}
-                                          style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font,textAlign:"left",overflow:"hidden"}}>
+                                          style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left",overflow:"hidden"}}>
                                           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
                                         </button>
                                       ))}
@@ -4021,8 +4021,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   action:clearTaggerData,label:"Clear Tagger data",disabled:!mergedNormRows.length&&!Object.keys(tags).length,
                 })}
                 <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Combine Google channels</div>
-                  <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:560,marginBottom:12}}>
+                  <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Combine Google channels</div>
+                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:560,marginBottom:12}}>
                     {/* 2026-07-31, per Mo: "they need to have the flexibility to combine or separate
                         whatever they want, not just a toggle on or off" — replaced the old single
                         Separate/Combined switch (all 3 sub-channels or none) with a per-channel
@@ -4032,7 +4032,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:1}}>
                     {GOOGLE_SUBCHANNELS.map(channel=>(
-                      <label key={channel} style={{display:"flex",alignItems:"center",gap:9,padding:"6px 4px",cursor:canEdit?"pointer":"default",opacity:canEdit?1:0.5,fontSize:13,color:T.text,fontFamily:T.font}} title={canEdit?undefined:"View-only access"}>
+                      <label key={channel} style={{display:"flex",alignItems:"center",gap:9,padding:"6px 4px",cursor:canEdit?"pointer":"default",opacity:canEdit?1:0.5,fontSize:13*(T.fsScale||1),color:T.text,fontFamily:T.font}} title={canEdit?undefined:"View-only access"}>
                         <input type="checkbox" checked={!!combineGoogleChannels[channel]} disabled={!canEdit}
                           onChange={e=>handleToggleGoogleChannel(channel,e.target.checked)}
                           style={{width:14,height:14,cursor:canEdit?"pointer":"default",accentColor:T.accent,flexShrink:0}}/>
@@ -4041,21 +4041,21 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     ))}
                   </div>
                   {GOOGLE_SUBCHANNELS.some(c=>combineGoogleChannels[c])&&budgetDims.includes("Platform")&&(
-                    <div style={{fontSize:12,color:T.textMuted,marginTop:10,fontFamily:T.font}}>Existing budget rows for a checked channel are merged into "Google" the moment it's checked — unchecking it later doesn't split them back apart.</div>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginTop:10,fontFamily:T.font}}>Existing budget rows for a checked channel are merged into "Google" the moment it's checked — unchecking it later doesn't split them back apart.</div>
                   )}
                 </div>
                 {canEdit&&platformBreakdown.length>0&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Clear Tagger data by channel</div>
-                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:480,marginBottom:14}}>Remove just one platform's spend rows — handy if you imported the wrong file and need to isolate and undo it. Tags are kept; a campaign only disappears once none of its rows are left.</div>
+                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Clear Tagger data by channel</div>
+                    <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:480,marginBottom:14}}>Remove just one platform's spend rows — handy if you imported the wrong file and need to isolate and undo it. Tags are kept; a campaign only disappears once none of its rows are left.</div>
                     <div>
                       {platformBreakdown.map((p,i)=>(
                         <div key={p.platform} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"10px 0",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
                             <span style={{width:8,height:8,borderRadius:"50%",background:PLATFORM_COLORS[p.platform]||T.textMuted,flexShrink:0}}/>
                             <div style={{minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.font}}>{p.platform}</div>
-                              <div style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}>{p.rows.toLocaleString()} row{p.rows===1?"":"s"} · {p.campaigns.toLocaleString()} campaign{p.campaigns===1?"":"s"} · {fmt$(p.spend)} · last import {fmtLastImport(p.lastDate)}</div>
+                              <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font}}>{p.platform}</div>
+                              <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>{p.rows.toLocaleString()} row{p.rows===1?"":"s"} · {p.campaigns.toLocaleString()} campaign{p.campaigns===1?"":"s"} · {fmt$(p.spend)} · last import {fmtLastImport(p.lastDate)}</div>
                             </div>
                           </div>
                           <Btn onClick={()=>clearPlatformData(p.platform,p.rows)} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Clear</Btn>
@@ -4066,25 +4066,25 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 )}
                 {canEdit&&mergedNormRows.length>0&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Clear Tagger data by date range</div>
-                    <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Remove spend rows within a specific date range, optionally scoped to one platform — e.g. redo or purge just one month without touching the rest. Tags are kept; a campaign only disappears once none of its rows are left.</div>
+                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Clear Tagger data by date range</div>
+                    <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Remove spend rows within a specific date range, optionally scoped to one platform — e.g. redo or purge just one month without touching the rest. Tags are kept; a campaign only disappears once none of its rows are left.</div>
                     <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
                       <div>
-                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>Platform</div>
+                        <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>Platform</div>
                         <Sel value={clearRangePlatform} onChange={setClearRangePlatform} T={T} style={{width:180}}>
                           <option value="all">All platforms</option>
                           {platformBreakdown.map(p=><option key={p.platform} value={p.platform}>{p.platform}</option>)}
                         </Sel>
                       </div>
                       <div>
-                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>From</div>
+                        <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>From</div>
                         <input type="date" value={clearRangeStart} onChange={e=>setClearRangeStart(e.target.value)}
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:T.font}}/>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                       </div>
                       <div>
-                        <div style={{fontSize:11,fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>Through</div>
+                        <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>Through</div>
                         <input type="date" value={clearRangeEnd} onChange={e=>setClearRangeEnd(e.target.value)}
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:T.font}}/>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                       </div>
                     </div>
                     {(()=>{
@@ -4094,7 +4094,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       const hasRange=clearRangeStart||clearRangeEnd;
                       return(
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
-                          <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font}}>
+                          <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>
                             {hasRange?`${matches.length.toLocaleString()} row${matches.length===1?"":"s"} · ${campaignCount.toLocaleString()} campaign${campaignCount===1?"":"s"} · ${fmt$(spend)} match this range`:"Pick a start and/or end date to see what matches"}
                           </div>
                           <Btn onClick={clearDateRangeData} variant="danger" size="sm" T={T} disabled={!hasRange||!matches.length} style={{flexShrink:0}}>Clear range</Btn>
@@ -4120,9 +4120,9 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 <div style={{marginTop:8,paddingTop:20,borderTop:`1px solid ${T.border}`}}>
                   <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
                     <div>
-                      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Delete your PaidHQ account</div>
-                      <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:480}}>Permanently deletes the login itself ({session?.user?.email}) — not just this workspace, every workspace you're in across all of PaidHQ. This is different from "Sign out," which only forgets this account in this browser.</div>
-                      <div style={{fontSize:12,color:T.textMuted,marginTop:8,fontFamily:T.font}}>Blocked if this account is the sole owner of any workspace — transfer ownership or delete those workspaces first.</div>
+                      <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Delete your PaidHQ account</div>
+                      <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:480}}>Permanently deletes the login itself ({session?.user?.email}) — not just this workspace, every workspace you're in across all of PaidHQ. This is different from "Sign out," which only forgets this account in this browser.</div>
+                      <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginTop:8,fontFamily:T.font}}>Blocked if this account is the sole owner of any workspace — transfer ownership or delete those workspaces first.</div>
                     </div>
                     <Btn onClick={()=>{setDeleteAccountOpen(true);setDeleteAccountConfirmText("");setDeleteAccountError("");}} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Delete account</Btn>
                   </div>
@@ -4141,8 +4141,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {localImportPrompt&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{width:"100%",maxWidth:440,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd}}>
-            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.text}}>Import your existing data?</div>
-            <div style={{padding:20,fontSize:13,color:T.textSub,lineHeight:1.6}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Import your existing data?</div>
+            <div style={{padding:20,fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6}}>
               This browser has PaidHQ data from before you signed in — {localImportPrompt.rows.length?`${localImportPrompt.rows.length.toLocaleString()} spend rows, `:""}{Object.keys(localImportPrompt.tags).length?`${Object.keys(localImportPrompt.tags).length.toLocaleString()} tagged campaigns, `:""}{Object.keys(localImportPrompt.budgets).length?"budget allocations":""}.
               <br/><br/>
               Import it into <strong style={{color:T.text}}>{workspace?.name}</strong>? This only happens once — if you skip it, this local data stays in your browser but won't be brought in automatically later.
@@ -4159,14 +4159,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {deleteWorkspaceOpen&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{width:"100%",maxWidth:440,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd}}>
-            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.danger}}>Delete "{workspace?.name}"?</div>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15*(T.fsScale||1),fontWeight:700,color:T.danger}}>Delete "{workspace?.name}"?</div>
             <div style={{padding:20}}>
-              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14}}>This permanently deletes every spend row, tag, budget, file, version, and AI chat in this workspace, for everyone on the team. There's no undo.</div>
-              <div style={{fontSize:12,fontWeight:600,color:T.textMuted,marginBottom:6}}>Type <strong style={{color:T.text}}>{workspace?.name}</strong> to confirm</div>
+              <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,marginBottom:14}}>This permanently deletes every spend row, tag, budget, file, version, and AI chat in this workspace, for everyone on the team. There's no undo.</div>
+              <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:6}}>Type <strong style={{color:T.text}}>{workspace?.name}</strong> to confirm</div>
               <input autoFocus value={deleteWorkspaceConfirmText} onChange={e=>{setDeleteWorkspaceConfirmText(e.target.value);setDeleteWorkspaceError("");}}
                 onKeyDown={e=>{if(e.key==="Enter"&&deleteWorkspaceConfirmText.trim()===workspace?.name)confirmDeleteWorkspace();if(e.key==="Escape")setDeleteWorkspaceOpen(false);}}
-                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:T.font}}/>
-              {deleteWorkspaceError&&<div style={{marginTop:8,fontSize:12,color:T.danger}}>{deleteWorkspaceError}</div>}
+                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"8px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
+              {deleteWorkspaceError&&<div style={{marginTop:8,fontSize:12*(T.fsScale||1),color:T.danger}}>{deleteWorkspaceError}</div>}
             </div>
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               <Btn onClick={()=>setDeleteWorkspaceOpen(false)} variant="ghost" T={T}>Cancel</Btn>
@@ -4181,16 +4181,16 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         <div onClick={()=>setGoogleSheetsGuideOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:640,maxHeight:"85vh",display:"flex",flexDirection:"column",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd}}>
             <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-              <div style={{fontSize:15,fontWeight:700,color:T.text,fontFamily:T.font}}>Getting Google Ads spend into a Sheet</div>
-              <span onClick={()=>setGoogleSheetsGuideOpen(false)} style={{fontSize:14,color:T.textMuted,cursor:"pointer"}}>✕</span>
+              <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>Getting Google Ads spend into a Sheet</div>
+              <span onClick={()=>setGoogleSheetsGuideOpen(false)} style={{fontSize:14*(T.fsScale||1),color:T.textMuted,cursor:"pointer"}}>✕</span>
             </div>
-            <div style={{padding:20,overflow:"auto",fontSize:13,color:T.textSub,lineHeight:1.65,fontFamily:T.font}}>
+            <div style={{padding:20,overflow:"auto",fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.65,fontFamily:T.font}}>
               <p style={{margin:"0 0 16px"}}>
                 PaidHQ only <em>reads</em> the sheet — something else has to keep it filled with fresh Google Ads spend. Below are the two realistic ways to do that. Either one works; pick based on how much control you want over what gets exported.
               </p>
 
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Option 1 — Sheets' built-in Google Ads connector</div>
-              <div style={{fontSize:12,color:T.textMuted,marginBottom:8}}>Fastest to set up. Less control over exactly what's in the export.</div>
+              <div style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4}}>Option 1 — Sheets' built-in Google Ads connector</div>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginBottom:8}}>Fastest to set up. Less control over exactly what's in the export.</div>
               <ol style={{margin:"0 0 16px",paddingLeft:20}}>
                 <li style={{marginBottom:6}}>Open a blank Google Sheet (start fresh rather than reusing an old one — a sheet can only ever be linked to one Google Ads account at a time).</li>
                 <li style={{marginBottom:6}}>Insert menu → Data connector → Google Ads.</li>
@@ -4199,8 +4199,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 <li>Sheets can refresh this on its own schedule — check the connector's own refresh settings so it stays current daily.</li>
               </ol>
 
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Option 2 — Scheduled report from Google Ads, segmented by ad group (recommended)</div>
-              <div style={{fontSize:12,color:T.textMuted,marginBottom:8}}>More setup, but you control exactly what's exported and it avoids the account-association error entirely since the sheet is created fresh from inside the correct Ads account.</div>
+              <div style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4}}>Option 2 — Scheduled report from Google Ads, segmented by ad group (recommended)</div>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginBottom:8}}>More setup, but you control exactly what's exported and it avoids the account-association error entirely since the sheet is created fresh from inside the correct Ads account.</div>
               <ol style={{margin:"0 0 16px",paddingLeft:20}}>
                 <li style={{marginBottom:6}}>In Google Ads (ads.google.com), signed in as the account with access, go to Reports → Report editor.</li>
                 <li style={{marginBottom:6}}>Build a report with <strong>Ad group</strong> as a dimension/segment alongside Campaign, Date, and Cost — this gives PaidHQ real ad-group-level granularity instead of one lump sum per campaign. Add Campaign type too if you want Search/Display/Demand Gen/Performance Max broken out accurately (see the column note below).</li>
@@ -4208,11 +4208,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 <li>Click Schedule on that export and set it to run daily, so the sheet stays current without anyone touching it.</li>
               </ol>
 
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>Column names</div>
+              <div style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4}}>Column names</div>
               <p style={{margin:"0 0 8px"}}>
                 Whatever Google Ads calls its columns is fine — PaidHQ auto-detects common variants the same way CSV uploads do. As a target, aim for something close to:
               </p>
-              <div style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"8px 12px",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",fontSize:11.5,marginBottom:8}}>
+              <div style={{background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"8px 12px",fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",fontSize:11.5*(T.fsScale||1),marginBottom:8}}>
                 Campaign → <strong>Campaign Group Name</strong> (required)<br/>
                 Ad group → <strong>Campaign Name</strong> (recommended)<br/>
                 Cost → <strong>Spend</strong> (required)<br/>
@@ -4224,7 +4224,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 Without a Campaign Type column, every row reports as generic Google Search rather than split by sub-channel.
               </p>
 
-              <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`,fontSize:12,color:T.textMuted}}>
+              <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`,fontSize:12*(T.fsScale||1),color:T.textMuted}}>
                 Once the sheet is set up and refreshing on its own: File → Share → change to "Anyone with the link" → Viewer, then paste that link into the connect form. PaidHQ pulls from it once a day.
               </div>
             </div>
@@ -4239,14 +4239,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {deleteAccountOpen&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{width:"100%",maxWidth:440,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd}}>
-            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.danger}}>Delete this account?</div>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15*(T.fsScale||1),fontWeight:700,color:T.danger}}>Delete this account?</div>
             <div style={{padding:20}}>
-              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14}}>This permanently deletes the <strong style={{color:T.text}}>{session?.user?.email}</strong> login — you'll lose access to every workspace it belongs to, everywhere in PaidHQ. There's no undo.</div>
-              <div style={{fontSize:12,fontWeight:600,color:T.textMuted,marginBottom:6}}>Type <strong style={{color:T.text}}>{session?.user?.email}</strong> to confirm</div>
+              <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,marginBottom:14}}>This permanently deletes the <strong style={{color:T.text}}>{session?.user?.email}</strong> login — you'll lose access to every workspace it belongs to, everywhere in PaidHQ. There's no undo.</div>
+              <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:6}}>Type <strong style={{color:T.text}}>{session?.user?.email}</strong> to confirm</div>
               <input autoFocus value={deleteAccountConfirmText} onChange={e=>{setDeleteAccountConfirmText(e.target.value);setDeleteAccountError("");}}
                 onKeyDown={e=>{if(e.key==="Enter"&&deleteAccountConfirmText.trim().toLowerCase()===(session?.user?.email||"").toLowerCase())confirmDeleteAccount();if(e.key==="Escape")setDeleteAccountOpen(false);}}
-                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:T.font}}/>
-              {deleteAccountError&&<div style={{marginTop:8,fontSize:12,color:T.danger}}>{deleteAccountError}</div>}
+                style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"8px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
+              {deleteAccountError&&<div style={{marginTop:8,fontSize:12*(T.fsScale||1),color:T.danger}}>{deleteAccountError}</div>}
             </div>
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               <Btn onClick={()=>setDeleteAccountOpen(false)} variant="ghost" T={T}>Cancel</Btn>
@@ -4260,11 +4260,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {nameVersionOpen&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{width:"100%",maxWidth:400,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd}}>
-            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.text}}>Name current version</div>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Name current version</div>
             <div style={{padding:20}}>
-              <div style={{fontSize:12,color:T.textSub,marginBottom:10}}>Saves a snapshot of everything — Tagger and Budget data — as it is right now, so you can come back to this exact point later.</div>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:10}}>Saves a snapshot of everything — Tagger and Budget data — as it is right now, so you can come back to this exact point later.</div>
               <input autoFocus value={nameVersionInput} onChange={e=>setNameVersionInput(e.target.value)} placeholder="e.g. Before Q3 revision" onKeyDown={e=>{if(e.key==="Enter")saveNamedVersion();if(e.key==="Escape")setNameVersionOpen(false);}}
-                style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:T.font}}/>
+                style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"8px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
             </div>
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               <Btn onClick={()=>{setNameVersionOpen(false);setNameVersionInput("");}} variant="ghost" T={T}>Cancel</Btn>
@@ -4278,30 +4278,30 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {emailExportOpen&&exportableView&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{width:"100%",maxWidth:420,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd}}>
-            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15,fontWeight:700,color:T.text}}>Email {exportableView.label}</div>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Email {exportableView.label}</div>
             <div style={{padding:20,display:"flex",flexDirection:"column",gap:14}}>
               <div>
-                <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>To</div>
+                <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textSub,marginBottom:5}}>To</div>
                 <input autoFocus type="email" value={emailExportTo} onChange={e=>setEmailExportTo(e.target.value)} placeholder="name@company.com"
-                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:T.font,boxSizing:"border-box"}}/>
+                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"8px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font,boxSizing:"border-box"}}/>
               </div>
               <div>
-                <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>Format</div>
+                <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textSub,marginBottom:5}}>Format</div>
                 <div style={{display:"flex",gap:6}}>
                   {EXPORT_FORMATS.map(f=>(
                     <button key={f.key} onClick={()=>setEmailExportFormat(f.key)}
-                      style={{flex:1,padding:"7px 0",borderRadius:T.r6,border:`1.5px solid ${emailExportFormat===f.key?T.accentHover:T.border}`,background:emailExportFormat===f.key?T.accent:"transparent",color:emailExportFormat===f.key?T.text:T.textMuted,fontSize:12,fontWeight:emailExportFormat===f.key?700:500,cursor:"pointer",fontFamily:T.font}}>
+                      style={{flex:1,padding:"7px 0",borderRadius:T.r6,border:`1.5px solid ${emailExportFormat===f.key?T.accentHover:T.border}`,background:emailExportFormat===f.key?T.accent:"transparent",color:emailExportFormat===f.key?T.text:T.textMuted,fontSize:12*(T.fsScale||1),fontWeight:emailExportFormat===f.key?700:500,cursor:"pointer",fontFamily:T.font}}>
                       {f.label}
                     </button>
                   ))}
                 </div>
               </div>
               <div>
-                <div style={{fontSize:12,fontWeight:600,color:T.textSub,marginBottom:5}}>Note <span style={{fontWeight:400,color:T.textMuted}}>(optional)</span></div>
+                <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textSub,marginBottom:5}}>Note <span style={{fontWeight:400,color:T.textMuted}}>(optional)</span></div>
                 <textarea value={emailExportNote} onChange={e=>setEmailExportNote(e.target.value)} placeholder="Add a message for the recipient…" rows={3}
-                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",fontFamily:T.font,resize:"vertical",boxSizing:"border-box"}}/>
+                  style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"8px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font,resize:"vertical",boxSizing:"border-box"}}/>
               </div>
-              {emailError&&<div style={{fontSize:12,color:T.danger,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:T.r7,padding:"8px 10px"}}>{emailError}</div>}
+              {emailError&&<div style={{fontSize:12*(T.fsScale||1),color:T.danger,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:T.r7,padding:"8px 10px"}}>{emailError}</div>}
             </div>
             <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
               <Btn onClick={()=>{setEmailExportOpen(false);setEmailError("");}} variant="ghost" T={T} disabled={emailSending}>Cancel</Btn>
@@ -4317,34 +4317,34 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           <div style={{width:"100%",maxWidth:520,maxHeight:"85vh",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,display:"flex",flexDirection:"column"}}>
             <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div>
-                <div style={{fontSize:15,fontWeight:700,color:T.text}}>Version history</div>
-                <div style={{fontSize:12,color:T.textSub,marginTop:2}}>Saved automatically after imports and data clears, or manually via ⋯ → Name current version.</div>
+                <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Version history</div>
+                <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginTop:2}}>Saved automatically after imports and data clears, or manually via ⋯ → Name current version.</div>
               </div>
-              <button onClick={()=>setVersionHistoryOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:T.font}}>×</button>
+              <button onClick={()=>setVersionHistoryOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22*(T.fsScale||1),lineHeight:1,fontFamily:T.font}}>×</button>
             </div>
             <div style={{flex:1,overflow:"auto",padding:"8px 12px"}}>
               {versionsLoading?(
-                <div style={{display:"flex",alignItems:"center",gap:8,color:T.textSub,fontSize:13,padding:"20px 8px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,color:T.textSub,fontSize:13*(T.fsScale||1),padding:"20px 8px"}}>
                   <span style={{width:14,height:14,border:`2px solid ${T.border}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Loading versions…
                 </div>
               ):versions.length===0?(
-                <div style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>No saved versions yet. They're created automatically after imports and data clears — or save one now from ⋯ → Name current version.</div>
+                <div style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>No saved versions yet. They're created automatically after imports and data clears — or save one now from ⋯ → Name current version.</div>
               ):(
                 groupVersionsByDay(versions).map(g=>(
                   <div key={g.label} style={{marginBottom:14}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,padding:"8px 8px 4px"}}>{g.label}</div>
+                    <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.textMuted,padding:"8px 8px 4px"}}>{g.label}</div>
                     {g.items.map(v=>(
                       <div key={v.id} onClick={()=>restoreVersion(v)}
                         style={{display:"flex",alignItems:"center",gap:10,padding:"9px 10px",borderRadius:T.r8,cursor:"pointer"}}
                         className="bhq-row">
                         <Icon name={v.trigger==="manual"?"save":v.trigger?.startsWith("pre_")?"alert":"clock"} size={14} color={T.textMuted}/>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13,color:T.text,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v.label}</div>
-                          <div style={{fontSize:11,color:T.textMuted}}>{new Date(v.timestamp).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}</div>
+                          <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v.label}</div>
+                          <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>{new Date(v.timestamp).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})}</div>
                         </div>
-                        <button onClick={e=>{e.stopPropagation();restoreVersion(v);}} style={{fontSize:11,fontWeight:600,color:T.accent,background:"transparent",border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,padding:"4px 9px",cursor:"pointer",fontFamily:T.font,flexShrink:0}}>Restore</button>
+                        <button onClick={e=>{e.stopPropagation();restoreVersion(v);}} style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.accent,background:"transparent",border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,padding:"4px 9px",cursor:"pointer",fontFamily:T.font,flexShrink:0}}>Restore</button>
                         <button onClick={e=>deleteVersion(v.id,e)} title="Delete this version"
-                          style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,flexShrink:0}}>✕</button>
+                          style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),lineHeight:1,padding:0,flexShrink:0}}>✕</button>
                       </div>
                     ))}
                   </div>
@@ -4359,8 +4359,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <PixelPanel T={T} style={{width:"100%",maxWidth:620,maxHeight:"85vh"}} contentStyle={{background:T.surface,padding:0,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
             <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`}}>
-              <div style={{fontSize:15,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8}}><Icon name="alert" size={16} color={T.warning}/> This import disagrees with synced data</div>
-              <div style={{fontSize:12,color:T.textSub,marginTop:4,lineHeight:1.6}}><strong style={{color:T.text}}>{spendConflictReview.conflicts.length}</strong> row{spendConflictReview.conflicts.length===1?"":"s"} in this import have a spend that doesn't match what's already synced from a live platform connection for the same campaign and date. By default the synced value is kept — check a row below to overwrite it with the imported value instead.</div>
+              <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8}}><Icon name="alert" size={16} color={T.warning}/> This import disagrees with synced data</div>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginTop:4,lineHeight:1.6}}><strong style={{color:T.text}}>{spendConflictReview.conflicts.length}</strong> row{spendConflictReview.conflicts.length===1?"":"s"} in this import have a spend that doesn't match what's already synced from a live platform connection for the same campaign and date. By default the synced value is kept — check a row below to overwrite it with the imported value instead.</div>
             </div>
             <div style={{flex:1,overflow:"auto",padding:22}}>
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -4370,8 +4370,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     <label key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:T.r8,border:`1px solid ${T.border}`,cursor:"pointer",background:useImported?T.warningBg:"transparent"}}>
                       <input type="checkbox" checked={useImported} onChange={()=>toggleUseImported(c.key)} style={{marginTop:3,cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:4}}>{c.campaignGroupName&&c.campaignGroupName!==c.campaignName?`${c.campaignGroupName} · `:""}{c.campaignName} — {c.date}</div>
-                        <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6}}>Synced from <strong style={{color:T.textSub}}>{c.syncedPlatform}</strong>: <strong style={{color:T.text}}>{fmt$(c.syncedSpend)}</strong> · This import says: <strong style={{color:useImported?T.warning:T.text}}>{fmt$(c.importedSpend)}</strong></div>
+                        <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600,marginBottom:4}}>{c.campaignGroupName&&c.campaignGroupName!==c.campaignName?`${c.campaignGroupName} · `:""}{c.campaignName} — {c.date}</div>
+                        <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,lineHeight:1.6}}>Synced from <strong style={{color:T.textSub}}>{c.syncedPlatform}</strong>: <strong style={{color:T.text}}>{fmt$(c.syncedSpend)}</strong> · This import says: <strong style={{color:useImported?T.warning:T.text}}>{fmt$(c.importedSpend)}</strong></div>
                       </div>
                     </label>
                   );
@@ -4390,14 +4390,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <PixelPanel T={T} style={{width:"100%",maxWidth:560,maxHeight:"85vh"}} contentStyle={{background:T.surface,padding:0,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
             <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`}}>
-              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Review tag import</div>
-              <div style={{fontSize:12,color:T.textSub,marginTop:2}}>Matched <strong style={{color:T.text}}>{tagImportPreview.matchedCount}</strong> campaign{tagImportPreview.matchedCount===1?"":"s"}{tagImportPreview.skippedCount>0?` · skipped ${tagImportPreview.skippedCount} row${tagImportPreview.skippedCount===1?"":"s"} with no campaign name`:""}.</div>
+              <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Review tag import</div>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginTop:2}}>Matched <strong style={{color:T.text}}>{tagImportPreview.matchedCount}</strong> campaign{tagImportPreview.matchedCount===1?"":"s"}{tagImportPreview.skippedCount>0?` · skipped ${tagImportPreview.skippedCount} row${tagImportPreview.skippedCount===1?"":"s"} with no campaign name`:""}.</div>
             </div>
             <div style={{flex:1,overflow:"auto",padding:22}}>
               {tagImportPreview.sample.length>0&&(
                 <div style={{marginBottom:tagImportPreview.newDims.length?18:0}}>
-                  <div style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:0.4,marginBottom:8}}>Campaigns being tagged</div>
-                  <div style={{fontSize:12,color:T.textSub,lineHeight:1.8}}>
+                  <div style={{fontSize:11*(T.fsScale||1),fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:0.4,marginBottom:8}}>Campaigns being tagged</div>
+                  <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,lineHeight:1.8}}>
                     {tagImportPreview.sample.map((s,i)=><div key={i}>{s}</div>)}
                     {tagImportPreview.matchedCount>tagImportPreview.sample.length&&<div style={{color:T.textMuted}}>+{tagImportPreview.matchedCount-tagImportPreview.sample.length} more</div>}
                   </div>
@@ -4405,13 +4405,13 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               )}
               {tagImportPreview.newDims.length>0&&(
                 <div>
-                  <div style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:0.4,marginBottom:8}}>New tag dimensions detected</div>
-                  <div style={{fontSize:12,color:T.textSub,marginBottom:10,lineHeight:1.6}}>These columns don't match any dimension you're already tracking. Uncheck any that shouldn't be added.</div>
+                  <div style={{fontSize:11*(T.fsScale||1),fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:0.4,marginBottom:8}}>New tag dimensions detected</div>
+                  <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:10,lineHeight:1.6}}>These columns don't match any dimension you're already tracking. Uncheck any that shouldn't be added.</div>
                   <div style={{display:"flex",flexDirection:"column",gap:8}}>
                     {tagImportPreview.newDims.map(d=>(
                       <label key={d} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:T.r8,border:`1px solid ${T.border}`,cursor:"pointer",background:tagImportPreview.includedNewDims.has(d)?T.accentBg:"transparent"}}>
                         <input type="checkbox" checked={tagImportPreview.includedNewDims.has(d)} onChange={()=>toggleNewTagDim(d)} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
-                        <span style={{fontSize:13,color:T.text,fontWeight:600}}>{d}</span>
+                        <span style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600}}>{d}</span>
                       </label>
                     ))}
                   </div>

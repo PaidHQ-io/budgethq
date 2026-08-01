@@ -74,7 +74,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields }) {
                 const periodType = e.target.value;
                 onChange({ ...row, periodType, periodStart: defaultPeriodStart(periodType) });
               }}
-              style={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "4px 6px", fontFamily: "'DM Sans',sans-serif" }}
+              style={{ fontSize:12*(T.fsScale||1), border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "4px 6px", fontFamily: "'DM Sans',sans-serif" }}
             >
               {PERIOD_TYPES.map((pt) => (
                 <option key={pt} value={pt}>{PERIOD_TYPE_LABELS[pt]}</option>
@@ -84,16 +84,16 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields }) {
               type="date"
               value={row.periodStart || defaultPeriodStart(row.periodType || "month")}
               onChange={(e) => onChange({ ...row, periodStart: normalizePeriodStart(row.periodType || "month", e.target.value) })}
-              style={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "4px 6px", fontFamily: "'DM Sans',sans-serif" }}
+              style={{ fontSize:12*(T.fsScale||1), border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "4px 6px", fontFamily: "'DM Sans',sans-serif" }}
             />
           </div>
         ) : (
-          <span style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>
+          <span style={{ fontSize:12*(T.fsScale||1), color: T.text, fontWeight: 600 }}>
             {labelForPeriod(row.periodType, row.periodStart)}
           </span>
         )}
         {isUnknown && (
-          <div style={{ fontSize: 10, color: T.warning, marginTop: 3 }}>No period detected — set one above</div>
+          <div style={{ fontSize:10*(T.fsScale||1), color: T.warning, marginTop: 3 }}>No period detected — set one above</div>
         )}
       </td>
       {fields.map((f) => (
@@ -104,12 +104,12 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields }) {
             onChange={(v) => onChange(setField(row, f, v))}
             suggestions={fieldSuggestions(dimensionValues, f)}
             placeholder="—"
-            inputStyle={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "4px 6px", width: "100%", fontFamily: "'DM Sans',sans-serif" }}
+            inputStyle={{ fontSize:12*(T.fsScale||1), border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "4px 6px", width: "100%", fontFamily: "'DM Sans',sans-serif" }}
           />
         </td>
       ))}
       {SUMMARY_METRICS.map((m) => (
-        <td key={m.key} style={{ padding: "8px 10px", fontSize: 12, color: T.text, textAlign: "right", fontFamily: "'DM Sans',sans-serif" }}>
+        <td key={m.key} style={{ padding: "8px 10px", fontSize:12*(T.fsScale||1), color: T.text, textAlign: "right", fontFamily: "'DM Sans',sans-serif" }}>
           {fmtMetric(row.metrics?.[m.key], m.money)}
         </td>
       ))}
@@ -274,8 +274,8 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
   return (
     <div onPaste={handlePaste} style={{ padding: 28, maxWidth: 1100, margin: "0 auto", fontFamily: "'DM Sans',sans-serif", overflow: "auto", height: "100%", boxSizing: "border-box" }}>
       <SectionLabel T={T}>Performance Intelligence</SectionLabel>
-      <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>Import Dreamdata / PowerBI data</div>
-      <div style={{ fontSize: 13, color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
+      <div style={{ fontSize:16*(T.fsScale||1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Import Dreamdata / PowerBI data</div>
+      <div style={{ fontSize:13*(T.fsScale||1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
         Screenshot a table from your Dreamdata/PowerBI dashboard and drop it below, or paste
         directly (Cmd/Ctrl+V) anywhere on this page. Re-importing a period that's already stored
         overwrites it with the new numbers — nothing is duplicated. Channel spend connections live
@@ -288,16 +288,16 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
           <Btn T={T} variant="primary" size="md" onClick={() => fileInputRef.current?.click()}>
             <Icon name="paperclip" size={14} /> Upload screenshot
           </Btn>
-          <span style={{ fontSize: 12, color: T.textMuted }}>or paste a screenshot anywhere on this page</span>
+          <span style={{ fontSize:12*(T.fsScale||1), color: T.textMuted }}>or paste a screenshot anywhere on this page</span>
           {extracting && (
-            <span style={{ fontSize: 12, color: T.accent, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize:12*(T.fsScale||1), color: T.accent, display: "inline-flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 12, height: 12, border: `2px solid ${T.accentBorder}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.7s linear infinite", display: "inline-block" }} />
               Reading table…
             </span>
           )}
         </div>
         {extractError && (
-          <div style={{ marginTop: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize: 12, color: T.danger }}>
+          <div style={{ marginTop: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize:12*(T.fsScale||1), color: T.danger }}>
             {extractError}
           </div>
         )}
@@ -306,14 +306,14 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
       {pendingRows.length > 0 && (
         <PixelPanel T={T} contentStyle={{ padding: 20, marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>
+            <div style={{ fontSize:13*(T.fsScale||1), fontWeight: 700, color: T.text }}>
               {pendingRows.length} row{pendingRows.length === 1 ? "" : "s"} ready to review
             </div>
             {hasUnresolved && <Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>Assign a period below to continue</Pill>}
           </div>
 
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 14, padding: "10px 12px", background: T.surfaceEl, border: `1px solid ${T.border}`, borderRadius:T.r8 }}>
-            <span style={{ fontSize: 11, color: T.textMuted, marginRight: 2 }}>Tag all rows missing:</span>
+            <span style={{ fontSize:11*(T.fsScale||1), color: T.textMuted, marginRight: 2 }}>Tag all rows missing:</span>
             {fields.map((f) => (
               <div key={f} style={{ display: "flex", gap: 4, alignItems: "center" }}>
                 <TagAutocompleteInput
@@ -323,7 +323,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
                   onEnter={() => applyBatchTag(f)}
                   suggestions={fieldSuggestions(dimensionValues, f)}
                   placeholder={fieldLabel(f)}
-                  inputStyle={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "5px 8px", width: 130, fontFamily: "'DM Sans',sans-serif" }}
+                  inputStyle={{ fontSize:12*(T.fsScale||1), border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "5px 8px", width: 130, fontFamily: "'DM Sans',sans-serif" }}
                 />
                 <Btn T={T} variant="ghost" size="sm" disabled={!batchTags[f]?.trim()} onClick={() => applyBatchTag(f)}>
                   Apply
@@ -337,7 +337,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                   {["Period", ...fields.map(fieldLabel), ...SUMMARY_METRICS.map((m) => m.label), ""].map((h, i) => (
-                    <th key={i} style={{ padding: "6px 10px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 1 + fields.length && i < 1 + fields.length + SUMMARY_METRICS.length ? "right" : "left" }}>
+                    <th key={i} style={{ padding: "6px 10px", fontSize:10*(T.fsScale||1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 1 + fields.length && i < 1 + fields.length + SUMMARY_METRICS.length ? "right" : "left" }}>
                       {h}
                     </th>
                   ))}
@@ -367,7 +367,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
             marginBottom: 20,
             padding: "10px 14px",
             borderRadius:T.r8,
-            fontSize: 12,
+            fontSize:12*(T.fsScale||1),
             background: importResult.error ? T.dangerBg : T.successBg,
             border: `1px solid ${importResult.error ? T.dangerBorder : T.successBorder}`,
             color: importResult.error ? T.danger : T.success,
@@ -381,13 +381,13 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
 
       <SectionLabel T={T}>Stored data</SectionLabel>
       {historyError && (
-        <div style={{ padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize: 12, color: T.danger, marginBottom: 12 }}>
+        <div style={{ padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize:12*(T.fsScale||1), color: T.danger, marginBottom: 12 }}>
           {historyError}
         </div>
       )}
-      {history === null && !historyError && <div style={{ fontSize: 12, color: T.textMuted }}>Loading…</div>}
+      {history === null && !historyError && <div style={{ fontSize:12*(T.fsScale||1), color: T.textMuted }}>Loading…</div>}
       {history && history.length === 0 && (
-        <div style={{ fontSize: 12, color: T.textMuted }}>Nothing imported yet for this workspace.</div>
+        <div style={{ fontSize:12*(T.fsScale||1), color: T.textMuted }}>Nothing imported yet for this workspace.</div>
       )}
       {history && history.length > 0 && (
         <PixelPanel T={T} contentStyle={{ padding: 0 }}>
@@ -396,7 +396,7 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                   {["Period", ...fields.map(fieldLabel), ...SUMMARY_METRICS.map((m) => m.label)].map((h, i) => (
-                    <th key={i} style={{ padding: "8px 10px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 1 + fields.length ? "right" : "left" }}>
+                    <th key={i} style={{ padding: "8px 10px", fontSize:10*(T.fsScale||1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 1 + fields.length ? "right" : "left" }}>
                       {h}
                     </th>
                   ))}
@@ -405,14 +405,14 @@ export default function ReportingAnalyzer({ T, session, workspace }) {
               <tbody>
                 {history.map((row) => (
                   <tr key={row.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                    <td style={{ padding: "8px 10px", fontSize: 12, color: T.text, fontWeight: 600 }}>{labelForPeriod(row.periodType, row.periodStart)}</td>
+                    <td style={{ padding: "8px 10px", fontSize:12*(T.fsScale||1), color: T.text, fontWeight: 600 }}>{labelForPeriod(row.periodType, row.periodStart)}</td>
                     {fields.map((f) => (
-                      <td key={f} style={{ padding: "8px 10px", fontSize: 12, color: T.textSub, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <td key={f} style={{ padding: "8px 10px", fontSize:12*(T.fsScale||1), color: T.textSub, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {getField(row, f) || "—"}
                       </td>
                     ))}
                     {SUMMARY_METRICS.map((m) => (
-                      <td key={m.key} style={{ padding: "8px 10px", fontSize: 12, color: T.text, textAlign: "right" }}>
+                      <td key={m.key} style={{ padding: "8px 10px", fontSize:12*(T.fsScale||1), color: T.text, textAlign: "right" }}>
                         {fmtMetric(row.metrics?.[m.key], m.money)}
                       </td>
                     ))}

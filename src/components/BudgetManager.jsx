@@ -1478,7 +1478,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         onMouseDown={gridCtx?e=>handleCellMouseDown(e,gridCtx):undefined}
         onKeyDown={gridCtx?e=>handleCellKeyDown(e,gridCtx):undefined}
         onMouseEnter={gridCtx?()=>handleCellMouseEnter(gridCtx):undefined}
-        style={{background:inFillPreview?T.accentBg:selected?T.rowSelected:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:T.r5,color:over?T.danger:cap?T.warning:"#272727",padding:"4px 6px",fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",width:"100%",boxSizing:"border-box",fontFamily:T.font,textAlign:"right",outline:isActive?`1px solid ${T.accent}`:"none",outlineOffset:-1,display:"block"}}/>
+        style={{background:inFillPreview?T.accentBg:selected?T.rowSelected:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:T.r5,color:over?T.danger:cap?T.warning:"#272727",padding:"4px 6px",fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",width:"100%",boxSizing:"border-box",fontFamily:T.font,textAlign:"right",outline:isActive?`1px solid ${T.accent}`:"none",outlineOffset:-1,display:"block"}}/>
       {isActive&&(
         <div onMouseDown={e=>startFillDrag(e,gridCtx)} title="Drag down or right to fill this value into other cells"
           style={{position:"absolute",bottom:-3,right:-3,width:7,height:7,background:T.accent,border:`1px solid ${T.surface}`,borderRadius:1,cursor:"crosshair",zIndex:2}}/>
@@ -1490,7 +1490,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // (zIndex:1 on the sticky-left dimension columns); the checkbox/budgetDims corner cells below
   // are BOTH top- and left-sticky, so they need a higher zIndex still to stay above every other
   // sticky header cell scrolling underneath them in both directions at once.
-  const TH={fontFamily:T.font,fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center",position:"sticky",top:0,zIndex:2};
+  const TH={fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center",position:"sticky",top:0,zIndex:2};
 
   // Sortable column-header label (2026-07-31, per Mo) — same click-to-toggle-direction affordance
   // as Campaign Tagger's own SH component (underline + ▾/▴/⇅ indicator), reimplemented locally
@@ -1502,12 +1502,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // losing DOM/focus state), which a directly-invoked helper function doesn't.
   const budgetHeader=(col,label)=>(
     <span onClick={()=>doBudgetSort(col)} title="Click to sort" style={{cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:3,textDecoration:budgetSortCol===col?"underline":"none",textUnderlineOffset:2}}>
-      {label}<span style={{opacity:0.7,fontSize:9}}>{budgetSortCol===col?(budgetSortDir==="desc"?"▾":"▴"):"⇅"}</span>
+      {label}<span style={{opacity:0.7,fontSize:9*(T.fsScale||1)}}>{budgetSortCol===col?(budgetSortDir==="desc"?"▾":"▴"):"⇅"}</span>
     </span>
   );
   // Same filter-input style Tagger's own `fIn` constant uses, redefined locally rather than
   // shared since it's a plain style object, not worth extracting a component for.
-  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,color:T.text,padding:"6px 9px",fontSize:11,outline:"none",fontFamily:T.font,width:"100%",height:30,boxSizing:"border-box"};
+  const fIn={background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,color:T.text,padding:"6px 9px",fontSize:11*(T.fsScale||1),outline:"none",fontFamily:T.font,width:"100%",height:30,boxSizing:"border-box"};
 
   // Manual "type a row in by hand" control (2026-07-31, per Mo — a blank starting canvas for
   // workspaces that don't want to import a file or wait on Tagger data). Was already fully built
@@ -1531,7 +1531,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         </Sel>
       ):(
         <input key={d} value={newRowVals[d]||""} onChange={e=>setNewRowVals(p=>({...p,[d]:e.target.value}))} placeholder={d}
-          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:130}}/>
+          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:130}}/>
       ))}
       <Btn onClick={addManualRow} disabled={budgetDims.some(d=>!newRowVals[d]?.trim())} variant="primary" size="sm" T={T}>Add</Btn>
       <Btn onClick={()=>{setShowAddRow(false);setNewRowVals({});}} variant="ghost" size="sm" T={T}>Cancel</Btn>
@@ -1557,25 +1557,25 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           {/* Metadata dimensions */}
           <div style={{borderTop:`1px solid ${T.border}`,marginTop:10,paddingTop:12}}>
             <SectionLabel T={T} style={{marginBottom:8}}>Annotation Dimensions</SectionLabel>
-            <div style={{fontSize:11,color:T.textMuted,marginBottom:8,lineHeight:1.5}}>Add Pillar, Region, Funnel etc. as columns to annotate budget rows.</div>
+            <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginBottom:8,lineHeight:1.5}}>Add Pillar, Region, Funnel etc. as columns to annotate budget rows.</div>
             {budgetMetaDims.map(d=>(
               <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 0"}}>
-                <span style={{fontSize:12,color:T.text,fontFamily:T.font}}>{d}</span>
-                <button onClick={()=>setBudgetMetaDims(p=>p.filter(x=>x!==d))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13,padding:0,lineHeight:1}}>×</button>
+                <span style={{fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font}}>{d}</span>
+                <button onClick={()=>setBudgetMetaDims(p=>p.filter(x=>x!==d))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13*(T.fsScale||1),padding:0,lineHeight:1}}>×</button>
               </div>
             ))}
             <div style={{display:"flex",gap:4,marginTop:6}}>
               <input value={newMetaDim} onChange={e=>setNewMetaDim(e.target.value)} placeholder="e.g. Pillar, Region…" onKeyDown={e=>e.key==="Enter"&&addMetaDim()}
-                style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:11,outline:"none",fontFamily:T.font}}/>
+                style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:11*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
               <Btn onClick={addMetaDim} disabled={!newMetaDim.trim()} variant="subtle" size="sm" T={T} style={{fontFamily:T.font}}>+ Add</Btn>
             </div>
             {tagDimensions?.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).length>0&&(
               <div style={{marginTop:8}}>
-                <div style={{fontSize:10,color:T.textMuted,marginBottom:4}}>From your tag dimensions:</div>
+                <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,marginBottom:4}}>From your tag dimensions:</div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                   {tagDimensions.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).map(d=>(
                     <button key={d} onClick={()=>{setBudgetMetaDims(p=>[...p,d]);showNotif(`Added ${d}`);}}
-                      style={{fontSize:11,padding:"2px 8px",borderRadius:T.r14,background:T.surfaceEl,border:`1px solid ${T.border}`,color:T.text,cursor:"pointer",fontFamily:T.font}}>+ {d}</button>
+                      style={{fontSize:11*(T.fsScale||1),padding:"2px 8px",borderRadius:T.r14,background:T.surfaceEl,border:`1px solid ${T.border}`,color:T.text,cursor:"pointer",fontFamily:T.font}}>+ {d}</button>
                   ))}
                 </div>
               </div>
@@ -1585,11 +1585,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Budget Year</SectionLabel>
-            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:T.r6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12,fontWeight:year===y?700:400,fontFamily:T.font}}>{y}</button>)}</div>
+            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:T.r6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),fontWeight:year===y?700:400,fontFamily:T.font}}>{y}</button>)}</div>
             {canEdit&&(
               <div style={{marginTop:8,display:"flex",gap:4,alignItems:"center"}}>
                 <input value={cloneTargetYear} onChange={e=>setCloneTargetYear(e.target.value)} placeholder={`Clone into ${Number(year)+1}…`} onKeyDown={e=>e.key==="Enter"&&cloneYearInto(year,cloneTargetYear||String(Number(year)+1))}
-                  title={`Copy every segment's monthly/quarterly/annual budget from ${year} into another year`} style={{flex:1,minWidth:0,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font}}/>
+                  title={`Copy every segment's monthly/quarterly/annual budget from ${year} into another year`} style={{flex:1,minWidth:0,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                 <Btn onClick={()=>cloneYearInto(year,cloneTargetYear||String(Number(year)+1))} variant="subtle" size="sm" T={T}>Clone</Btn>
               </div>
             )}
@@ -1600,8 +1600,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
             {["Platform","Campaign","Ad Group",...(tagDimensions||[])].map(d=>{const on=budgetDims.includes(d);return(
               <div key={d} className={on?undefined:"bhq-row"} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:T.r6,cursor:"pointer",background:on?T.accentBg:"transparent",border:on?`1px solid ${T.accentBorder}`:"1px solid transparent",marginBottom:2}}>
                 <Chk checked={on} onChange={()=>toggleDim(d)} T={T}/>
-                <span style={{fontSize:13,color:T.text,fontWeight:on?700:400,fontFamily:T.font}}>{d}</span>
-                <span style={{fontSize:11,color:T.textMuted,marginLeft:"auto",fontFamily:T.font}}>{dimCount(d)}</span>
+                <span style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:on?700:400,fontFamily:T.font}}>{d}</span>
+                <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginLeft:"auto",fontFamily:T.font}}>{dimCount(d)}</span>
               </div>
             );})}
           </div>
@@ -1611,14 +1611,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               <SectionLabel T={T} style={{marginBottom:0}}>Rollups</SectionLabel>
               <Tog value={showRollups} onChange={setShowRollups} T={T}/>
             </div>
-            {showRollups&&<div style={{fontSize:11,color:T.textMuted,lineHeight:1.5}}>Shows budget totals by each Budget By dimension on its own — e.g. Channel summed across all regions/segments — above the table, broken out by month, quarter, and year.</div>}
+            {showRollups&&<div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,lineHeight:1.5}}>Shows budget totals by each Budget By dimension on its own — e.g. Channel summed across all regions/segments — above the table, broken out by month, quarter, and year.</div>}
           </div>
           <Divider T={T}/>
           <div style={{padding:"12px 0"}}>
             <SectionLabel T={T}>Optional Columns</SectionLabel>
             {[{label:"Quarterly caps",v:showQ,s:setShowQ},{label:"Annual cap",v:showA,s:setShowA},{label:"Currency labels",v:showCurrency,s:setShowCurrency}].map(({label,v,s})=>(
               <div key={label} onClick={()=>s(x=>!x)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",cursor:"pointer"}}>
-                <span style={{fontSize:12,color:T.textSub}}>{label}</span><Tog value={v} onChange={s} T={T}/>
+                <span style={{fontSize:12*(T.fsScale||1),color:T.textSub}}>{label}</span><Tog value={v} onChange={s} T={T}/>
               </div>
             ))}
           </div>
@@ -1642,14 +1642,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                 foundation everything else gets built on, same as a budget structure is for
                 this workspace. */}
             <img src={surfaceBaseHabitatIcon} alt="" aria-hidden="true" style={{width:130,height:"auto",marginBottom:18}}/>
-            <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>Set up your budget structure</div>
-            <div style={{fontSize:13,color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>{canEdit?"Select dimensions to budget by, or import an existing budget file.":"This workspace doesn't have a budget structure yet — ask an owner or admin to set one up."}</div>
+            <div style={{fontSize:17*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:6}}>Set up your budget structure</div>
+            <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,maxWidth:340,lineHeight:1.65,marginBottom:20}}>{canEdit?"Select dimensions to budget by, or import an existing budget file.":"This workspace doesn't have a budget structure yet — ask an owner or admin to set one up."}</div>
             {canEdit&&<Btn onClick={()=>setImportOpen(true)} variant="success" T={T} size="md">↑ Import CSV / Excel</Btn>}
           </div>
         ):segs.length===0?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
-            <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:6}}>No segments found</div>
-            <div style={{fontSize:13,color:T.textSub,maxWidth:320,lineHeight:1.65}}>
+            <div style={{fontSize:17*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:6}}>No segments found</div>
+            <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,maxWidth:320,lineHeight:1.65}}>
               {derivedActiveDims.length?(
                 manualActiveDims.length?
                   <>Import spend data and tag campaigns with <strong style={{color:T.text}}>{manualActiveDims.join(" + ")}</strong> in the Tagger — {derivedActiveDims.join(", ")} {derivedActiveDims.length>1?"are":"is"} detected automatically, no tagging needed for {derivedActiveDims.length>1?"them":"it"}.</>
@@ -1670,19 +1670,19 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           <div style={{borderBottom:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px"}}>
               <button onClick={()=>setFiltersOpen(o=>!o)} title={filtersOpen?"Hide filters":"Show filters"}
-                style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"3px 8px",cursor:"pointer",fontFamily:T.font,fontSize:11,fontWeight:600,color:T.text,outline:"none"}}>
+                style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"3px 8px",cursor:"pointer",fontFamily:T.font,fontSize:11*(T.fsScale||1),fontWeight:600,color:T.text,outline:"none"}}>
                 <Icon name="filter" size={12} color={T.text}/>
                 Filters
                 {hasSegFilters&&<span style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>}
               </button>
-              {!filtersOpen&&hasSegFilters&&<button onClick={clearSegFilters} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:T.font,textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
-              <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
+              {!filtersOpen&&hasSegFilters&&<button onClick={clearSegFilters} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
+              <span style={{marginLeft:"auto",fontSize:11*(T.fsScale||1),color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
             </div>
             {filtersOpen&&(
               <div style={{padding:"0 16px 12px",display:"flex",flexWrap:"wrap",gap:12,alignItems:"flex-end"}}>
                 {[...budgetDims,...budgetMetaDims].map(d=>(
                   <div key={d} style={{display:"flex",flexDirection:"column",gap:3,width:170}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>{d}</div>
+                    <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>{d}</div>
                     <div style={{display:"flex",gap:3}}>
                       <IconField icon="search" color={T.textMuted}>
                         <input value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder="Contains… (a, b)"
@@ -1700,7 +1700,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   </div>
                 ))}
                 <div style={{display:"flex",flexDirection:"column",gap:3,width:130}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>Year Total</div>
+                  <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>Year Total</div>
                   <div style={{display:"flex",gap:4}}>
                     <input value={totalMin} onChange={e=>setTotalMin(e.target.value)} placeholder="Min" style={{...fIn,width:"50%"}}/>
                     <input value={totalMax} onChange={e=>setTotalMax(e.target.value)} placeholder="Max" style={{...fIn,width:"50%"}}/>
@@ -1718,7 +1718,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           {showRollups&&rollupTables.length>0&&(
             <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,background:T.surface,display:"flex",flexDirection:"column",gap:16,overflowX:"auto"}}>
               {hiddenRollupDims.length>0&&(
-                <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:T.textMuted}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11*(T.fsScale||1),color:T.textMuted}}>
                   <span>{hiddenRollupDims.length} rollup table{hiddenRollupDims.length===1?"":"s"} hidden</span>
                   <span onClick={showAllRollupTables} style={{color:T.accent,cursor:"pointer",fontWeight:600}}>Show all</span>
                 </div>
@@ -1726,47 +1726,47 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               {rollupTables.filter(({dim})=>!hiddenRollupDims.includes(dim)).map(({dim,rows,total})=>(
                 <div key={dim} style={{border:`1px solid ${T.border}`,borderRadius:T.r8,overflow:"hidden"}}>
                   <div style={{padding:"8px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                    <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.text}}>By {dim}</span>
+                    <span style={{fontSize:11*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.text}}>By {dim}</span>
                     <span title="Hide this rollup table"><Tog value={true} onChange={()=>hideRollupTable(dim)} T={T}/></span>
                   </div>
                   <table style={{borderCollapse:"collapse",width:"100%"}}>
                     <thead>
                       <tr>
-                        <th style={{padding:"5px 10px",fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,textAlign:"left",borderBottom:`1px solid ${T.border}`,background:T.bg}}></th>
+                        <th style={{padding:"5px 10px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,textAlign:"left",borderBottom:`1px solid ${T.border}`,background:T.bg}}></th>
                         {MONTHS.map(m=>(
-                          <th key={m.key} style={{padding:"5px 8px",fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,textAlign:"right",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap"}}>{m.label}</th>
+                          <th key={m.key} style={{padding:"5px 8px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,textAlign:"right",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap"}}>{m.label}</th>
                         ))}
                         {QUARTERS.map(q=>(
-                          <th key={q.key} style={{padding:"5px 8px",fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textSub,textAlign:"right",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{q.key}</th>
+                          <th key={q.key} style={{padding:"5px 8px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textSub,textAlign:"right",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{q.key}</th>
                         ))}
-                        <th style={{padding:"5px 10px",fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.text,textAlign:"right",borderBottom:`1px solid ${T.border}`,borderLeft:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap"}}>{year}</th>
+                        <th style={{padding:"5px 10px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.text,textAlign:"right",borderBottom:`1px solid ${T.border}`,borderLeft:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap"}}>{year}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map(r=>(
                         <tr key={r.value}>
-                          <td style={{padding:"6px 10px",fontSize:12,color:T.text,borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.value}</td>
+                          <td style={{padding:"6px 10px",fontSize:12*(T.fsScale||1),color:T.text,borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.value}</td>
                           {MONTHS.map(m=>(
-                            <td key={m.key} style={{padding:"6px 8px",fontSize:12,color:r.months[m.key]?T.text:T.textDim,textAlign:"right",fontFamily:T.font,borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.months[m.key]?fmt$(r.months[m.key]):"—"}</td>
+                            <td key={m.key} style={{padding:"6px 8px",fontSize:12*(T.fsScale||1),color:r.months[m.key]?T.text:T.textDim,textAlign:"right",fontFamily:T.font,borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.months[m.key]?fmt$(r.months[m.key]):"—"}</td>
                           ))}
                           {QUARTERS.map(q=>{
                             const qv=q.months.reduce((s,mk)=>s+(r.months[mk]||0),0);
-                            return <td key={q.key} style={{padding:"6px 8px",fontSize:12,color:qv?T.textSub:T.textDim,textAlign:"right",fontFamily:T.font,borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{qv?fmt$(qv):"—"}</td>;
+                            return <td key={q.key} style={{padding:"6px 8px",fontSize:12*(T.fsScale||1),color:qv?T.textSub:T.textDim,textAlign:"right",fontFamily:T.font,borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{qv?fmt$(qv):"—"}</td>;
                           })}
-                          <td style={{padding:"6px 10px",fontSize:12,color:T.accent,fontWeight:700,textAlign:"right",fontFamily:T.font,borderBottom:`1px solid ${T.border}`,borderLeft:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(r.total)}</td>
+                          <td style={{padding:"6px 10px",fontSize:12*(T.fsScale||1),color:T.accent,fontWeight:700,textAlign:"right",fontFamily:T.font,borderBottom:`1px solid ${T.border}`,borderLeft:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(r.total)}</td>
                         </tr>
                       ))}
                       <tr>
-                        <td style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:T.text}}>Total</td>
+                        <td style={{padding:"6px 10px",fontSize:12*(T.fsScale||1),fontWeight:700,color:T.text}}>Total</td>
                         {MONTHS.map(m=>{
                           const mv=rows.reduce((s,r)=>s+(r.months[m.key]||0),0);
-                          return <td key={m.key} style={{padding:"6px 8px",fontSize:12,fontWeight:600,color:T.text,textAlign:"right",fontFamily:T.font,whiteSpace:"nowrap"}}>{mv?fmt$(mv):"—"}</td>;
+                          return <td key={m.key} style={{padding:"6px 8px",fontSize:12*(T.fsScale||1),fontWeight:600,color:T.text,textAlign:"right",fontFamily:T.font,whiteSpace:"nowrap"}}>{mv?fmt$(mv):"—"}</td>;
                         })}
                         {QUARTERS.map(q=>{
                           const qv=rows.reduce((s,r)=>s+q.months.reduce((ss,mk)=>ss+(r.months[mk]||0),0),0);
-                          return <td key={q.key} style={{padding:"6px 8px",fontSize:12,fontWeight:600,color:T.textSub,textAlign:"right",fontFamily:T.font,whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{qv?fmt$(qv):"—"}</td>;
+                          return <td key={q.key} style={{padding:"6px 8px",fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textSub,textAlign:"right",fontFamily:T.font,whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{qv?fmt$(qv):"—"}</td>;
                         })}
-                        <td style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:T.accent,textAlign:"right",fontFamily:T.font,borderLeft:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(total)}</td>
+                        <td style={{padding:"6px 10px",fontSize:12*(T.fsScale||1),fontWeight:700,color:T.accent,textAlign:"right",fontFamily:T.font,borderLeft:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{fmt$(total)}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1778,24 +1778,24 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           {selRows.size>0&&(
             <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
               <Pill color={T.text} bg={T.accent} border={T.text}>{selRows.size} selected</Pill>
-              <span style={{color:T.textMuted,fontSize:13}}>→</span>
-              <Sel value={applyMetaDim} onChange={setApplyMetaDim} T={T} style={{width:140,fontSize:12}}>
+              <span style={{color:T.textMuted,fontSize:13*(T.fsScale||1)}}>→</span>
+              <Sel value={applyMetaDim} onChange={setApplyMetaDim} T={T} style={{width:140,fontSize:12*(T.fsScale||1)}}>
                 <option value="">Dimension…</option>
                 {[...budgetDims,...budgetMetaDims].map(d=><option key={d} value={d}>{d}</option>)}
               </Sel>
               <input value={applyMetaVal} onChange={e=>setApplyMetaVal(e.target.value)} placeholder="Value…" onKeyDown={e=>e.key==="Enter"&&applyMetaToSelected()}
-                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:130}}/>
+                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:130}}/>
               <Btn onClick={applyMetaToSelected} disabled={!applyMetaDim||!applyMetaVal} variant="primary" size="sm" T={T}>Apply</Btn>
               <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
               <input value={bulkPct} onChange={e=>setBulkPct(e.target.value)} placeholder="% e.g. 10 or -15" onKeyDown={e=>e.key==="Enter"&&bulkAdjustPct()}
-                title="Scales every existing monthly value on the selected rows by this percent" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:120}}/>
+                title="Scales every existing monthly value on the selected rows by this percent" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:120}}/>
               <Btn onClick={bulkAdjustPct} disabled={!bulkPct.trim()||isNaN(parseFloat(bulkPct))} variant="subtle" size="sm" T={T}>Adjust %</Btn>
               <Btn onClick={()=>setSelRows(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
               <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
               <Btn onClick={bulkDeleteSelected} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
             </div>
           )}
-          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12,background:T.surface}}>
+          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12*(T.fsScale||1),background:T.surface}}>
             <thead><tr>
               <th style={{...TH,width:32,padding:"15px 8px 9px 16px",left:0,zIndex:6,background:T.headerBg}}>
                 <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title="Select all rows — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -1811,7 +1811,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
             </tr></thead>
             <tbody>
               {filteredSegs.length===0&&segs.length>0&&(
-                <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+QUARTERS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)+(showCurrency?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13}}>
+                <tr><td colSpan={2+budgetDims.length+budgetMetaDims.length+MONTHS.length+QUARTERS.length+1+(showQ?QUARTERS.length:0)+(showA?1:0)+(showCurrency?1:0)} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>
                   {hideNotBudgeted&&!hasSegFilters?"All matching segments are marked not budgeted. ":"No segments match your filters. "}
                   <span onClick={()=>{clearSegFilters();setHideNotBudgeted(false);}} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>{hideNotBudgeted&&!hasSegFilters?"Show them":"Clear filters"}</span>
                 </td></tr>
@@ -1826,20 +1826,20 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                       // Derived, not stored — renaming here would only relabel the budget row
                       // while spend keeps resolving to the original channel name, silently
                       // breaking the match. Not editable.
-                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",borderRadius:T.r6}} title="Derived from spend data — not editable">{seg[d]}</Pill>
+                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",borderRadius:T.r6}} title="Derived from spend data — not editable">{seg[d]}</Pill>
                     ):editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
                       <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                         onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
-                        style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,color:"#272727",padding:"3px 8px",fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:T.font,minWidth:80}}/>
+                        style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,color:"#272727",padding:"3px 8px",fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:T.font,minWidth:80}}/>
                     ):(
-                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",cursor:"text",borderRadius:T.r6}}
+                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",cursor:"text",borderRadius:T.r6}}
                         onClick={()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
                     )}
                     {i===budgetDims.length-1&&!nb&&segMatchCount(seg.key)===0&&(
                       <WarnTip T={T} text="No campaigns are tagged to this segment yet. Spend won't roll up here until a campaign is tagged with this exact combination in the Tagger."/>
                     )}
                     {i===budgetDims.length-1&&nb&&(
-                      <span style={{marginLeft:6,fontSize:10,fontWeight:600,color:T.textMuted,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r10,padding:"1px 7px",fontFamily:T.font}}>Not budgeted</span>
+                      <span style={{marginLeft:6,fontSize:10*(T.fsScale||1),fontWeight:600,color:T.textMuted,background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r10,padding:"1px 7px",fontFamily:T.font}}>Not budgeted</span>
                     )}
                   </td>)}
                   {budgetMetaDims.map(d=>{
@@ -1850,9 +1850,9 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                         {isEditing?(
                           <input autoFocus value={editMetaVal} onChange={e=>setEditMetaVal(e.target.value)}
                             onBlur={saveMetaEdit} onKeyDown={e=>{if(e.key==="Enter")saveMetaEdit();if(e.key==="Escape"){setEditingMeta(null);setEditMetaVal("");}}}
-                            style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r5,color:"#272727",padding:"3px 7px",fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:T.font,width:"100%"}}/>
+                            style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r5,color:"#272727",padding:"3px 7px",fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:T.font,width:"100%"}}/>
                         ):(
-                          <span style={{fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:val?"#272727":T.textMuted,cursor:"text",padding:"3px 6px",display:"block",borderRadius:T.r5,border:`1px solid transparent`,minHeight:22,fontFamily:T.font}}>
+                          <span style={{fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:val?"#272727":T.textMuted,cursor:"text",padding:"3px 6px",display:"block",borderRadius:T.r5,border:`1px solid transparent`,minHeight:22,fontFamily:T.font}}>
                             {val||<span style={{opacity:0.4}}>—</span>}
                           </span>
                         )}
@@ -1861,27 +1861,27 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   })}
                   {showCurrency&&(
                     <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
-                      <Sel value={getRowCurrency(seg.key)} onChange={v=>setRowCurrency(seg.key,v)} T={T} disabled={!canEdit} style={{width:"100%",fontSize:12}}>
+                      <Sel value={getRowCurrency(seg.key)} onChange={v=>setRowCurrency(seg.key,v)} T={T} disabled={!canEdit} style={{width:"100%",fontSize:12*(T.fsScale||1)}}>
                         <option value="">—</option>
                         {CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}
                       </Sel>
                     </td>
                   )}
                   {MONTHS.map((m,monthIdx)=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb,position:"relative"}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo,false,{segIdx,colType:"month",colIdx:monthIdx})}</td>;})}
-                  {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727",background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
-                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:ao?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
-                  {showQ&&QUARTERS.map((q,qIdx)=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true,{segIdx,colType:"quarter",colIdx:qIdx})}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
-                  {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true,{segIdx,colType:"annual",colIdx:0})}{rt>0&&<span style={{fontSize:10,color:ao?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
+                  {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727",background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
+                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:ao?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
+                  {showQ&&QUARTERS.map((q,qIdx)=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true,{segIdx,colType:"quarter",colIdx:qIdx})}{qt>0&&<span style={{fontSize:10*(T.fsScale||1),color:qo?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
+                  {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true,{segIdx,colType:"annual",colIdx:0})}{rt>0&&<span style={{fontSize:10*(T.fsScale||1),color:ao?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
                   <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
                     <div style={{display:"flex",alignItems:"center",gap:2}}>
                       <button onClick={()=>toggleNotBudgeted(seg.key)} title={nb?"Unmark — this segment does need a budget":"Mark as not budgeted — hides the missing-budget signal for this segment"}
-                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:nb?T.accentBg:"transparent",border:`1px solid ${nb?T.accentBorder:"transparent"}`,borderRadius:T.r5,color:nb?T.accent:T.textMuted,cursor:"pointer",fontSize:11,lineHeight:1,padding:0,opacity:nb?1:0.4,transition:"all 0.1s"}}
+                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:nb?T.accentBg:"transparent",border:`1px solid ${nb?T.accentBorder:"transparent"}`,borderRadius:T.r5,color:nb?T.accent:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),lineHeight:1,padding:0,opacity:nb?1:0.4,transition:"all 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;if(!nb){e.currentTarget.style.border=`1px solid ${T.border}`;}}}
                         onMouseLeave={e=>{e.currentTarget.style.opacity=nb?1:0.4;if(!nb){e.currentTarget.style.border="1px solid transparent";}}}>
                         <Icon name="ban" size={12} color={nb?T.accent:T.textMuted}/>
                       </button>
                       <button onClick={()=>deleteRow(seg.key,budgetDims.map(d=>seg[d]).join(" · "))} title="Delete row"
-                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
+                        style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
                         onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>
                     </div>
@@ -1891,9 +1891,9 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                 <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
                 {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals</SectionLabel>}</td>)}
                 {budgetMetaDims.map(d=><td key={d}/>)}
-                {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727"}}>{t>0?fmt$(t):"—"}</td>;})}
-                {QUARTERS.map(q=>{const qt=filteredSegs.reduce((s,sg)=>s+qTotal(sg.key,q),0);return <td key={"qt-"+q.key} style={{padding:"10px 10px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727"}}>{qt>0?fmt$(qt):"—"}</td>;})}
-                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727"}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
+                {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727"}}>{t>0?fmt$(t):"—"}</td>;})}
+                {QUARTERS.map(q=>{const qt=filteredSegs.reduce((s,sg)=>s+qTotal(sg.key,q),0);return <td key={"qt-"+q.key} style={{padding:"10px 10px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727"}}>{qt>0?fmt$(qt):"—"}</td>;})}
+                <td style={{padding:"10px 12px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727"}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
                 {showQ&&QUARTERS.map(q=><td key={"qc-"+q.key}/>)}
                 {showA&&<td/>}
                 <td/>
@@ -1906,12 +1906,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
               {segs.some(sg=>isNotBudgeted(sg.key))&&(
-                <label style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:T.textSub,cursor:"pointer"}}>
+                <label style={{display:"flex",alignItems:"center",gap:5,fontSize:12*(T.fsScale||1),color:T.textSub,cursor:"pointer"}}>
                   <input type="checkbox" checked={hideNotBudgeted} onChange={e=>setHideNotBudgeted(e.target.checked)} style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   Hide not-budgeted
                 </label>
               )}
-              <span style={{marginLeft:"auto",fontSize:11,color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
+              <span style={{marginLeft:"auto",fontSize:11*(T.fsScale||1),color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
             </div>
             {addSegmentControl}
           </div>
@@ -1919,7 +1919,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         )}
       </div>
 
-      {notif&&<div style={{position:"fixed",bottom:24,right:24,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:T.r8,fontSize:13,fontWeight:600,zIndex:300,boxShadow:T.shadowMd,fontFamily:T.font}}>{notif}</div>}
+      {notif&&<div style={{position:"fixed",bottom:24,right:24,background:T.success,color:"#fff",padding:"10px 16px",borderRadius:T.r8,fontSize:13*(T.fsScale||1),fontWeight:600,zIndex:300,boxShadow:T.shadowMd,fontFamily:T.font}}>{notif}</div>}
 
       {/* ── IMPORT MODAL ── */}
       {importOpen&&(
@@ -1929,8 +1929,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
             {/* Modal header */}
             <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
               <div>
-                <div style={{fontSize:15,fontWeight:700,color:T.text}}>Import Budget File</div>
-                <div style={{fontSize:12,color:T.textSub,marginTop:2}}>
+                <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Import Budget File</div>
+                <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginTop:2}}>
                   {iStep==="upload"&&"CSV or Excel · any layout"}
                   {iStep==="header"&&`${iFileName} · Click the row that contains your column headers`}
                   {iStep==="map"&&"Map columns to your tag dimensions"}
@@ -1940,9 +1940,9 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               <div style={{display:"flex",alignItems:"center",gap:14}}>
                 {["Upload","Headers","Map","Preview"].map((label,i)=>{
                   const sk=IMPORT_STEPS[i];const idx=IMPORT_STEPS.indexOf(iStep);
-                  return <div key={sk} style={{display:"flex",alignItems:"center",gap:5}}>{i>0&&<span style={{color:T.textDim,fontSize:11}}>›</span>}<span style={{fontSize:12,color:iStep===sk?T.accent:idx>i?T.success:T.textMuted,fontWeight:iStep===sk?600:400}}>{idx>i?"✓ ":""}{label}</span></div>;
+                  return <div key={sk} style={{display:"flex",alignItems:"center",gap:5}}>{i>0&&<span style={{color:T.textDim,fontSize:11*(T.fsScale||1)}}>›</span>}<span style={{fontSize:12*(T.fsScale||1),color:iStep===sk?T.accent:idx>i?T.success:T.textMuted,fontWeight:iStep===sk?600:400}}>{idx>i?"✓ ":""}{label}</span></div>;
                 })}
-                <button onClick={closeImport} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,marginLeft:6,fontFamily:T.font}}>×</button>
+                <button onClick={closeImport} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22*(T.fsScale||1),lineHeight:1,marginLeft:6,fontFamily:T.font}}>×</button>
               </div>
             </div>
 
@@ -1953,45 +1953,45 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               {iStep==="upload"&&(
                 <div>
                   <div style={{marginBottom:22}}>
-                    <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Which year do these budgets apply to?</div>
-                    <div style={{fontSize:12,color:T.textSub,marginBottom:10}}>Applied to all entries — even if the year isn't in the file.</div>
+                    <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,marginBottom:4}}>Which year do these budgets apply to?</div>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:10}}>Applied to all entries — even if the year isn't in the file.</div>
                     <div style={{display:"flex",gap:8}}>
-                      {years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{flex:1,padding:"10px 0",borderRadius:T.r8,border:`1.5px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textSub,cursor:"pointer",fontSize:15,fontWeight:iYear===y?700:400,fontFamily:T.font}}>{y}</button>)}
+                      {years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{flex:1,padding:"10px 0",borderRadius:T.r8,border:`1.5px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textSub,cursor:"pointer",fontSize:15*(T.fsScale||1),fontWeight:iYear===y?700:400,fontFamily:T.font}}>{y}</button>)}
                     </div>
                   </div>
                   <div onClick={()=>fileRef.current?.click()} style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:T.r10,padding:"36px 20px",textAlign:"center",cursor:"pointer",background:T.surfaceEl}}>
                     <div style={{marginBottom:10,display:"flex",justifyContent:"center"}}><Icon name="export" size={30} color={T.textSub}/></div>
-                    <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Drop your budget file here or click to browse</div>
-                    <div style={{fontSize:12,color:T.textMuted}}>Supports <strong style={{color:T.textSub}}>.xlsx</strong> and <strong style={{color:T.textSub}}>.csv</strong> · any row/column layout</div>
+                    <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,marginBottom:4}}>Drop your budget file here or click to browse</div>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted}}>Supports <strong style={{color:T.textSub}}>.xlsx</strong> and <strong style={{color:T.textSub}}>.csv</strong> · any row/column layout</div>
                     <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleImportFile(e.target.files[0])}/>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:10,margin:"14px 0"}}>
                     <div style={{flex:1,height:1,background:T.border}}/>
-                    <span style={{fontSize:11,color:T.textMuted}}>or</span>
+                    <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>or</span>
                     <div style={{flex:1,height:1,background:T.border}}/>
                   </div>
                   <div onClick={()=>!screenshotImporting&&screenshotFileRef.current?.click()} style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:T.r10,padding:"20px",textAlign:"center",cursor:screenshotImporting?"default":"pointer",background:T.surfaceEl}}>
-                    <div style={{fontSize:13,fontWeight:600,color:T.accent,marginBottom:4}}>{screenshotImporting?"Reading screenshot…":"Or upload a screenshot of a budget table"}</div>
-                    <div style={{fontSize:12,color:T.textMuted}}>Google Sheets, Excel, a PDF export — AI reads the grid, then you review it in the same steps as a file upload</div>
+                    <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.accent,marginBottom:4}}>{screenshotImporting?"Reading screenshot…":"Or upload a screenshot of a budget table"}</div>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted}}>Google Sheets, Excel, a PDF export — AI reads the grid, then you review it in the same steps as a file upload</div>
                     <input ref={screenshotFileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{handleImportScreenshot(e.target.files[0]);e.target.value="";}}/>
                   </div>
-                  {screenshotImportError&&<div style={{marginTop:8,fontSize:11,color:T.danger}}>{screenshotImportError}</div>}
+                  {screenshotImportError&&<div style={{marginTop:8,fontSize:11*(T.fsScale||1),color:T.danger}}>{screenshotImportError}</div>}
 
                   <div style={{display:"flex",alignItems:"center",gap:10,margin:"14px 0"}}>
                     <div style={{flex:1,height:1,background:T.border}}/>
-                    <span style={{fontSize:11,color:T.textMuted}}>or</span>
+                    <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>or</span>
                     <div style={{flex:1,height:1,background:T.border}}/>
                   </div>
                   <div style={{border:`1.5px dashed ${T.borderStrong}`,borderRadius:T.r10,padding:"16px",background:T.surfaceEl}}>
-                    <div style={{fontSize:13,fontWeight:600,color:T.accent,marginBottom:4}}>Or connect a Google Sheet</div>
-                    <div style={{fontSize:12,color:T.textMuted,marginBottom:10}}>Pick a sheet from your Drive — this pulls a one-time snapshot, same review steps as a file upload. Live auto-refresh is coming later; for now, reconnect and re-import whenever you want the latest numbers.</div>
+                    <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.accent,marginBottom:4}}>Or connect a Google Sheet</div>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginBottom:10}}>Pick a sheet from your Drive — this pulls a one-time snapshot, same review steps as a file upload. Live auto-refresh is coming later; for now, reconnect and re-import whenever you want the latest numbers.</div>
                     {gsBudget.tabs?.length>1?(
                       <div>
-                        <div style={{fontSize:12,color:T.textSub,marginBottom:8}}>This spreadsheet has multiple tabs — which one has the budget?</div>
+                        <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:8}}>This spreadsheet has multiple tabs — which one has the budget?</div>
                         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
                           {gsBudget.tabs.map(t=>(
                             <button key={t.sheetId} disabled={gsBudget.fetching} onClick={()=>gsBudget.fetchTab(gsBudget.spreadsheetId,t.title)}
-                              style={{padding:"6px 12px",borderRadius:T.r6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsBudget.fetching?"default":"pointer",fontSize:12,fontFamily:T.font,opacity:gsBudget.fetching?0.6:1}}>{t.title}</button>
+                              style={{padding:"6px 12px",borderRadius:T.r6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:gsBudget.fetching?"default":"pointer",fontSize:12*(T.fsScale||1),fontFamily:T.font,opacity:gsBudget.fetching?0.6:1}}>{t.title}</button>
                           ))}
                         </div>
                         <Btn onClick={gsBudget.cancelTabs} variant="ghost" size="sm" T={T}>Cancel</Btn>
@@ -2000,7 +2000,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                       <Btn onClick={gsBudget.openPicker} disabled={gsBudget.fetching} variant="primary" size="sm" T={T}>{gsBudget.fetching?"Connecting…":"Choose from Google Drive"}</Btn>
                     )}
                     {gsBudget.error&&(
-                      <div style={{marginTop:8,fontSize:11,color:T.danger}}>
+                      <div style={{marginTop:8,fontSize:11*(T.fsScale||1),color:T.danger}}>
                         {gsBudget.error}
                         {/(permission|forbidden|403)/i.test(gsBudget.error)&&(
                           <div style={{marginTop:4}}>
@@ -2014,8 +2014,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   <div style={{marginTop:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     {[{label:"Wide format",example:"Product | Jan | Feb | Mar | Apr..."},{label:"Long format",example:"Product | Platform | Month | Budget"}].map(f=>(
                       <div key={f.label} style={{padding:"10px 12px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r8}}>
-                        <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:3}}>{f.label}</div>
-                        <div style={{fontSize:11,color:T.textMuted,fontFamily:T.font}}>{f.example}</div>
+                        <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.text,marginBottom:3}}>{f.label}</div>
+                        <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>{f.example}</div>
                       </div>
                     ))}
                   </div>
@@ -2025,26 +2025,26 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               {/* STEP 2: Header row picker */}
               {iStep==="header"&&(
                 <div>
-                  {aiError&&<div style={{padding:"9px 12px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:12,color:T.danger}}>{aiError}</div>}
+                  {aiError&&<div style={{padding:"9px 12px",background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:12*(T.fsScale||1),color:T.danger}}>{aiError}</div>}
                   <div style={{padding:"10px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                    <span style={{fontSize:12,color:T.accent,fontWeight:500}}>Year: <strong>{iYear}</strong> · Click a row to set it as the header</span>
-                    <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{padding:"2px 8px",borderRadius:T.r4,border:`1px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:T.font}}>{y}</button>)}</div>
+                    <span style={{fontSize:12*(T.fsScale||1),color:T.accent,fontWeight:500}}>Year: <strong>{iYear}</strong> · Click a row to set it as the header</span>
+                    <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} onClick={()=>setIYear(y)} style={{padding:"2px 8px",borderRadius:T.r4,border:`1px solid ${iYear===y?T.accent:T.border}`,background:iYear===y?T.accentBg:"transparent",color:iYear===y?T.accent:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font}}>{y}</button>)}</div>
                   </div>
 
                   <div style={{marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                    <div style={{fontSize:12,color:T.textSub}}>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textSub}}>
                       Header row: <strong style={{color:T.text}}>Row {iHeaderRow+1}</strong>
                       <span style={{color:T.textMuted,marginLeft:8}}>({iRawRows[iHeaderRow]?.filter(v=>String(v||"").trim()).length||0} columns detected)</span>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
-                      <span style={{fontSize:12,color:T.textSub}}>Skip rows containing:</span>
-                      <Inp value={iSkipStr} onChange={setISkipStr} placeholder="e.g. total" T={T} style={{width:120,fontSize:12}}/>
+                      <span style={{fontSize:12*(T.fsScale||1),color:T.textSub}}>Skip rows containing:</span>
+                      <Inp value={iSkipStr} onChange={setISkipStr} placeholder="e.g. total" T={T} style={{width:120,fontSize:12*(T.fsScale||1)}}/>
                     </div>
                   </div>
 
                   {/* Row preview table */}
                   <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,overflow:"auto",maxHeight:320}}>
-                    <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
+                    <table style={{borderCollapse:"collapse",width:"100%",fontSize:11*(T.fsScale||1)}}>
                       <tbody>
                         {iRawRows.slice(0,Math.min(iRawRows.length,15)).map((row,ri)=>{
                           const isHeader=ri===iHeaderRow;
@@ -2053,7 +2053,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                           return(
                             <tr key={ri} onClick={()=>setIHeaderRow(ri)}
                               style={{cursor:"pointer",background:isHeader?T.accentBg:isSkip?T.dangerBg:isEmpty?T.surfaceEl:"transparent",borderBottom:`1px solid ${T.border}`,transition:"background 0.1s"}}>
-                              <td style={{padding:"6px 8px",width:32,textAlign:"center",borderRight:`1px solid ${T.border}`,color:isHeader?T.accent:T.textMuted,fontSize:10,fontWeight:isHeader?700:400}}>
+                              <td style={{padding:"6px 8px",width:32,textAlign:"center",borderRight:`1px solid ${T.border}`,color:isHeader?T.accent:T.textMuted,fontSize:10*(T.fsScale||1),fontWeight:isHeader?700:400}}>
                                 {isHeader?"→":ri+1}
                               </td>
                               {row.slice(0,8).map((cell,ci)=>(
@@ -2061,14 +2061,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                                   {cell||""}
                                 </td>
                               ))}
-                              {row.length>8&&<td style={{padding:"6px 8px",color:T.textMuted,fontSize:10}}>+{row.length-8} more</td>}
+                              {row.length>8&&<td style={{padding:"6px 8px",color:T.textMuted,fontSize:10*(T.fsScale||1)}}>+{row.length-8} more</td>}
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
                   </div>
-                  <div style={{marginTop:10,fontSize:11,color:T.textMuted}}>
+                  <div style={{marginTop:10,fontSize:11*(T.fsScale||1),color:T.textMuted}}>
                     <span style={{color:T.accent,fontWeight:600}}>→ highlighted row</span> = header &nbsp;·&nbsp;
                     <span style={{color:T.danger}}>red rows</span> = will be skipped &nbsp;·&nbsp;
                     <span style={{color:T.textDim}}>dim rows</span> = empty
@@ -2080,7 +2080,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               {iStep==="map"&&(
                 <div>
                   <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,marginBottom:16}}>
-                    <span style={{fontSize:12,color:T.accent,fontWeight:500}}>
+                    <span style={{fontSize:12*(T.fsScale||1),color:T.accent,fontWeight:500}}>
                       Year: <strong>{iYear}</strong> · {iFmt==="wide"?"Wide (months as columns)":iFmt==="transposed"?"Transposed (months as rows, campaigns as columns)":iFmt==="flat"?"Flat (one recurring monthly amount, no named months)":"Long (period + amount columns)"} · {iRows.length} data rows · {iHeaders.length} columns
                     </span>
                   </div>
@@ -2089,49 +2089,49 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   {iFmt==="transposed"&&(
                     <div style={{marginBottom:20}}>
                       <SectionLabel T={T} style={{marginBottom:8}}>Transposed format detected</SectionLabel>
-                      <div style={{padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r8,marginBottom:14,fontSize:12,color:T.textSub,lineHeight:1.6}}>
+                      <div style={{padding:"12px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r8,marginBottom:14,fontSize:12*(T.fsScale||1),color:T.textSub,lineHeight:1.6}}>
                         Your file has <strong style={{color:T.text}}>months as rows</strong> and <strong style={{color:T.text}}>{iHeaders.slice(1).filter(h=>h&&!/(total|quarterly|last.updated|#ref)/i.test(h)).length} campaign/channel columns</strong>. Each column becomes a segment value. Columns matching "total", "quarterly", "last updated", or #REF are excluded.
                       </div>
 
                       {/* Campaign dimension name */}
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center",marginBottom:10}}>
                         <div>
-                          <div style={{fontSize:13,fontWeight:500,color:T.text}}>Campaign/segment dimension name</div>
-                          <div style={{fontSize:11,color:T.textMuted}}>What are these columns? e.g. Campaign, Ad Set</div>
+                          <div style={{fontSize:13*(T.fsScale||1),fontWeight:500,color:T.text}}>Campaign/segment dimension name</div>
+                          <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>What are these columns? e.g. Campaign, Ad Set</div>
                         </div>
                         <input value={iSegDim} onChange={e=>setISegDim(e.target.value)} placeholder="e.g. Campaign"
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:T.font}}/>
+                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                       </div>
 
                       {/* Group header row */}
                       <div style={{borderTop:`1px solid ${T.border}`,paddingTop:12,marginTop:4}}>
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                           <div>
-                            <div style={{fontSize:13,fontWeight:500,color:T.text}}>Channel / group header row</div>
-                            <div style={{fontSize:11,color:T.textMuted}}>Optional — use a row above the header that groups campaigns into channels</div>
+                            <div style={{fontSize:13*(T.fsScale||1),fontWeight:500,color:T.text}}>Channel / group header row</div>
+                            <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>Optional — use a row above the header that groups campaigns into channels</div>
                           </div>
                           <Tog value={iGroupHeaderRow>=0} onChange={v=>setIGroupHeaderRow(v?Math.max(0,iHeaderRow-1):-1)} T={T}/>
                         </div>
                         {iGroupHeaderRow>=0&&(
                           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:8}}>
                             <div>
-                              <div style={{fontSize:12,color:T.textSub,marginBottom:4}}>Which row contains channel labels?</div>
+                              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:4}}>Which row contains channel labels?</div>
                               <select value={iGroupHeaderRow} onChange={e=>setIGroupHeaderRow(parseInt(e.target.value))}
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:T.font,width:"100%"}}>
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:"100%"}}>
                                 {iRawRows.slice(0,iHeaderRow).map((_,i)=>(
                                   <option key={i} value={i}>Row {i+1}: {(iRawRows[i]||[]).filter(v=>String(v||"").trim()).slice(0,3).join(" | ")}</option>
                                 ))}
                               </select>
                             </div>
                             <div>
-                              <div style={{fontSize:12,color:T.textSub,marginBottom:4}}>Name for this group dimension</div>
+                              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:4}}>Name for this group dimension</div>
                               <input value={iGroupDim} onChange={e=>setIGroupDim(e.target.value)} placeholder="e.g. Channel, Platform"
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:T.font,width:"100%"}}/>
+                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:"100%"}}/>
                             </div>
                           </div>
                         )}
                         {iGroupHeaderRow>=0&&iRawRows[iGroupHeaderRow]&&(
-                          <div style={{marginTop:8,padding:"8px 10px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,fontSize:11,color:T.accent}}>
+                          <div style={{marginTop:8,padding:"8px 10px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,fontSize:11*(T.fsScale||1),color:T.accent}}>
                             Preview: {forwardFillGroups(iRawRows[iGroupHeaderRow]).filter((v,i)=>i>0&&v).filter((v,i,a)=>a.indexOf(v)===i).join(", ")}
                           </div>
                         )}
@@ -2145,7 +2145,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
                       {(tagDimensions||[]).map(d=>(
                         <div key={d} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center"}}>
-                          <span style={{fontSize:13,color:T.text,fontWeight:500}}>{d}</span>
+                          <span style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:500}}>{d}</span>
                           <Sel value={dimMap[d]||""} onChange={v=>setDimMap(p=>({...p,[d]:v||undefined}))} T={T}>
                             <option value="">— skip —</option>
                             {iHeaders.map(h=><option key={h} value={h}>{h}</option>)}
@@ -2158,12 +2158,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                         <SectionLabel T={T} style={{marginBottom:0}}>Add custom dimensions</SectionLabel>
                         <Btn onClick={()=>setCustomDims(p=>[...p,{name:"",col:""}])} variant="subtle" size="sm" T={T}>+ Add dimension</Btn>
                       </div>
-                      {customDims.length===0&&<div style={{fontSize:12,color:T.textMuted,padding:"8px 0"}}>Map any additional columns to new tag dimensions not yet in your list.</div>}
+                      {customDims.length===0&&<div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,padding:"8px 0"}}>Map any additional columns to new tag dimensions not yet in your list.</div>}
                       {customDims.map((cd,i)=>(
                         <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 28px",gap:8,marginBottom:8,alignItems:"center"}}>
-                          <input value={cd.name} onChange={e=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Dimension name (e.g. BU)" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:T.font}}/>
+                          <input value={cd.name} onChange={e=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Dimension name (e.g. BU)" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                           <Sel value={cd.col} onChange={v=>setCustomDims(p=>p.map((x,j)=>j===i?{...x,col:v}:x))} T={T}><option value="">— select column —</option>{iHeaders.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
-                          <button onClick={()=>setCustomDims(p=>p.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,padding:"4px",fontFamily:T.font}}>×</button>
+                          <button onClick={()=>setCustomDims(p=>p.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:16*(T.fsScale||1),lineHeight:1,padding:"4px",fontFamily:T.font}}>×</button>
                         </div>
                       ))}
                     </div>
@@ -2174,7 +2174,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     <SectionLabel T={T} style={{marginBottom:10}}>Long format columns</SectionLabel>
                     {[{l:"Period / Month",v:periodCol,s:setPeriodCol,h:"e.g. 2026-01, Jan 2026"},{l:"Budget Amount",v:amtCol,s:setAmtCol,h:"e.g. Budget, Amount"}].map(({l,v,s,h})=>(
                       <div key={l} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8,alignItems:"center"}}>
-                        <div><div style={{fontSize:13,color:T.text,fontWeight:500}}>{l}</div><div style={{fontSize:11,color:T.textMuted}}>{h}</div></div>
+                        <div><div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:500}}>{l}</div><div style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>{h}</div></div>
                         <Sel value={v} onChange={s} T={T}><option value="">— select —</option>{iHeaders.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
                       </div>
                     ))}
@@ -2184,7 +2184,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   {iFmt==="flat"&&<div style={{borderTop:`1px solid ${T.border}`,paddingTop:16,marginTop:8}}>
                     <SectionLabel T={T} style={{marginBottom:10}}>Monthly amount column</SectionLabel>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16,alignItems:"center"}}>
-                      <div><div style={{fontSize:13,color:T.text,fontWeight:500}}>Monthly Budget</div><div style={{fontSize:11,color:T.textMuted}}>e.g. Monthly Budget, Monthly Spend</div></div>
+                      <div><div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:500}}>Monthly Budget</div><div style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>e.g. Monthly Budget, Monthly Spend</div></div>
                       <Sel value={amtCol} onChange={setAmtCol} T={T}><option value="">— select —</option>{iHeaders.map(h=><option key={h} value={h}>{h}</option>)}</Sel>
                     </div>
 
@@ -2195,7 +2195,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                         <Btn onClick={()=>setIFlatMonths([])} variant="subtle" size="sm" T={T}>Clear</Btn>
                       </div>
                     </div>
-                    <div style={{fontSize:11,color:T.textMuted,marginBottom:10}}>
+                    <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginBottom:10}}>
                       This table has no named months — pick which month(s) this recurring amount should be written into. e.g. a client starting in July only needs Jul–Dec, not a back-filled Jan–Jun.
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6,marginBottom:14}}>
@@ -2203,7 +2203,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                         const active=iFlatMonths.includes(m.key);
                         return(
                           <button key={m.key} type="button" onClick={()=>setIFlatMonths(p=>active?p.filter(k=>k!==m.key):[...p,m.key].sort())}
-                            style={{padding:"6px 4px",borderRadius:T.r6,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:T.font,textAlign:"center",
+                            style={{padding:"6px 4px",borderRadius:T.r6,fontSize:12*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font,textAlign:"center",
                               background:active?T.accent:T.surfaceEl,color:active?"#fff":T.text,
                               border:`1px solid ${active?T.accentHover:T.border}`}}>
                             {m.label}
@@ -2212,7 +2212,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                       })}
                     </div>
 
-                    <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,fontSize:12,color:T.accent,lineHeight:1.5}}>
+                    <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,fontSize:12*(T.fsScale||1),color:T.accent,lineHeight:1.5}}>
                       {iFlatMonths.length===0
                         ? "Select at least one month above to continue."
                         : <>This amount will be applied to <strong>{iFlatMonths.length===12?`all 12 months of ${iYear}`:iFlatMonths.map(k=>MONTHS.find(m=>m.key===k)?.label).join(", ")}</strong> for each segment.</>}
@@ -2225,15 +2225,15 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               {/* STEP 4: Preview */}
               {iStep==="preview"&&(
                 <div>
-                  <div style={{padding:"9px 12px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:12,color:T.success,fontWeight:500}}>
+                  <div style={{padding:"9px 12px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:14,fontSize:12*(T.fsScale||1),color:T.success,fontWeight:500}}>
                     ✓ <strong>{preview.length} entries</strong> across <strong>{pvGrouped.length} segments</strong> ready for <strong>{iYear}</strong>
                   </div>
                   <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,overflow:"auto",maxHeight:360}}>
-                    <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
+                    <table style={{borderCollapse:"collapse",width:"100%",fontSize:11*(T.fsScale||1)}}>
                       <thead><tr>
-                        {dimCols.map(d=><th key={d} style={{padding:"8px 10px",textAlign:"left",background:T.headerBg,borderBottom:`1px solid ${T.border}`,fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.07em",textTransform:"uppercase",position:"sticky",top:0}}>{d}</th>)}
-                        {MONTHS.filter(m=>(preview||[]).some(e=>e.monthKey===m.key)).map(m=><th key={m.key} style={{padding:"8px 6px",textAlign:"right",background:T.headerBg,borderBottom:`1px solid ${T.border}`,fontSize:10,fontWeight:700,color:T.textMuted,textTransform:"uppercase",position:"sticky",top:0}}>{m.label}</th>)}
-                        <th style={{padding:"8px 10px",textAlign:"right",background:T.headerBg,borderBottom:`1px solid ${T.border}`,fontSize:10,fontWeight:700,color:T.accent,textTransform:"uppercase",position:"sticky",top:0}}>Total</th>
+                        {dimCols.map(d=><th key={d} style={{padding:"8px 10px",textAlign:"left",background:T.headerBg,borderBottom:`1px solid ${T.border}`,fontSize:10*(T.fsScale||1),fontWeight:700,color:T.textMuted,letterSpacing:"0.07em",textTransform:"uppercase",position:"sticky",top:0}}>{d}</th>)}
+                        {MONTHS.filter(m=>(preview||[]).some(e=>e.monthKey===m.key)).map(m=><th key={m.key} style={{padding:"8px 6px",textAlign:"right",background:T.headerBg,borderBottom:`1px solid ${T.border}`,fontSize:10*(T.fsScale||1),fontWeight:700,color:T.textMuted,textTransform:"uppercase",position:"sticky",top:0}}>{m.label}</th>)}
+                        <th style={{padding:"8px 10px",textAlign:"right",background:T.headerBg,borderBottom:`1px solid ${T.border}`,fontSize:10*(T.fsScale||1),fontWeight:700,color:T.accent,textTransform:"uppercase",position:"sticky",top:0}}>Total</th>
                       </tr></thead>
                       <tbody>
                         {pvGrouped.map((sg,i)=>{const rt=Object.values(sg.months).reduce((s,v)=>s+v,0);return(
@@ -2274,37 +2274,37 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <PixelPanel T={T} style={{width:"100%",maxWidth:460}} contentStyle={{background:T.surface,padding:0}}>
             <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Export preview — {year}</div>
-              <button onClick={()=>setExportPreviewOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:T.font}}>×</button>
+              <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Export preview — {year}</div>
+              <button onClick={()=>setExportPreviewOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22*(T.fsScale||1),lineHeight:1,fontFamily:T.font}}>×</button>
             </div>
             <div style={{padding:22}}>
               {exportAnalyzing?(
-                <div style={{display:"flex",alignItems:"center",gap:8,color:T.textSub,fontSize:13}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,color:T.textSub,fontSize:13*(T.fsScale||1)}}>
                   <span style={{width:14,height:14,border:`2px solid ${T.border}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/>
                   Checking how your {year} budget file was structured…
                 </div>
               ):(
                 <>
                   {exportAiReason&&(
-                    <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,marginBottom:16,fontSize:12,color:T.text,lineHeight:1.5}}>✨ {exportAiReason}</div>
+                    <div style={{padding:"9px 12px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,marginBottom:16,fontSize:12*(T.fsScale||1),color:T.text,lineHeight:1.5}}>✨ {exportAiReason}</div>
                   )}
                   {exportAiError&&(
-                    <div style={{padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:T.r8,marginBottom:16,fontSize:12,color:T.warning,lineHeight:1.5}}>{exportAiError}</div>
+                    <div style={{padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:T.r8,marginBottom:16,fontSize:12*(T.fsScale||1),color:T.warning,lineHeight:1.5}}>{exportAiError}</div>
                   )}
-                  <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>Always included: annual actual spend, % of budget used, projected year-end spend, and pacing status. Choose what else to append:</div>
+                  <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:12}}>Always included: annual actual spend, % of budget used, projected year-end spend, and pacing status. Choose what else to append:</div>
                   <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",cursor:"pointer"}}>
                     <input type="checkbox" checked={exportIncludeMonthly} onChange={e=>setExportIncludeMonthly(e.target.checked)} style={{marginTop:2,cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
-                    <span><span style={{fontSize:13,fontWeight:600,color:T.text}}>Monthly actual spend</span><br/><span style={{fontSize:12,color:T.textMuted}}>Adds a Jan–Dec Actual column next to each budgeted month.</span></span>
+                    <span><span style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text}}>Monthly actual spend</span><br/><span style={{fontSize:12*(T.fsScale||1),color:T.textMuted}}>Adds a Jan–Dec Actual column next to each budgeted month.</span></span>
                   </label>
                   <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",cursor:"pointer"}}>
                     <input type="checkbox" checked={exportIncludeQuarterly} onChange={e=>setExportIncludeQuarterly(e.target.checked)} style={{marginTop:2,cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
-                    <span><span style={{fontSize:13,fontWeight:600,color:T.text}}>Quarterly actual spend</span><br/><span style={{fontSize:12,color:T.textMuted}}>Adds Q1–Q4 Actual columns, matching quarterly totals in your original file.</span></span>
+                    <span><span style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text}}>Quarterly actual spend</span><br/><span style={{fontSize:12*(T.fsScale||1),color:T.textMuted}}>Adds Q1–Q4 Actual columns, matching quarterly totals in your original file.</span></span>
                   </label>
                   <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
-                    <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:6}}>Or append to an existing Google Sheet</div>
-                    <div style={{fontSize:12,color:T.textMuted,marginBottom:8,lineHeight:1.5}}>Pick a spreadsheet you already have — this adds rows to a tab in it instead of creating a new file. The tab is created if it doesn't exist yet.</div>
+                    <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.text,marginBottom:6}}>Or append to an existing Google Sheet</div>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginBottom:8,lineHeight:1.5}}>Pick a spreadsheet you already have — this adds rows to a tab in it instead of creating a new file. The tab is created if it doesn't exist yet.</div>
                     <input value={appendTabName} onChange={e=>setAppendTabName(e.target.value)} placeholder={`Budget ${year}`}
-                      style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:T.font}}/>
+                      style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
                   </div>
                 </>
               )}
@@ -2322,20 +2322,20 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <PixelPanel T={T} style={{width:"100%",maxWidth:560}} contentStyle={{background:T.surface,padding:0}}>
             <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Import history</div>
-              <button onClick={()=>setImportHistoryOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:T.font}}>×</button>
+              <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Import history</div>
+              <button onClick={()=>setImportHistoryOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22*(T.fsScale||1),lineHeight:1,fontFamily:T.font}}>×</button>
             </div>
             <div style={{padding:"8px 22px 22px",maxHeight:440,overflow:"auto"}}>
               {!(budgetImportMeta?._log||[]).length?(
-                <div style={{padding:"28px 0",textAlign:"center",color:T.textMuted,fontSize:13}}>No imports recorded yet. Every CSV/Excel upload, screenshot import, Google Sheet pull, and paste-into-new-segments will show up here.</div>
+                <div style={{padding:"28px 0",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>No imports recorded yet. Every CSV/Excel upload, screenshot import, Google Sheet pull, and paste-into-new-segments will show up here.</div>
               ):(
                 <div>
                   {budgetImportMeta._log.map((entry,i)=>(
                     <div key={entry.ts+"-"+i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:i<budgetImportMeta._log.length-1?`1px solid ${T.border}`:"none"}}>
-                      <div style={{width:26,height:26,borderRadius:"50%",background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:12}}>↑</div>
+                      <div style={{width:26,height:26,borderRadius:"50%",background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:12*(T.fsScale||1)}}>↑</div>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{entry.source}</div>
-                        <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>
+                        <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{entry.source}</div>
+                        <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginTop:2}}>
                           {new Date(entry.ts).toLocaleString(undefined,{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"})}
                           {" · "}{entry.year}{" · "}{entry.entryCount} entr{entry.entryCount===1?"y":"ies"} across {entry.segmentCount} segment{entry.segmentCount===1?"":"s"}
                           {entry.mergedCount>0&&` · merged ${entry.mergedCount} segment${entry.mergedCount===1?"":"s"}`}
@@ -2357,12 +2357,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <PixelPanel T={T} style={{width:"100%",maxWidth:560,maxHeight:"85vh"}} contentStyle={{background:T.surface,padding:0,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
             <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`}}>
-              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Possible duplicate segments</div>
-              <div style={{fontSize:12,color:T.textSub,marginTop:2}}>This import adds a new dimension to segments you've already budgeted. Merge the ones below into your existing rows, or keep them separate.</div>
+              <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Possible duplicate segments</div>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginTop:2}}>This import adds a new dimension to segments you've already budgeted. Merge the ones below into your existing rows, or keep them separate.</div>
             </div>
             <div style={{flex:1,overflow:"auto",padding:22}}>
               {mergeAiError&&(
-                <div style={{padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:T.r8,marginBottom:16,fontSize:12,color:T.warning,lineHeight:1.5}}>{mergeAiError}</div>
+                <div style={{padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:T.r8,marginBottom:16,fontSize:12*(T.fsScale||1),color:T.warning,lineHeight:1.5}}>{mergeAiError}</div>
               )}
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 {mergeCandidates.map((c,i)=>{
@@ -2372,11 +2372,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                       <input type="checkbox" checked={c.approved} onChange={()=>toggleMergeCandidate(i)} style={{marginTop:3,cursor:"pointer",accentColor:T.accent,width:14,height:14,flexShrink:0}}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                          <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:T.r20,color:confMeta.color,background:confMeta.bg,border:`1px solid ${confMeta.border}`}}>{confMeta.label}</span>
+                          <span style={{fontSize:11*(T.fsScale||1),fontWeight:700,padding:"2px 8px",borderRadius:T.r20,color:confMeta.color,background:confMeta.bg,border:`1px solid ${confMeta.border}`}}>{confMeta.label}</span>
                         </div>
-                        <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:2}}>{c.newLabel}</div>
-                        <div style={{fontSize:12,color:T.textMuted,marginBottom:4}}>↳ merges into existing: <strong style={{color:T.textSub}}>{c.oldLabel}</strong></div>
-                        <div style={{fontSize:11,color:T.textMuted,lineHeight:1.5}}>{c.reason}</div>
+                        <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600,marginBottom:2}}>{c.newLabel}</div>
+                        <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginBottom:4}}>↳ merges into existing: <strong style={{color:T.textSub}}>{c.oldLabel}</strong></div>
+                        <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,lineHeight:1.5}}>{c.reason}</div>
                       </div>
                     </label>
                   );
@@ -2395,16 +2395,16 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <PixelPanel T={T} style={{width:"100%",maxWidth:560,maxHeight:"85vh"}} contentStyle={{background:T.surface,padding:0,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
             <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`}}>
-              <div style={{fontSize:15,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8}}><Icon name="alert" size={16} color={T.warning}/> This import tracks fewer dimensions</div>
-              <div style={{fontSize:12,color:T.textSub,marginTop:4,lineHeight:1.6}}>Your {year} budget already uses <strong style={{color:T.text}}>{budgetDims.join(", ")}</strong>. This file only maps <strong style={{color:T.text}}>{contractionNewDims.join(", ")}</strong>. These are lossy, shorter keys — they can't be safely auto-merged into your existing detailed segments, since more than one of those could match the same shorter key.</div>
+              <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8}}><Icon name="alert" size={16} color={T.warning}/> This import tracks fewer dimensions</div>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginTop:4,lineHeight:1.6}}>Your {year} budget already uses <strong style={{color:T.text}}>{budgetDims.join(", ")}</strong>. This file only maps <strong style={{color:T.text}}>{contractionNewDims.join(", ")}</strong>. These are lossy, shorter keys — they can't be safely auto-merged into your existing detailed segments, since more than one of those could match the same shorter key.</div>
             </div>
             <div style={{flex:1,overflow:"auto",padding:22}}>
-              <div style={{fontSize:12,color:T.textSub,marginBottom:12}}>If you continue, this import will create <strong style={{color:T.text}}>{contractionInfo.length}</strong> new, less-specific segment{contractionInfo.length===1?"":"s"} — separate from your existing rows below, not combined with them:</div>
+              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:12}}>If you continue, this import will create <strong style={{color:T.text}}>{contractionInfo.length}</strong> new, less-specific segment{contractionInfo.length===1?"":"s"} — separate from your existing rows below, not combined with them:</div>
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 {contractionInfo.map((c,i)=>(
                   <div key={i} style={{padding:"10px 12px",borderRadius:T.r8,border:`1px solid ${T.border}`}}>
-                    <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:4}}>New: {c.newLabel}</div>
-                    <div style={{fontSize:12,color:T.textMuted,lineHeight:1.6}}>Sits alongside {c.matchCount} existing segment{c.matchCount===1?"":"s"} that also match{c.matchCount===1?"es":""}: {c.examples.join(" · ")}{c.matchCount>c.examples.length?` +${c.matchCount-c.examples.length} more`:""}</div>
+                    <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600,marginBottom:4}}>New: {c.newLabel}</div>
+                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,lineHeight:1.6}}>Sits alongside {c.matchCount} existing segment{c.matchCount===1?"":"s"} that also match{c.matchCount===1?"es":""}: {c.examples.join(" · ")}{c.matchCount>c.examples.length?` +${c.matchCount-c.examples.length} more`:""}</div>
                   </div>
                 ))}
               </div>

@@ -61,8 +61,19 @@ const RADIUS_AIDA = {r0:0,r2:6,r3:8,r4:10,r5:12,r6:14,r7:16,r8:18,r9:20,r10:22,r
 // highest-leverage, most directly comparable elements for now (Dashboard's card titles and its
 // compact page header) rather than every hardcoded fontSize in the app — see the call sites in
 // Dashboard.jsx for where these are actually used.
-const TYPE_CLASSIC = {fsCardTitle:15,fsCardTitleWeight:700,fsPageTitle:20,fsPageTitleWeight:800};
-const TYPE_AIDA = {fsCardTitle:18,fsCardTitleWeight:500,fsPageTitle:24,fsPageTitleWeight:700};
+const TYPE_CLASSIC = {fsCardTitle:15,fsCardTitleWeight:700,fsPageTitle:20,fsPageTitleWeight:800,fsScale:1};
+// fsScale (2026-08-01, per Mo — "fix the font and font sizing across the whole site") is a
+// uniform multiplier applied to every fontSize literal app-wide (see the `fontSize:Math.round(N*
+// (T.fsScale||1))` pattern used throughout the components), rather than hand-picking a size for
+// every single label individually — the reference reads larger/roomier everywhere, not just on
+// the two elements fsCardTitle/fsPageTitle above target specifically, and a flat ratio keeps
+// existing relative hierarchy (small labels stay smaller than big numbers) intact instead of
+// distorting it. 1.15 is a modest, conservative bump chosen to track the ~1.2x ratio observed
+// directly from the reference (card titles 15->18px, page titles 20->24px) while leaving some
+// headroom against overflow in tighter containers (data grids, dense sidebars) that the reference
+// itself has no equivalent of to sample from. Classic/Midnight are 1 (exact no-op, verified by
+// construction: N*1===N for every call site).
+const TYPE_AIDA = {fsCardTitle:18,fsCardTitleWeight:500,fsPageTitle:24,fsPageTitleWeight:700,fsScale:1.15};
 
 export const THEME_CLASSIC = {
   font:"'DM Sans',sans-serif",

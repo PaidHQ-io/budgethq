@@ -459,7 +459,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
   const unpinnedSidebarChats=useMemo(()=>filteredSidebarChats.filter(c=>!c.pinned).sort((a,b)=>b.updatedAt-a.updatedAt),[filteredSidebarChats]);
   const recencyGroups=useMemo(()=>groupChatsByRecency(unpinnedSidebarChats),[unpinnedSidebarChats]);
 
-  const menuBtnStyle={display:"block",width:"100%",textAlign:"left",padding:"6px 8px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:12,cursor:"pointer",fontFamily:T.font};
+  const menuBtnStyle={display:"block",width:"100%",textAlign:"left",padding:"6px 8px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:12*(T.fsScale||1),cursor:"pointer",fontFamily:T.font};
 
   const renderChatRow=c=>{
     const isEditing=renamingChatId===c.id;
@@ -467,18 +467,18 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
       <div key={c.id} onClick={()=>{if(!isEditing)setActiveAskChatId(c.id);}}
         className={c.id===activeAskChatId?undefined:"bhq-row"}
         style={{display:"flex",alignItems:"center",gap:4,padding:"5px 6px",borderRadius:T.r6,cursor:"pointer",background:c.id===activeAskChatId?T.rowSelected:"transparent"}}>
-        <span onClick={e=>{e.stopPropagation();togglePin(c.id);}} title={c.pinned?"Unpin":"Pin"} style={{flexShrink:0,cursor:"pointer",opacity:c.pinned?1:0.32,fontSize:11,lineHeight:1}}>📌</span>
+        <span onClick={e=>{e.stopPropagation();togglePin(c.id);}} title={c.pinned?"Unpin":"Pin"} style={{flexShrink:0,cursor:"pointer",opacity:c.pinned?1:0.32,fontSize:11*(T.fsScale||1),lineHeight:1}}>📌</span>
         {isEditing?(
           <input autoFocus value={renamingTitle} onChange={e=>setRenamingTitle(e.target.value)} onClick={e=>e.stopPropagation()}
             onKeyDown={e=>{if(e.key==="Enter")commitRename(c.id,renamingTitle);if(e.key==="Escape")setRenamingChatId(null);}}
             onBlur={()=>commitRename(c.id,renamingTitle)}
-            style={{flex:1,minWidth:0,fontSize:12,padding:"3px 5px",borderRadius:T.r5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:T.font}}/>
+            style={{flex:1,minWidth:0,fontSize:12*(T.fsScale||1),padding:"3px 5px",borderRadius:T.r5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:T.font}}/>
         ):(
-          <span style={{flex:1,minWidth:0,fontSize:12,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.title}</span>
+          <span style={{flex:1,minWidth:0,fontSize:12*(T.fsScale||1),color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.title}</span>
         )}
         {!isEditing&&(
           <button onClick={e=>{e.stopPropagation();setChatMenuAnchorRect(e.currentTarget.getBoundingClientRect());setChatMenuOpenId(chatMenuOpenId===c.id?null:c.id);}}
-            style={{flexShrink:0,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13,padding:"2px 4px",lineHeight:1}}>⋯</button>
+            style={{flexShrink:0,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13*(T.fsScale||1),padding:"2px 4px",lineHeight:1}}>⋯</button>
         )}
       </div>
     );
@@ -504,7 +504,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
         <SectionLabel T={T} style={{marginBottom:6}}>Projects</SectionLabel>
         <div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:6}}>
           <div onClick={()=>setActiveProjectId(null)} className={activeProjectId===null?undefined:"bhq-row"}
-            style={{padding:"5px 8px",borderRadius:T.r6,cursor:"pointer",fontSize:12,fontWeight:activeProjectId===null?700:400,color:T.text,background:activeProjectId===null?T.accentBg:"transparent"}}>
+            style={{padding:"5px 8px",borderRadius:T.r6,cursor:"pointer",fontSize:12*(T.fsScale||1),fontWeight:activeProjectId===null?700:400,color:T.text,background:activeProjectId===null?T.accentBg:"transparent"}}>
             All chats ({askChats.length})
           </div>
           {askProjects.map(p=>{
@@ -516,25 +516,25 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
                   <input autoFocus value={editingProjectName} onChange={e=>setEditingProjectName(e.target.value)}
                     onKeyDown={e=>{if(e.key==="Enter")commitProjectRename(p.id,editingProjectName);if(e.key==="Escape")setEditingProjectId(null);}}
                     onBlur={()=>commitProjectRename(p.id,editingProjectName)}
-                    style={{flex:1,minWidth:0,fontSize:12,padding:"4px 6px",borderRadius:T.r5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:T.font}}/>
+                    style={{flex:1,minWidth:0,fontSize:12*(T.fsScale||1),padding:"4px 6px",borderRadius:T.r5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:T.font}}/>
                 ):(
                   <div onClick={()=>setActiveProjectId(p.id)} onDoubleClick={()=>{setEditingProjectId(p.id);setEditingProjectName(p.name);}}
                     className={activeProjectId===p.id?undefined:"bhq-row"} title="Double-click to rename"
-                    style={{flex:1,minWidth:0,padding:"5px 8px",borderRadius:T.r6,cursor:"pointer",fontSize:12,fontWeight:activeProjectId===p.id?700:400,color:T.text,background:activeProjectId===p.id?T.accentBg:"transparent",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    style={{flex:1,minWidth:0,padding:"5px 8px",borderRadius:T.r6,cursor:"pointer",fontSize:12*(T.fsScale||1),fontWeight:activeProjectId===p.id?700:400,color:T.text,background:activeProjectId===p.id?T.accentBg:"transparent",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                     {p.name} ({count})
                   </div>
                 )}
-                {!isEditing&&<span onClick={()=>deleteProject(p.id)} title="Delete project (chats stay, just unfiled)" style={{color:T.textMuted,cursor:"pointer",fontSize:12,padding:"2px 4px",flexShrink:0}}>✕</span>}
+                {!isEditing&&<span onClick={()=>deleteProject(p.id)} title="Delete project (chats stay, just unfiled)" style={{color:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),padding:"2px 4px",flexShrink:0}}>✕</span>}
               </div>
             );
           })}
           <div onClick={()=>setActiveProjectId("unfiled")} className={activeProjectId==="unfiled"?undefined:"bhq-row"}
-            style={{padding:"5px 8px",borderRadius:T.r6,cursor:"pointer",fontSize:12,fontWeight:activeProjectId==="unfiled"?700:400,color:T.textMuted,background:activeProjectId==="unfiled"?T.accentBg:"transparent"}}>
+            style={{padding:"5px 8px",borderRadius:T.r6,cursor:"pointer",fontSize:12*(T.fsScale||1),fontWeight:activeProjectId==="unfiled"?700:400,color:T.textMuted,background:activeProjectId==="unfiled"?T.accentBg:"transparent"}}>
             Unfiled ({askChats.filter(c=>!c.projectId).length})
           </div>
         </div>
         <div style={{display:"flex",gap:5}}>
-          <Inp value={newProjectName} onChange={setNewProjectName} placeholder="New project…" T={T} style={{fontSize:11,padding:"5px 8px"}}/>
+          <Inp value={newProjectName} onChange={setNewProjectName} placeholder="New project…" T={T} style={{fontSize:11*(T.fsScale||1),padding:"5px 8px"}}/>
           <Btn onClick={addProject} variant="subtle" size="sm" T={T}>+</Btn>
         </div>
       </div>
@@ -547,7 +547,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
               const active=activeLabel===l;
               return(
                 <button key={l} onClick={()=>setActiveLabel(active?null:l)}
-                  style={{fontSize:10.5,padding:"3px 8px",borderRadius:T.r12,cursor:"pointer",fontFamily:T.font,fontWeight:500,background:active?T.accent:T.surfaceEl,color:active?T.onAccent:T.textSub,border:`1px solid ${active?T.accentHover:T.border}`}}>
+                  style={{fontSize:10.5*(T.fsScale||1),padding:"3px 8px",borderRadius:T.r12,cursor:"pointer",fontFamily:T.font,fontWeight:500,background:active?T.accent:T.surfaceEl,color:active?T.onAccent:T.textSub,border:`1px solid ${active?T.accentHover:T.border}`}}>
                   {l}
                 </button>
               );
@@ -559,10 +559,10 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
       <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <SectionLabel T={T} style={{marginBottom:6}}>Chats</SectionLabel>
         <div className="bhq-scroll" style={{flex:1,overflow:"auto"}}>
-          {filteredSidebarChats.length===0&&<div style={{fontSize:11,color:T.textMuted,padding:"8px 2px"}}>No chats {sidebarSearch||activeProjectId||activeLabel?"match this filter":"yet"}</div>}
+          {filteredSidebarChats.length===0&&<div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,padding:"8px 2px"}}>No chats {sidebarSearch||activeProjectId||activeLabel?"match this filter":"yet"}</div>}
           {recencyGroups.map(g=>(
             <div key={g.label} style={{marginBottom:10}}>
-              <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted,margin:"4px 0"}}>{g.label}</div>
+              <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted,margin:"4px 0"}}>{g.label}</div>
               <div style={{display:"flex",flexDirection:"column",gap:2}}>{g.chats.map(renderChatRow)}</div>
             </div>
           ))}
@@ -584,20 +584,20 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
               <button onClick={()=>{setRenamingChatId(c.id);setRenamingTitle(c.title);setChatMenuOpenId(null);}} style={menuBtnStyle}>Rename</button>
               <button onClick={()=>{togglePin(c.id);setChatMenuOpenId(null);}} style={menuBtnStyle}>{c.pinned?"Unpin":"Pin"}</button>
               <div style={{height:1,background:T.border,margin:"4px 0"}}/>
-              <div style={{padding:"4px 8px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Project</div>
+              <div style={{padding:"4px 8px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Project</div>
               <button onClick={()=>{assignProject(c.id,null);setChatMenuOpenId(null);}} style={{...menuBtnStyle,fontWeight:!c.projectId?700:400}}>No project</button>
               {askProjects.map(p=>(
                 <button key={p.id} onClick={()=>{assignProject(c.id,p.id);setChatMenuOpenId(null);}} style={{...menuBtnStyle,fontWeight:c.projectId===p.id?700:400}}>{p.name}</button>
               ))}
               <div style={{height:1,background:T.border,margin:"4px 0"}}/>
-              <div style={{padding:"4px 8px",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Labels</div>
+              <div style={{padding:"4px 8px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Labels</div>
               {allLabels.length>0&&(
                 <div style={{display:"flex",flexWrap:"wrap",gap:4,padding:"0 8px 6px"}}>
                   {allLabels.map(l=>{
                     const on=(c.labels||[]).includes(l);
                     return(
                       <button key={l} onClick={()=>toggleChatLabel(c.id,l)}
-                        style={{fontSize:10.5,padding:"2px 7px",borderRadius:T.r10,cursor:"pointer",fontFamily:T.font,background:on?T.accent:T.surfaceEl,color:on?T.onAccent:T.textSub,border:`1px solid ${on?T.accentHover:T.border}`}}>
+                        style={{fontSize:10.5*(T.fsScale||1),padding:"2px 7px",borderRadius:T.r10,cursor:"pointer",fontFamily:T.font,background:on?T.accent:T.surfaceEl,color:on?T.onAccent:T.textSub,border:`1px solid ${on?T.accentHover:T.border}`}}>
                         {l}
                       </button>
                     );
@@ -607,7 +607,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
               <div style={{display:"flex",gap:4,padding:"0 8px 4px"}}>
                 <input value={newLabelInput} onChange={e=>setNewLabelInput(e.target.value)}
                   onKeyDown={e=>{if(e.key==="Enter"&&newLabelInput.trim()){toggleChatLabel(c.id,newLabelInput.trim());setNewLabelInput("");}}}
-                  placeholder="Add label…" style={{flex:1,minWidth:0,fontSize:11,padding:"4px 6px",borderRadius:T.r5,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:T.font}}/>
+                  placeholder="Add label…" style={{flex:1,minWidth:0,fontSize:11*(T.fsScale||1),padding:"4px 6px",borderRadius:T.r5,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,outline:"none",fontFamily:T.font}}/>
               </div>
               <div style={{height:1,background:T.border,margin:"4px 0"}}/>
               <button onClick={()=>{if(window.confirm(`Delete "${c.title}"? This can't be undone.`))deleteChat(c.id);setChatMenuOpenId(null);}} style={{...menuBtnStyle,color:T.danger}}>Delete chat</button>
@@ -627,8 +627,8 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
             <div style={{width:48,height:48,borderRadius:T.r12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
               <Icon name="sparkle" size={24} color={T.onAccent}/>
             </div>
-            <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,fontFamily:T.font}}>Ask AI needs spend data first</div>
-            <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>Import or sync spend data in the Campaign Tagger, then come back here to ask questions about it.</div>
+            <div style={{fontSize:16*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:6,fontFamily:T.font}}>Ask AI needs spend data first</div>
+            <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>Import or sync spend data in the Campaign Tagger, then come back here to ask questions about it.</div>
           </div>
         </div>
         {/* Sidebar still works even with no spend data yet — someone may have saved chats/
@@ -654,19 +654,19 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
             <div key={`img_${i}`} style={{position:"relative",width:52,height:52,borderRadius:T.r8,overflow:"hidden",border:`1px solid ${T.border}`,flexShrink:0}}>
               <img src={img.dataUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
               <button onClick={()=>removeAttachedImage(i)} title="Remove"
-                style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:"50%",background:"rgba(0,0,0,0.65)",border:"none",color:"#fff",fontSize:10,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>✕</button>
+                style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:"50%",background:"rgba(0,0,0,0.65)",border:"none",color:"#fff",fontSize:10*(T.fsScale||1),lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>✕</button>
             </div>
           ))}
           {attachedDocs.map((doc,i)=>(
             <div key={`doc_${i}`} title={doc.name} style={{display:"flex",alignItems:"center",gap:5,height:30,padding:"0 8px",borderRadius:T.r8,border:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0,maxWidth:160}}>
-              <span style={{fontSize:11,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:T.font}}>{doc.name}</span>
+              <span style={{fontSize:11*(T.fsScale||1),color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:T.font}}>{doc.name}</span>
               <button onClick={()=>removeAttachedDoc(i)} title="Remove"
-                style={{width:14,height:14,borderRadius:"50%",background:"transparent",border:"none",color:T.textMuted,fontSize:10,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>✕</button>
+                style={{width:14,height:14,borderRadius:"50%",background:"transparent",border:"none",color:T.textMuted,fontSize:10*(T.fsScale||1),lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>✕</button>
             </div>
           ))}
         </div>
       )}
-      {attachError&&<div style={{padding:"0 8px 6px",fontSize:11,color:T.danger}}>{attachError}</div>}
+      {attachError&&<div style={{padding:"0 8px 6px",fontSize:11*(T.fsScale||1),color:T.danger}}>{attachError}</div>}
       <div style={{display:"flex",alignItems:"flex-end",gap:6}}>
         <input ref={fileInputRef} type="file" accept="image/*,.csv,.xlsx,.xls" multiple style={{display:"none"}}
           onChange={e=>{addFiles(e.target.files);e.target.value="";}}/>
@@ -688,7 +688,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
           onPaste={handlePaste}
           placeholder={recording?"Listening…":"Ask about your spend data…"}
           rows={1}
-          style={{flex:1,resize:"none",border:"none",outline:"none",background:"transparent",color:T.text,fontSize:15,lineHeight:1.55,fontFamily:T.font,padding:"8px 0",maxHeight:140,overflow:"auto"}}
+          style={{flex:1,resize:"none",border:"none",outline:"none",background:"transparent",color:T.text,fontSize:15*(T.fsScale||1),lineHeight:1.55,fontFamily:T.font,padding:"8px 0",maxHeight:140,overflow:"auto"}}
         />
         <button onClick={loading?stopGenerating:()=>send()} disabled={!loading&&!canSend}
           title={loading?"Stop":"Send"}
@@ -703,7 +703,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
     <>
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 24px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-        <div style={{fontSize:13,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6,fontFamily:T.font}}>
+        <div style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:6,fontFamily:T.font}}>
           <Icon name="sparkle" size={15} color={T.text}/> Ask AI
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",position:"relative"}}>
@@ -726,13 +726,13 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
             <>
               <div onClick={()=>setHistoryOpen(false)} style={{position:"fixed",inset:0,zIndex:35}}/>
               <div style={{position:"absolute",top:"120%",right:0,width:300,maxHeight:380,overflow:"auto",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r10,boxShadow:T.shadowLg,zIndex:40}}>
-                {askChats.length===0&&<div style={{padding:18,fontSize:12,color:T.textMuted,textAlign:"center",fontFamily:T.font}}>No past chats yet</div>}
+                {askChats.length===0&&<div style={{padding:18,fontSize:12*(T.fsScale||1),color:T.textMuted,textAlign:"center",fontFamily:T.font}}>No past chats yet</div>}
                 {[...askChats].sort((a,b)=>b.updatedAt-a.updatedAt).map(c=>(
                   <div key={c.id} onClick={()=>{setActiveAskChatId(c.id);setHistoryOpen(false);}}
                     style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"10px 14px",borderBottom:`1px solid ${T.border}`,cursor:"pointer",background:c.id===activeAskChatId?T.rowSelected:"transparent"}}>
-                    <span style={{fontSize:12,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,fontFamily:T.font}}>{c.title}</span>
+                    <span style={{fontSize:12*(T.fsScale||1),color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,fontFamily:T.font}}>{c.title}</span>
                     <span onClick={e=>deleteChat(c.id,e)} title="Delete chat"
-                      style={{color:T.textMuted,cursor:"pointer",fontSize:14,padding:"2px 4px",flexShrink:0,lineHeight:1}}>✕</span>
+                      style={{color:T.textMuted,cursor:"pointer",fontSize:14*(T.fsScale||1),padding:"2px 4px",flexShrink:0,lineHeight:1}}>✕</span>
                   </div>
                 ))}
               </div>
@@ -748,18 +748,18 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
               {/* AI-science-drone illustration (2026-07-26, per Mo, licensed "Geometric Space
                   Collection 2.0" set) — a literal AI-themed bot for the AI-themed empty state. */}
               <img src={aiScienceDroneIcon} alt="" aria-hidden="true" style={{width:110,height:"auto",marginBottom:14}}/>
-              <div style={{fontSize:22,fontWeight:700,color:T.text,marginBottom:6,fontFamily:T.font}}>Ask AI about your spend data</div>
-              <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>Ask in plain language — answers are pulled from your actual tagged campaigns, not guessed.</div>
+              <div style={{fontSize:22*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:6,fontFamily:T.font}}>Ask AI about your spend data</div>
+              <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>Ask in plain language — answers are pulled from your actual tagged campaigns, not guessed.</div>
             </div>
             {composer}
             <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
               {examples.map(ex=>(
-                <button key={ex} onClick={()=>send(ex)} style={{textAlign:"left",padding:"10px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r10,color:T.text,fontSize:13,cursor:"pointer",fontFamily:T.font}}>
+                <button key={ex} onClick={()=>send(ex)} style={{textAlign:"left",padding:"10px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r10,color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font}}>
                   {ex}
                 </button>
               ))}
             </div>
-            {error&&<div style={{marginTop:14,padding:"10px 14px",borderRadius:T.r10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,fontFamily:T.font}}>{error}</div>}
+            {error&&<div style={{marginTop:14,padding:"10px 14px",borderRadius:T.r10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12*(T.fsScale||1),fontFamily:T.font}}>{error}</div>}
           </div>
         </div>
       ):(
@@ -778,14 +778,14 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
                     <div style={{maxWidth:"80%",width:"100%",display:"flex",flexDirection:"column",gap:6,alignItems:"flex-end"}}>
                       <textarea autoFocus value={editDraft} onChange={e=>setEditDraft(e.target.value)}
                         rows={Math.min(8,Math.max(2,(editDraft.match(/\n/g)||[]).length+1))}
-                        style={{width:"100%",resize:"vertical",padding:"10px 14px",borderRadius:T.r12,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,fontSize:13,lineHeight:1.6,fontFamily:T.font,outline:"none",boxSizing:"border-box"}}/>
+                        style={{width:"100%",resize:"vertical",padding:"10px 14px",borderRadius:T.r12,border:`1px solid ${T.accentBorder}`,background:T.inputBg,color:T.text,fontSize:13*(T.fsScale||1),lineHeight:1.6,fontFamily:T.font,outline:"none",boxSizing:"border-box"}}/>
                       <div style={{display:"flex",gap:6}}>
                         <Btn onClick={()=>setEditingUserIdx(null)} variant="ghost" size="sm" T={T}>Cancel</Btn>
                         <Btn onClick={()=>{const t=editDraft.trim();setEditingUserIdx(null);if(t)resendFrom(i,t);}} variant="primary" size="sm" T={T}>Save &amp; submit</Btn>
                       </div>
                     </div>
                   ):(
-                    <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:T.r12,background:isUser?T.accent:T.surface,border:isUser?"none":`1px solid ${T.border}`,color:isUser?"#FFFFFF":T.text,fontSize:13,lineHeight:1.6,fontFamily:T.font}}>
+                    <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:T.r12,background:isUser?T.accent:T.surface,border:isUser?"none":`1px solid ${T.border}`,color:isUser?"#FFFFFF":T.text,fontSize:13*(T.fsScale||1),lineHeight:1.6,fontFamily:T.font}}>
                       {m.images?.length>0&&(
                         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:(m.text||m.docs?.length)?8:0}}>
                           {m.images.map((img,ii)=><img key={ii} src={img.dataUrl} alt="" style={{width:120,height:120,objectFit:"cover",borderRadius:T.r8,display:"block"}}/>)}
@@ -796,7 +796,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
                           {m.docs.map((doc,ii)=>(
                             <div key={ii} title={doc.name} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",borderRadius:T.r8,background:isUser?"rgba(255,255,255,0.18)":T.surfaceEl,border:isUser?"none":`1px solid ${T.border}`,maxWidth:180}}>
                               <Icon name="paperclip" size={11} color={isUser?"#FFFFFF":T.textMuted}/>
-                              <span style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</span>
+                              <span style={{fontSize:11*(T.fsScale||1),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</span>
                             </div>
                           ))}
                         </div>
@@ -811,50 +811,50 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
                       answer text. */}
                   {isUser&&!isEditingThis&&!loading&&(
                     <button onClick={()=>{setEditingUserIdx(i);setEditDraft(m.text||"");}} title="Edit & resend"
-                      style={{display:"flex",alignItems:"center",gap:4,marginTop:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:"2px 4px",fontFamily:T.font}}>
+                      style={{display:"flex",alignItems:"center",gap:4,marginTop:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:"2px 4px",fontFamily:T.font}}>
                       <Icon name="pencil" size={11} color={T.textMuted}/> Edit
                     </button>
                   )}
                   {!isUser&&m.text&&(
                     <div style={{display:"flex",alignItems:"center",gap:10,marginTop:4,paddingLeft:2,flexWrap:"wrap"}}>
                       <button onClick={()=>copyMessage(m.text,i)} title="Copy"
-                        style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:"2px 4px",fontFamily:T.font}}>
+                        style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:"2px 4px",fontFamily:T.font}}>
                         <Icon name={copiedIdx===i?"check":"copy"} size={12} color={T.textMuted}/> {copiedIdx===i?"Copied":"Copy"}
                       </button>
                       {!loading&&(
                         <button onClick={()=>resendFrom(i-1)} title="Regenerate response"
-                          style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:"2px 4px",fontFamily:T.font}}>
+                          style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:"2px 4px",fontFamily:T.font}}>
                           <Icon name="refresh" size={11} color={T.textMuted}/> Regenerate
                         </button>
                       )}
                       {onSaveAsView&&(
                         <button onClick={()=>handleSaveAsView(i)} disabled={buildingViewIdx===i} title="Turn this question into a Reporting & Pacing view"
-                          style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:buildingViewIdx===i?T.textMuted:T.accent,cursor:buildingViewIdx===i?"default":"pointer",fontSize:11,padding:"2px 4px",fontFamily:T.font}}>
+                          style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:buildingViewIdx===i?T.textMuted:T.accent,cursor:buildingViewIdx===i?"default":"pointer",fontSize:11*(T.fsScale||1),padding:"2px 4px",fontFamily:T.font}}>
                           <Icon name="sparkle" size={11} color={buildingViewIdx===i?T.textMuted:T.accent}/> {buildingViewIdx===i?"Building view…":"Save as view"}
                         </button>
                       )}
                       {hasSteps&&(
                         <button onClick={()=>setOpenStepsIdx(stepsOpen?null:i)}
-                          style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,padding:"2px 4px",fontFamily:T.font}}>
+                          style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:"2px 4px",fontFamily:T.font}}>
                           <Icon name="chevronDown" size={11} color={T.textMuted} style={{transform:stepsOpen?"rotate(180deg)":"none",transition:"transform 0.12s"}}/>
                           What I checked ({m.steps.length})
                         </button>
                       )}
                       {totalTokens>0&&(
                         <span title={`${(m.usage.inputTokens||0).toLocaleString()} in / ${(m.usage.outputTokens||0).toLocaleString()} out`}
-                          style={{fontSize:10.5,color:T.textMuted,fontFamily:T.font}}>
+                          style={{fontSize:10.5*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>
                           {totalTokens.toLocaleString()} tokens
                         </span>
                       )}
                     </div>
                   )}
                   {!isUser&&i===messages.length-1&&viewBuildError&&(
-                    <div style={{maxWidth:"80%",marginTop:6,fontSize:11,color:T.danger,fontFamily:T.font}}>{viewBuildError}</div>
+                    <div style={{maxWidth:"80%",marginTop:6,fontSize:11*(T.fsScale||1),color:T.danger,fontFamily:T.font}}>{viewBuildError}</div>
                   )}
                   {hasSteps&&stepsOpen&&(
                     <div style={{maxWidth:"80%",marginTop:6,display:"flex",flexDirection:"column",gap:6}}>
                       {m.steps.map((s,si)=>(
-                        <div key={si} style={{padding:"8px 10px",borderRadius:T.r8,background:T.surfaceEl,border:`1px solid ${T.border}`,fontSize:11,fontFamily:"monospace",color:T.textSub,overflow:"auto"}}>
+                        <div key={si} style={{padding:"8px 10px",borderRadius:T.r8,background:T.surfaceEl,border:`1px solid ${T.border}`,fontSize:11*(T.fsScale||1),fontFamily:"monospace",color:T.textSub,overflow:"auto"}}>
                           <div style={{fontWeight:700,color:T.text,marginBottom:3}}>{s.tool}({JSON.stringify(s.input)})</div>
                           <div style={{whiteSpace:"pre-wrap",wordBreak:"break-word"}}>→ {JSON.stringify(s.output)}</div>
                         </div>
@@ -865,12 +865,12 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
               );})}
               {loading&&(
                 <div style={{display:"flex",justifyContent:"flex-start",marginBottom:14}}>
-                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:T.r12,background:T.surface,border:`1px solid ${T.border}`,color:T.text,fontSize:13,lineHeight:1.6,fontFamily:T.font}}>
+                  <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:T.r12,background:T.surface,border:`1px solid ${T.border}`,color:T.text,fontSize:13*(T.fsScale||1),lineHeight:1.6,fontFamily:T.font}}>
                     {streamingText?<MarkdownLite text={streamingText} T={T}/>:<span style={{color:T.textMuted}}>Thinking…</span>}
                   </div>
                 </div>
               )}
-              {error&&<div style={{padding:"10px 14px",borderRadius:T.r10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12,marginBottom:14,fontFamily:T.font}}>{error}</div>}
+              {error&&<div style={{padding:"10px 14px",borderRadius:T.r10,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger,fontSize:12*(T.fsScale||1),marginBottom:14,fontFamily:T.font}}>{error}</div>}
             </div>
           </div>
           <div style={{borderTop:`1px solid ${T.border}`,padding:"14px 16px 18px",flexShrink:0}}>

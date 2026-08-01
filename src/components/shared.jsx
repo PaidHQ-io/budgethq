@@ -7,11 +7,15 @@ import { aiSummarizeBudgetPacing } from "../lib/askAI.js";
 // root, then threaded down, same as before this split. AISummaryCard lives here too (not its
 // own file) since it's used by both BudgetManager and PacingDashboard and is small.
 
-export const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,marginBottom:6,...style}}>{children}</div>);
+export const SectionLabel=({children,T,style={}})=>(<div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,marginBottom:6,...style}}>{children}</div>);
 // No T prop here on purpose — bg/color/border are always passed explicitly by the caller (there
 // are ~40 call sites across every tab), and r20 is one of the two radius tokens that's identical
 // in both THEME_CLASSIC and THEME_AIDA (see core.js's RADIUS_AIDA comment), so a plain literal is
 // exactly equivalent to T.r20 in either theme without threading T through every call site.
+// No T prop here (unlike every other shared component) — Pill is called from many places that
+// don't have a theme object handy at the call site (small inline status badges). fontSize stays
+// a plain literal rather than T.fsScale-driven like everything else in this file; low-priority
+// to fix given how small/secondary this text already is.
 export const Pill=({children,color,bg,border,style,...rest})=>(<span style={{display:"inline-flex",alignItems:"center",fontSize:11,fontWeight:500,padding:"2px 9px",borderRadius:20,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",...style}} {...rest}>{children}</span>);
 // Real brand mark for a connector card (2026-07-24, per Mo — "Add data source" cards used to just
 // show a plain colored dot next to the platform name; real logos read as much more polished).
@@ -107,7 +111,7 @@ export const PlatformLogo=({domain,color,mark:Mark,size=28,T})=>{
 // "primary" is the only filled variant, "subtle" (filled with surfaceEl, no border) is the
 // default choice for secondary actions, "ghost" and "danger" are transparent/bordered.
 export const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={}})=>{
-  const s={sm:{padding:"6px 14px",fontSize:12},md:{padding:"8px 18px",fontSize:13},lg:{padding:"10px 24px",fontSize:14}};
+  const s={sm:{padding:"6px 14px",fontSize:12*(T.fsScale||1)},md:{padding:"8px 18px",fontSize:13*(T.fsScale||1)},lg:{padding:"10px 24px",fontSize:14*(T.fsScale||1)}};
   const v={
     primary:{background:T.accent,color:T.onAccent,border:"1px solid transparent"},
     ghost:{background:"transparent",color:T.text,border:`1px solid ${T.border}`},
@@ -117,8 +121,8 @@ export const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={
   };
   return <button className="bhq-btn" disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:T.r6,cursor:disabled?"not-allowed":"pointer",fontWeight:500,transition:"background 0.1s",fontFamily:T.font,boxShadow:"none",opacity:disabled?0.5:1,...s[size],...v[variant],...style}}>{children}</button>;
 };
-export const Inp=({value,onChange,placeholder,T,style={},onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:T.font,width:"100%",transition:"border-color 0.12s",...style}}/>);
-export const Sel=({value,onChange,children,T,style={},...rest})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12,outline:"none",cursor:"pointer",fontFamily:T.font,width:"100%",...style}} {...rest}>{children}</select>);
+export const Inp=({value,onChange,placeholder,T,style={},onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:"100%",transition:"border-color 0.12s",...style}}/>);
+export const Sel=({value,onChange,children,T,style={},...rest})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12*(T.fsScale||1),outline:"none",cursor:"pointer",fontFamily:T.font,width:"100%",...style}} {...rest}>{children}</select>);
 // stopPropagation on both: several call sites wrap these in a parent <div> that has its own
 // onClick doing the same toggle (for a bigger click target). Without stopping propagation here,
 // clicking directly on the switch/checkbox fires both handlers and the toggle cancels itself out.
@@ -133,9 +137,9 @@ export const StatRow=({label,value,color,T,size=12,valueStyle})=>(<div style={{d
 // compact height.
 export const DashStatTile=({label,value,valueColor,sub,subColor,T})=>(
   <PixelPanel T={T} contentStyle={{padding:"14px 16px"}}>
-    <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6,fontFamily:T.font}}>{label}</div>
-    <div style={{fontSize:20,fontWeight:800,color:valueColor||T.text,fontFamily:T.font}}>{value}</div>
-    {sub&&<div style={{fontSize:11,fontWeight:600,color:subColor||T.textMuted,marginTop:4,fontFamily:T.font}}>{sub}</div>}
+    <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6,fontFamily:T.font}}>{label}</div>
+    <div style={{fontSize:20*(T.fsScale||1),fontWeight:800,color:valueColor||T.text,fontFamily:T.font}}>{value}</div>
+    {sub&&<div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:subColor||T.textMuted,marginTop:4,fontFamily:T.font}}>{sub}</div>}
   </PixelPanel>
 );
 // Single-period spend-vs-budget bar for the Dashboard. Replaced an earlier trailing-period trend
@@ -143,7 +147,7 @@ export const DashStatTile=({label,value,valueColor,sub,subColor,T})=>(
 // markers floating over near-invisible bars, since most workspaces only have the current period
 // actually synced) — this only ever looks at the one period that's guaranteed to have real numbers.
 export const SpendVsBudgetBar=({T,spend,budget,fmtFull})=>{
-  if(!budget)return<div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>No budget set for this period.</div>;
+  if(!budget)return<div style={{fontSize:12*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>No budget set for this period.</div>;
   const pct=spend/budget;
   const fillPct=Math.min(100,pct*100);
   const over=pct>1;
@@ -153,8 +157,8 @@ export const SpendVsBudgetBar=({T,spend,budget,fmtFull})=>{
         <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${fillPct}%`,background:over?T.danger:T.accent,borderRadius:T.r7,transition:"width 0.2s"}}/>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:9,fontFamily:T.font}}>
-        <span style={{fontSize:15,fontWeight:800,color:over?T.danger:T.text}}>{fmtFull(spend)}</span>
-        <span style={{fontSize:12,color:T.textMuted}}>of {fmtFull(budget)} · {Math.round(pct*100)}%</span>
+        <span style={{fontSize:15*(T.fsScale||1),fontWeight:800,color:over?T.danger:T.text}}>{fmtFull(spend)}</span>
+        <span style={{fontSize:12*(T.fsScale||1),color:T.textMuted}}>of {fmtFull(budget)} · {Math.round(pct*100)}%</span>
       </div>
     </div>
   );
@@ -164,13 +168,13 @@ export const SpendVsBudgetBar=({T,spend,budget,fmtFull})=>{
 // meaningful for literally every workspace that has any synced spend, regardless of whether
 // they've set up budget segments yet.
 export const PlatformSpendBars=({T,rows,fmtFull})=>{
-  if(rows.length===0)return<div style={{fontSize:12,color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>No spend synced for this period yet.</div>;
+  if(rows.length===0)return<div style={{fontSize:12*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font}}>No spend synced for this period yet.</div>;
   const maxSpend=Math.max(...rows.map(r=>r.spend));
   return(
     <div style={{display:"flex",flexDirection:"column",gap:9}}>
       {rows.map(r=>(
         <div key={r.platform}>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3,fontFamily:T.font}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11*(T.fsScale||1),marginBottom:3,fontFamily:T.font}}>
             <span style={{color:T.text,fontWeight:600}}>{r.platform}</span>
             <span style={{color:T.textMuted}}>{fmtFull(r.spend)}</span>
           </div>
@@ -187,8 +191,8 @@ export const PlatformSpendBars=({T,rows,fmtFull})=>{
 // segments spending with no budget set, etc.).
 export const DashQuickAction=({label,onClick,T})=>(
   <div onClick={onClick} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 8px",borderRadius:T.r6,cursor:"pointer"}}>
-    <span style={{fontSize:12,color:T.text,fontFamily:T.font}}>{label}</span>
-    <span style={{fontSize:13,color:T.textMuted,fontWeight:700}}>→</span>
+    <span style={{fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font}}>{label}</span>
+    <span style={{fontSize:13*(T.fsScale||1),color:T.textMuted,fontWeight:700}}>→</span>
   </div>
 );
 // Flips how a filter field's comma-separated terms combine — "or" (matches/excludes on ANY term)
@@ -210,7 +214,7 @@ export const MatchModeToggle=({mode,onChange,T})=>{
         style={{width:26,height:14,borderRadius:T.r7,background:isAll?T.accent:T.borderStrong,position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0,outline:"none"}}>
         <div style={{position:"absolute",top:1.5,left:isAll?13:1.5,width:11,height:11,borderRadius:"50%",background:"#fff",transition:"left 0.18s",boxShadow:"0 1px 2px rgba(0,0,0,0.25)"}}/>
       </div>
-      <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em",color:T.textMuted,fontFamily:T.font,minWidth:16}}>{isAll?"ALL":"ANY"}</span>
+      <span style={{fontSize:9*(T.fsScale||1),fontWeight:700,letterSpacing:"0.03em",color:T.textMuted,fontFamily:T.font,minWidth:16}}>{isAll?"ALL":"ANY"}</span>
     </div>
   );
 };
@@ -282,7 +286,7 @@ export function TagAutocompleteInput({T,value,onChange,suggestions,onEnter,onEsc
         <div style={{position:"absolute",top:"100%",left:0,marginTop:2,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r6,boxShadow:T.shadowMd,zIndex:80,minWidth:140,maxWidth:240,overflow:"hidden"}}>
           {filtered.map((s,i)=>(
             <div key={s} onMouseDown={e=>{e.preventDefault();e.stopPropagation();commit(s);}}
-              style={{padding:"6px 10px",fontSize:12,cursor:"pointer",fontFamily:T.font,background:i===safeHi?T.accentBg:"transparent",color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              style={{padding:"6px 10px",fontSize:12*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,background:i===safeHi?T.accentBg:"transparent",color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
               {s}
             </div>
           ))}
@@ -452,7 +456,7 @@ export const WarnTip=({T,text,size=12,color})=>(
     onMouseLeave={e=>{const t=e.currentTarget.querySelector("[data-tip]");if(t)t.style.opacity=0;}}
     style={{marginLeft:6,display:"inline-flex",position:"relative",cursor:"help"}}>
     <Icon name="alert" size={size} color={color||T.warning}/>
-    <span data-tip style={{position:"absolute",bottom:"140%",left:"50%",transform:"translateX(-50%)",opacity:0,pointerEvents:"none",transition:"opacity 0.1s",background:T.surface,color:T.text,fontSize:11,fontWeight:500,lineHeight:1.45,padding:"8px 10px",borderRadius:T.r8,border:`1px solid ${T.border}`,boxShadow:T.shadowMd,width:220,whiteSpace:"normal",textAlign:"left",zIndex:50,fontFamily:T.font}}>
+    <span data-tip style={{position:"absolute",bottom:"140%",left:"50%",transform:"translateX(-50%)",opacity:0,pointerEvents:"none",transition:"opacity 0.1s",background:T.surface,color:T.text,fontSize:11*(T.fsScale||1),fontWeight:500,lineHeight:1.45,padding:"8px 10px",borderRadius:T.r8,border:`1px solid ${T.border}`,boxShadow:T.shadowMd,width:220,whiteSpace:"normal",textAlign:"left",zIndex:50,fontFamily:T.font}}>
       {text}
     </span>
   </span>
@@ -472,7 +476,7 @@ export const InfoTip=({T,text,size=13,width=320})=>(
     onMouseLeave={e=>{const t=e.currentTarget.querySelector("[data-tip]");if(t)t.style.opacity=0;}}
     style={{marginLeft:6,display:"inline-flex",position:"relative",cursor:"help"}}>
     <Icon name="info" size={size} color={T.textMuted}/>
-    <span data-tip style={{position:"absolute",top:"140%",left:0,opacity:0,pointerEvents:"none",transition:"opacity 0.1s",background:T.surface,color:T.text,fontSize:11.5,fontWeight:500,lineHeight:1.55,padding:"10px 12px",borderRadius:T.r8,border:`1px solid ${T.border}`,boxShadow:T.shadowMd,width,whiteSpace:"pre-line",textAlign:"left",zIndex:50,fontFamily:T.font}}>
+    <span data-tip style={{position:"absolute",top:"140%",left:0,opacity:0,pointerEvents:"none",transition:"opacity 0.1s",background:T.surface,color:T.text,fontSize:11.5*(T.fsScale||1),fontWeight:500,lineHeight:1.55,padding:"10px 12px",borderRadius:T.r8,border:`1px solid ${T.border}`,boxShadow:T.shadowMd,width,whiteSpace:"pre-line",textAlign:"left",zIndex:50,fontFamily:T.font}}>
       {text}
     </span>
   </span>
@@ -510,14 +514,14 @@ export function AISummaryCard({T,session,mergedNormRows,tags,budgetDims,budgets,
             ?<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,border:`2px solid ${T.accentBorder}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Summarizing…</span>
             :<span>✨ AI Summary</span>}
         </Btn>}
-      {state.status==="error"&&<div style={{marginTop:8,padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:T.r8,fontSize:12,color:T.warning}}>{state.error}</div>}
+      {state.status==="error"&&<div style={{marginTop:8,padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:T.r8,fontSize:12*(T.fsScale||1),color:T.warning}}>{state.error}</div>}
       {state.status==="done"&&(
-        <div style={{padding:"11px 14px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,fontSize:12.5,color:T.text,lineHeight:1.6}}>
+        <div style={{padding:"11px 14px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,fontSize:12.5*(T.fsScale||1),color:T.text,lineHeight:1.6}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8}}>
-            <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.accent}}>✨ AI Summary</span>
+            <span style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.accent}}>✨ AI Summary</span>
             <div style={{display:"flex",gap:10,flexShrink:0}}>
-              <button onClick={run} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:T.font,padding:0}}>Regenerate</button>
-              <button onClick={()=>setState({status:"idle",text:"",error:""})} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11,fontFamily:T.font,padding:0}}>Dismiss</button>
+              <button onClick={run} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,padding:0}}>Regenerate</button>
+              <button onClick={()=>setState({status:"idle",text:"",error:""})} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,padding:0}}>Dismiss</button>
             </div>
           </div>
           {state.text}
