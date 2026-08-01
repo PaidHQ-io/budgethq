@@ -93,6 +93,33 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // month-cell focus shouldn't trigger a re-render, it's only ever read at the moment a paste
   // actually happens.
   const pasteAnchorRef=useRef(null); // {segIdx, monthIdx}
+  // Excel-grid interaction state (2026-07-31, per Mo — "as much Excel functionality as I can
+  // get"). All of keyboard navigation, range selection, Delete-to-clear, copy-from-grid, and
+  // fill-down share this one set of state rather than each owning a private copy, since they're
+  // all really facets of "what cell(s) is the user working with right now":
+  //   - cellRefs: DOM node per month cell (keyed "segIdx-monthIdx"), so keyboard nav can call
+  //     .focus() on a specific cell instead of walking the DOM.
+  //   - activeCell (state, triggers re-render): the single cell that's currently focused — drives
+  //     the fill-handle's position and the active-cell outline.
+  //   - selAnchor + selEnd: a shift-extended range is anchor→end, both state — the render path
+  //     (isCellSelected, called from inside cellIn) reads the anchor to compute the highlight, and
+  //     refs aren't safe to read during render (React can't track that as a dependency), so this
+  //     has to be real state even though every write already happens alongside a selEnd update.
+  //   - suppressAnchorResetRef: onFocus normally collapses any selection to "just this cell" (Tab,
+  //     a plain click, a plain arrow key all do this in real spreadsheets) — but a shift+click or
+  //     shift+arrow needs the anchor to stay put while focus moves to the new end of the range.
+  //     This flag is how those two code paths tell the onFocus handler "don't reset this time."
+  //   - fillDrag: the in-progress drag-to-fill gesture (see startFillDrag below).
+  const cellRefs=useRef({});
+  const[activeCell,setActiveCell]=useState(null); // {segIdx,monthIdx}
+  const[selAnchor,setSelAnchor]=useState(null); // {segIdx,monthIdx}
+  const[selEnd,setSelEnd]=useState(null); // {segIdx,monthIdx} | null
+  const suppressAnchorResetRef=useRef(false);
+  const[fillDrag,setFillDrag]=useState(null); // {segIdx,monthIdx,value,dragToSegIdx} | null
+  // The handler functions that actually DO something with this state (focusCell, handleCellKeyDown,
+  // handleGridCopy, startFillDrag, and the fill-drag useEffect) live further down, right before
+  // cellIn — they need filteredSegs/getMV/setMV in scope, which aren't declared until later in
+  // this component.
 
   // Import state
   const[iStep,setIStep]=useState("upload");
@@ -1003,17 +1030,148 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const canMap=iFmt==="transposed"?!!iSegDim:((tagDimensions||[]).filter(d=>dimMap[d]).length>0||customDims.some(c=>c.name&&c.col))&&(iFmt==="wide"||(iFmt==="flat"?!!amtCol&&iFlatMonths.length>0:(periodCol&&amtCol)));
   const IMPORT_STEPS=["upload","header","map","preview"];
 
+  // Excel-grid interaction handlers (2026-07-31, per Mo — "as much Excel functionality as I can
+  // get"). Placed here rather than up with the state block near pasteAnchorRef because these all
+  // need filteredSegs/getMV/setMV in scope, which aren't declared until above this point.
+  const cellKey=(segIdx,monthIdx)=>`${segIdx}-${monthIdx}`;
+  const focusCell=(segIdx,monthIdx)=>{
+    if(!filteredSegs[segIdx]||!MONTHS[monthIdx])return false;
+    const el=cellRefs.current[cellKey(segIdx,monthIdx)];
+    if(el)el.focus();
+    return true;
+  };
+  // Normalizes anchor+end into a rectangle, or null if there's no real multi-cell range (either
+  // nothing's been shift-extended yet, or a shift gesture landed back on its own starting cell).
+  const selRect=()=>{
+    const a=selAnchor,b=selEnd;
+    if(!a||!b)return null;
+    if(a.segIdx===b.segIdx&&a.monthIdx===b.monthIdx)return null;
+    return{segIdx0:Math.min(a.segIdx,b.segIdx),segIdx1:Math.max(a.segIdx,b.segIdx),monthIdx0:Math.min(a.monthIdx,b.monthIdx),monthIdx1:Math.max(a.monthIdx,b.monthIdx)};
+  };
+  const isCellSelected=(segIdx,monthIdx)=>{
+    const r=selRect();
+    return!!r&&segIdx>=r.segIdx0&&segIdx<=r.segIdx1&&monthIdx>=r.monthIdx0&&monthIdx<=r.monthIdx1;
+  };
+  const handleCellFocus=ctx=>{
+    pasteAnchorRef.current=ctx;
+    setActiveCell(ctx);
+    if(suppressAnchorResetRef.current){suppressAnchorResetRef.current=false;}
+    else{setSelAnchor(ctx);setSelEnd(null);}
+  };
+  const handleCellMouseDown=(e,ctx)=>{
+    if(e.shiftKey&&selAnchor){suppressAnchorResetRef.current=true;setSelEnd(ctx);}
+    else{setSelAnchor(ctx);setSelEnd(null);}
+  };
+  const handleCellMouseEnter=ctx=>{
+    if(!fillDrag||ctx.monthIdx!==fillDrag.monthIdx||ctx.segIdx<fillDrag.segIdx)return;
+    setFillDrag(fd=>fd&&fd.dragToSegIdx===ctx.segIdx?fd:(fd?{...fd,dragToSegIdx:ctx.segIdx}:fd));
+  };
+  const handleCellKeyDown=(e,ctx)=>{
+    const{segIdx,monthIdx}=ctx;
+    const input=e.currentTarget;
+    const atStart=input.selectionStart===0&&input.selectionEnd===0;
+    const atEnd=input.selectionStart===input.value.length&&input.selectionEnd===input.value.length;
+    const moveTo=(nSegIdx,nMonthIdx,extend)=>{
+      if(!filteredSegs[nSegIdx]||!MONTHS[nMonthIdx])return;
+      e.preventDefault();
+      if(extend){suppressAnchorResetRef.current=true;setSelEnd({segIdx:nSegIdx,monthIdx:nMonthIdx});}
+      focusCell(nSegIdx,nMonthIdx);
+    };
+    // Left/Right only move cells when the caret is already at that edge of the text — otherwise
+    // they're just normal cursor movement while editing a multi-digit number.
+    if(e.key==="ArrowDown"){moveTo(segIdx+1,monthIdx,e.shiftKey);return;}
+    if(e.key==="ArrowUp"){moveTo(segIdx-1,monthIdx,e.shiftKey);return;}
+    if(e.key==="ArrowRight"&&atEnd){moveTo(segIdx,monthIdx+1,e.shiftKey);return;}
+    if(e.key==="ArrowLeft"&&atStart){moveTo(segIdx,monthIdx-1,e.shiftKey);return;}
+    if(e.key==="Enter"){moveTo(segIdx+(e.shiftKey?-1:1),monthIdx,false);return;}
+    if(e.key==="Delete"||e.key==="Backspace"){
+      const r=selRect();
+      if(!r)return; // single cell — let the browser's own text-delete behavior handle it
+      e.preventDefault();
+      for(let si=r.segIdx0;si<=r.segIdx1;si++){
+        const seg=filteredSegs[si];
+        if(!seg)continue;
+        for(let mi=r.monthIdx0;mi<=r.monthIdx1;mi++){const month=MONTHS[mi];if(month)setMV(seg.key,month.key,"");}
+      }
+    }
+  };
+  // Copy-from-grid: only intercepts when a real multi-cell range is selected (selRect()!=null) —
+  // a plain single-cell copy falls through to the browser's own "copy the input's text" behavior
+  // untouched, same "don't override the common case" posture as handleGridPaste's single-value
+  // check.
+  const handleGridCopy=e=>{
+    const r=selRect();
+    if(!r)return;
+    e.preventDefault();
+    const lines=[];
+    for(let si=r.segIdx0;si<=r.segIdx1;si++){
+      const seg=filteredSegs[si];
+      const cells=[];
+      for(let mi=r.monthIdx0;mi<=r.monthIdx1;mi++){const month=MONTHS[mi];cells.push(seg&&month?String(getMV(seg.key,month.key)??""):"");}
+      lines.push(cells.join("\t"));
+    }
+    e.clipboardData.setData("text/plain",lines.join("\n"));
+  };
+  // Fill-down drag handle: mirrors Excel's little square at a cell's bottom-right corner. Drag
+  // vertically within one month column to replicate that cell's value into every row the drag
+  // passes over — deliberately single-column/copy-only (no smart series detection, no horizontal
+  // drag), the highest-value slice of Excel's fill-down for a budget grid where "repeat this
+  // month's figure down these segments" is the actual common case.
+  const startFillDrag=(e,ctx)=>{
+    e.preventDefault();e.stopPropagation();
+    const seg=filteredSegs[ctx.segIdx];
+    const month=MONTHS[ctx.monthIdx];
+    if(!seg||!month)return;
+    setFillDrag({segIdx:ctx.segIdx,monthIdx:ctx.monthIdx,value:getMV(seg.key,month.key),dragToSegIdx:ctx.segIdx});
+  };
+  useEffect(()=>{
+    if(!fillDrag)return;
+    const onUp=()=>{
+      if(fillDrag.dragToSegIdx>fillDrag.segIdx){
+        const month=MONTHS[fillDrag.monthIdx];
+        for(let si=fillDrag.segIdx+1;si<=fillDrag.dragToSegIdx;si++){
+          const seg=filteredSegs[si];
+          if(seg&&month)setMV(seg.key,month.key,fillDrag.value);
+        }
+      }
+      setFillDrag(null);
+    };
+    document.addEventListener("mouseup",onUp);
+    return()=>document.removeEventListener("mouseup",onUp);
+  },[fillDrag,filteredSegs,setMV]);
+
   // pasteCtx ({segIdx, monthIdx}) is only ever passed for the month grid's own cells (not
-  // quarterly-cap/annual-cap, which are deliberately out of scope for grid paste — see
-  // handleGridPaste's doc comment) — it just records "the last cell of this kind that had focus"
-  // into pasteAnchorRef so a paste event, which fires on whatever's focused with no positional
-  // info of its own, knows where to start filling.
-  const cellIn=(val,onChange,over=false,cap=false,pasteCtx=null)=>(
-    <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
-      onFocus={pasteCtx?()=>{pasteAnchorRef.current=pasteCtx;}:undefined}
-      style={{background:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:T.r5,color:over?T.danger:cap?T.warning:"#272727",padding:"4px 6px",fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",width:"100%",boxSizing:"border-box",fontFamily:T.font,textAlign:"right",outline:"none",display:"block"}}/>
-  );
-  const TH={fontFamily:T.font,fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center"};
+  // quarterly-cap/annual-cap, which are deliberately out of scope for grid paste, keyboard nav,
+  // range-select, and fill-down alike — see handleGridPaste's doc comment for why the month grid
+  // specifically is the one place all of this Excel-ish behavior lives). When present, it wires
+  // up the full set: a DOM ref (so keyboard nav can .focus() a specific cell), focus/mousedown/
+  // keydown/mouseenter handlers (see the big state block above cellIn's declaration for what each
+  // does), a highlight when the cell's inside an active shift-selected range, and — only on the
+  // cell that's currently focused — a small drag handle at its bottom-right corner for fill-down.
+  const cellIn=(val,onChange,over=false,cap=false,pasteCtx=null)=>{
+    const selected=pasteCtx&&isCellSelected(pasteCtx.segIdx,pasteCtx.monthIdx);
+    const isActive=pasteCtx&&activeCell&&activeCell.segIdx===pasteCtx.segIdx&&activeCell.monthIdx===pasteCtx.monthIdx;
+    const inFillPreview=pasteCtx&&fillDrag&&pasteCtx.monthIdx===fillDrag.monthIdx&&pasteCtx.segIdx>fillDrag.segIdx&&pasteCtx.segIdx<=fillDrag.dragToSegIdx;
+    return(<>
+      <input type="text" value={val===""?"":(!isNaN(parseFloat(String(val).replace(/[$,]/g,"")))?`${parseFloat(String(val).replace(/[$,]/g,"")).toLocaleString()}`:val)} onChange={e=>onChange(e.target.value)} placeholder="—"
+        ref={pasteCtx?el=>{cellRefs.current[cellKey(pasteCtx.segIdx,pasteCtx.monthIdx)]=el;}:undefined}
+        onFocus={pasteCtx?()=>handleCellFocus(pasteCtx):undefined}
+        onMouseDown={pasteCtx?e=>handleCellMouseDown(e,pasteCtx):undefined}
+        onKeyDown={pasteCtx?e=>handleCellKeyDown(e,pasteCtx):undefined}
+        onMouseEnter={pasteCtx?()=>handleCellMouseEnter(pasteCtx):undefined}
+        style={{background:inFillPreview?T.accentBg:selected?T.rowSelected:cap?(over?T.dangerBg:T.warningBg):(over?T.dangerBg:T.inputBg),border:`1px solid ${over?T.danger:cap?T.warningBorder:T.border}`,borderRadius:T.r5,color:over?T.danger:cap?T.warning:"#272727",padding:"4px 6px",fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",width:"100%",boxSizing:"border-box",fontFamily:T.font,textAlign:"right",outline:isActive?`1px solid ${T.accent}`:"none",outlineOffset:-1,display:"block"}}/>
+      {isActive&&(
+        <div onMouseDown={e=>startFillDrag(e,pasteCtx)} title="Drag down to fill this value into the segments below"
+          style={{position:"absolute",bottom:-3,right:-3,width:7,height:7,background:T.accent,border:`1px solid ${T.surface}`,borderRadius:1,cursor:"ns-resize",zIndex:2}}/>
+      )}
+    </>);
+  };
+  // position:sticky+top:0 freezes the header row while scrolling vertically (2026-07-31, per Mo
+  // — "as much Excel functionality as I can get"). zIndex:2 keeps it above the plain body cells
+  // (zIndex:1 on the sticky-left dimension columns); the checkbox/budgetDims corner cells below
+  // are BOTH top- and left-sticky, so they need a higher zIndex still to stay above every other
+  // sticky header cell scrolling underneath them in both directions at once.
+  const TH={fontFamily:T.font,fontSize:13,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center",position:"sticky",top:0,zIndex:2};
 
   return(
     <div style={{display:"flex",height:"100%",background:T.bg,overflow:"hidden"}}>
@@ -1097,7 +1255,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       )}
 
       {/* Table */}
-      <div style={{flex:1,overflow:"auto",minWidth:0}} onPaste={handleGridPaste}>
+      <div style={{flex:1,overflow:"auto",minWidth:0}} onPaste={handleGridPaste} onCopy={handleGridCopy}>
         {!budgetDims.length?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",padding:40}}>
             {/* Surface-base-habitat illustration (2026-07-26, per Mo, licensed "Geometric Space
@@ -1207,10 +1365,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           )}
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12,background:T.surface}}>
             <thead><tr>
-              <th style={{...TH,width:32,padding:"15px 8px 9px 16px",position:"sticky",left:0,zIndex:4,background:T.headerBg}}>
+              <th style={{...TH,width:32,padding:"15px 8px 9px 16px",left:0,zIndex:6,background:T.headerBg}}>
                 <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title="Select all rows — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
-              {budgetDims.map((d,i)=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:dcw,position:"sticky",left:32+i*dcw,zIndex:3,background:T.headerBg}}>{d}</th>)}
+              {budgetDims.map((d,i)=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:dcw,left:32+i*dcw,zIndex:5,background:T.headerBg}}>{d}</th>)}
               {budgetMetaDims.map(d=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:110}}>{d}</th>)}
               {MONTHS.map(m=><th key={m.key} style={{...TH,textAlign:"center",minWidth:76}}>{m.label}</th>)}
               {QUARTERS.map(q=><th key={"qt-"+q.key} style={{...TH,textAlign:"center",minWidth:90}}>{q.key}</th>)}
@@ -1268,7 +1426,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                       </td>
                     );
                   })}
-                  {MONTHS.map((m,monthIdx)=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo,false,{segIdx,monthIdx})}</td>;})}
+                  {MONTHS.map((m,monthIdx)=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb,position:"relative"}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo,false,{segIdx,monthIdx})}</td>;})}
                   {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:"#272727",background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
                   <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13,fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:ao?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
                   {showQ&&QUARTERS.map(q=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true)}{qt>0&&<span style={{fontSize:10,color:qo?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
