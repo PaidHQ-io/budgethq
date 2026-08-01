@@ -81,6 +81,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[segFilters,setSegFilters]=usePersistentState("paidhq_budget_segFilters",{}); // {dim: filterText} — substring match, ANDed across dims
   const[applyMetaDim,setApplyMetaDim]=useState("");
   const[applyMetaVal,setApplyMetaVal]=useState("");
+  const[bulkPct,setBulkPct]=useState("");
   const[editingMeta,setEditingMeta]=useState(null); // {segKey, dim}
   const[editMetaVal,setEditMetaVal]=useState("");
   const[newMetaDim,setNewMetaDim]=useState("");
@@ -372,6 +373,35 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     setTags?.(p=>{let nt=p;selRows.forEach(k=>{nt=untagSegmentCampaigns(nt,budgetDims,k,platformIndex);});return nt;});
     showNotif(`Deleted ${n} segment${n>1?"s":""}${totalMatches>0?` — un-tagged ${totalMatches} campaign${totalMatches>1?"s":""}`:""}`);
     setSelRows(new Set());
+  };
+  // Bulk % increase/decrease (2026-07-31, per Mo). Scales every existing monthly value on each
+  // selected row by (1+pct/100) — e.g. -10 trims a row 10% across the board, +15 pads it. Only
+  // touches months that already have a value (blank cells stay blank, not "0 * pct = 0"), and
+  // deliberately leaves quarterly/annual caps untouched — those are limits the user set
+  // separately, not part of "the budget" being scaled here. One setBudgets pass over all
+  // selected rows (mirroring bulkDeleteSelected's approach) rather than calling setMV in a loop,
+  // so this is one undo step and one re-render regardless of selection size.
+  const bulkAdjustPct=()=>{
+    if(!canEdit)return;
+    const pct=parseFloat(bulkPct);
+    if(!selRows.size||!bulkPct.trim()||isNaN(pct))return;
+    commitHistorySnapshot();
+    setBudgets(p=>{
+      const nx=JSON.parse(JSON.stringify(p));
+      if(!nx[year])return nx;
+      selRows.forEach(k=>{
+        const row=nx[year][k];
+        if(!row||!row.monthly)return;
+        Object.keys(row.monthly).forEach(mk=>{
+          const n=parseMoney(row.monthly[mk]);
+          if(n===null)return;
+          row.monthly[mk]=Math.round(n*(1+pct/100)*100)/100;
+        });
+      });
+      return nx;
+    });
+    showNotif(`${pct>=0?"Increased":"Decreased"} ${selRows.size} row${selRows.size>1?"s":""} by ${Math.abs(pct)}%`);
+    setBulkPct("");
   };
 
   const segs=useMemo(()=>{
@@ -1475,6 +1505,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               <input value={applyMetaVal} onChange={e=>setApplyMetaVal(e.target.value)} placeholder="Value…" onKeyDown={e=>e.key==="Enter"&&applyMetaToSelected()}
                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:130}}/>
               <Btn onClick={applyMetaToSelected} disabled={!applyMetaDim||!applyMetaVal} variant="primary" size="sm" T={T}>Apply</Btn>
+              <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
+              <input value={bulkPct} onChange={e=>setBulkPct(e.target.value)} placeholder="% e.g. 10 or -15" onKeyDown={e=>e.key==="Enter"&&bulkAdjustPct()}
+                title="Scales every existing monthly value on the selected rows by this percent" style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12,outline:"none",fontFamily:T.font,width:120}}/>
+              <Btn onClick={bulkAdjustPct} disabled={!bulkPct.trim()||isNaN(parseFloat(bulkPct))} variant="subtle" size="sm" T={T}>Adjust %</Btn>
               <Btn onClick={()=>setSelRows(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
               <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
               <Btn onClick={bulkDeleteSelected} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
