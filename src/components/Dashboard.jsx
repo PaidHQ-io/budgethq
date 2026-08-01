@@ -175,7 +175,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                   <div style={{width:42,height:42,borderRadius:T.r10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name={card.icon} size={19} color={card.disabled?T.textMuted:T.textSub}/></div>
                   {!card.disabled&&<span style={{fontSize:16,fontWeight:700,color:T.textMuted,lineHeight:1}}>→</span>}
                 </div>
-                <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6,fontFamily:T.font}}>{card.title}</div>
+                <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:6,fontFamily:T.font}}>{card.title}</div>
                 <div style={{fontSize:13,color:T.textSub,lineHeight:1.6,marginBottom:14,fontFamily:T.font}}>{card.desc}</div>
                 <div style={{fontSize:12,fontWeight:600,color:card.disabled?T.textMuted:T.text,fontFamily:T.font}}>{card.action}</div>
               </PixelPanel>
@@ -214,7 +214,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
             <img src={spaceStationIcon} alt="" aria-hidden="true" style={{width:32,height:"auto"}}/>
           </div>
           <div>
-            <div style={{fontSize:20,fontWeight:800,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Dashboard</div>
+            <div style={{fontSize:T.fsPageTitle,fontWeight:T.fsPageTitleWeight,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Dashboard</div>
             <div style={{fontSize:11,fontWeight:600,color:T.textSub,fontFamily:T.font}}>{monthLabel} {year} · this workspace</div>
           </div>
         </div>
@@ -258,11 +258,11 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12,fontFamily:T.font}}>Spend vs. budget · {periodDateLabel}</div>
+              <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:12,fontFamily:T.font}}>Spend vs. budget · {periodDateLabel}</div>
               <SpendVsBudgetBar T={T} spend={totalSpend} budget={totalBudget} fmtFull={fmtFull}/>
             </PixelPanel>
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12,fontFamily:T.font}}>Spend by platform · {periodDateLabel}</div>
+              <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:12,fontFamily:T.font}}>Spend by platform · {periodDateLabel}</div>
               <PlatformSpendBars T={T} rows={platformSpend} fmtFull={fmtFull}/>
             </PixelPanel>
           </div>
@@ -272,7 +272,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
           {/* Needs attention */}
           <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:T.font}}>Needs attention</div>
+              <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,fontFamily:T.font}}>Needs attention</div>
               <span onClick={()=>onNavigate("pacing")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:T.font}}>Open Reporting & Pacing →</span>
             </div>
             {budgetDims.length===0?(
@@ -309,7 +309,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                 problem is visible before it silently breaks a sync. */}
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:T.font}}>Data source health</div>
+                <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,fontFamily:T.font}}>Data source health</div>
                 <span onClick={()=>onNavigate("data")} style={{fontSize:11,color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:T.font}}>Go to Data Sources →</span>
               </div>
               {!connectionDetails||connectionDetails.length===0?(
@@ -332,7 +332,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
             </PixelPanel>
 
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10,fontFamily:T.font}}>Data freshness</div>
+              <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:10,fontFamily:T.font}}>Data freshness</div>
               {Object.keys(freshness).length===0?(
                 <div style={{fontSize:12,color:T.textMuted,fontFamily:T.font}}>No spend data synced yet.</div>
               ):(
@@ -348,7 +348,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
               {/* Renamed from "Quick actions" (2026-07-24) to make room for the new static Quick
                   Actions panel below without two panels sharing one name — this one is unchanged
                   otherwise, still the same contextual to-do nudges. */}
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:T.font}}>Follow-ups</div>
+              <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:8,fontFamily:T.font}}>Follow-ups</div>
               <div style={{display:"flex",flexDirection:"column"}}>
                 {stats.untagged>0&&(
                   <DashQuickAction T={T} label={`${stats.untagged} campaign${stats.untagged===1?"":"s"} need tagging`} onClick={()=>onNavigate("tagger")}/>
@@ -368,7 +368,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                 your data" reuses the same exportTags() the Tagger sidebar's "Export tags CSV" button
                 already calls, rather than a new "coming soon" stub. */}
             <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:8,fontFamily:T.font}}>Quick actions</div>
+              <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:8,fontFamily:T.font}}>Quick actions</div>
               <div style={{display:"flex",flexDirection:"column"}}>
                 <DashQuickAction T={T} label="Connect data sources" onClick={()=>onNavigate("data")}/>
                 <DashQuickAction T={T} label="Explore your data" onClick={()=>onNavigate("tagger")}/>

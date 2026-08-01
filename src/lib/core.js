@@ -52,9 +52,22 @@ import { stepPeriodStart } from "./reportingPeriods.js";
 const RADIUS_CLASSIC = {r0:0,r2:2,r3:3,r4:4,r5:5,r6:6,r7:7,r8:8,r9:9,r10:10,r12:12,r14:14,r20:20,r22:22,rCard:10};
 const RADIUS_AIDA = {r0:0,r2:6,r3:8,r4:10,r5:12,r6:14,r7:16,r8:18,r9:20,r10:22,r12:26,r14:30,r20:20,r22:22,rCard:32};
 
+// Type-scale tokens (2026-08-01, per Mo's font-sizing pass on the Aida reference). Reference's
+// own scale (Tailwind classes sampled directly from its markup): card/section titles are
+// `text-lg font-medium` (18px/500); a compact page-title-with-icon element (its logo mark, the
+// closest analog to PaidHQ's own icon+title header pattern) is `text-2xl font-bold` (24px/700).
+// Classic/Midnight keep these equal to their prior hardcoded literals (15px/700 card titles,
+// 20px/800 page titles) — no visual change intended for either. Scoped to just these two
+// highest-leverage, most directly comparable elements for now (Dashboard's card titles and its
+// compact page header) rather than every hardcoded fontSize in the app — see the call sites in
+// Dashboard.jsx for where these are actually used.
+const TYPE_CLASSIC = {fsCardTitle:15,fsCardTitleWeight:700,fsPageTitle:20,fsPageTitleWeight:800};
+const TYPE_AIDA = {fsCardTitle:18,fsCardTitleWeight:500,fsPageTitle:24,fsPageTitleWeight:700};
+
 export const THEME_CLASSIC = {
   font:"'DM Sans',sans-serif",
   ...RADIUS_CLASSIC,
+  ...TYPE_CLASSIC,
   bg:"#FAFAFA",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
   border:"#C9C3C7",borderStrong:"#A59FA7",borderCard:"#C9C3C7",
   text:"#171717",textSub:"#666666",textMuted:"#96909A",textDim:"#E5E5E5",
@@ -103,6 +116,7 @@ export const THEME_CLASSIC = {
 export const THEME_AIDA = {
   font:"'Poppins',sans-serif",
   ...RADIUS_AIDA,
+  ...TYPE_AIDA,
   bg:"#F5F6F8",surface:"#FFFFFF",surfaceEl:"#F0F2F4",surfaceHover:"#E9EBEE",
   // borderCard (2026-08-01, per Mo's side-by-side screenshot comparison) — the reference's own
   // main-card class is `border border-gray-100` (Tailwind gray-100 = #F3F4F6), a near-invisible
@@ -157,6 +171,7 @@ export const THEME_AIDA = {
 export const THEME_MIDNIGHT = {
   font:THEME_CLASSIC.font,
   ...RADIUS_CLASSIC,
+  ...TYPE_CLASSIC,
   bg:"#0A0A0A",surface:"#141414",surfaceEl:"#1C1C1C",surfaceHover:"#242424",
   border:"#2A2A2A",borderStrong:"#3A3A3A",borderCard:"#2A2A2A",
   text:"#F2F2F2",textSub:"#A3A3A3",textMuted:"#6E6E6E",textDim:"#3A3A3A",

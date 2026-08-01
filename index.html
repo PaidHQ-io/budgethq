@@ -12,8 +12,11 @@
          Appearance card). Loaded unconditionally alongside DM Sans rather than injected on
          switch, same reasoning as loading DM Sans itself up front — one extra ~15KB font family
          is a non-issue for a single-user admin tool, and it means switching themes is instant
-         with no flash-of-unstyled-font on the first render after a switch. -->
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+         with no flash-of-unstyled-font on the first render after a switch. Weight 800 added
+         2026-08-01 (per Mo) — several Aida headers use fontWeight:800 (e.g. Dashboard's "PaidHQ"
+         h1), which without this weight file the browser was faux-bolding from 700 instead of
+         rendering Poppins's real ExtraBold glyphs. -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>
