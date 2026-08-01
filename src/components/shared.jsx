@@ -425,15 +425,19 @@ export const Icon=({name,size=18,color="currentColor",style})=>{
 // Kept the same component name and prop shape (notch/border/shadowOffset are accepted
 // but no longer used) so the many existing call sites across the app didn't need to change.
 // boxShadow was hardcoded to "none" here regardless of theme (2026-08-01 fix, per Mo — "PaidHQ
-// doesn't look like the [Aida reference] png"). Aida's whole card language leans on soft shadows
-// for the "floating card" depth the reference has (shadow: "0 4px 20px rgba(0,0,0,0.03)"); this
-// shared card primitive silently discarded that on every card in the app, on every theme, no
-// matter what T.shadow said. Classic's own T.shadow is "none" already, so this is a no-op there
-// — only Aida/Midnight (which do define a real shadow) actually change visually from this fix.
-// borderRadius uses the dedicated T.rCard token (not T.r10) — see its definition in core.js for
-// why cards get their own radius scale instead of reusing the general-purpose one.
+// doesn't look like the [Aida reference] png"). Now uses the dedicated T.shadowCard token, not
+// T.shadow or T.shadowMd — the reference puts its barely-visible custom "soft" shadow on the
+// outer app frame only (see PaidHQ.jsx's PAGE wrapper) and a distinctly different, more visible
+// Tailwind stock `shadow-md` on individual content cards (that's T.shadowCard; T.shadowMd stays
+// the app's existing general "elevated surface" shadow for dropdowns/modals, unrelated to this
+// fix). Border likewise uses the dedicated T.borderCard token, not the general-purpose T.border —
+// the reference's card border (`border-gray-100`) is nearly invisible, while T.border is the same
+// value used for inputs/dividers/table rules elsewhere and needs to actually read as a line.
+// Classic/Midnight's shadowCard is "none" (their prior PixelPanel behavior — flat cards), so this
+// is a no-op there; the visual change is Aida-only. borderRadius uses the dedicated T.rCard token
+// (not T.r10) — see its definition in core.js for why cards get their own radius scale.
 export const PixelPanel=({T,children,style={},contentStyle={},onClick})=>(
-  <div onClick={onClick} style={{borderRadius:T.rCard,border:`1px solid ${T.border}`,background:T.surface,boxShadow:T.shadow,cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
+  <div onClick={onClick} style={{borderRadius:T.rCard,border:`1px solid ${T.borderCard}`,background:T.surface,boxShadow:T.shadowCard,cursor:onClick?"pointer":undefined,...style,...contentStyle}}>
     {children}
   </div>
 );

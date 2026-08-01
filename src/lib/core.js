@@ -56,7 +56,7 @@ export const THEME_CLASSIC = {
   font:"'DM Sans',sans-serif",
   ...RADIUS_CLASSIC,
   bg:"#FAFAFA",surface:"#FFFFFF",surfaceEl:"#FAFAFA",surfaceHover:"#F2F2F2",
-  border:"#C9C3C7",borderStrong:"#A59FA7",
+  border:"#C9C3C7",borderStrong:"#A59FA7",borderCard:"#C9C3C7",
   text:"#171717",textSub:"#666666",textMuted:"#96909A",textDim:"#E5E5E5",
   accent:"#006CFF",accentHover:"#0052CC",onAccent:"#F9FAFF",
   accentBg:"#E6F0FF",accentBorder:"rgba(0,108,255,0.3)",accentText:"#006CFF",
@@ -79,6 +79,10 @@ export const THEME_CLASSIC = {
   badgeColors:["#36565F","#5F8190","#141414","#4A7080","#23414A","#7A9CAA","#0A2226"],
   shadow:"none",
   shadowMd:"0 8px 24px rgba(0,0,0,0.08),0 2px 6px rgba(0,0,0,0.04)",
+  // shadowCard: PixelPanel's dedicated card shadow (see its doc comment in shared.jsx and the
+  // Aida block below for why this is separate from shadowMd) — "none" here, same as Classic's
+  // existing flat-card look, so the 2026-08-01 card-shadow fix stays Aida-only.
+  shadowCard:"none",
   shadowLg:"0 20px 48px rgba(0,0,0,0.12),0 6px 16px rgba(0,0,0,0.06)",
 };
 
@@ -100,7 +104,15 @@ export const THEME_AIDA = {
   font:"'Poppins',sans-serif",
   ...RADIUS_AIDA,
   bg:"#F5F6F8",surface:"#FFFFFF",surfaceEl:"#F0F2F4",surfaceHover:"#E9EBEE",
-  border:"#E3E6E9",borderStrong:"#C9CDD2",
+  // borderCard (2026-08-01, per Mo's side-by-side screenshot comparison) — the reference's own
+  // main-card class is `border border-gray-100` (Tailwind gray-100 = #F3F4F6), a near-invisible
+  // hairline against its white cards; card edges there are really defined by the shadow, not the
+  // border. The general-purpose `border` token below (#E3E6E9) is reused everywhere else in the
+  // app — inputs, dividers, table rules — where it needs to actually read as a line, so it's
+  // measurably darker than gray-100 and was wrongly making PixelPanel's cards look outlined
+  // instead of just shadow-edged. borderCard is Aida-only for now (Classic/Midnight keep it equal
+  // to their existing border, no visual change).
+  border:"#E3E6E9",borderStrong:"#C9CDD2",borderCard:"#F3F4F6",
   text:"#1A1D1F",textSub:"#4A4F54",textMuted:"#6F767E",textDim:"#D8DBDE",
   accent:"#1A1D1F",accentHover:"#000000",onAccent:"#FFFFFF",
   accentBg:"#EDEDED",accentBorder:"rgba(26,29,31,0.25)",accentText:"#1A1D1F",
@@ -113,8 +125,22 @@ export const THEME_AIDA = {
   pill:"#F0F2F4",pillBorder:"#E3E6E9",
   hatchBg:"repeating-linear-gradient(45deg, rgba(111,118,126,0.16) 0px, rgba(111,118,126,0.16) 1.5px, transparent 1.5px, transparent 9px)",
   badgeColors:["#60C2B9","#B5E4DF","#1A1D1F","#80D2CA","#4A7068","#C4F0A9","#3E5F58"],
+  // shadow is the mockup's own custom `shadow-soft` value (its Tailwind config literally defines
+  // 'soft':'0 4px 20px rgba(0,0,0,0.03)') — used on the outer app frame (see PaidHQ.jsx's PAGE
+  // wrapper), not on individual cards.
   shadow:"0 4px 20px rgba(0,0,0,0.03)",
+  // shadowMd stays the app's general-purpose "elevated surface" shadow — dropdowns, modals,
+  // toasts — unrelated to the card-shadow fix below, left as originally tuned.
   shadowMd:"0 8px 24px rgba(0,0,0,0.06),0 2px 8px rgba(0,0,0,0.04)",
+  // shadowCard (2026-08-01 fix, per Mo's screenshot comparison) — a dedicated card-only shadow,
+  // separate from shadowMd above. Every card in the reference mockup
+  // (`bg-white rounded-3xl p-6 shadow-md border border-gray-100`) uses Tailwind's own *stock*
+  // `shadow-md` utility, which is a distinctly tighter, more visible drop shadow than either
+  // `shadow`/`shadow-soft` (the outer-frame shadow) or this theme's existing shadowMd (tuned as a
+  // softer, more diffuse "floating" shadow for dropdowns/modals). PixelPanel (see shared.jsx) uses
+  // this token specifically so fixing card shadows doesn't also change every dropdown/modal's
+  // shadow along with it. Value is Tailwind's real shadow-md formula, sampled from its source.
+  shadowCard:"0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -2px rgba(0,0,0,0.1)",
   shadowLg:"0 20px 48px rgba(0,0,0,0.10),0 6px 16px rgba(0,0,0,0.05)",
 };
 
@@ -132,7 +158,7 @@ export const THEME_MIDNIGHT = {
   font:THEME_CLASSIC.font,
   ...RADIUS_CLASSIC,
   bg:"#0A0A0A",surface:"#141414",surfaceEl:"#1C1C1C",surfaceHover:"#242424",
-  border:"#2A2A2A",borderStrong:"#3A3A3A",
+  border:"#2A2A2A",borderStrong:"#3A3A3A",borderCard:"#2A2A2A",
   text:"#F2F2F2",textSub:"#A3A3A3",textMuted:"#6E6E6E",textDim:"#3A3A3A",
   accent:"#006CFF",accentHover:"#3B8EFF",onAccent:"#FFFFFF",
   accentBg:"rgba(0,108,255,0.16)",accentBorder:"rgba(0,108,255,0.4)",accentText:"#4D94FF",
@@ -147,6 +173,9 @@ export const THEME_MIDNIGHT = {
   badgeColors:["#5DA9B5","#8FC4CC","#E8EDF0","#6FA8C0","#3D6B78","#A8D4DC","#2A4550"],
   shadow:"none",
   shadowMd:"0 4px 16px rgba(0,0,0,0.5)",
+  // shadowCard: see the Aida block's doc comment — "none" here, same as Classic, keeps the
+  // 2026-08-01 card-shadow fix Aida-only.
+  shadowCard:"none",
   shadowLg:"0 20px 40px rgba(0,0,0,0.6)",
 };
 
