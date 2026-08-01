@@ -2279,7 +2279,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           T.wideLayout-conditional values below are Aida-only in effect (T.wideLayout is
           undefined/falsy on Classic/Midnight, so every ternary's `else` branch is the exact
           original hardcoded value — zero visual change for those two). ── */}
-      <div style={{width:64,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",background:T.wideLayout?"transparent":T.accent,borderRight:T.wideLayout?`1px solid ${T.border}`:"none",zIndex:30,position:"relative",overflowY:"auto"}}>
+      <div style={{width:64,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",background:T.wideLayout?"transparent":T.accent,borderRight:T.wideLayout?`1px solid ${T.border}`:"none",zIndex:30,position:"relative"}}>
         <div style={{flex:1}}/>
 
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,paddingBottom:14,width:"100%",flexShrink:0}}>
