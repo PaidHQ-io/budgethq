@@ -143,7 +143,14 @@ export const THEME_AIDA = {
   accentBg:"#EDEDED",accentBorder:"rgba(26,29,31,0.25)",accentText:"#1A1D1F",
   accentSoft:"#C4F0A9",
   success:"#3F9142",successBg:"rgba(63,145,66,0.10)",successBorder:"rgba(63,145,66,0.28)",
-  warning:"#C2790A",warningBg:"rgba(194,121,10,0.10)",warningBorder:"rgba(194,121,10,0.28)",
+  // warning (2026-08-01 fix, per Mo — pixel-scanned the actual reference screenshot and confirmed
+  // there is NO orange/amber anywhere in it; the app's inherited amber `warning` (#C2790A, shared
+  // with Classic/Midnight) was never actually re-tuned for Aida's palette. The reference only ever
+  // uses red and green for status, so per Mo's choice this is now a lighter/desaturated variant of
+  // the danger red below (same hue, ~55% of its saturation, ~18% lighter) — reads as "attention"
+  // without introducing a color family the reference doesn't have, while staying visually distinct
+  // from full danger red. Aida-only; Classic/Midnight keep the original amber.
+  warning:"#C98C8F",warningBg:"rgba(201,140,143,0.10)",warningBorder:"rgba(201,140,143,0.28)",
   danger:"#D8494E",dangerBg:"rgba(216,73,78,0.10)",dangerBorder:"rgba(216,73,78,0.28)",
   rowHover:"#F5F6F8",rowSelected:"rgba(196,240,169,0.35)",
   inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#F5F6F8",topbarBg:"#FFFFFF",
@@ -184,6 +191,18 @@ export const THEME_AIDA = {
   // second new token for it. Undefined on Classic/Midnight — PixelPanel falls back to the normal
   // T.surface background for both variants there, so this is a no-op on those two themes.
   cardBgFeatured:"linear-gradient(180deg, #EDF2F6 0%, #E3E9EE 100%)",
+  // cardBgAccent2 / pillHighlight (2026-08-01, per Mo's pixel-scan of the reference) — the
+  // reference actually has a SECOND distinct card treatment beyond cardBgFeatured's blue-grey
+  // gradient: a solid sage-mint card (`bg-[#BCE3CF]`, used for its VISA/credit-card widget) plus a
+  // brighter chartreuse highlight pill (`bg-[#E2F87A]`, its "16:30h"/tooltip callout). Confirmed via
+  // direct pixel sampling of the reference screenshot, not guessed. PaidHQ has no card that maps
+  // cleanly to a credit-card-style widget yet, so these are added as available tokens without being
+  // wired into any component — apply cardBgAccent2 as a PixelPanel variant or pillHighlight as a
+  // callout/tooltip background once there's an actual UI element that calls for it, rather than
+  // forcing them onto an existing card just to use the color. Aida-only; undefined on Classic/
+  // Midnight (no-op).
+  cardBgAccent2:"#BCE3CF",
+  pillHighlight:"#E2F87A",
 };
 
 // Midnight theme (2026-07-31, per Mo — dark mode). Deliberately a dark variant of Classic's own
