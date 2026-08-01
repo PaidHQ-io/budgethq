@@ -738,7 +738,16 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       )}
 
       {/* Segment table */}
-      <div style={{flex:1,overflow:"auto",padding:"20px 24px 24px"}}>
+      {/* Horizontal padding moved off this outer container (2026-08-01, per Mo — row borders should
+          reach edge-to-edge like the Campaign Tagger and Budget Panel tables, which use the same
+          zero-container-padding + per-row/per-cell inset pattern instead of a padded wrapper that
+          stops every row's border short of the card edges). The toolbars/banners above each table
+          are wrapped in their own "0 24px" padded div (or carry that padding directly), while each
+          table itself spans the full unpadded width so tr borders reach true left/right edges —
+          the tables' own first/last header and data cells carry a matching 24px inset instead, so
+          content still lines up visually with the toolbars above. */}
+      <div style={{flex:1,overflow:"auto",padding:"20px 0 24px"}}>
+        <div style={{padding:"0 24px"}}>
         <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} combineGoogleChannels={combineGoogleChannels} mode="pacing"
           view={{
             viewMode,
@@ -911,6 +920,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             </div>
           </div>
         )}
+        </div>
         {viewMode==="budget"&&(pacing.segments.length===0?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:60,textAlign:"center"}}>
             <div style={{fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:6}}>No budget or spend data for {periodLabel}</div>
@@ -919,7 +929,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
         ):(
           <>
           {/* Filter bar */}
-          <div style={{padding:"8px 0",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{padding:"8px 24px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:11*(T.fsScale||1),color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
             {budgetDims.map(d=>(
               <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
@@ -982,7 +992,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           </div>
           {/* Bulk action bar */}
           {selRows.size>0&&(
-            <div style={{padding:"8px 0",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{padding:"8px 24px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
               <Pill color={T.text} bg={T.accent} border={T.text}>{selRows.size} selected</Pill>
               <Btn onClick={()=>setSelRows(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
               <Btn onClick={bulkDeleteSegments} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
@@ -990,7 +1000,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           )}
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13*(T.fsScale||1),background:T.surface}}>
             <thead><tr>
-              <th style={{...TH,width:20}}/>
+              <th style={{...TH,width:20,paddingLeft:24}}/>
               <th style={{...TH,width:32}}>
                 <input type="checkbox" checked={filteredSegments.length>0&&selRows.size===filteredSegments.length} onChange={selAllRows} title="Select all rows — reveals bulk delete once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
@@ -1002,11 +1012,11 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <th style={TH}>Daily Burn</th>
               <th style={TH}>Projected</th>
               <th style={{...TH,minWidth:200}}>Status</th>
-              <th style={TH}/>
+              <th style={{...TH,paddingRight:24}}/>
             </tr></thead>
             <tbody>
               {filteredSegments.length===0&&(
-                <tr><td colSpan={4+budgetDims.length+6} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:400}}>Clear filters</span></td></tr>
+                <tr><td colSpan={4+budgetDims.length+6} style={{padding:"32px 24px",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:400}}>Clear filters</span></td></tr>
               )}
               {filteredSegments.flatMap((seg)=>{
                 const meta=pacingStatusMeta(seg.status,T);
@@ -1017,7 +1027,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
                   <tr key={seg.segKey} className={isSel?undefined:"bhq-tr"} style={{background:rowBg}}>
-                    <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center"}}>
+                    <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
                     </td>
@@ -1098,7 +1108,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         )}
                       </div>
                     </td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb}}>
+                    <td style={{padding:"8px 8px",borderBottom:rbb,paddingRight:24}}>
                       <button onClick={()=>deleteSegment(seg.segKey,label)} title="Delete segment"
                         style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
@@ -1107,7 +1117,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   </tr>
                 );
                 if(!isExpanded)return[parentRow];
-                const breakdown=computeSpendBreakdown({mergedNormRows,tags:campaignTags,budgetDims,segKey:seg.segKey,breakdownDim,start:pacing.start,end:pacing.end,combineGoogleChannels});
+                const breakdown=computeSpendBreakdown({mergedNormRows,tags:campaignTags,budgetDims,segKey:seg.segKey,breakdownDim,start:pacing.start,end:pacing.end,today:now,forecastModel:seg.forecastModel,combineGoogleChannels});
                 const breakdownRows=breakdown.length===0?[
                   <tr key={seg.segKey+"-empty"} style={{background:rowBg}}>
                     <td/><td/>
@@ -1122,7 +1132,17 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1)}}>
                       {fmtFull(b.spend)}<span style={{color:T.textMuted,marginLeft:6,fontSize:13*(T.fsScale||1)}}>({Math.round(b.pct*100)}%)</span>
                     </td>
-                    <td colSpan={6} style={{borderBottom:rbb}}/>
+                    <td colSpan={2} style={{borderBottom:rbb}}/>
+                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),color:T.textMuted}}>{fmtFull(b.dailyRate)}/day</td>
+                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right"}}>
+                      <div style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),color:T.textMuted,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
+                        {b.projected!=null?fmtFull(b.projected):"—"}
+                        {b.lowConfidencePlatforms?.length>0&&(
+                          <WarnTip T={T} text={`Projection may be unreliable — ${b.lowConfidencePlatforms.join(", ")} only has a single as-of data point for this period, so its spend is being extrapolated across every day instead of an actual daily rate.`}/>
+                        )}
+                      </div>
+                    </td>
+                    <td colSpan={2} style={{borderBottom:rbb}}/>
                   </tr>
                 ));
                 return[parentRow,...breakdownRows];
@@ -1179,7 +1199,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
         ):(
           <>
           {/* Filter bar */}
-          <div style={{padding:"8px 0",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{padding:"8px 24px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:11*(T.fsScale||1),color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
             {customDims.map(d=>(
               <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
@@ -1198,23 +1218,23 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           </div>
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13*(T.fsScale||1),background:T.surface}}>
             <thead><tr>
-              <th style={{...TH,width:20}}/>
+              <th style={{...TH,width:20,paddingLeft:24}}/>
               {customDims.map(d=><th key={d} style={{...TH,...(d==="Product"?{maxWidth:110}:d==="Module"?{maxWidth:140}:{})}}>{d}</th>)}
               <th style={TH}>Spend PTD</th>
               <th style={TH}>Daily Burn</th>
               <th style={TH}>Projected</th>
-              <th style={TH}>Campaigns</th>
+              <th style={{...TH,paddingRight:24}}>Campaigns</th>
             </tr></thead>
             <tbody>
               {filteredCustomSegments.length===0&&(
-                <tr><td colSpan={2+customDims.length+3} style={{padding:"32px 20px",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>No groups match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:400}}>Clear filters</span></td></tr>
+                <tr><td colSpan={2+customDims.length+3} style={{padding:"32px 24px",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>No groups match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:400}}>Clear filters</span></td></tr>
               )}
               {filteredCustomSegments.flatMap(seg=>{
                 const isExpanded=breakdownDim&&expandedRows.has(seg.segKey);
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
                   <tr key={seg.segKey} className="bhq-tr">
-                    <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center"}}>
+                    <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
                     </td>
@@ -1232,16 +1252,16 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         )}
                       </div>
                     </td>
-                    <td style={{padding:"8px 14px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{seg.campaignCount}</td>
+                    <td style={{padding:"8px 14px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted,paddingRight:24}}>{seg.campaignCount}</td>
                   </tr>
                 );
                 if(!isExpanded)return[parentRow];
-                const breakdown=computeCustomBreakdown({mergedNormRows,tags:campaignTags,dims:customDims,segKey:seg.segKey,breakdownDim,start:customPacing.start,end:customPacing.end,combineGoogleChannels});
+                const breakdown=computeCustomBreakdown({mergedNormRows,tags:campaignTags,dims:customDims,segKey:seg.segKey,breakdownDim,start:customPacing.start,end:customPacing.end,today:now,combineGoogleChannels});
                 const breakdownRows=breakdown.length===0?[
                   <tr key={seg.segKey+"-empty"}>
                     <td/>
                     <td colSpan={customDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:13*(T.fsScale||1),color:T.textMuted,fontStyle:"italic"}}>No spend in this period to break down by {breakdownDim}</td>
-                    <td colSpan={3} style={{borderBottom:rbb}}/>
+                    <td colSpan={4} style={{borderBottom:rbb}}/>
                   </tr>
                 ]:breakdown.map(b=>(
                   <tr key={seg.segKey+"-"+b.value}>
@@ -1250,7 +1270,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1)}}>
                       {fmtFull(b.spend)}<span style={{color:T.textMuted,marginLeft:6,fontSize:13*(T.fsScale||1)}}>({Math.round(b.pct*100)}%)</span>
                     </td>
-                    <td colSpan={2} style={{borderBottom:rbb}}/>
+                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),color:T.textMuted}}>{fmtFull(b.dailyRate)}/day</td>
+                    <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),color:T.textMuted}}>{b.projected!=null?fmtFull(b.projected):"—"}</td>
+                    <td style={{borderBottom:rbb}}/>
                   </tr>
                 ));
                 return[parentRow,...breakdownRows];
@@ -1285,7 +1307,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           </div>
         ):(
           <>
-          <PixelPanel T={T} contentStyle={{padding:"18px 20px"}}>
+          <PixelPanel T={T} style={{margin:"0 24px"}} contentStyle={{padding:"18px 20px"}}>
             <TrendBarChart T={T} periods={trendData.periods} series={trendData.series} budgetValues={trendData.budgetValues}/>
             {(trendData.series.length>0||trendData.budgetValues)&&(
               <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
@@ -1314,33 +1336,33 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           </PixelPanel>
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13*(T.fsScale||1),marginTop:16,background:T.surface}}>
             <thead><tr>
-              <th style={{...TH,textAlign:"left"}}>{trendSeriesDim||"Period"}</th>
+              <th style={{...TH,textAlign:"left",paddingLeft:24}}>{trendSeriesDim||"Period"}</th>
               {trendData.periods.map(p=><th key={p.key} style={{...TH,textAlign:"right"}}>{p.label}</th>)}
-              <th style={{...TH,textAlign:"right"}}>Total</th>
+              <th style={{...TH,textAlign:"right",paddingRight:24}}>Total</th>
             </tr></thead>
             <tbody>
               {trendData.budgetValues&&(
                 <tr className="bhq-tr">
-                  <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
+                  <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",paddingLeft:24}}>
                     <Pill color={T.textMuted} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,borderRadius:T.r6}}>Budget</Pill>
                   </td>
                   {trendData.budgetValues.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{v>0?fmtFull(v):"—"}</td>)}
-                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.textMuted}}>{fmtFull(trendData.budgetValues.reduce((s,v)=>s+v,0))}</td>
+                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.textMuted,paddingRight:24}}>{fmtFull(trendData.budgetValues.reduce((s,v)=>s+v,0))}</td>
                 </tr>
               )}
               {trendData.series.map(s=>(
                 <tr key={s.label} className="bhq-tr">
-                  <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
+                  <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",paddingLeft:24}}>
                     <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,borderRadius:T.r6}}>{s.label}</Pill>
                   </td>
                   {s.values.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,color:T.text}}>{v>0?fmtFull(v):"—"}</td>)}
-                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{fmtFull(s.total)}</td>
+                  <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text,paddingRight:24}}>{fmtFull(s.total)}</td>
                 </tr>
               ))}
               <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
-                <td style={{padding:"10px 14px"}}><SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Total</SectionLabel></td>
+                <td style={{padding:"10px 14px",paddingLeft:24}}><SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Total</SectionLabel></td>
                 {trendData.periodTotals.map((v,i)=><td key={i} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{fmtFull(v)}</td>)}
-                <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{fmtFull(trendData.grandTotal)}</td>
+                <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text,paddingRight:24}}>{fmtFull(trendData.grandTotal)}</td>
               </tr>
             </tbody>
           </table>

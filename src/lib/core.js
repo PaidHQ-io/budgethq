@@ -872,9 +872,23 @@ export function countSegmentCampaigns(tags,budgetDims,segKey,platformIndex){
 // range) grouped by ONE secondary dimension — independent of budgets entirely, so it works
 // whether or not a formal budget exists at that level. "Platform" is a synthetic option derived
 // per-row (same logic the rest of the app uses for platform badges), since it isn't a manual tag.
-export function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownDim,start,end,combineGoogleChannels=false}){
+//
+// Daily Burn/Projected (2026-08-01, per Mo — expanding a segment to break it down by Campaign/
+// Ad Group/Region/Funnel/Pillar/etc. only ever showed Spend on the drill-down rows, even though
+// the parent row right above it always shows Daily Burn and Projected too). Mirrors computePacing's
+// own platformSpendMap→projectPlatformSegment approach exactly, just keyed by breakdown value
+// instead of by segKey — each breakdown value gets its own per-platform run-rate projection so a
+// "Campaign A" row that's mostly Meta and "Campaign B" that's mostly Google each get projected off
+// their own platform's freshness/seasonality, not one blended rate for the whole segment. Callers
+// that don't pass `today` (nothing currently doesn't) will simply get dailyRate/projected back as
+// 0/null for every row, same failure mode as omitting `today` from computePacing.
+export function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,breakdownDim,start,end,today,forecastModel,combineGoogleChannels=false}){
   const vals=segKey.split("|");
+  const totalDays=Math.round((end-start)/86400000)+1;
+  const platformFreshness=computePlatformFreshness(mergedNormRows);
+  const platformDowIndex=computePlatformDayOfWeekIndex(mergedNormRows);
   const map={};
+  const platformSpendMap={};
   mergedNormRows.forEach(row=>{
     const d=parseSpendDate(row.date);
     if(!d||d<start||d>end)return;
@@ -882,9 +896,22 @@ export function computeSpendBreakdown({mergedNormRows,tags,budgetDims,segKey,bre
     if(!budgetDims.every((dim,i)=>resolveDimValue(row,rowTags,dim,combineGoogleChannels)===vals[i]))return;
     const bval=resolveDimValue(row,rowTags,breakdownDim,combineGoogleChannels)||"Untagged";
     map[bval]=(map[bval]||0)+row.spend;
+    // Intentionally keyed by real platform regardless of combineGoogleChannels — same reasoning as
+    // computePacing's identical platformSpendMap loop.
+    const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+    if(!platformSpendMap[bval])platformSpendMap[bval]={};
+    if(!platformSpendMap[bval][platform])platformSpendMap[bval][platform]={total:0,byDate:{}};
+    platformSpendMap[bval][platform].total+=row.spend;
+    const dateKey=localISODate(d);
+    platformSpendMap[bval][platform].byDate[dateKey]=(platformSpendMap[bval][platform].byDate[dateKey]||0)+row.spend;
   });
   const total=Object.values(map).reduce((s,v)=>s+v,0);
-  return Object.entries(map).map(([value,spend])=>({value,spend,pct:total>0?spend/total:0})).sort((a,b)=>b.spend-a.spend);
+  const elapsedDays=today==null?0:today<start?0:today>end?totalDays:Math.floor((today-start)/86400000)+1;
+  return Object.entries(map).map(([value,spend])=>{
+    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[value],platformFreshness,{start,end,today,totalDays,forecastModel,platformDowIndex});
+    const projected=elapsedDays>0?projectedSum:null;
+    return{value,spend,pct:total>0?spend/total:0,dailyRate,projected,lowConfidencePlatforms};
+  }).sort((a,b)=>b.spend-a.spend);
 }
 
 // ─── NUMERIC THRESHOLD FILTERS (2026-07-28, per Mo) ────────────────────────────
@@ -1571,10 +1598,18 @@ export function computeCustomGrouping({mergedNormRows,tags,dims,year,periodType,
 }
 
 // Expand-row breakdown for computeCustomGrouping, mirroring computeSpendBreakdown but matching
-// against an arbitrary dims array (via resolveDimValue) instead of the fixed budgetDims.
-export function computeCustomBreakdown({mergedNormRows,tags,dims,segKey,breakdownDim,start,end,combineGoogleChannels=false}){
+// against an arbitrary dims array (via resolveDimValue) instead of the fixed budgetDims. Same
+// Daily Burn/Projected addition (2026-08-01, per Mo) as computeSpendBreakdown above — no
+// forecastModel param here since computeCustomGrouping never has one either (custom groupings
+// aren't tied to a budget row, so there's nowhere for a per-row override to live; projectPlatformSegment
+// falls back to Auto whenever forecastModel is undefined).
+export function computeCustomBreakdown({mergedNormRows,tags,dims,segKey,breakdownDim,start,end,today,combineGoogleChannels=false}){
   const vals=segKey.split("|");
+  const totalDays=Math.round((end-start)/86400000)+1;
+  const platformFreshness=computePlatformFreshness(mergedNormRows);
+  const platformDowIndex=computePlatformDayOfWeekIndex(mergedNormRows);
   const map={};
+  const platformSpendMap={};
   mergedNormRows.forEach(row=>{
     const d=parseSpendDate(row.date);
     if(!d||d<start||d>end)return;
@@ -1582,9 +1617,20 @@ export function computeCustomBreakdown({mergedNormRows,tags,dims,segKey,breakdow
     if(!dims.every((dim,i)=>resolveDimValue(row,rowTags,dim,combineGoogleChannels)===vals[i]))return;
     const bval=resolveDimValue(row,rowTags,breakdownDim,combineGoogleChannels)||"Untagged";
     map[bval]=(map[bval]||0)+row.spend;
+    const platform=derivePlatform(row.campaign_group_name,row.campaign_name,row.platform,row.campaign_type);
+    if(!platformSpendMap[bval])platformSpendMap[bval]={};
+    if(!platformSpendMap[bval][platform])platformSpendMap[bval][platform]={total:0,byDate:{}};
+    platformSpendMap[bval][platform].total+=row.spend;
+    const dateKey=localISODate(d);
+    platformSpendMap[bval][platform].byDate[dateKey]=(platformSpendMap[bval][platform].byDate[dateKey]||0)+row.spend;
   });
   const total=Object.values(map).reduce((s,v)=>s+v,0);
-  return Object.entries(map).map(([value,spend])=>({value,spend,pct:total>0?spend/total:0})).sort((a,b)=>b.spend-a.spend);
+  const elapsedDays=today==null?0:today<start?0:today>end?totalDays:Math.floor((today-start)/86400000)+1;
+  return Object.entries(map).map(([value,spend])=>{
+    const{projectedSum,dailyRate,lowConfidencePlatforms}=projectPlatformSegment(platformSpendMap[value],platformFreshness,{start,end,today,totalDays,platformDowIndex});
+    const projected=elapsedDays>0?projectedSum:null;
+    return{value,spend,pct:total>0?spend/total:0,dailyRate,projected,lowConfidencePlatforms};
+  }).sort((a,b)=>b.spend-a.spend);
 }
 
 // Powers Reporting & Pacing's "Trend" view — the one gap computePacing/computeCustomGrouping
