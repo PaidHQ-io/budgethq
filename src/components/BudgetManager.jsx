@@ -65,6 +65,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // based on how the original budget file for this year was structured, user can override before
   // downloading.
   const[exportPreviewOpen,setExportPreviewOpen]=useState(false);
+  const[importHistoryOpen,setImportHistoryOpen]=useState(false);
   const[exportAnalyzing,setExportAnalyzing]=useState(false);
   const[exportAiReason,setExportAiReason]=useState("");
   const[exportAiError,setExportAiError]=useState("");
@@ -964,7 +965,23 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     // matching that structure instead of guessing blind.
     const hasQuarterlyTotals=iHeaders.some(h=>/^q[1-4]\b/i.test(h.trim()));
     const hasAnnualTotal=iHeaders.some(h=>/^(total|annual)/i.test(h.trim()));
-    setBudgetImportMeta?.(p=>({...p,[iYear]:{hasQuarterlyTotals,hasAnnualTotal,importedAt:Date.now()}}));
+    // Import history log (2026-07-31, per Mo — "nothing's retained today once the import modal
+    // closes"). doImport is the single choke point every import source (CSV, XLSX, screenshot,
+    // Google Sheet pull, and grid-paste-into-new-segments) already funnels through via the shared
+    // ingestRawRows -> preview -> beginImport pipeline, so logging here covers all of them
+    // uniformly without threading a "source" param through each entry point separately —
+    // iFileName already carries a source-appropriate label from whichever entry point set it
+    // (a real filename, a sheet's tab title, or "Pasted from clipboard").
+    //
+    // Piggybacks on budgetImportMeta (an existing jsonb field already wired into whatever
+    // top-level save path persists workspace_config) under a reserved `_log` key, rather than
+    // standing up a new DB table/migration/API route for what's fundamentally the same kind of
+    // per-workspace import metadata this field already stores — same JSONB-first reasoning
+    // db/schema.sql's own doc comment gives for keeping budgets/tags unnormalized. Capped at 200
+    // entries so this can't grow unbounded over a long account's lifetime.
+    const importedAt=Date.now();
+    const logEntry={ts:importedAt,year:iYear,source:iFileName||"Unknown source",entryCount:preview.length,segmentCount:new Set(preview.map(e=>e.segKey)).size,mergedCount:mergeDecisions.length};
+    setBudgetImportMeta?.(p=>({...p,[iYear]:{hasQuarterlyTotals,hasAnnualTotal,importedAt},_log:[logEntry,...(p?._log||[])].slice(0,200)}));
     setImportOpen(false);setMergeReviewOpen(false);setMergeCandidates([]);pendingImportRef.current=null;resetImport();
     const summary=mergeDecisions.length?`Imported ${preview.length} entries into ${iYear} — merged ${mergeDecisions.length} segment${mergeDecisions.length>1?"s":""} with existing rows`:`Imported ${preview.length} budget entries into ${iYear}`;
     onCheckpoint?.(summary,"budget_import");
@@ -1401,6 +1418,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:12}}>
           <Btn onClick={()=>setImportOpen(true)} disabled={!canEdit} title={canEdit?undefined:"View-only access"} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:T.font}}>↑ Import CSV / Excel</Btn>
           <Btn onClick={openExportPreview} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:T.font}}>↓ Export budgets + pacing</Btn>
+          <Btn onClick={()=>setImportHistoryOpen(true)} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:T.font}}>🕘 Import history</Btn>
           {canEdit&&(
             <div style={{display:"flex",gap:6}}>
               <Btn onClick={handleUndo} disabled={!undoStack.length} title={`Undo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Z)`} variant="ghost" size="sm" T={T} style={{flex:1,justifyContent:"center",fontFamily:T.font}}>↶ Undo</Btn>
@@ -2144,6 +2162,41 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               <Btn onClick={()=>setExportPreviewOpen(false)} variant="ghost" T={T}>Cancel</Btn>
               <Btn onClick={appendBudgetToGoogleSheet} disabled={exportAnalyzing||sheetsAppending} variant="subtle" T={T}>{sheetsAppending?"Appending…":"→ Append to Sheet"}</Btn>
               <Btn onClick={confirmExport} disabled={exportAnalyzing} variant="primary" T={T}>↓ Download CSV</Btn>
+            </div>
+          </PixelPanel>
+        </div>
+      )}
+
+      {importHistoryOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <PixelPanel T={T} style={{width:"100%",maxWidth:560}} contentStyle={{background:T.surface,padding:0}}>
+            <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Import history</div>
+              <button onClick={()=>setImportHistoryOpen(false)} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:22,lineHeight:1,fontFamily:T.font}}>×</button>
+            </div>
+            <div style={{padding:"8px 22px 22px",maxHeight:440,overflow:"auto"}}>
+              {!(budgetImportMeta?._log||[]).length?(
+                <div style={{padding:"28px 0",textAlign:"center",color:T.textMuted,fontSize:13}}>No imports recorded yet. Every CSV/Excel upload, screenshot import, Google Sheet pull, and paste-into-new-segments will show up here.</div>
+              ):(
+                <div>
+                  {budgetImportMeta._log.map((entry,i)=>(
+                    <div key={entry.ts+"-"+i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:i<budgetImportMeta._log.length-1?`1px solid ${T.border}`:"none"}}>
+                      <div style={{width:26,height:26,borderRadius:"50%",background:T.accentBg,border:`1px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:12}}>↑</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{entry.source}</div>
+                        <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>
+                          {new Date(entry.ts).toLocaleString(undefined,{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"})}
+                          {" · "}{entry.year}{" · "}{entry.entryCount} entr{entry.entryCount===1?"y":"ies"} across {entry.segmentCount} segment{entry.segmentCount===1?"":"s"}
+                          {entry.mergedCount>0&&` · merged ${entry.mergedCount} segment${entry.mergedCount===1?"":"s"}`}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end"}}>
+              <Btn onClick={()=>setImportHistoryOpen(false)} variant="ghost" T={T}>Close</Btn>
             </div>
           </PixelPanel>
         </div>
