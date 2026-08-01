@@ -203,6 +203,14 @@ export const THEME_AIDA = {
   // Midnight (no-op).
   cardBgAccent2:"#BCE3CF",
   pillHighlight:"#E2F87A",
+  // cardPad (2026-08-01, per Mo — measured live against the reference and found every PaidHQ card
+  // uses 12-18px internal padding while the reference's standard card class is `p-6` (24px),
+  // consistently, everywhere — 13 separate uses of the exact same p-6 in its source, not a
+  // one-off. That's the real reason cards read as cramped rather than spacious; not a color gap.
+  // Every PixelPanel call site that opts into this keeps writing its own original literal as the
+  // `T.cardPad||"…"` fallback, so this is a no-op on Classic/Midnight (cardPad is undefined there)
+  // and unifies every participating Aida card to the reference's actual 24px standard.
+  cardPad:"24px",
 };
 
 // Midnight theme (2026-07-31, per Mo — dark mode). Deliberately a dark variant of Classic's own

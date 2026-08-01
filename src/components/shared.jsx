@@ -135,8 +135,8 @@ export const StatRow=({label,value,color,T,size=12,valueStyle})=>(<div style={{d
 // that isn't worth its own tile (expected-pace vs actual, period-over-period delta). Omitted
 // entirely (not even an empty reserved slot) when not passed, so plain tiles keep their original
 // compact height.
-export const DashStatTile=({label,value,valueColor,sub,subColor,T})=>(
-  <PixelPanel T={T} contentStyle={{padding:"14px 16px"}}>
+export const DashStatTile=({label,value,valueColor,sub,subColor,T,variant})=>(
+  <PixelPanel T={T} variant={variant} contentStyle={{padding:T.cardPad||"14px 16px"}}>
     <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6,fontFamily:T.font}}>{label}</div>
     <div style={{fontSize:20*(T.fsScale||1),fontWeight:800,color:valueColor||T.text,fontFamily:T.font}}>{value}</div>
     {sub&&<div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:subColor||T.textMuted,marginTop:4,fontFamily:T.font}}>{sub}</div>}

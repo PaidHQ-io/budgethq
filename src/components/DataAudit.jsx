@@ -141,7 +141,14 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
         {/* Overview */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:18}}>
           <DashStatTile T={T} label="Spend rows" value={overview.totalRows.toLocaleString()}/>
-          <DashStatTile T={T} label="Total spend" value={fmtFull(overview.totalSpend)}/>
+          {/* variant="accent" (2026-08-01, per Mo — "add color to top stat cards") — the reference
+              always mixes one or two colorful cards into an otherwise-white/grey grid rather than
+              leaving every tile monochrome (its VISA card, its Pro Version panel). Data Audit's own
+              headline number is total spend, so that's the one tile that gets the mint highlight;
+              the rest stay plain so it still reads as the dense audit table it actually is, not a
+              forced re-skin into the reference's hero-dashboard layout. Aida-only via PixelPanel's
+              existing variant prop — no-op on Classic/Midnight. */}
+          <DashStatTile T={T} label="Total spend" value={fmtFull(overview.totalSpend)} variant="accent"/>
           <DashStatTile T={T} label="Date range" value={fmtRange(overview.earliest,overview.latest)}/>
           <DashStatTile T={T} label="Platforms" value={overview.platformCount.toLocaleString()}/>
           <DashStatTile T={T} label="Sources" value={overview.sourceCount.toLocaleString()}/>

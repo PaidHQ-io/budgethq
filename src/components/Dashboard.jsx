@@ -269,11 +269,11 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
             <DashStatTile T={T} label="Needs attention" value={budgetDims.length===0?"—":String(attention.length)} valueColor={budgetDims.length===0?undefined:attention.length>0?T.danger:T.success}/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
-            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+            <PixelPanel T={T} contentStyle={{padding:T.cardPad||"16px 18px"}}>
               <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:12,fontFamily:T.font}}>Spend vs. budget · {periodDateLabel}</div>
               <SpendVsBudgetBar T={T} spend={totalSpend} budget={totalBudget} fmtFull={fmtFull}/>
             </PixelPanel>
-            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+            <PixelPanel T={T} contentStyle={{padding:T.cardPad||"16px 18px"}}>
               <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:12,fontFamily:T.font}}>Spend by platform · {periodDateLabel}</div>
               <PlatformSpendBars T={T} rows={platformSpend} fmtFull={fmtFull}/>
             </PixelPanel>
@@ -282,7 +282,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
 
         <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16,marginBottom:22,alignItems:"start"}}>
           {/* Needs attention */}
-          <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+          <PixelPanel T={T} contentStyle={{padding:T.cardPad||"16px 18px"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
               <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,fontFamily:T.font}}>Needs attention</div>
               <span onClick={()=>onNavigate("pacing")} style={{fontSize:11*(T.fsScale||1),color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:T.font}}>Open Reporting & Pacing →</span>
@@ -319,7 +319,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
             {/* Modeled on Funnel.io's "Data Source Health" card — same connectionDetails already
                 powering the Data Sources tab's connection-details table, just summarized here so a
                 problem is visible before it silently breaks a sync. */}
-            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+            <PixelPanel T={T} contentStyle={{padding:T.cardPad||"16px 18px"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                 <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,fontFamily:T.font}}>Data source health</div>
                 <span onClick={()=>onNavigate("data")} style={{fontSize:11*(T.fsScale||1),color:T.accent,cursor:"pointer",fontWeight:600,fontFamily:T.font}}>Go to Data Sources →</span>
@@ -343,7 +343,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
               )}
             </PixelPanel>
 
-            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+            <PixelPanel T={T} contentStyle={{padding:T.cardPad||"16px 18px"}}>
               <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:10,fontFamily:T.font}}>Data freshness</div>
               {Object.keys(freshness).length===0?(
                 <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>No spend data synced yet.</div>
@@ -356,7 +356,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
               )}
             </PixelPanel>
 
-            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+            <PixelPanel T={T} contentStyle={{padding:T.cardPad||"16px 18px"}}>
               {/* Renamed from "Quick actions" (2026-07-24) to make room for the new static Quick
                   Actions panel below without two panels sharing one name — this one is unchanged
                   otherwise, still the same contextual to-do nudges. */}
@@ -379,7 +379,7 @@ function Dashboard({T,onNavigate,stats,hasData,budgets,budgetDims,budgetRowMeta,
                 multi-dashboard concept in PaidHQ yet, and videos are coming later per Mo. "Export
                 your data" reuses the same exportTags() the Tagger sidebar's "Export tags CSV" button
                 already calls, rather than a new "coming soon" stub. */}
-            <PixelPanel T={T} contentStyle={{padding:"16px 18px"}}>
+            <PixelPanel T={T} contentStyle={{padding:T.cardPad||"16px 18px"}}>
               <div style={{fontSize:T.fsCardTitle,fontWeight:T.fsCardTitleWeight,color:T.text,marginBottom:8,fontFamily:T.font}}>Quick actions</div>
               <div style={{display:"flex",flexDirection:"column"}}>
                 <DashQuickAction T={T} label="Connect data sources" onClick={()=>onNavigate("data")}/>
