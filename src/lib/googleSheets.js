@@ -298,6 +298,46 @@ export async function listSheetTabs(spreadsheetId) {
   };
 }
 
+// Appends rows to an EXISTING spreadsheet the user picked via pickSpreadsheet() above, instead
+// of exportReportToGoogleSheets' always-create-a-new-file behavior (2026-07-31, per Mo — "append
+// to an existing sheet on export instead of always creating a new file"). Same drive.file grant
+// covers this: picking a file through the Picker widget is itself what authorizes read+write
+// access to that specific file, so no extra scope/consent is needed beyond the existing export
+// flow's.
+//
+// Creates the target tab if it doesn't already exist (via a new sheet added to the SAME
+// spreadsheet, not a new spreadsheet). Only writes `headerRow` when the target tab is brand new
+// or currently empty — appending onto a tab that already has a header + prior rows shouldn't
+// re-stamp the header on every append. Uses the Sheets API's values:append with
+// insertDataOption=INSERT_ROWS, which finds the end of the existing table itself — no need to
+// track/pass a row offset from the caller.
+export async function appendRowsToGoogleSheet(spreadsheetId, sheetTitle, headerRow, dataRows) {
+  const accessToken = await getAccessToken();
+  const { tabs } = await listSheetTabs(spreadsheetId);
+  const existing = tabs.find((t) => t.title === sheetTitle);
+  let createdTab = false;
+  if (!existing) {
+    await sheetsFetch(accessToken, `/${spreadsheetId}:batchUpdate`, {
+      method: "POST",
+      body: JSON.stringify({ requests: [{ addSheet: { properties: { title: sheetTitle } } }] }),
+    });
+    createdTab = true;
+  }
+  let includeHeader = createdTab;
+  if (!createdTab) {
+    const currentGrid = await fetchSheetGrid(spreadsheetId, sheetTitle);
+    includeHeader = currentGrid.length === 0;
+  }
+  const values = includeHeader ? [headerRow, ...dataRows] : dataRows;
+  const escapedTitle = sheetTitle.replace(/'/g, "''");
+  const range = encodeURIComponent(`'${escapedTitle}'!A1`);
+  await sheetsFetch(accessToken, `/${spreadsheetId}/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    method: "POST",
+    body: JSON.stringify({ values }),
+  });
+  return { url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, createdTab, rowsAdded: values.length };
+}
+
 // Fetches one tab's full used range as a raw 2D array of strings — the exact same shape
 // ingestRawRows()/applyTagRowsFromRecords() already expect from a parsed CSV/XLSX file or a
 // vision-transcribed screenshot.

@@ -12,6 +12,7 @@ import {
   PixelPanel, WarnTip, AISummaryCard,
 } from "./shared.jsx";
 import { useGoogleSheetConnect } from "../hooks/useGoogleSheetConnect.js";
+import { pickSpreadsheet, appendRowsToGoogleSheet } from "../lib/googleSheets.js";
 import { authHeader } from "../lib/workspaceApi.js";
 import { usePersistentState } from "../lib/persist.js";
 import surfaceBaseHabitatIcon from "../assets/icons/surface-base-habitat.png";
@@ -214,7 +215,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // included. Monthly and/or quarterly actual-spend breakdown blocks are optional, controlled by
   // the export-preview modal's granularity choice (which the AI suggestion pre-fills based on
   // whether the originally-imported file for this year had quarterly/annual total columns).
-  const exportBudgets=({includeMonthly=false,includeQuarterly=false}={})=>{
+  // Shared row-building for both export targets (CSV download and append-to-Google-Sheet below)
+  // — pulled out of exportBudgets so the two paths can't silently drift out of sync on column
+  // shape. Returns {header, dataRows} rather than one combined array so a Sheets append can
+  // choose to send just dataRows when appending onto a tab that already has a header.
+  const buildBudgetExportRows=({includeMonthly=false,includeQuarterly=false}={})=>{
     const pacing=computePacing({mergedNormRows:mergedNormRows||[],tags:campaignTags,budgetDims,budgets,year,periodType:"annual",month:null,quarter:null,today:new Date(),budgetRowMeta,defaultForecastModel,combineGoogleChannels});
     const pacingBySeg={};
     pacing.segments.forEach(s=>{pacingBySeg[s.segKey]=s;});
@@ -223,7 +228,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       ...(includeMonthly?MONTHS.map(m=>`${m.label} Actual`):[]),
       ...(includeQuarterly?QUARTERS.map(q=>`${q.key} Actual`):[]),
       "Actual Spend","% of Budget Used","Daily Run Rate","Projected Year-End Spend","Projected Variance ($)","Pacing Status"];
-    const rows=[header];
+    const dataRows=[];
     segs.forEach(seg=>{
       const monthly=budgets[year]?.[seg.key]?.monthly||{};
       const meta=budgetRowMeta[seg.key]||{};
@@ -241,10 +246,38 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
         p&&p.projectedVariance!=null?Math.round(p.projectedVariance*100)/100:"—",
         p?pacingStatusMeta(p.status,T).label:pacingStatusMeta("no-budget",T).label,
       ];
-      rows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),meta._currency||"USD",...amts,total||"",...monthlyActualCols,...quarterlyActualCols,...pacingCols]);
+      dataRows.push([...budgetDims.map(d=>seg[d]),...budgetMetaDims.map(d=>meta[d]||""),meta._currency||"USD",...amts,total||"",...monthlyActualCols,...quarterlyActualCols,...pacingCols]);
     });
-    downloadCSV(rows,`paidhq-budgets-pacing-${year}.csv`);
+    return{header,dataRows};
+  };
+  const exportBudgets=({includeMonthly=false,includeQuarterly=false}={})=>{
+    const{header,dataRows}=buildBudgetExportRows({includeMonthly,includeQuarterly});
+    downloadCSV([header,...dataRows],`paidhq-budgets-pacing-${year}.csv`);
     showNotif("Budgets + pacing snapshot exported");
+  };
+  // Append-to-existing-Google-Sheet (2026-07-31, per Mo — "instead of always creating a new
+  // file"). Reuses pickSpreadsheet()'s Picker flow (same drive.file grant as the rest of the
+  // Sheets integration) so the user chooses an existing spreadsheet, then appendRowsToGoogleSheet
+  // writes into a named tab within it — creating that tab if it doesn't exist yet, or just
+  // appending rows after whatever's already there if it does.
+  const[sheetsAppending,setSheetsAppending]=useState(false);
+  const[appendTabName,setAppendTabName]=useState("");
+  const appendBudgetToGoogleSheet=async()=>{
+    setSheetsAppending(true);
+    try{
+      const picked=await pickSpreadsheet();
+      if(!picked){setSheetsAppending(false);return;} // user closed the picker
+      const{header,dataRows}=buildBudgetExportRows({includeMonthly:exportIncludeMonthly,includeQuarterly:exportIncludeQuarterly});
+      const tabName=(appendTabName||`Budget ${year}`).trim()||`Budget ${year}`;
+      const result=await appendRowsToGoogleSheet(picked.id,tabName,header,dataRows);
+      showNotif(`Appended ${dataRows.length} row${dataRows.length===1?"":"s"} to "${picked.name}" → ${tabName}${result.createdTab?" (new tab)":""}`);
+      setExportPreviewOpen(false);
+    }catch(e){
+      console.error("[budget append to sheet]",e);
+      window.alert(e.message||"Couldn't append to that Google Sheet. Try again.");
+    }finally{
+      setSheetsAppending(false);
+    }
   };
 
   // Opens the export-preview modal and asks the AI to recommend a granularity based on how the
@@ -2098,11 +2131,18 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     <input type="checkbox" checked={exportIncludeQuarterly} onChange={e=>setExportIncludeQuarterly(e.target.checked)} style={{marginTop:2,cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                     <span><span style={{fontSize:13,fontWeight:600,color:T.text}}>Quarterly actual spend</span><br/><span style={{fontSize:12,color:T.textMuted}}>Adds Q1–Q4 Actual columns, matching quarterly totals in your original file.</span></span>
                   </label>
+                  <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+                    <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:6}}>Or append to an existing Google Sheet</div>
+                    <div style={{fontSize:12,color:T.textMuted,marginBottom:8,lineHeight:1.5}}>Pick a spreadsheet you already have — this adds rows to a tab in it instead of creating a new file. The tab is created if it doesn't exist yet.</div>
+                    <input value={appendTabName} onChange={e=>setAppendTabName(e.target.value)} placeholder={`Budget ${year}`}
+                      style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none",fontFamily:T.font}}/>
+                  </div>
                 </>
               )}
             </div>
-            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8,flexWrap:"wrap"}}>
               <Btn onClick={()=>setExportPreviewOpen(false)} variant="ghost" T={T}>Cancel</Btn>
+              <Btn onClick={appendBudgetToGoogleSheet} disabled={exportAnalyzing||sheetsAppending} variant="subtle" T={T}>{sheetsAppending?"Appending…":"→ Append to Sheet"}</Btn>
               <Btn onClick={confirmExport} disabled={exportAnalyzing} variant="primary" T={T}>↓ Download CSV</Btn>
             </div>
           </PixelPanel>
