@@ -184,7 +184,15 @@ async function runExtraction({ sourceBlock, instruction, token, tagDims, notFoun
     body: JSON.stringify({
       system: buildSystemPrompt(tagDims),
       tools: [tool || buildRecordTool(tagDims)],
-      maxTokens: 4000,
+      // 2026-08-02, per Mo hitting "Couldn't read a structured table" on a real Goals & Pacing
+      // PDF — 4000 was sized for a handful of screenshot rows, not a ~28-row table with 15+ metric
+      // fields each (that alone is roughly 10k+ tokens of JSON once you count period/tags/campaign
+      // per row). Once output is cut off mid-tool-call, Anthropic doesn't return a usable tool_use
+      // block at all, which is indistinguishable from "the model didn't find a table" without
+      // checking stop_reason (added below) — this codebase hit the same class of bug once before
+      // with the screenshot budget importer's JSON truncation. 8000 gives real headroom for large
+      // exports without meaningfully changing cost/latency for the common small-table case.
+      maxTokens: 8000,
       messages: [
         {
           role: "user",
@@ -197,7 +205,17 @@ async function runExtraction({ sourceBlock, instruction, token, tagDims, notFoun
   if (!res.ok) throw new Error(data?.error || `Extraction failed (${res.status})`);
 
   const toolUse = (data.content || []).find((b) => b.type === "tool_use" && b.name === "record_reporting_rows");
-  if (!toolUse) throw new Error(notFoundMessage);
+  if (!toolUse) {
+    // A response that got cut off mid-tool-call (ran out of maxTokens before finishing the JSON)
+    // looks identical to "the model didn't find a table" unless stop_reason is checked — this is
+    // exactly what happened on a real ~28-row Goals & Pacing PDF before the maxTokens bump above,
+    // and surfaced as this same generic notFoundMessage with no clue why. Give a distinct, more
+    // actionable message for that specific case.
+    if (data?.stop_reason === "max_tokens") {
+      throw new Error("That table is larger than this can process in one pass right now — try splitting the file or importing fewer rows at a time.");
+    }
+    throw new Error(notFoundMessage);
+  }
   return toolUse.input || {};
 }
 
@@ -268,8 +286,10 @@ export async function classifyAndExtractPdf({ dataUrl, token, tagDims = [] }) {
   const system = `${buildSystemPrompt(tagDims)}
 
 Also classify the file overall by setting file_type and type_confidence on the same tool call, per
-their descriptions in the tool schema — do this even if the extracted rows array ends up empty
-(e.g. because this turns out to be a spend or budget file this tool isn't meant to extract).`;
+their descriptions in the tool schema. IMPORTANT: extracting every row is still the priority — only
+leave the rows array empty if file_type is "spend" or "budget" (this tool genuinely can't extract
+those shapes). For "pipeline" or "goals" files, extract EVERY row from EVERY table, exactly as
+thoroughly as if classification weren't part of this request at all.`;
 
   const res = await fetch("/api/analyze", {
     method: "POST",
@@ -280,7 +300,9 @@ their descriptions in the tool schema — do this even if the extracted rows arr
     body: JSON.stringify({
       system,
       tools: [tool],
-      maxTokens: 4000,
+      // See runExtraction's maxTokens doc comment above — same reasoning, this call needs the
+      // same headroom (it extracts the exact same rows, plus two small extra fields).
+      maxTokens: 8000,
       messages: [
         {
           role: "user",
@@ -299,7 +321,12 @@ their descriptions in the tool schema — do this even if the extracted rows arr
   if (!res.ok) throw new Error(data?.error || `Extraction failed (${res.status})`);
 
   const toolUse = (data.content || []).find((b) => b.type === "tool_use" && b.name === "record_reporting_rows");
-  if (!toolUse) throw new Error("Couldn't read that PDF.");
+  if (!toolUse) {
+    if (data?.stop_reason === "max_tokens") {
+      throw new Error("That file is larger than this can process in one pass right now — try splitting it or importing fewer rows at a time.");
+    }
+    throw new Error("Couldn't read that PDF.");
+  }
   return {
     type: toolUse.input?.file_type || "pipeline",
     confidence: toolUse.input?.type_confidence || "low",
