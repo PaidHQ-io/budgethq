@@ -54,14 +54,17 @@ const CHARTABLE_METRICS = ABSOLUTE_METRIC_OPTIONS.filter((m) => m.key !== "close
 // Groups raw reporting_facts rows into one entry per Campaign or per tag VALUE (unchanged logic
 // from v1 — see this file's METRIC ROLLUP CORRECTNESS doc comment above for why rate-shaped raw
 // metric keys are excluded from the sum here).
+// Shared by aggregateByDimension below AND the row-level search filter (see this component's
+// searchedRows memo) so "which group does this row belong to" is computed exactly one way.
+function groupLabelForRow(r, dimKey) {
+  if (!dimKey) return "All rows";
+  if (dimKey === "campaignName") return (r.campaignName || "").trim() || "(no campaign)";
+  return (r.tags || {})[dimKey] || "(untagged)";
+}
 function aggregateByDimension(rows, dimKey) {
   const map = new Map();
   (rows || []).forEach((r) => {
-    let label;
-    if (!dimKey) label = "All rows";
-    else if (dimKey === "campaignName") label = (r.campaignName || "").trim() || "(no campaign)";
-    else label = (r.tags || {})[dimKey] || "(untagged)";
-
+    const label = groupLabelForRow(r, dimKey);
     if (!map.has(label)) map.set(label, { key: label, rows: [], metrics: {} });
     const g = map.get(label);
     g.rows.push(r);
@@ -159,7 +162,20 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   // Metrics — like Pipeline Tagger's own "Columns:" toggle pills (2026-08-04, per Mo — "select the
   // metrics we want to compare and review and analyze, just like the pipeline tagger").
   const [metrics, setMetrics] = usePersistentState("paidhq_reporting_intel_metrics", DEFAULT_METRICS);
-  const [chartMetric, setChartMetric] = usePersistentState("paidhq_reporting_intel_chartMetric", "pipeline_value");
+  // Trend chart metrics (2026-08-09, per Mo — "allow users to select up to three metrics to view
+  // month by month or quarter by quarter"). Was a single-metric dropdown; now a small multi-select
+  // (still capped at 3 — any more than that on one grouped-bar chart stops being readable,
+  // especially once money/count-scale metrics are mixed together). Renamed persistence key since
+  // the shape changed from a string to an array — the old paidhq_reporting_intel_chartMetric key is
+  // simply abandoned, not migrated (worst case someone's chart resets to the Pipeline Value
+  // default once, same as any other new user).
+  const MAX_CHART_METRICS = 3;
+  const [chartMetrics, setChartMetrics] = usePersistentState("paidhq_reporting_intel_chartMetrics", ["pipeline_value"]);
+  const toggleChartMetric = (key) => setChartMetrics((prev) => {
+    if (prev.includes(key)) return prev.filter((k) => k !== key);
+    if (prev.length >= MAX_CHART_METRICS) return prev; // at cap — ignored, the picker below disables the button so this is just a safety no-op
+    return [...prev, key];
+  });
 
   useEffect(() => {
     listReportingFacts(session, workspace.id)
@@ -227,12 +243,27 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
     setFStatus("all");
   };
 
-  // Grand totals — one plain sum across every filtered row's absolute metrics (always correct),
-  // then the known derived metrics recomputed from THOSE totals (never summed/averaged directly —
-  // see this file's top doc comment). Used as the Total row on both tables below.
+  // Search-by-group fix (2026-08-09, per Mo — "it also needs to filter properly by whatever the
+  // user is filtering for. Right now its not filtering at all"): the search box next to "Slice by"
+  // used to only prune empty groups OUT of the Breakdown table below (filteredSliceGroups), while
+  // the Trend chart, Trend-by-period table, and grand totals kept summing every row regardless —
+  // so typing e.g. "logi" narrowed one table to 1 group but everything above it still showed all
+  // 374 rows' worth of totals. Fixed by pruning at the ROW level, using the exact same
+  // groupLabelForRow the Breakdown table itself groups by, BEFORE periods/totals/groups are
+  // computed — now every number on the page reflects the search the same way the sidebar Filters
+  // already do.
+  const searchedRows = useMemo(() => {
+    const fs = fSearch.trim().toLowerCase();
+    if (!fs) return filteredRows;
+    return filteredRows.filter((r) => groupLabelForRow(r, sliceBy || null).toLowerCase().includes(fs));
+  }, [filteredRows, fSearch, sliceBy]);
+
+  // Grand totals — one plain sum across every filtered+searched row's absolute metrics (always
+  // correct), then the known derived metrics recomputed from THOSE totals (never summed/averaged
+  // directly — see this file's top doc comment). Used as the Total row on both tables below.
   const grandTotals = useMemo(() => {
     const absoluteTotals = {};
-    filteredRows.forEach((r) => {
+    searchedRows.forEach((r) => {
       Object.entries(r.metrics || {}).forEach(([k, v]) => {
         if (isRateMetric(k)) return;
         const n = Number(v);
@@ -240,23 +271,24 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
       });
     });
     return { ...absoluteTotals, ...computeDerivedPipelineMetrics(absoluteTotals), ...computeCustomMetrics(absoluteTotals, customMetrics) };
-  }, [filteredRows, customMetrics]);
+  }, [searchedRows, customMetrics]);
 
   const periodBuckets = useMemo(
-    () => bucketByPeriod(filteredRows).map((b) => ({ ...b, metrics: { ...b.metrics, ...computeDerivedPipelineMetrics(b.metrics), ...computeCustomMetrics(b.metrics, customMetrics) } })),
-    [filteredRows, customMetrics]
+    () => bucketByPeriod(searchedRows).map((b) => ({ ...b, metrics: { ...b.metrics, ...computeDerivedPipelineMetrics(b.metrics), ...computeCustomMetrics(b.metrics, customMetrics) } })),
+    [searchedRows, customMetrics]
   );
 
   const sliceGroups = useMemo(
-    () => aggregateByDimension(filteredRows, sliceBy || null).map((g) => ({ ...g, metrics: { ...g.metrics, ...computeDerivedPipelineMetrics(g.metrics), ...computeCustomMetrics(g.metrics, customMetrics) } })),
-    [filteredRows, sliceBy, customMetrics]
+    () => aggregateByDimension(searchedRows, sliceBy || null).map((g) => ({ ...g, metrics: { ...g.metrics, ...computeDerivedPipelineMetrics(g.metrics), ...computeCustomMetrics(g.metrics, customMetrics) } })),
+    [searchedRows, sliceBy, customMetrics]
   );
 
-  const filteredSliceGroups = useMemo(() => {
-    const fs = fSearch.trim().toLowerCase();
-    const g = fs ? sliceGroups.filter((x) => x.key.toLowerCase().includes(fs)) : sliceGroups;
-    return g.slice().sort((a, b) => b.rows.length - a.rows.length || a.key.localeCompare(b.key));
-  }, [sliceGroups, fSearch]);
+  // No longer needs to re-filter by fSearch itself — sliceGroups above is already built from
+  // searchedRows, so every group here already matches. Just sorts.
+  const filteredSliceGroups = useMemo(
+    () => sliceGroups.slice().sort((a, b) => b.rows.length - a.rows.length || a.key.localeCompare(b.key)),
+    [sliceGroups]
+  );
 
   // FORECAST — see this file's top doc comment for the full "why." Only ever computed for the
   // LAST (most recent) period bucket actually in the filtered set, and only if today's date falls
@@ -288,8 +320,24 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
 
   const activeMetricColumns = useMemo(() => ALL_METRIC_OPTIONS.filter((m) => metrics.includes(m.key)), [metrics, ALL_METRIC_OPTIONS]);
   const toggleMetric = (key) => setMetrics((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
-  const chartValues = useMemo(() => periodBuckets.map((b) => b.metrics[chartMetric] || 0), [periodBuckets, chartMetric]);
-  const chartOption = METRIC_OPTION_BY_KEY[chartMetric] || CHARTABLE_METRICS[0];
+  // One series per selected chart metric, each carrying its own color (assigned by selection
+  // order, stable as long as the selection itself doesn't change) — see TrendMiniChart below for
+  // how these get drawn as grouped bars.
+  const CHART_SERIES_COLORS = useMemo(() => [T.accent, T.success, T.warning], [T.accent, T.success, T.warning]);
+  const chartSeries = useMemo(
+    () => chartMetrics.map((key, i) => {
+      const opt = METRIC_OPTION_BY_KEY[key];
+      return {
+        key,
+        label: opt?.label || key,
+        money: !!opt?.money,
+        color: CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length],
+        values: periodBuckets.map((b) => b.metrics[key] || 0),
+        projectedValue: forecast ? forecast.projected[key] : undefined,
+      };
+    }),
+    [chartMetrics, periodBuckets, forecast, METRIC_OPTION_BY_KEY, CHART_SERIES_COLORS]
+  );
 
   const sliceOptions = [{ value: "campaignName", label: "Campaign" }, ...((tagDims || []).map((d) => ({ value: d, label: d })))];
 
@@ -438,7 +486,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                   style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "6px 10px", fontSize: 12 * (T.fsScale || 1), outline: "none", fontFamily: T.font, width: 190 }}
                 />
                 <span style={{ marginLeft: "auto", fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>
-                  {filteredSliceGroups.length} group{filteredSliceGroups.length === 1 ? "" : "s"} · {filteredRows.length} row{filteredRows.length === 1 ? "" : "s"}
+                  {filteredSliceGroups.length} group{filteredSliceGroups.length === 1 ? "" : "s"} · {searchedRows.length} row{searchedRows.length === 1 ? "" : "s"}
                 </span>
               </div>
 
@@ -502,16 +550,34 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
             <PixelPanel T={T} contentStyle={{ padding: 16, marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                 <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Trend</div>
-                <Sel value={chartMetric} onChange={setChartMetric} T={T} style={{ width: 180 }}>
-                  {CHARTABLE_METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                </Sel>
+                <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>Compare up to {MAX_CHART_METRICS}</div>
+              </div>
+              {/* Multi-select (2026-08-09, per Mo — "select up to three metrics to view month by
+                  month or quarter by quarter") — was a single-metric Sel dropdown; still limited to
+                  CHARTABLE_METRICS (absolute counts/$ only, same as before) since a rate/cost-per's
+                  scale doesn't chart meaningfully next to a raw count/dollar figure. Each selected
+                  metric becomes its own colored series in the grouped-bar chart below; buttons past
+                  the 3rd disable themselves rather than silently doing nothing. */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
+                {CHARTABLE_METRICS.map((m) => {
+                  const on = chartMetrics.includes(m.key);
+                  const atCap = !on && chartMetrics.length >= MAX_CHART_METRICS;
+                  const color = on ? CHART_SERIES_COLORS[chartMetrics.indexOf(m.key) % CHART_SERIES_COLORS.length] : null;
+                  return (
+                    <button key={m.key} onClick={() => toggleChartMetric(m.key)} disabled={atCap}
+                      style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11 * (T.fsScale || 1), background: on ? T.accentBg : "transparent", border: `1px solid ${on ? T.accentBorder : T.border}`, color: atCap ? T.textMuted : on ? T.text : T.textSub, borderRadius: T.r14, padding: "2px 9px", cursor: atCap ? "not-allowed" : "pointer", fontFamily: T.font, fontWeight: 500, opacity: atCap ? 0.5 : 1 }}>
+                      {on && <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />}
+                      {m.label}
+                    </button>
+                  );
+                })}
               </div>
               {periodBuckets.length === 0 ? (
                 <div style={{ padding: "24px 0", textAlign: "center", color: T.textMuted, fontSize: 12 * (T.fsScale || 1) }}>No periods match your filters.</div>
+              ) : chartSeries.length === 0 ? (
+                <div style={{ padding: "24px 0", textAlign: "center", color: T.textMuted, fontSize: 12 * (T.fsScale || 1) }}>Select a metric above to chart it.</div>
               ) : (
-                <TrendMiniChart T={T} periods={periodBuckets.map((b) => labelForPeriod(b.periodType, b.periodStart))} values={chartValues}
-                  hasForecast={!!forecast} projectedValue={forecast ? forecast.projected[chartMetric] : undefined}
-                  money={chartOption?.money} />
+                <TrendMiniChart T={T} periods={periodBuckets.map((b) => labelForPeriod(b.periodType, b.periodStart))} series={chartSeries} hasForecast={!!forecast} />
               )}
             </PixelPanel>
 
@@ -556,7 +622,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                     <tfoot>
                       <tr style={{ borderTop: `2px solid ${T.border}` }}>
                         <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
-                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{filteredRows.length}</td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{searchedRows.length}</td>
                         {activeMetricColumns.map((c) => (
                           <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
                         ))}
@@ -600,7 +666,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                     <tfoot>
                       <tr style={{ borderTop: `2px solid ${T.border}` }}>
                         <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
-                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{filteredRows.length}</td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{searchedRows.length}</td>
                         {activeMetricColumns.map((c) => (
                           <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
                         ))}
@@ -622,56 +688,97 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
 // progress (see this file's top FORECAST doc comment). Deliberately much simpler than
 // PacingDashboard's own TrendBarChart (no dense/multi-series layout branch) since this only ever
 // plots one metric at a time — mixed count/$/% scales don't share an axis meaningfully.
-function TrendMiniChart({ T, periods, values, hasForecast, projectedValue, money }) {
+// Reworked 2026-08-09 (per Mo — "select up to three metrics to view month by month or quarter by
+// quarter") from a single-series bar chart into a grouped-bar chart: one differently-colored bar
+// per selected metric within each period's slot, sharing one linear Y axis. A shared axis is a
+// deliberate simplification — mixing e.g. Spend ($) with a small count metric can make one series
+// look flat next to the other, but a real dual/independent-axis chart is a much bigger build than
+// this tab's existing "simple, honest, table-backed" charts elsewhere, and most real comparisons
+// (spend vs. pipeline value, or leads vs. MQLs vs. SQLs) sit at roughly the same order of magnitude
+// anyway. Y-axis tick labels only get a "$" prefix when EVERY selected series is a money metric —
+// mixing money and count series shows plain numbers rather than mislabeling a count as a dollar
+// figure. Each bar carries a native SVG <title> so the exact value is still available on hover
+// regardless of how the shared axis renders it.
+function TrendMiniChart({ T, periods, series, hasForecast }) {
   const H = 200, padL = 56, padB = 30, padT = 12, padR = 16;
   const n = periods.length + (hasForecast ? 1 : 0);
   const W = 720;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
-  const barGap = Math.min(18, (plotW / n) * 0.35);
-  const barW = Math.max(4, plotW / n - barGap);
-  const allValues = hasForecast ? [...values, projectedValue || 0] : values;
+  const seriesCount = Math.max(1, series.length);
+  const groupGap = Math.min(18, (plotW / n) * 0.3);
+  const groupW = plotW / n - groupGap;
+  const barGap = 3;
+  const barW = Math.max(3, (groupW - barGap * (seriesCount - 1)) / seriesCount);
+  const allMoney = series.length > 0 && series.every((s) => s.money);
+  const allValues = series.flatMap((s) => (hasForecast ? [...s.values, s.projectedValue || 0] : s.values));
   const maxY = Math.max(1, ...allValues);
   const yFor = (v) => padT + plotH - (v / maxY) * plotH;
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxY * f));
-  const fmtTick = (v) => (money ? (v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`) : (v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`));
+  const fmtTick = (v) => { const prefix = allMoney ? "$" : ""; return v >= 1000 ? `${prefix}${Math.round(v / 1000)}k` : `${prefix}${v}`; };
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
-      {yTicks.map((t, i) => {
-        const y = yFor(t);
-        return (
-          <g key={i}>
-            <line x1={padL} y1={y} x2={W - padR} y2={y} stroke={T.border} strokeWidth={1} />
-            <text x={padL - 8} y={y + 3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(t)}</text>
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {yTicks.map((t, i) => {
+          const y = yFor(t);
+          return (
+            <g key={i}>
+              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke={T.border} strokeWidth={1} />
+              <text x={padL - 8} y={y + 3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(t)}</text>
+            </g>
+          );
+        })}
+        {periods.map((p, i) => {
+          const groupX = padL + i * (groupW + groupGap);
+          return (
+            <g key={p + i}>
+              {series.map((s, si) => {
+                const v = s.values[i] || 0;
+                const h = (v / maxY) * plotH;
+                const x = groupX + si * (barW + barGap);
+                return (
+                  <rect key={s.key} x={x} y={padT + plotH - h} width={barW} height={h} fill={s.color} rx={2}>
+                    <title>{s.label}: {v.toLocaleString()}</title>
+                  </rect>
+                );
+              })}
+              <text x={groupX + groupW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{p}</text>
+            </g>
+          );
+        })}
+        {hasForecast && (
+          <g>
+            {(() => {
+              const groupX = padL + periods.length * (groupW + groupGap);
+              return (
+                <>
+                  {series.map((s, si) => {
+                    const v = s.projectedValue || 0;
+                    const h = (v / maxY) * plotH;
+                    const x = groupX + si * (barW + barGap);
+                    return (
+                      <rect key={s.key} x={x} y={padT + plotH - h} width={barW} height={h} fill={s.color} opacity={0.35} rx={2}>
+                        <title>{s.label} (proj.): {v.toLocaleString()}</title>
+                      </rect>
+                    );
+                  })}
+                  <text x={groupX + groupW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>proj.</text>
+                </>
+              );
+            })()}
           </g>
-        );
-      })}
-      {periods.map((p, i) => {
-        const x = padL + i * (barW + barGap);
-        const v = values[i] || 0;
-        const h = (v / maxY) * plotH;
-        return (
-          <g key={p + i}>
-            <rect x={x} y={padT + plotH - h} width={barW} height={h} fill={T.accent} rx={2} />
-            <text x={x + barW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{p}</text>
-          </g>
-        );
-      })}
-      {hasForecast && (
-        <g>
-          {(() => {
-            const x = padL + periods.length * (barW + barGap);
-            const v = projectedValue || 0;
-            const h = (v / maxY) * plotH;
-            return (
-              <>
-                <rect x={x} y={padT + plotH - h} width={barW} height={h} fill={T.accent} opacity={0.35} rx={2} />
-                <text x={x + barW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>proj.</text>
-              </>
-            );
-          })()}
-        </g>
+        )}
+      </svg>
+      {series.length > 1 && (
+        <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginTop: 4 }}>
+          {series.map((s) => (
+            <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: T.textSub, fontFamily: "'DM Sans',sans-serif" }}>{s.label}</span>
+            </div>
+          ))}
+        </div>
       )}
-    </svg>
+    </div>
   );
 }
