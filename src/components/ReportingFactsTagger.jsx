@@ -714,7 +714,8 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
                   orderedDims.map((dim) => {
                     const val = g.tags[dim];
                     const dimIdx = (tagDims || []).indexOf(dim);
-                    const dc = TAG_DIM_COLORS[(dimIdx >= 0 ? dimIdx : 0) % TAG_DIM_COLORS.length];
+                    const dimColors = T.tagDimColors || TAG_DIM_COLORS;
+                    const dc = dimColors[(dimIdx >= 0 ? dimIdx : 0) % dimColors.length];
                     const conflicted = g.conflicts.has(dim);
                     return (
                       <span key={dim} style={{ display: "inline-flex", alignItems: "center", fontSize: 13 * (T.fsScale || 1), fontWeight: 400, padding: "2px 4px 2px 8px", borderRadius: T.r6, background: dc + "14", color: dc, border: `1px solid ${dc}40`, gap: 2, fontFamily: T.font }}>

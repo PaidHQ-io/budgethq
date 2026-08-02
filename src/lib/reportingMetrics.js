@@ -25,6 +25,7 @@ const METRIC_LABEL_OVERRIDES = {
   revenue: "Revenue",
   lead_to_mql_rate: "Lead → MQL Rate",
   mql_to_sal_rate: "MQL → SAL Rate",
+  mql_to_sql_rate: "MQL → SQL Rate",
   sal_to_sql_rate: "SAL → SQL Rate",
   sql_to_win_rate: "SQL → Win Rate",
 };
@@ -95,6 +96,12 @@ export const DERIVED_PIPELINE_METRICS = [
   { key: "cp_win", money: true, compute: (s) => safeDiv(s.spend, s.closed_won) },
   { key: "lead_to_mql_rate", pct: true, compute: (s) => safeDiv(s.mqls, s.leads) },
   { key: "mql_to_sal_rate", pct: true, compute: (s) => safeDiv(s.sals, s.mqls) },
+  // MQL -> SQL (2026-08-04, per Mo's Reporting Intelligence rework request — "conversion rate
+  // metrics for lead -> MQL, MQL -> SQL"): a DIRECT mqls-to-sqls rate, distinct from the
+  // mql_to_sal_rate/sal_to_sql_rate pair above (which chains through SAL) — some workspaces don't
+  // use SAL as a real qualifying stage, so this skips straight from MQL to SQL instead of forcing a
+  // read of two chained rates to get the same answer.
+  { key: "mql_to_sql_rate", pct: true, compute: (s) => safeDiv(s.sqls, s.mqls) },
   { key: "sal_to_sql_rate", pct: true, compute: (s) => safeDiv(s.sqls, s.sals) },
   { key: "sql_to_win_rate", pct: true, compute: (s) => safeDiv(s.closed_won, s.sqls) },
   { key: "win_rate", pct: true, compute: (s) => safeDiv(s.closed_won, (s.closed_won || 0) + (s.closed_lost || 0)) },
@@ -116,7 +123,15 @@ export function computeDerivedPipelineMetrics(sums) {
 // instead of a fixed list — see this file's top doc comment. `excludeRates`: pass true for an
 // AGGREGATED view (multiple rows summed into one) where rate-like keys would be mathematically
 // wrong to show; leave false for a per-row view where the source value is still meaningful as-is.
-const MAX_METRIC_COLUMNS = 8; // caps how wide the summary columns get for an unusually wide export
+// Caps how wide the summary columns get for an unusually wide export. Raised from 8 -> 20
+// (2026-08-04, per Mo — "Pipeline Value is missing"): pipelineColumnMapping.js's own canonical
+// funnel absolutes (PIPELINE_METRIC_MAP_OPTIONS) are 9 keys wide on their own, so the old cap of 8
+// was silently dropping whichever one landed last in a given row's own key-insertion order (CSV
+// column order-dependent, not a fixed drop) — Pipeline Value or Revenue, most often, since they're
+// listed last in that array. 20 comfortably fits all 9 canonical absolutes plus a wide arbitrary
+// client export's own custom columns without meaningfully changing the "don't let this table get
+// absurdly wide" intent the cap exists for.
+const MAX_METRIC_COLUMNS = 20;
 export function deriveMetricColumns(rows, { excludeRates = false } = {}) {
   const seen = [];
   const known = new Set();

@@ -101,6 +101,24 @@ export const THEME_CLASSIC = {
   // to be paired with one rather than dropped straight into a `background` shorthand alone.
   hatchBg:"repeating-linear-gradient(45deg, rgba(165,159,167,0.28) 0px, rgba(165,159,167,0.28) 1.5px, transparent 1.5px, transparent 9px)",
   badgeColors:["#36565F","#5F8190","#141414","#4A7080","#23414A","#7A9CAA","#0A2226"],
+  // tagDimColors (2026-08-04, per Mo — "the colours of the tag pills in the classic theme... some
+  // of them are hard to read and need more contrast"): Campaign Tagger/Pipeline Tagger's tag pills
+  // render this text directly on a near-white pill background (see TAG_DIM_COLORS' own doc comment
+  // in this file — background:dc+"14", color:dc), so unlike badgeColors above (small decorative
+  // dots, where a pale color barely matters) every one of these needs real text contrast against
+  // white. TAG_DIM_COLORS (this file, below) was a single set shared across all three themes and
+  // never actually contrast-checked for a LIGHT background specifically — two of its entries
+  // (#7A9CAA, #8FB0BC) measure under 3:1 against white (WCAG AA needs 4.5:1 for normal text), and a
+  // third (#5F8190) was a marginal 4.18:1. This is Classic's own dedicated override (computed via
+  // the standard WCAG relative-luminance formula against #FFFFFF): the failing two are replaced with
+  // a dark wine (#7A3B42, 8.3:1) and an olive-bronze (#6B5A23, 6.7:1) — different hues on purpose, so
+  // tag pills stay visually distinguishable from the teal family rather than just another shade of
+  // it — and the marginal one is darkened in place (#5F8190 -> #4C676F, 6.0:1). The other five
+  // (#36565F, #141414, #4A7080, #23414A, #0A2226) already cleared 4.5:1 and are unchanged. Aida/
+  // Midnight have no tagDimColors of their own yet (not reported as a problem) — both call sites
+  // fall back to the shared TAG_DIM_COLORS constant below when a theme doesn't define this, so this
+  // is Classic-only and doesn't touch how tag pills look anywhere else.
+  tagDimColors:["#36565F","#4C676F","#141414","#4A7080","#23414A","#7A3B42","#0A2226","#6B5A23"],
   shadow:"none",
   shadowMd:"0 8px 24px rgba(0,0,0,0.08),0 2px 6px rgba(0,0,0,0.04)",
   // shadowCard: PixelPanel's dedicated card shadow (see its doc comment in shared.jsx and the

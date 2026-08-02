@@ -120,6 +120,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[pacingSidebarEl,setPacingSidebarEl]=useState(null); // portal target inside <aside> for the Reporting tab's controls
   const[askSidebarEl,setAskSidebarEl]=useState(null); // portal target inside <aside> for Ask AI's search/projects/labels/pinned-chats panel — replaces the generic "Total spend" stat tiles that used to show here (not relevant to Ask AI, see 2026-07-21 UX note)
   const[reportingAnalyzerSidebarEl,setReportingAnalyzerSidebarEl]=useState(null); // portal target inside <aside> for Pipeline Tagger's own tagged/filtered overview (2026-08-03, per Mo — same reasoning as askSidebarEl above, the generic ad-spend stat tiles never applied to reporting_facts data)
+  const[pipelineTaggerSidebarEl,setPipelineTaggerSidebarEl]=useState(null); // portal target inside <aside> for Reporting Intelligence's Period/Metrics/Summary controls (2026-08-04, per Mo — "works like the budget pacing tab", same portal pattern as pacingSidebarEl above)
   useEffect(()=>{
     const onMove=e=>{
       if(!statsResizing.current)return;
@@ -2656,6 +2657,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             <div ref={setAskSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="reportingAnalyzer"?(
             <div ref={setReportingAnalyzerSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="pipelineTagger"?(
+            <div ref={setPipelineTaggerSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="data"?(
             // Data Sources' own left column (2026-07-24, per Mo — modeled on Funnel.io's Data
             // sources page, scoped down since PaidHQ has ~8 connectors total, not Funnel's scale).
@@ -3914,7 +3917,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         [...tagDims.filter(d=>Object.prototype.hasOwnProperty.call(ts,d)),...Object.keys(ts).filter(d=>!tagDims.includes(d))].map(dim=>{
                           const val=ts[dim];
                           const dimIdx=tagDims.indexOf(dim);
-                          const dc=TAG_DIM_COLORS[(dimIdx>=0?dimIdx:0)%TAG_DIM_COLORS.length];
+                          const dimColors=T.tagDimColors||TAG_DIM_COLORS;
+                          const dc=dimColors[(dimIdx>=0?dimIdx:0)%dimColors.length];
                           return(
                           <span key={dim} style={{display:"inline-flex",alignItems:"center",fontSize:13*(T.fsScale||1),fontWeight:400,padding:"2px 4px 2px 8px",borderRadius:T.r6,background:dc+"14",color:dc,border:`1px solid ${dc}40`,gap:2,fontFamily:T.font}}>
                             <span style={{opacity:0.75,marginRight:1}}>{dim}:</span>
@@ -3974,7 +3978,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl}/></Suspense>}
-      {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims}/></Suspense>}
+      {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} sidebarEl={pipelineTaggerSidebarEl}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever

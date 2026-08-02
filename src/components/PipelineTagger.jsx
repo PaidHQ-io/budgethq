@@ -1,37 +1,60 @@
 import { useEffect, useMemo, useState } from "react";
-import { PixelPanel, SectionLabel, Sel } from "./shared.jsx";
+import { createPortal } from "react-dom";
+import { PixelPanel, SectionLabel, Sel, Icon, Pill, IconField, MatchModeToggle, Divider } from "./shared.jsx";
 import { listReportingFacts } from "../lib/reportingApi.js";
-import { deriveMetricColumns, fmtMetric, isRateMetric, computeDerivedPipelineMetrics, deriveDerivedPipelineColumns } from "../lib/reportingMetrics.js";
+import {
+  fmtMetric, isRateMetric, isMoneyMetric, labelForMetricKey,
+  computeDerivedPipelineMetrics, DERIVED_PIPELINE_METRICS,
+} from "../lib/reportingMetrics.js";
+import { PIPELINE_METRIC_MAP_OPTIONS, AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY } from "../lib/pipelineColumnMapping.js";
+import { stepPeriodStart, labelForPeriod } from "../lib/reportingPeriods.js";
+import { splitFilterTerms, matchesTerms } from "../lib/core.js";
 import { usePersistentState } from "../lib/persist.js";
 
-// This file originally shipped as the "Pipeline Tagger" tab (2026-08-01), then briefly as a thin
-// wrapper around the extracted tagging UI while the tab restructure was in progress (2026-08-02) —
-// see git history / ReportingFactsTagger.jsx's own doc comment for that lineage.
+// REWORKED 2026-08-04 (per Mo — "rework the Reporting Intelligence tab so it works like the budget
+// pacing tab, only for MQLs and Pipeline"). v1 of this tab (see git history) was a single fixed
+// breakdown table with whatever metric columns happened to be present. This version borrows Budget
+// Pacing's OVERALL shape — a sidebar Period control + a Metrics selector feeding both a trend chart
+// and a table, plus a run-rate projection for the period still in progress — without literally
+// reusing PacingDashboard.jsx's own engine, which is built around daily spend_rows/budgets and
+// doesn't apply here (reporting_facts is monthly/quarterly/yearly totals, never daily — see the
+// FORECAST section below for the different, simpler model this uses instead).
 //
-// REPURPOSED 2026-08-02 (per Mo, confirmed via a direct question about what this tab should become
-// once tagging moved to the new "Pipeline Tagger" tab — ReportingAnalyzer.jsx — which now embeds
-// ReportingFactsTagger directly): this file is now "Reporting Intelligence" v1 — a first-pass
-// breakdown/analysis view over already-tagged reporting_facts, sliceable by any tag dimension (or
-// by Campaign), instead of a second copy of the tagging UI. It reads the exact same
-// core.reporting_facts rows Pipeline Tagger writes/tags; it never writes anything itself.
+// FILTER SYSTEM: intentionally the exact same interaction pattern as ReportingFactsTagger's own
+// toolbar (2026-08-04, per Mo — "the same filter system") — Campaign/Ad Group contains+excludes
+// with AND/OR mode toggles, a Channel dropdown, a Tag contains+excludes, and a tagged/untagged
+// status filter — operating on individual reporting_facts rows BEFORE they get bucketed into
+// periods or sliced by dimension below, so every downstream number already reflects the filters.
 //
-// METRIC ROLLUP CORRECTNESS: summing a plain count (spend, mqls, clicks) across rows is always
-// correct; summing or averaging a rate/cost-per/percentage metric (ctr, cp_mql, mql_attainment_pct)
-// across rows is NOT — the correct value has to be recomputed from the underlying counts, and with
-// an open per-client metrics schema (2026-08-02, see reportingAI.js's OPEN METRICS SCHEMA doc
-// comment) there's no reliable generic way to know which raw counts an ARBITRARY client's rate key
-// was derived from. So this view's aggregation (see reportingMetrics.js's isRateMetric/
-// deriveMetricColumns) still EXCLUDES rate-like metrics from every summed group rather than showing
-// a mathematically wrong number for anything outside this app's own known vocabulary.
+// METRIC ROLLUP CORRECTNESS (unchanged from v1 — see DERIVED_PIPELINE_METRICS' own doc comment in
+// reportingMetrics.js): every absolute funnel count/dollar figure (spend, leads, mqls, ..., pipeline
+// value, revenue) is safe to sum across rows; a rate/cost-per metric is NEVER summed or averaged
+// directly — it's recomputed from each bucket's own SUMMED absolutes, after summing, never before.
 //
-// The one place this got a real fix instead of just an exclusion (2026-08-02, per Mo's pipeline
-// column-mapping request): the 9 canonical funnel absolutes pipelineColumnMapping.js's mapping step
-// offers (spend, leads, mqls, sals, sqls, closed_won, closed_lost, pipeline_value, revenue) have a
-// KNOWN, fixed set of derived cost-per/conversion-rate metrics (reportingMetrics.js's
-// DERIVED_PIPELINE_METRICS) — unlike an arbitrary client-supplied rate key, exactly which absolutes
-// back e.g. "win_rate" is never ambiguous here. See the computeDerivedPipelineMetrics call below,
-// applied AFTER summing (never averaging the rates themselves) — that ordering is what makes it
-// correct.
+// FORECAST: reporting_facts has no daily grain to project from the way spend_rows does, so instead
+// of Auto/Committed/Manual trailing-window blending, this uses a single, simple, clearly-labeled
+// model — CALENDAR ELAPSED-TIME run-rate — applied ONLY to the most recent period bucket if today's
+// date actually falls inside it (i.e. that period is still in progress): projected = actual-to-date
+// / (days elapsed in the period / total days in the period). A period that's already fully closed
+// just shows its actual total, no projection. This is legitimate specifically because canonical
+// pipeline metrics (leads, mqls, spend, ...) are cumulative counts that only grow through a period —
+// unlike ad spend's own day-of-week noise, there's no seasonality correction to make here, just a
+// straight-line extrapolation of what's landed so far.
+const RESERVED_TAG_KEYS = new Set([AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY]);
+
+const ABSOLUTE_METRIC_OPTIONS = PIPELINE_METRIC_MAP_OPTIONS.map((m) => ({ key: m.key, label: m.label, money: isMoneyMetric(m.key), pct: false, kind: "absolute" }));
+const DERIVED_METRIC_OPTIONS = DERIVED_PIPELINE_METRICS.map((d) => ({ key: d.key, label: labelForMetricKey(d.key), money: !!d.money, pct: !!d.pct, kind: "derived" }));
+const ALL_METRIC_OPTIONS = [...ABSOLUTE_METRIC_OPTIONS, ...DERIVED_METRIC_OPTIONS];
+const METRIC_OPTION_BY_KEY = Object.fromEntries(ALL_METRIC_OPTIONS.map((m) => [m.key, m]));
+// Default selection centers on MQLs + Pipeline (per Mo's framing of this tab's focus) plus the
+// specific cost-per/conversion metrics called out by name, with Spend/Leads/SQLs along for context
+// since a cost-per or conversion number is meaningless without its inputs visible alongside it.
+const DEFAULT_METRICS = ["spend", "leads", "mqls", "sqls", "pipeline_value", "cp_lead", "cp_mql", "cp_sql", "lead_to_mql_rate", "mql_to_sql_rate"];
+const CHARTABLE_METRICS = ABSOLUTE_METRIC_OPTIONS.filter((m) => m.key !== "closed_lost"); // any absolute count/$ is chartable; rates/cost-per have an incompatible scale, kept table-only
+
+// Groups raw reporting_facts rows into one entry per Campaign or per tag VALUE (unchanged logic
+// from v1 — see this file's METRIC ROLLUP CORRECTNESS doc comment above for why rate-shaped raw
+// metric keys are excluded from the sum here).
 function aggregateByDimension(rows, dimKey) {
   const map = new Map();
   (rows || []).forEach((r) => {
@@ -44,7 +67,7 @@ function aggregateByDimension(rows, dimKey) {
     const g = map.get(label);
     g.rows.push(r);
     Object.entries(r.metrics || {}).forEach(([k, v]) => {
-      if (isRateMetric(k)) return; // see this file's METRIC ROLLUP CORRECTNESS doc comment above
+      if (isRateMetric(k)) return;
       const n = Number(v);
       if (isNaN(n)) return;
       g.metrics[k] = (g.metrics[k] || 0) + n;
@@ -53,200 +76,574 @@ function aggregateByDimension(rows, dimKey) {
   return Array.from(map.values());
 }
 
-export default function PipelineTagger({ T, session, workspace, tagDims }) {
+// One bucket per exact (periodType, periodStart) pair actually present in the filtered rows — never
+// re-grained (a quarter-imported row never gets split into 3 months, a run of monthly rows never
+// gets merged up into a quarter) so a bucket's own total is always exactly what was imported for it,
+// summed only when more than one row shares that literal period (e.g. two campaigns both dated the
+// same month). Sorted chronologically by periodStart for the trend chart/table.
+function bucketByPeriod(rows) {
+  const map = new Map();
+  (rows || []).forEach((r) => {
+    if (!r.periodStart) return;
+    const key = `${r.periodType}|${r.periodStart}`;
+    if (!map.has(key)) map.set(key, { key, periodType: r.periodType, periodStart: r.periodStart, rows: [], metrics: {} });
+    const b = map.get(key);
+    b.rows.push(r);
+    Object.entries(r.metrics || {}).forEach(([k, v]) => {
+      if (isRateMetric(k)) return;
+      const n = Number(v);
+      if (isNaN(n)) return;
+      b.metrics[k] = (b.metrics[k] || 0) + n;
+    });
+  });
+  return Array.from(map.values()).sort((a, b) => a.periodStart.localeCompare(b.periodStart));
+}
+
+// [start, end) as real Date objects for a period bucket, using stepPeriodStart to find the NEXT
+// period's start rather than hand-rolling month/quarter/year-length math again here.
+function periodBounds(periodType, periodStart) {
+  const start = new Date(`${periodStart}T00:00:00Z`);
+  const nextStart = stepPeriodStart(periodType, periodStart);
+  const end = nextStart ? new Date(`${nextStart}T00:00:00Z`) : null;
+  return { start, end };
+}
+
+const fIn = { background: "transparent", border: "none", outline: "none", width: "100%" };
+
+export default function PipelineTagger({ T, session, workspace, tagDims, sidebarEl }) {
   const [rows, setRows] = useState(null); // null = loading
   const [loadError, setLoadError] = useState("");
 
+  // Filters — see this file's top "FILTER SYSTEM" doc comment.
+  const [filtersOpen, setFiltersOpen] = usePersistentState("paidhq_reporting_intel_filtersOpen", true);
+  const [fCampaignName, setFCampaignName] = usePersistentState("paidhq_reporting_intel_fCampaignName", "");
+  const [fCampaignNameExclude, setFCampaignNameExclude] = usePersistentState("paidhq_reporting_intel_fCampaignNameExclude", "");
+  const [fCampaignNameInclMode, setFCampaignNameInclMode] = usePersistentState("paidhq_reporting_intel_fCampaignNameInclMode", "or");
+  const [fCampaignNameExclMode, setFCampaignNameExclMode] = usePersistentState("paidhq_reporting_intel_fCampaignNameExclMode", "or");
+  const [fAdGroup, setFAdGroup] = usePersistentState("paidhq_reporting_intel_fAdGroup", "");
+  const [fAdGroupExclude, setFAdGroupExclude] = usePersistentState("paidhq_reporting_intel_fAdGroupExclude", "");
+  const [fAdGroupInclMode, setFAdGroupInclMode] = usePersistentState("paidhq_reporting_intel_fAdGroupInclMode", "or");
+  const [fAdGroupExclMode, setFAdGroupExclMode] = usePersistentState("paidhq_reporting_intel_fAdGroupExclMode", "or");
+  const [fChannel, setFChannel] = usePersistentState("paidhq_reporting_intel_fChannel", "");
+  const [fTag, setFTag] = usePersistentState("paidhq_reporting_intel_fTag", "");
+  const [fTagExclude, setFTagExclude] = usePersistentState("paidhq_reporting_intel_fTagExclude", "");
+  const [fTagInclMode, setFTagInclMode] = usePersistentState("paidhq_reporting_intel_fTagInclMode", "or");
+  const [fTagExclMode, setFTagExclMode] = usePersistentState("paidhq_reporting_intel_fTagExclMode", "or");
+  const [fStatus, setFStatus] = usePersistentState("paidhq_reporting_intel_fStatus", "all");
+
+  // Period filter — grain + range, modeled on Budget Pacing's own sidebar Period block (2026-08-04,
+  // per Mo — "include the period filter, just like with the budget pacer"). "Grain" narrows to rows
+  // imported at one periodType; the From/To range narrows by calendar month regardless of grain
+  // (a quarter/year row's periodStart is always the 1st of a month, so comparing "YYYY-MM" slices
+  // works for every grain without special-casing any of them).
+  const now = new Date();
+  const nowMs = now.getTime(); // captured once per render (not inside a memo) — same pattern PacingDashboard's own `now` uses
+  const nowMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const defaultRangeStart = (() => { const d = new Date(now.getFullYear(), now.getMonth() - 11, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; })();
+  const [periodGrain, setPeriodGrain] = usePersistentState("paidhq_reporting_intel_periodGrain", "all"); // all|month|quarter|year
+  const [rangeStart, setRangeStart] = usePersistentState("paidhq_reporting_intel_rangeStart", defaultRangeStart);
+  const [rangeEnd, setRangeEnd] = usePersistentState("paidhq_reporting_intel_rangeEnd", nowMonthStr);
+
   const [sliceBy, setSliceBy] = usePersistentState("paidhq_reporting_intel_sliceBy", "campaignName");
-  const [fSource, setFSource] = usePersistentState("paidhq_reporting_intel_fSource", "");
-  const [fPeriodType, setFPeriodType] = usePersistentState("paidhq_reporting_intel_fPeriodType", "all");
   const [fSearch, setFSearch] = usePersistentState("paidhq_reporting_intel_fSearch", "");
+  // Metrics — like Pipeline Tagger's own "Columns:" toggle pills (2026-08-04, per Mo — "select the
+  // metrics we want to compare and review and analyze, just like the pipeline tagger").
+  const [metrics, setMetrics] = usePersistentState("paidhq_reporting_intel_metrics", DEFAULT_METRICS);
+  const [chartMetric, setChartMetric] = usePersistentState("paidhq_reporting_intel_chartMetric", "pipeline_value");
 
   useEffect(() => {
     listReportingFacts(session, workspace.id)
-      .then((r) => {
-        setRows(r);
-        setLoadError("");
-      })
+      .then((r) => { setRows(r); setLoadError(""); })
       .catch((err) => setLoadError(err.message || "Couldn't load pipeline data."));
   }, [session, workspace.id]);
 
-  const allSources = useMemo(
-    () => Array.from(new Set((rows || []).map((r) => r.source).filter(Boolean))).sort(),
+  const distinctChannels = useMemo(
+    () => Array.from(new Set((rows || []).map((r) => (r.tags || {})[CHANNEL_TAG_KEY]).filter(Boolean))).sort(),
     [rows]
   );
 
   const filteredRows = useMemo(() => {
     return (rows || []).filter((r) => {
-      if (fSource && r.source !== fSource) return false;
-      if (fPeriodType !== "all" && r.periodType !== fPeriodType) return false;
+      const campaignName = (r.campaignName || "").trim();
+      const adGroup = ((r.tags || {})[AD_GROUP_TAG_KEY] || "").trim();
+      const channel = (r.tags || {})[CHANNEL_TAG_KEY] || "";
+      const regularTags = Object.entries(r.tags || {}).filter(([k]) => !RESERVED_TAG_KEYS.has(k));
+      if (fCampaignName) {
+        const terms = splitFilterTerms(fCampaignName);
+        if (terms.length && !matchesTerms(campaignName.toLowerCase(), terms, fCampaignNameInclMode)) return false;
+      }
+      if (fCampaignNameExclude) {
+        const terms = splitFilterTerms(fCampaignNameExclude);
+        if (terms.length && matchesTerms(campaignName.toLowerCase(), terms, fCampaignNameExclMode)) return false;
+      }
+      if (fAdGroup) {
+        const terms = splitFilterTerms(fAdGroup);
+        if (terms.length && !matchesTerms(adGroup.toLowerCase(), terms, fAdGroupInclMode)) return false;
+      }
+      if (fAdGroupExclude) {
+        const terms = splitFilterTerms(fAdGroupExclude);
+        if (terms.length && matchesTerms(adGroup.toLowerCase(), terms, fAdGroupExclMode)) return false;
+      }
+      if (fChannel && channel !== fChannel) return false;
+      if (fTag) {
+        const s = regularTags.map(([d, v]) => `${d}:${v}`).join(" ").toLowerCase();
+        const terms = splitFilterTerms(fTag);
+        if (terms.length && !matchesTerms(s, terms, fTagInclMode)) return false;
+      }
+      if (fTagExclude) {
+        const s = regularTags.map(([d, v]) => `${d}:${v}`).join(" ").toLowerCase();
+        const terms = splitFilterTerms(fTagExclude);
+        if (terms.length && matchesTerms(s, terms, fTagExclMode)) return false;
+      }
+      if (fStatus !== "all") {
+        const tagged = regularTags.length > 0;
+        if (fStatus === "tagged" && !tagged) return false;
+        if (fStatus === "untagged" && tagged) return false;
+      }
+      if (periodGrain !== "all" && r.periodType !== periodGrain) return false;
+      const rowMonth = (r.periodStart || "").slice(0, 7);
+      if (rangeStart && rowMonth < rangeStart) return false;
+      if (rangeEnd && rowMonth > rangeEnd) return false;
       return true;
     });
-  }, [rows, fSource, fPeriodType]);
+  }, [rows, fCampaignName, fCampaignNameExclude, fCampaignNameInclMode, fCampaignNameExclMode, fAdGroup, fAdGroupExclude, fAdGroupInclMode, fAdGroupExclMode, fChannel, fTag, fTagExclude, fTagInclMode, fTagExclMode, fStatus, periodGrain, rangeStart, rangeEnd]);
 
-  // Each group's own absolute metrics get summed first (aggregateByDimension), THEN the known
-  // pipeline derived metrics (cp_lead, win_rate, roas, ...) get computed from that group's own sums
-  // and merged in — never the other way around (never sum/average an already-derived rate across
-  // groups). Safe to merge into one `metrics` object: the 9 canonical absolute keys and the 11
-  // derived keys never collide (see reportingMetrics.js's PIPELINE_METRIC_MAP_OPTIONS/
-  // DERIVED_PIPELINE_METRICS), and isRateMetric still correctly tells the two apart below.
-  const groups = useMemo(() => {
-    return aggregateByDimension(filteredRows, sliceBy || null).map((g) => ({
-      ...g,
-      metrics: { ...g.metrics, ...computeDerivedPipelineMetrics(g.metrics) },
-    }));
-  }, [filteredRows, sliceBy]);
-  // Absolute (summable) columns first, then whichever derived pipeline metrics actually have a
-  // value in at least one group — deriveMetricColumns' excludeRates:true still filters the derived
-  // keys back out of this first call (they match isRateMetric), so they only show up once, via
-  // deriveDerivedPipelineColumns.
-  const absoluteColumns = useMemo(() => deriveMetricColumns(groups, { excludeRates: true }), [groups]);
-  const derivedColumns = useMemo(() => deriveDerivedPipelineColumns(groups.map((g) => g.metrics)), [groups]);
-  const columns = useMemo(() => [...absoluteColumns, ...derivedColumns], [absoluteColumns, derivedColumns]);
+  const hasF = fCampaignName || fCampaignNameExclude || fAdGroup || fAdGroupExclude || fChannel || fTag || fTagExclude || fStatus !== "all";
+  const clearF = () => {
+    setFCampaignName(""); setFCampaignNameExclude("");
+    setFAdGroup(""); setFAdGroupExclude("");
+    setFChannel("");
+    setFTag(""); setFTagExclude("");
+    setFStatus("all");
+  };
 
-  const filteredGroups = useMemo(() => {
-    const fs = fSearch.trim().toLowerCase();
-    const g = fs ? groups.filter((x) => x.key.toLowerCase().includes(fs)) : groups;
-    const primaryKey = columns[0]?.key;
-    return g.slice().sort((a, b) => {
-      const diff = (primaryKey ? b.metrics[primaryKey] || 0 : 0) - (primaryKey ? a.metrics[primaryKey] || 0 : 0);
-      return diff !== 0 ? diff : a.key.localeCompare(b.key);
-    });
-  }, [groups, fSearch, columns]);
-
-  // Absolute totals are a plain sum across groups (always correct for a count/dollar column); the
-  // derived totals are then recomputed from THOSE totals, not summed from each group's own derived
-  // value — summing e.g. per-group win rates would be exactly the mathematically-wrong average this
-  // whole rollup-correctness rule exists to avoid.
-  const totals = useMemo(() => {
+  // Grand totals — one plain sum across every filtered row's absolute metrics (always correct),
+  // then the known derived metrics recomputed from THOSE totals (never summed/averaged directly —
+  // see this file's top doc comment). Used as the Total row on both tables below.
+  const grandTotals = useMemo(() => {
     const absoluteTotals = {};
-    filteredGroups.forEach((g) => {
-      absoluteColumns.forEach((c) => {
-        absoluteTotals[c.key] = (absoluteTotals[c.key] || 0) + (g.metrics[c.key] || 0);
+    filteredRows.forEach((r) => {
+      Object.entries(r.metrics || {}).forEach(([k, v]) => {
+        if (isRateMetric(k)) return;
+        const n = Number(v);
+        if (!isNaN(n)) absoluteTotals[k] = (absoluteTotals[k] || 0) + n;
       });
     });
     return { ...absoluteTotals, ...computeDerivedPipelineMetrics(absoluteTotals) };
-  }, [filteredGroups, absoluteColumns]);
+  }, [filteredRows]);
+
+  const periodBuckets = useMemo(
+    () => bucketByPeriod(filteredRows).map((b) => ({ ...b, metrics: { ...b.metrics, ...computeDerivedPipelineMetrics(b.metrics) } })),
+    [filteredRows]
+  );
+
+  const sliceGroups = useMemo(
+    () => aggregateByDimension(filteredRows, sliceBy || null).map((g) => ({ ...g, metrics: { ...g.metrics, ...computeDerivedPipelineMetrics(g.metrics) } })),
+    [filteredRows, sliceBy]
+  );
+
+  const filteredSliceGroups = useMemo(() => {
+    const fs = fSearch.trim().toLowerCase();
+    const g = fs ? sliceGroups.filter((x) => x.key.toLowerCase().includes(fs)) : sliceGroups;
+    return g.slice().sort((a, b) => b.rows.length - a.rows.length || a.key.localeCompare(b.key));
+  }, [sliceGroups, fSearch]);
+
+  // FORECAST — see this file's top doc comment for the full "why." Only ever computed for the
+  // LAST (most recent) period bucket actually in the filtered set, and only if today's date falls
+  // inside that bucket's own [start,end) — a fully-closed historical period never gets a projection,
+  // it just shows its real total.
+  const forecast = useMemo(() => {
+    if (!periodBuckets.length) return null;
+    const last = periodBuckets[periodBuckets.length - 1];
+    if (!["month", "quarter", "year"].includes(last.periodType)) return null;
+    const { start, end } = periodBounds(last.periodType, last.periodStart);
+    if (!end) return null;
+    if (nowMs < start.getTime() || nowMs >= end.getTime()) return null;
+    const totalMs = end.getTime() - start.getTime();
+    const elapsedMs = Math.max(nowMs - start.getTime(), totalMs / 1000); // floor so day-1 doesn't divide by ~0
+    const fraction = elapsedMs / totalMs;
+    const projectedAbsolutes = {};
+    ABSOLUTE_METRIC_OPTIONS.forEach((m) => {
+      const v = last.metrics[m.key];
+      if (v !== undefined) projectedAbsolutes[m.key] = v / fraction;
+    });
+    return {
+      bucket: last,
+      fraction,
+      elapsedDays: Math.round(elapsedMs / 86400000),
+      totalDays: Math.round(totalMs / 86400000),
+      projected: { ...projectedAbsolutes, ...computeDerivedPipelineMetrics(projectedAbsolutes) },
+    };
+  }, [periodBuckets, nowMs]);
+
+  const activeMetricColumns = useMemo(() => ALL_METRIC_OPTIONS.filter((m) => metrics.includes(m.key)), [metrics]);
+  const toggleMetric = (key) => setMetrics((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  const chartValues = useMemo(() => periodBuckets.map((b) => b.metrics[chartMetric] || 0), [periodBuckets, chartMetric]);
+  const chartOption = METRIC_OPTION_BY_KEY[chartMetric] || CHARTABLE_METRICS[0];
 
   const sliceOptions = [{ value: "campaignName", label: "Campaign" }, ...((tagDims || []).map((d) => ({ value: d, label: d })))];
 
+  // Left-column overview + controls (2026-08-04, per Mo — "works like the budget pacing tab"),
+  // portaled into the shared stats <aside> the same way PacingDashboard/ReportingFactsTagger do —
+  // see PaidHQ.jsx's own view==="pipelineTagger" branch for the portal target this renders into.
+  const sidebarPortal = sidebarEl && createPortal(
+    <div className="bhq-scroll" style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
+      <SectionLabel T={T} style={{ marginBottom: 8 }}>Reporting Intelligence</SectionLabel>
+      <div style={{ paddingBottom: 12 }}>
+        <SectionLabel T={T} style={{ marginBottom: 8, fontSize: 11 * (T.fsScale || 1) }}>Period</SectionLabel>
+        <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+          {[["all", "All"], ["month", "Mo"], ["quarter", "Qtr"], ["year", "Yr"]].map(([k, l]) => (
+            <button key={k} className={periodGrain === k ? undefined : "bhq-row"} onClick={() => setPeriodGrain(k)}
+              style={{ flex: 1, padding: "6px 0", borderRadius: T.r6, border: `1.5px solid ${periodGrain === k ? T.accentHover : T.border}`, background: periodGrain === k ? T.accentBg : "transparent", color: periodGrain === k ? T.text : T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontWeight: periodGrain === k ? 700 : 400, fontFamily: T.font }}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+          <span style={{ fontSize: 10 * (T.fsScale || 1), color: T.textMuted, width: 28 }}>From</span>
+          <input type="month" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} style={{ flex: 1, background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "5px 7px", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, outline: "none" }} />
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: 10 * (T.fsScale || 1), color: T.textMuted, width: 28 }}>To</span>
+          <input type="month" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} style={{ flex: 1, background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "5px 7px", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, outline: "none" }} />
+        </div>
+        {forecast ? (
+          <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, lineHeight: 1.5 }}>
+            {labelForPeriod(forecast.bucket.periodType, forecast.bucket.periodStart)} in progress — {forecast.elapsedDays} of {forecast.totalDays} days elapsed
+          </div>
+        ) : (
+          <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, lineHeight: 1.5 }}>
+            {periodBuckets.length} period{periodBuckets.length === 1 ? "" : "s"} in range
+          </div>
+        )}
+      </div>
+      <Divider T={T} />
+      <div style={{ padding: "12px 0" }}>
+        <SectionLabel T={T} style={{ marginBottom: 6, fontSize: 11 * (T.fsScale || 1) }}>Funnel metrics</SectionLabel>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
+          {ABSOLUTE_METRIC_OPTIONS.map((m) => {
+            const on = metrics.includes(m.key);
+            return (
+              <button key={m.key} onClick={() => toggleMetric(m.key)}
+                style={{ fontSize: 11 * (T.fsScale || 1), background: on ? T.accentBg : "transparent", border: `1px solid ${on ? T.accentBorder : T.border}`, color: on ? T.text : T.textMuted, borderRadius: T.r14, padding: "2px 9px", cursor: "pointer", fontFamily: T.font, fontWeight: 500 }}>
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+        <SectionLabel T={T} style={{ marginBottom: 6, fontSize: 11 * (T.fsScale || 1) }}>Cost &amp; conversion</SectionLabel>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {DERIVED_METRIC_OPTIONS.map((m) => {
+            const on = metrics.includes(m.key);
+            return (
+              <button key={m.key} onClick={() => toggleMetric(m.key)}
+                style={{ fontSize: 11 * (T.fsScale || 1), background: on ? T.accentBg : "transparent", border: `1px solid ${on ? T.accentBorder : T.border}`, color: on ? T.text : T.textMuted, borderRadius: T.r14, padding: "2px 9px", cursor: "pointer", fontFamily: T.font, fontWeight: 500 }}>
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <Divider T={T} />
+      <div style={{ padding: "12px 0", display: "flex", flexDirection: "column", gap: 10 }}>
+        <SectionLabel T={T} style={{ marginBottom: 2 }}>Summary</SectionLabel>
+        {activeMetricColumns.slice(0, 6).map((c) => (
+          <PixelPanel key={c.key} T={T} contentStyle={{ padding: "12px 14px", background: T.bg }}>
+            <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 600, color: T.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>{c.label}</div>
+            <div style={{ fontSize: 19 * (T.fsScale || 1), fontWeight: 700, color: T.text, fontFamily: T.font }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</div>
+            {forecast && forecast.projected[c.key] !== undefined && (
+              <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.accent, marginTop: 4 }}>Proj. {fmtMetric(forecast.projected[c.key], c.money, c.pct)}</div>
+            )}
+          </PixelPanel>
+        ))}
+        {activeMetricColumns.length === 0 && <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>Select a metric above to see it here.</div>}
+      </div>
+    </div>,
+    sidebarEl
+  );
+
   if (rows === null && !loadError) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>Loading…</div>
+      <>
+        {sidebarPortal}
+        <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>Loading…</div>
+      </>
     );
   }
 
   return (
-    <div style={{ padding: 28, maxWidth: 1300, margin: "0 auto", fontFamily: T.font, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
-      <SectionLabel T={T}>Reporting Intelligence</SectionLabel>
-      <div style={{ fontSize: 16 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Pipeline performance breakdown</div>
-      <div style={{ fontSize: 13 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
-        Slices every tagged reporting row by Campaign or any tag dimension this workspace uses, with counts and dollar
-        figures summed correctly across periods. Cost-per and conversion-rate columns for the standard funnel metrics
-        (CP Lead, CP MQL, Win Rate, ROAS, etc.) are recomputed from those summed absolutes for each group — never
-        averaged across rows. Any other rate/percentage/cost-per metric this workspace's data happens to include is
-        still left out of these sums on purpose, since there's no reliable way to know what it should be recomputed
-        from; see this view's per-row detail in Pipeline Tagger for those. Tag more rows there to sharpen this
-        breakdown.
-      </div>
-
-      {loadError && (
-        <div style={{ padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), color: T.danger, marginBottom: 16 }}>
-          {loadError}
-        </div>
-      )}
-
-      {rows.length === 0 && !loadError ? (
-        <PixelPanel T={T} contentStyle={{ padding: 40, textAlign: "center" }}>
-          <div style={{ fontSize: 15 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Nothing imported yet</div>
-          <div style={{ fontSize: 13 * (T.fsScale || 1), color: T.textSub }}>Import a screenshot or file in Pipeline Tagger first.</div>
-        </PixelPanel>
-      ) : (
-        <>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-            <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>Slice by</span>
-            <Sel value={sliceBy} onChange={setSliceBy} T={T} style={{ width: 160 }}>
-              {sliceOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </Sel>
-            <Sel value={fSource} onChange={setFSource} T={T} style={{ width: 170 }}>
-              <option value="">All sources</option>
-              {allSources.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </Sel>
-            <Sel value={fPeriodType} onChange={setFPeriodType} T={T} style={{ width: 150 }}>
-              <option value="all">All grains</option>
-              <option value="day">Daily</option>
-              <option value="week">Weekly</option>
-              <option value="month">Monthly</option>
-              <option value="quarter">Quarterly</option>
-              <option value="year">Yearly</option>
-            </Sel>
-            <input
-              value={fSearch}
-              onChange={(e) => setFSearch(e.target.value)}
-              placeholder={`Filter ${sliceOptions.find((o) => o.value === sliceBy)?.label.toLowerCase() || "value"}…`}
-              style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "6px 10px", fontSize: 12 * (T.fsScale || 1), outline: "none", fontFamily: T.font, width: 190 }}
-            />
-            <span style={{ marginLeft: "auto", fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>
-              {filteredGroups.length} group{filteredGroups.length === 1 ? "" : "s"} · {filteredRows.length} row{filteredRows.length === 1 ? "" : "s"}
-            </span>
+    <>
+      {sidebarPortal}
+      <div style={{ padding: 24, overflow: "auto", height: "100%", boxSizing: "border-box", fontFamily: T.font }}>
+        {loadError && (
+          <div style={{ padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), color: T.danger, marginBottom: 16 }}>
+            {loadError}
           </div>
+        )}
 
-          <PixelPanel T={T} contentStyle={{ padding: 0 }}>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                    {[sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice", "Rows", ...columns.map((c) => c.label)].map((h, i) => (
-                      <th key={i} style={{ padding: "8px 10px", fontSize: 10 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 2 ? "right" : "left" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredGroups.length === 0 && (
-                    <tr>
-                      <td colSpan={2 + columns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>
-                        No groups match your filters.
-                      </td>
-                    </tr>
-                  )}
-                  {filteredGroups.map((g) => (
-                    <tr key={g.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
-                      <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={g.key}>
-                        {g.key}
-                      </td>
-                      <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1) }}>{g.rows.length}</td>
-                      {columns.map((c) => (
-                        <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>
-                          {fmtMetric(g.metrics[c.key], c.money, c.pct)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-                {filteredGroups.length > 0 && (
-                  <tfoot>
-                    <tr style={{ borderTop: `2px solid ${T.border}` }}>
-                      <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
-                      <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{filteredRows.length}</td>
-                      {columns.map((c) => (
-                        <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>
-                          {fmtMetric(totals[c.key], c.money, c.pct)}
-                        </td>
-                      ))}
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
+        {rows.length === 0 && !loadError ? (
+          <PixelPanel T={T} contentStyle={{ padding: 40, textAlign: "center" }}>
+            <div style={{ fontSize: 15 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Nothing imported yet</div>
+            <div style={{ fontSize: 13 * (T.fsScale || 1), color: T.textSub }}>Import a file in Pipeline Tagger first.</div>
           </PixelPanel>
-        </>
+        ) : (
+          <>
+            {/* Filter toolbar — see this file's top "FILTER SYSTEM" doc comment. */}
+            <div style={{ border: `1px solid ${T.border}`, borderRadius: T.r8, background: T.surfaceEl, marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", flexWrap: "wrap" }}>
+                <button onClick={() => setFiltersOpen((o) => !o)} title={filtersOpen ? "Hide filters" : "Show filters"}
+                  style={{ display: "flex", alignItems: "center", gap: 5, background: filtersOpen ? T.surfaceHover : "transparent", border: `1px solid ${T.border}`, borderRadius: T.r6, padding: "3px 8px", cursor: "pointer", fontFamily: T.font, fontSize: 11 * (T.fsScale || 1), fontWeight: 600, color: T.text, outline: "none" }}>
+                  <Icon name="filter" size={12} color={T.text} />
+                  Filters
+                  {hasF && <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />}
+                </button>
+                {!filtersOpen && hasF && <button onClick={clearF} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, textDecoration: "underline", padding: 0, outline: "none" }}>Clear filters</button>}
+                <div style={{ width: 1, height: 16, background: T.border }} />
+                <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>Slice by</span>
+                <Sel value={sliceBy} onChange={setSliceBy} T={T} style={{ width: 160 }}>
+                  {sliceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Sel>
+                <input
+                  value={fSearch}
+                  onChange={(e) => setFSearch(e.target.value)}
+                  placeholder={`Search ${sliceOptions.find((o) => o.value === sliceBy)?.label.toLowerCase() || "value"}…`}
+                  style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "6px 10px", fontSize: 12 * (T.fsScale || 1), outline: "none", fontFamily: T.font, width: 190 }}
+                />
+                <span style={{ marginLeft: "auto", fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>
+                  {filteredSliceGroups.length} group{filteredSliceGroups.length === 1 ? "" : "s"} · {filteredRows.length} row{filteredRows.length === 1 ? "" : "s"}
+                </span>
+              </div>
+
+              {filtersOpen && (
+                <div style={{ display: "flex", padding: "3px 12px 12px", gap: 10, alignItems: "start", flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 210, flex: "1.4 1 210px", display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ display: "flex", gap: 3 }}>
+                      <IconField icon="search" color={T.textMuted}>
+                        <input value={fCampaignName} onChange={(e) => setFCampaignName(e.target.value)} placeholder="Campaign contains… (a, b)" style={{ ...fIn, paddingLeft: 26, border: `1px solid ${T.border}`, borderRadius: T.r8, padding: "6px 9px 6px 26px", fontSize: 11 * (T.fsScale || 1), background: T.surface, color: T.text }} />
+                      </IconField>
+                      <MatchModeToggle mode={fCampaignNameInclMode} onChange={setFCampaignNameInclMode} T={T} />
+                    </div>
+                    <div style={{ display: "flex", gap: 3 }}>
+                      <input value={fCampaignNameExclude} onChange={(e) => setFCampaignNameExclude(e.target.value)} placeholder="≠ excludes… (a, b)" style={{ ...fIn, flex: 1, border: `1px solid ${T.border}`, borderRadius: T.r8, padding: "6px 9px", fontSize: 11 * (T.fsScale || 1), background: T.surface, color: T.text }} />
+                      <MatchModeToggle mode={fCampaignNameExclMode} onChange={setFCampaignNameExclMode} T={T} />
+                    </div>
+                  </div>
+                  <div style={{ minWidth: 190, flex: "1.2 1 190px", display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ display: "flex", gap: 3 }}>
+                      <IconField icon="search" color={T.textMuted}>
+                        <input value={fAdGroup} onChange={(e) => setFAdGroup(e.target.value)} placeholder="Ad Group contains… (a, b)" style={{ ...fIn, paddingLeft: 26, border: `1px solid ${T.border}`, borderRadius: T.r8, padding: "6px 9px 6px 26px", fontSize: 11 * (T.fsScale || 1), background: T.surface, color: T.text }} />
+                      </IconField>
+                      <MatchModeToggle mode={fAdGroupInclMode} onChange={setFAdGroupInclMode} T={T} />
+                    </div>
+                    <div style={{ display: "flex", gap: 3 }}>
+                      <input value={fAdGroupExclude} onChange={(e) => setFAdGroupExclude(e.target.value)} placeholder="≠ excludes… (a, b)" style={{ ...fIn, flex: 1, border: `1px solid ${T.border}`, borderRadius: T.r8, padding: "6px 9px", fontSize: 11 * (T.fsScale || 1), background: T.surface, color: T.text }} />
+                      <MatchModeToggle mode={fAdGroupExclMode} onChange={setFAdGroupExclMode} T={T} />
+                    </div>
+                  </div>
+                  <div style={{ width: 150, flexShrink: 0 }}>
+                    <select value={fChannel} onChange={(e) => setFChannel(e.target.value)} style={{ width: "100%", cursor: "pointer", border: `1px solid ${T.border}`, borderRadius: T.r8, padding: "6px 9px", fontSize: 11 * (T.fsScale || 1), background: T.surface, color: T.text, fontFamily: T.font }}>
+                      <option value="">All channels</option>
+                      {distinctChannels.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ minWidth: 220, flex: "1.6 1 220px", display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <IconField icon="search" color={T.textMuted}>
+                        <input value={fTag} onChange={(e) => setFTag(e.target.value)} placeholder="Tag contains… (a, b)" style={{ ...fIn, paddingLeft: 26, border: `1px solid ${T.border}`, borderRadius: T.r8, padding: "6px 9px 6px 26px", fontSize: 11 * (T.fsScale || 1), background: T.surface, color: T.text }} />
+                      </IconField>
+                      <MatchModeToggle mode={fTagInclMode} onChange={setFTagInclMode} T={T} />
+                      <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={{ width: 120, cursor: "pointer", border: `1px solid ${T.border}`, borderRadius: T.r8, padding: "6px 9px", fontSize: 11 * (T.fsScale || 1), background: T.surface, color: T.text, fontFamily: T.font }}>
+                        <option value="all">All</option>
+                        <option value="tagged">Tagged</option>
+                        <option value="untagged">Needs review</option>
+                      </select>
+                      {hasF && <button onClick={clearF} style={{ background: T.dangerBg, border: `1px solid ${T.danger}`, color: T.danger, borderRadius: T.r6, padding: "0 8px", cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, whiteSpace: "nowrap" }}>Clear ×</button>}
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <input value={fTagExclude} onChange={(e) => setFTagExclude(e.target.value)} placeholder="≠ tag excludes… (a, b)" style={{ ...fIn, flex: 1, border: `1px solid ${T.border}`, borderRadius: T.r8, padding: "6px 9px", fontSize: 11 * (T.fsScale || 1), background: T.surface, color: T.text }} />
+                      <MatchModeToggle mode={fTagExclMode} onChange={setFTagExclMode} T={T} />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Trend chart — single metric at a time (mixed count/$/% scales don't chart together
+                legibly), switchable via the Sel below; rates/cost-per stay table-only (see
+                CHARTABLE_METRICS above). */}
+            <PixelPanel T={T} contentStyle={{ padding: 16, marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Trend</div>
+                <Sel value={chartMetric} onChange={setChartMetric} T={T} style={{ width: 180 }}>
+                  {CHARTABLE_METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+                </Sel>
+              </div>
+              {periodBuckets.length === 0 ? (
+                <div style={{ padding: "24px 0", textAlign: "center", color: T.textMuted, fontSize: 12 * (T.fsScale || 1) }}>No periods match your filters.</div>
+              ) : (
+                <TrendMiniChart T={T} periods={periodBuckets.map((b) => labelForPeriod(b.periodType, b.periodStart))} values={chartValues}
+                  hasForecast={!!forecast} projectedValue={forecast ? forecast.projected[chartMetric] : undefined}
+                  money={chartOption?.money} />
+              )}
+            </PixelPanel>
+
+            {/* Trend by period — every selected metric as a column, one row per period bucket. */}
+            <PixelPanel T={T} contentStyle={{ padding: 0, marginBottom: 16 }}>
+              <div style={{ padding: "12px 16px", fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text, borderBottom: `1px solid ${T.border}` }}>Trend by period</div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                      {["Period", "Rows", ...activeMetricColumns.map((c) => c.label)].map((h, i) => (
+                        <th key={i} style={{ padding: "8px 10px", fontSize: 10 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 2 ? "right" : "left" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {periodBuckets.length === 0 && (
+                      <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No periods match your filters.</td></tr>
+                    )}
+                    {periodBuckets.map((b, i) => {
+                      const isForecastRow = forecast && i === periodBuckets.length - 1;
+                      return (
+                        <tr key={b.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+                          <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text }}>
+                            {labelForPeriod(b.periodType, b.periodStart)}
+                            {isForecastRow && <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{ marginLeft: 8, fontSize: 10 * (T.fsScale || 1) }}>in progress</Pill>}
+                          </td>
+                          <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1) }}>{b.rows.length}</td>
+                          {activeMetricColumns.map((c) => (
+                            <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>
+                              {fmtMetric(b.metrics[c.key], c.money, c.pct)}
+                              {isForecastRow && forecast.projected[c.key] !== undefined && (
+                                <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.accent }}>proj. {fmtMetric(forecast.projected[c.key], c.money, c.pct)}</div>
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {periodBuckets.length > 0 && (
+                    <tfoot>
+                      <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{filteredRows.length}</td>
+                        {activeMetricColumns.map((c) => (
+                          <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
+                        ))}
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </PixelPanel>
+
+            {/* Breakdown by dimension — unchanged shape from v1, now driven by the same selected
+                metric columns as the trend table above instead of a derived/capped column list. */}
+            <PixelPanel T={T} contentStyle={{ padding: 0 }}>
+              <div style={{ padding: "12px 16px", fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text, borderBottom: `1px solid ${T.border}` }}>
+                Breakdown by {sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice"}
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                      {[sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice", "Rows", ...activeMetricColumns.map((c) => c.label)].map((h, i) => (
+                        <th key={i} style={{ padding: "8px 10px", fontSize: 10 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 2 ? "right" : "left" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredSliceGroups.length === 0 && (
+                      <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No groups match your filters.</td></tr>
+                    )}
+                    {filteredSliceGroups.map((g) => (
+                      <tr key={g.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={g.key}>{g.key}</td>
+                        <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1) }}>{g.rows.length}</td>
+                        {activeMetricColumns.map((c) => (
+                          <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>{fmtMetric(g.metrics[c.key], c.money, c.pct)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                  {filteredSliceGroups.length > 0 && (
+                    <tfoot>
+                      <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
+                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{filteredRows.length}</td>
+                        {activeMetricColumns.map((c) => (
+                          <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
+                        ))}
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </PixelPanel>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+// Simple grouped bar chart — one bar per period bucket for a single metric, plus a lighter
+// "projected" bar appended after the last actual bar when the most recent period is still in
+// progress (see this file's top FORECAST doc comment). Deliberately much simpler than
+// PacingDashboard's own TrendBarChart (no dense/multi-series layout branch) since this only ever
+// plots one metric at a time — mixed count/$/% scales don't share an axis meaningfully.
+function TrendMiniChart({ T, periods, values, hasForecast, projectedValue, money }) {
+  const H = 200, padL = 56, padB = 30, padT = 12, padR = 16;
+  const n = periods.length + (hasForecast ? 1 : 0);
+  const W = 720;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const barGap = Math.min(18, (plotW / n) * 0.35);
+  const barW = Math.max(4, plotW / n - barGap);
+  const allValues = hasForecast ? [...values, projectedValue || 0] : values;
+  const maxY = Math.max(1, ...allValues);
+  const yFor = (v) => padT + plotH - (v / maxY) * plotH;
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxY * f));
+  const fmtTick = (v) => (money ? (v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`) : (v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`));
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {yTicks.map((t, i) => {
+        const y = yFor(t);
+        return (
+          <g key={i}>
+            <line x1={padL} y1={y} x2={W - padR} y2={y} stroke={T.border} strokeWidth={1} />
+            <text x={padL - 8} y={y + 3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(t)}</text>
+          </g>
+        );
+      })}
+      {periods.map((p, i) => {
+        const x = padL + i * (barW + barGap);
+        const v = values[i] || 0;
+        const h = (v / maxY) * plotH;
+        return (
+          <g key={p + i}>
+            <rect x={x} y={padT + plotH - h} width={barW} height={h} fill={T.accent} rx={2} />
+            <text x={x + barW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{p}</text>
+          </g>
+        );
+      })}
+      {hasForecast && (
+        <g>
+          {(() => {
+            const x = padL + periods.length * (barW + barGap);
+            const v = projectedValue || 0;
+            const h = (v / maxY) * plotH;
+            return (
+              <>
+                <rect x={x} y={padT + plotH - h} width={barW} height={h} fill={T.accent} opacity={0.35} rx={2} />
+                <text x={x + barW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>proj.</text>
+              </>
+            );
+          })()}
+        </g>
       )}
-    </div>
+    </svg>
   );
 }
