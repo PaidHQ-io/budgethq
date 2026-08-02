@@ -393,6 +393,12 @@ export const DEFAULT_DIMS=["Product","Region","Funnel","Pillar"];
 // PaidHQ() for what reads/clears these.
 export const LEGACY_LOCAL_KEYS=["paidhq_tags","paidhq_dims","paidhq_budgets","paidhq_budget_dims","paidhq_budget_meta","paidhq_budget_meta_dims","paidhq_budget_import_meta","paidhq_rows"];
 export const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Google Display":"#34a853","Demand Gen":"#f59e0b","Performance Max":"#ef4444",Meta:"#0082FB",Bing:"#00809d",YouTube:"#ff0000",Capterra:"#ff6d2d",Unknown:"#9B9A92"};
+// Manual platform-override dropdown options — Campaign Tagger's own Platform column editor, and now
+// (2026-08-03, per Mo's "make the pipeline tagger... identical to the campaign tagger") Pipeline
+// Tagger's Channel column editor too. Moved here from a local PaidHQ.jsx const so both surfaces share
+// exactly one list instead of two copies that could drift ("auto" excluded by both callers — it's
+// PaidHQ.jsx's own derivePlatform() sentinel for "not yet resolved," never a real value to pick).
+export const PLATFORM_OPTIONS=["auto","Google","Meta","LinkedIn","Bing","Capterra","Reddit","Pinterest","TikTok","YouTube","Other"];
 // Applied-tag pill colors in the Tagger — a plain white/grey pill read as too flat to spot at a
 // glance, so pills use a tinted "selected chip" treatment (light background + colored border/text)
 // instead of a flat outline, with a distinct color PER TAG DIMENSION (Product/Module/Brand/etc. each

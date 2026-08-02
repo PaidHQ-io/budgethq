@@ -83,6 +83,24 @@ export function patchReportingFactsTags(session, workspaceId, updates) {
   });
 }
 
+// filters: { campaignName?, tags? } (periodType/start/end also accepted, unused by Pipeline
+// Tagger's own caller today) — permanently deletes every matching reporting_facts row. Used by
+// Pipeline Tagger's per-row/bulk "delete from dataset" (2026-08-03, per Mo — unlike Campaign
+// Tagger's own delete, which only drops a campaign from the local in-memory spend dataset,
+// reporting_facts is already live in the database the moment it's imported, so this hits the real
+// DELETE endpoint rather than just filtering local state). The route requires at least one filter
+// (guards against an accidental full wipe — see reporting-facts.js's DELETE doc comment) and returns
+// { deleted: <count> }.
+export function deleteReportingFacts(session, workspaceId, filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.periodType) params.set("period_type", filters.periodType);
+  if (filters.start) params.set("start", filters.start);
+  if (filters.end) params.set("end", filters.end);
+  if (filters.campaignName) params.set("campaign_name", filters.campaignName);
+  if (filters.tags && Object.keys(filters.tags).length) params.set("tags", JSON.stringify(filters.tags));
+  return api(session, workspaceId, `?${params.toString()}`, { method: "DELETE" });
+}
+
 // This workspace's current tag dimension NAMES (same list as Campaign Tagger — e.g. Product,
 // Region, Funnel, Pillar, Branded Search, Module, Brand, user-editable per workspace) plus known
 // VALUES for each, and known Campaign values — pulled from this workspace's own reporting_facts

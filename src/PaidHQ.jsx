@@ -18,7 +18,7 @@ import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember,
 import { exportReportToGoogleSheets, preloadGoogleSheetsApi, preloadGoogleSheetsPicker } from "./lib/googleSheets";
 import {
   THEME, THEME_CLASSIC, THEME_AIDA, THEME_MIDNIGHT, REQUIRED_COLS, OPTIONAL_COLS, COL_LABELS, campaignKey, isEmptyConfig, splitFilterTerms,
-  matchesTerms, getBudgetDimValues, DEFAULT_DIMS, LEGACY_LOCAL_KEYS, PLATFORM_COLORS,
+  matchesTerms, getBudgetDimValues, DEFAULT_DIMS, LEGACY_LOCAL_KEYS, PLATFORM_COLORS, PLATFORM_OPTIONS,
   TAG_DIM_COLORS, NAV, autoDetect, derivePlatform, localISODate, fmt$, downloadCSV,
   groupVersionsByDay, fmtFileSize, normalizeRows, spendRowKey, mergeRows, detectSpendConflicts,
   parseSpendDate, consolidateBudgetSegKeys, computePlatformFreshness,
@@ -154,7 +154,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // before merging, instead of silently mis-projecting pacing off an unconfirmed assumption.
   const[uploadIsMonthly,setUploadIsMonthly]=useState(false);
   const[editingPlatform,setEditingPlatform]=useState(null); // campaign name being edited
-  const PLATFORM_OPTIONS=["auto","Google","Meta","LinkedIn","Bing","Capterra","Reddit","Pinterest","TikTok","YouTube","Other"];
+  // PLATFORM_OPTIONS moved to core.js (2026-08-03) — shared with Pipeline Tagger's new Channel
+  // column editor so both surfaces offer exactly the same platform list.
   const[mergedNormRows,setMergedNormRows]=useState([]); // normalized rows across ALL platform uploads
   const[tagDims,setTagDims]=useState(DEFAULT_DIMS);
   const[tags,setTags]=useState({});
@@ -3969,7 +3970,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       </div>
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
-      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit}/></Suspense>}
+      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")}/></Suspense>}
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the

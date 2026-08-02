@@ -17,7 +17,7 @@
  * anything is normalized. buildNormalizedPipelineRows turns the confirmed mapping into the same row
  * shape ReportingAnalyzer's existing review table/pendingRows already expects.
  *
- * CANONICAL METRICS: per Mo, the mapping targets are deliberately just the 9 absolute funnel
+ * CANONICAL METRICS: per Mo, the mapping targets are deliberately just the absolute funnel
  * numbers (spend, leads, mqls, sals, sqls, closed_won, closed_lost, pipeline_value, revenue) —
  * "We can calculate all of the cost per metrics as well as the conversion rate metrics from the
  * absolute values. We don't need to import those." Cost-per/conversion-rate metrics are never a
@@ -26,12 +26,26 @@
  * breakdown) rather than expected to already exist as CSV columns. Keeping them out of the mapping
  * step also sidesteps the "metric rollup correctness" trap entirely on the import side — nothing
  * rate-shaped ever gets stored as if it were a summable count.
+ *
+ * STRUCTURAL FIELDS (2026-08-03, per Mo — "make the pipeline tagger... identical to the campaign
+ * tagger", which has a two-level Campaign/Ad Group identity plus a Platform field): reporting_facts
+ * only has ONE flat `campaign_name` column (see this table's own doc comment in the last session's
+ * handoff) — no schema migration was in scope here, since core.reporting_facts is owned by a
+ * separate shared repo ("paidhq-core" per this file's sibling doc comments), not this one. Ad
+ * Group/Ad Set Name and Channel are instead stored as two RESERVED keys inside the existing `tags`
+ * jsonb blob (AD_GROUP_TAG_KEY/CHANNEL_TAG_KEY below) — deliberately not plain "Ad Group" / "Channel"
+ * strings, so they can never collide with a real user-created tag_dims entry of the same name. The
+ * tags API route doesn't validate keys against tag_dims (see reporting-facts.js's POST doc comment),
+ * so this is safe; dimension-values.js's tagDims list is seeded ONLY from workspace_config.tag_dims,
+ * so these reserved keys never leak into the regular tag-dimension UI even though they ride in the
+ * same jsonb column.
  */
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import { parseMoney } from "./core.js";
+import { normalizePeriodStart } from "./reportingPeriods.js";
 
-// The only mapping targets a CSV column can become besides "ignore" / "campaign" / a tag
+// The only mapping targets a CSV column can become besides "ignore" / a structural field / a tag
 // dimension — see this file's top doc comment for why cost-per/rate metrics are deliberately absent.
 export const PIPELINE_METRIC_MAP_OPTIONS = [
   { key: "spend", label: "Spend" },
@@ -45,6 +59,20 @@ export const PIPELINE_METRIC_MAP_OPTIONS = [
   { key: "revenue", label: "Revenue" },
 ];
 
+// Reserved tags keys for the two structural (non-metric, non-user-dimension) fields Campaign Tagger
+// has that reporting_facts doesn't have real columns for — see this file's top doc comment.
+export const AD_GROUP_TAG_KEY = "__pipeline_ad_group";
+export const CHANNEL_TAG_KEY = "__pipeline_channel";
+
+// Mapping targets "campaign" | "adgroup" | "channel" (as opposed to "ignore", `tag::${dim}`, or
+// `metric::${key}`) — driven from one array so PipelineColumnMapper.jsx's dropdown and this file's
+// guessing logic can't drift out of sync with each other.
+export const PIPELINE_STRUCTURAL_FIELD_OPTIONS = [
+  { value: "campaign", label: "Campaign Name" },
+  { value: "adgroup", label: "Ad Group / Ad Set Name" },
+  { value: "channel", label: "Channel" },
+];
+
 function normalizeHeader(h) {
   return String(h ?? "").trim().toLowerCase().replace(/[_-]/g, " ").replace(/\s+/g, " ");
 }
@@ -54,6 +82,8 @@ function normalizeHeader(h) {
 // A couple of plausible Salesforce/PowerBI/HockeyStack variants are included per column, but this
 // isn't meant to be exhaustive — it's a head start, not the whole mapping step.
 const CAMPAIGN_ALIASES = ["campaign name", "campaign", "opportunity name", "opportunity", "deal name", "account name"];
+const ADGROUP_ALIASES = ["ad group", "ad set", "ad group name", "ad set name", "adset", "adset name", "adgroup name"];
+const CHANNEL_ALIASES = ["channel", "platform", "marketing channel", "source channel", "medium"];
 const METRIC_ALIASES = {
   spend: ["spend", "total spend", "ad spend", "cost", "total cost", "media spend"],
   leads: ["leads", "total leads", "lead count", "new leads", "inquiries", "inquiry"],
@@ -66,11 +96,16 @@ const METRIC_ALIASES = {
   revenue: ["revenue", "closed revenue", "won revenue", "total revenue", "bookings", "closed won revenue"],
 };
 
-// Returns one of "ignore" | "campaign" | `tag::${dimName}` | `metric::${key}` for a single raw
-// header — see guessColumnMapping below for the array-of-headers version this backs.
+// Returns one of "ignore" | "campaign" | "adgroup" | "channel" | `tag::${dimName}` |
+// `metric::${key}` for a single raw header — see guessColumnMapping below for the array-of-headers
+// version this backs. Structural fields are checked before tag dimensions so a workspace that
+// happens to have created a tag dimension literally named "Channel" still gets the dedicated
+// structural handling (with its own platform dropdown) rather than being treated as a generic tag.
 function guessOneColumn(header, tagDims) {
   const n = normalizeHeader(header);
   if (CAMPAIGN_ALIASES.includes(n)) return "campaign";
+  if (ADGROUP_ALIASES.includes(n)) return "adgroup";
+  if (CHANNEL_ALIASES.includes(n)) return "channel";
   for (const dim of tagDims || []) {
     if (normalizeHeader(dim) === n) return `tag::${dim}`;
   }
@@ -78,6 +113,58 @@ function guessOneColumn(header, tagDims) {
     if (aliases.includes(n)) return `metric::${key}`;
   }
   return "ignore";
+}
+
+// PERIOD-AT-IMPORT (2026-08-03, per Mo — "look for/auto detect a period field. If none is found,
+// allow the user to specify what year and month OR what year and quarter... In the actual data rows
+// (the campaign rows), there should be no date field"): unlike reportingImport.js's old campaign
+// export (which always landed as periodType "unknown" for a per-row picker), a pipeline CSV/XLSX now
+// resolves to exactly ONE period for the WHOLE file — either detected here, or picked once by the
+// user in PipelineColumnMapper.jsx — applied to every row. day/week grains are deliberately never
+// produced here (only "month"/"quarter"), per Mo: "we don't accept weekly or daily."
+const PERIOD_COLUMN_ALIASES = ["date", "month", "period", "reporting period", "reporting month", "period start", "fiscal month", "fiscal quarter", "quarter", "month/year", "report month", "report date", "reporting date"];
+
+// "Q1 2026" / "2026 Q1" style labels — common in quarter-grain CRM/BI exports — don't parse as a
+// real date at all, so they get their own regex pass before falling back to normalizePeriodStart.
+const QUARTER_LABEL_RE = /^q\s*([1-4])[\s,./-]+(\d{4})$|^(\d{4})[\s,./-]+q\s*([1-4])$/i;
+function parseQuarterLabel(v) {
+  const m = QUARTER_LABEL_RE.exec(String(v ?? "").trim());
+  if (!m) return null;
+  const q = Number(m[1] || m[4]);
+  const year = Number(m[2] || m[3]);
+  if (!q || !year) return null;
+  return `${year}-${String((q - 1) * 3 + 1).padStart(2, "0")}-01`;
+}
+
+// headers/rows: parsePipelineFileRaw's output. Finds a period-looking column by EXACT alias match
+// (same "don't guess, ask" philosophy as guessColumnMapping — a wrongly-detected period silently
+// mis-dates every row in the batch, worse than one extra click to confirm manually) and checks
+// whether every non-blank value in it collapses to the SAME single month or the same single
+// quarter — i.e. this file represents one reporting period as a whole, the only shape this import
+// path supports. Returns { periodType, periodStart } when a single consistent period is found
+// (month checked before quarter, since it's the more specific/informative grain), else null — the
+// caller falls back to asking the user to pick one manually.
+export function detectImportPeriod(headers, rows) {
+  const colIdx = (headers || []).findIndex((h) => PERIOD_COLUMN_ALIASES.includes(normalizeHeader(h)));
+  if (colIdx === -1) return null;
+  const values = (rows || []).map((r) => r[colIdx]).filter((v) => String(v ?? "").trim() !== "");
+  if (!values.length) return null;
+
+  const quarterLabels = values.map(parseQuarterLabel);
+  if (quarterLabels.every(Boolean)) {
+    const uniq = new Set(quarterLabels);
+    if (uniq.size === 1) return { periodType: "quarter", periodStart: quarterLabels[0] };
+  }
+
+  const monthStarts = values.map((v) => normalizePeriodStart("month", v)).filter(Boolean);
+  if (monthStarts.length === values.length && new Set(monthStarts).size === 1) {
+    return { periodType: "month", periodStart: monthStarts[0] };
+  }
+  const quarterStarts = values.map((v) => normalizePeriodStart("quarter", v)).filter(Boolean);
+  if (quarterStarts.length === values.length && new Set(quarterStarts).size === 1) {
+    return { periodType: "quarter", periodStart: quarterStarts[0] };
+  }
+  return null;
 }
 
 // headers: raw header strings in column order. tagDims: this workspace's current tag dimension
@@ -171,18 +258,21 @@ export function findDuplicateMappingTargets(mapping) {
 }
 
 // headers/rows: parsePipelineFileRaw's output. mapping: { [headerIndex]: target } using the same
-// "ignore" | "campaign" | `tag::${dim}` | `metric::${key}` encoding guessColumnMapping produces.
-// sourceLabel: this batch's reporting_facts `source` value. Returns the same per-row shape
-// ReportingAnalyzer's AI-extraction path already normalizes into (source, periodType, periodStart,
-// campaignName, tags, metrics) — periodType is always "unknown" here (this export shape has no
-// period column of its own to read), same as reportingImport.js's campaign-report rows; the review
-// table's existing per-row period picker handles assigning one.
+// "ignore" | "campaign" | "adgroup" | "channel" | `tag::${dim}` | `metric::${key}` encoding
+// guessColumnMapping produces. sourceLabel: this batch's reporting_facts `source` value.
+// resolvedPeriod: { periodType, periodStart } — either detectImportPeriod's result or the user's
+// manual Year+Month/Year+Quarter pick from PipelineColumnMapper.jsx; applied to EVERY row (this
+// import path only ever supports one period per file — see detectImportPeriod's doc comment). Falls
+// back to periodType "unknown" only if a caller genuinely doesn't have one yet.
 //
-// A column mapped to a metric only sets that key when parseMoney succeeds — a blank/non-numeric
-// cell just leaves the key absent for that row rather than writing a false 0, consistent with how a
-// missing field is already handled elsewhere (deriveMetricColumns/fmtMetric render an absent key as
-// "—", not 0).
-export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel) {
+// Returns the same per-row shape ReportingAnalyzer's AI-extraction path already normalizes into
+// (source, periodType, periodStart, campaignName, tags, metrics). A column mapped to a metric only
+// sets that key when parseMoney succeeds — a blank/non-numeric cell just leaves the key absent for
+// that row rather than writing a false 0, consistent with how a missing field is already handled
+// elsewhere (deriveMetricColumns/fmtMetric render an absent key as "—", not 0).
+export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod) {
+  const periodType = resolvedPeriod?.periodType || "unknown";
+  const periodStart = resolvedPeriod?.periodStart;
   return (rows || []).map((row) => {
     let campaignName = "";
     const tags = {};
@@ -193,6 +283,16 @@ export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLa
       const raw = row[i];
       if (target === "campaign") {
         if (!campaignName) campaignName = String(raw ?? "").trim();
+        return;
+      }
+      if (target === "adgroup") {
+        const v = String(raw ?? "").trim();
+        if (v) tags[AD_GROUP_TAG_KEY] = v;
+        return;
+      }
+      if (target === "channel") {
+        const v = String(raw ?? "").trim();
+        if (v) tags[CHANNEL_TAG_KEY] = v;
         return;
       }
       if (target.startsWith("tag::")) {
@@ -207,6 +307,6 @@ export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLa
         if (n !== null) metrics[key] = n;
       }
     });
-    return { source: sourceLabel, periodType: "unknown", periodStart: undefined, campaignName, tags, metrics };
+    return { source: sourceLabel, periodType, periodStart, campaignName, tags, metrics };
   });
 }

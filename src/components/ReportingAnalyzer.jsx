@@ -121,7 +121,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields, summar
   );
 }
 
-export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows, initialRawPipelineImport, onConsumeInitialRawPipelineImport, campaignTags, tagDims, canEdit }) {
+export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows, initialRawPipelineImport, onConsumeInitialRawPipelineImport, campaignTags, tagDims, canEdit, onBackToDataSources }) {
   // initialPendingRows seeds via a lazy initializer rather than an effect + setState — correct
   // here (not just convenient) because PaidHQ.jsx never sets pendingReportingRows and switches to
   // this tab except together (see confirmUnifiedUpload), and this tab is conditionally mounted
@@ -138,6 +138,13 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
   const [extractError, setExtractError] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  // CSV/XLSX pipeline imports (2026-08-03, per Mo — "all of the data should be imported into the
+  // pipeline tagger, just like the campaign tagger") no longer stage into pendingRows for a second
+  // manual "Import" click — PipelineColumnMapper's confirm already carries a resolved mapping AND a
+  // resolved period (see that component), so there's nothing left to review before writing straight
+  // to reporting_facts. The AI-extraction path (screenshots) still uses pendingRows below, since an
+  // AI read genuinely benefits from a human glance before it's trusted.
+  const [mappingImporting, setMappingImporting] = useState(false);
   // Bumped after a successful import to tell the embedded ReportingFactsTagger below to re-fetch —
   // it owns its own `rows` state (fetched via listReportingFacts internally), so a fresh import up
   // here wouldn't otherwise show up there until something remounts it. See that component's own
@@ -275,6 +282,23 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
 
   const hasUnresolved = pendingRows.some((r) => !r.periodType || r.periodType === "unknown" || !r.periodStart);
 
+  // PipelineColumnMapper's confirm handler — writes straight to reporting_facts, no staging step.
+  // See mappingImporting's doc comment above for why this is a separate path from handleImport.
+  const handleMappedImport = async (normalizedRows) => {
+    setRawPipelineImport(null);
+    setMappingImporting(true);
+    setImportResult(null);
+    try {
+      const result = await upsertReportingFacts(session, workspace.id, normalizedRows);
+      setImportResult(result);
+      setTaggerRefreshSignal((n) => n + 1);
+    } catch (err) {
+      setImportResult({ error: err.message || "Import failed." });
+    } finally {
+      setMappingImporting(false);
+    }
+  };
+
   const handleImport = async () => {
     if (!pendingRows.length || hasUnresolved) return;
     const rowsToImport = mergeBatchTags(pendingRows);
@@ -293,134 +317,148 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
   };
 
   return (
-    <div onPaste={handlePaste} style={{ padding: 28, maxWidth: 1100, margin: "0 auto", fontFamily: "'DM Sans',sans-serif", overflow: "auto", height: "100%", boxSizing: "border-box" }}>
-      <SectionLabel T={T}>Pipeline Tagger</SectionLabel>
-      <div style={{ fontSize:16*(T.fsScale||1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Import Dreamdata / PowerBI data</div>
-      <div style={{ fontSize:13*(T.fsScale||1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
-        Screenshot a table from your Dreamdata/PowerBI dashboard and drop it below, or paste
-        directly (Cmd/Ctrl+V) anywhere on this page. Pipeline/funnel CSV or Excel exports (PowerBI,
-        Salesforce, or anything else) and Goals &amp; Pacing PDFs now upload from the "Spend, Budget
-        or Performance file" card in Data Sources — they land here automatically, with a column-
-        mapping step first for CSV/Excel so every row comes in regardless of that source's own
-        column names. Re-importing a period that's already stored overwrites it with the new
-        numbers — nothing is duplicated. Channel spend connections live in the Data Sources tab;
-        this is specifically for funnel/pipeline performance data.
+    // Full width (2026-08-03, per Mo — "make the pipeline tagger full width like the campaign
+    // tagger"): a flex column filling <main>'s remaining height, same top-level shape every other
+    // tab's root uses (see e.g. PaidHQ.jsx's own step==="tag"&&view==="tagger" block) instead of the
+    // old centered maxWidth:1100 page. The upload/mapping panels above the table incidentally go
+    // full width too now — a reasonable side effect, not something worth special-casing back to a
+    // narrower column just for those.
+    <div onPaste={handlePaste} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, fontFamily: "'DM Sans',sans-serif" }}>
+      <div style={{ padding: "28px 28px 0", flexShrink: 0 }}>
+        <SectionLabel T={T}>Pipeline Tagger</SectionLabel>
+        <div style={{ fontSize:16*(T.fsScale||1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Import Dreamdata / PowerBI data</div>
+        <div style={{ fontSize:13*(T.fsScale||1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
+          Screenshot a table from your Dreamdata/PowerBI dashboard and drop it below, or paste
+          directly (Cmd/Ctrl+V) anywhere on this page. Pipeline/funnel CSV or Excel exports (PowerBI,
+          Salesforce, or anything else) and Goals &amp; Pacing PDFs now upload from the "Spend, Budget
+          or Performance file" card in Data Sources — they land here automatically. CSV/Excel gets a
+          column-mapping + period step first (every row comes in regardless of that source's own
+          column names) and then lands straight in the table below, tag-ready — no separate review
+          click. Re-importing a period that's already stored overwrites it with the new numbers —
+          nothing is duplicated. Channel spend connections live in the Data Sources tab; this is
+          specifically for funnel/pipeline performance data.
+        </div>
       </div>
 
-      <PixelPanel T={T} contentStyle={{ padding: 20, marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileInput} style={{ display: "none" }} />
-          <Btn T={T} variant="primary" size="md" onClick={() => fileInputRef.current?.click()}>
-            <Icon name="paperclip" size={14} /> Upload screenshot
-          </Btn>
-          <span style={{ fontSize:12*(T.fsScale||1), color: T.textMuted }}>
-            or paste a screenshot anywhere on this page — campaign-level and Goals &amp; Pacing files now upload from
-            the "Spend, Budget or Performance file" card in Data Sources
-          </span>
-          {extracting && (
-            <span style={{ fontSize:12*(T.fsScale||1), color: T.accent, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 12, height: 12, border: `2px solid ${T.accentBorder}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.7s linear infinite", display: "inline-block" }} />
-              Reading table…
+      <div style={{ padding: "0 28px", flexShrink: 0 }}>
+        <PixelPanel T={T} contentStyle={{ padding: 20, marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileInput} style={{ display: "none" }} />
+            <Btn T={T} variant="primary" size="md" onClick={() => fileInputRef.current?.click()}>
+              <Icon name="paperclip" size={14} /> Upload screenshot
+            </Btn>
+            <span style={{ fontSize:12*(T.fsScale||1), color: T.textMuted }}>
+              or paste a screenshot anywhere on this page — campaign-level and Goals &amp; Pacing files now upload from
+              the "Spend, Budget or Performance file" card in Data Sources
             </span>
+            {extracting && (
+              <span style={{ fontSize:12*(T.fsScale||1), color: T.accent, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 12, height: 12, border: `2px solid ${T.accentBorder}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.7s linear infinite", display: "inline-block" }} />
+                Reading table…
+              </span>
+            )}
+          </div>
+          {extractError && (
+            <div style={{ marginTop: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize:12*(T.fsScale||1), color: T.danger }}>
+              {extractError}
+            </div>
           )}
-        </div>
-        {extractError && (
-          <div style={{ marginTop: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize:12*(T.fsScale||1), color: T.danger }}>
-            {extractError}
+        </PixelPanel>
+
+        {rawPipelineImport && (
+          <PipelineColumnMapper
+            T={T}
+            headers={rawPipelineImport.headers}
+            rows={rawPipelineImport.rows}
+            tagDims={dimensionValues.tagDims || []}
+            sourceLabel={rawPipelineImport.sourceLabel}
+            onConfirm={handleMappedImport}
+            onDiscard={() => setRawPipelineImport(null)}
+          />
+        )}
+        {mappingImporting && (
+          <div style={{ marginBottom: 20, padding: "9px 12px", background: T.accentBg, border: `1px solid ${T.accentBorder}`, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), color: T.text, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 12, height: 12, border: `2px solid ${T.accentBorder}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.7s linear infinite", display: "inline-block" }} />
+            Importing rows…
           </div>
         )}
-      </PixelPanel>
 
-      {rawPipelineImport && (
-        <PipelineColumnMapper
-          T={T}
-          headers={rawPipelineImport.headers}
-          rows={rawPipelineImport.rows}
-          tagDims={dimensionValues.tagDims || []}
-          sourceLabel={rawPipelineImport.sourceLabel}
-          onConfirm={(normalized) => {
-            setPendingRows((prev) => [...prev, ...normalized]);
-            setRawPipelineImport(null);
-          }}
-          onDiscard={() => setRawPipelineImport(null)}
-        />
-      )}
-
-      {pendingRows.length > 0 && (
-        <PixelPanel T={T} contentStyle={{ padding: 20, marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize:13*(T.fsScale||1), fontWeight: 700, color: T.text }}>
-              {pendingRows.length} row{pendingRows.length === 1 ? "" : "s"} ready to review
-            </div>
-            {hasUnresolved && <Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>Assign a period below to continue</Pill>}
-          </div>
-
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 14, padding: "10px 12px", background: T.surfaceEl, border: `1px solid ${T.border}`, borderRadius:T.r8 }}>
-            <span style={{ fontSize:11*(T.fsScale||1), color: T.textMuted, marginRight: 2 }}>Tag all rows missing:</span>
-            {fields.map((f) => (
-              <div key={f} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                <TagAutocompleteInput
-                  T={T}
-                  value={batchTags[f] || ""}
-                  onChange={(v) => setBatchTags((prev) => ({ ...prev, [f]: v }))}
-                  onEnter={() => applyBatchTag(f)}
-                  suggestions={fieldSuggestions(dimensionValues, f)}
-                  placeholder={fieldLabel(f)}
-                  inputStyle={{ fontSize:12*(T.fsScale||1), border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "5px 8px", width: 130, fontFamily: "'DM Sans',sans-serif" }}
-                />
-                <Btn T={T} variant="ghost" size="sm" disabled={!batchTags[f]?.trim()} onClick={() => applyBatchTag(f)}>
-                  Apply
-                </Btn>
+        {pendingRows.length > 0 && (
+          <PixelPanel T={T} contentStyle={{ padding: 20, marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize:13*(T.fsScale||1), fontWeight: 700, color: T.text }}>
+                {pendingRows.length} row{pendingRows.length === 1 ? "" : "s"} ready to review
               </div>
-            ))}
-          </div>
+              {hasUnresolved && <Pill color={T.warning} bg={T.warningBg} border={T.warningBorder}>Assign a period below to continue</Pill>}
+            </div>
 
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                  {["Period", ...fields.map(fieldLabel), ...summaryMetrics.map((m) => m.label), ""].map((h, i) => (
-                    <th key={i} style={{ padding: "6px 10px", fontSize:10*(T.fsScale||1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 1 + fields.length && i < 1 + fields.length + summaryMetrics.length ? "right" : "left" }}>
-                      {h}
-                    </th>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 14, padding: "10px 12px", background: T.surfaceEl, border: `1px solid ${T.border}`, borderRadius:T.r8 }}>
+              <span style={{ fontSize:11*(T.fsScale||1), color: T.textMuted, marginRight: 2 }}>Tag all rows missing:</span>
+              {fields.map((f) => (
+                <div key={f} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <TagAutocompleteInput
+                    T={T}
+                    value={batchTags[f] || ""}
+                    onChange={(v) => setBatchTags((prev) => ({ ...prev, [f]: v }))}
+                    onEnter={() => applyBatchTag(f)}
+                    suggestions={fieldSuggestions(dimensionValues, f)}
+                    placeholder={fieldLabel(f)}
+                    inputStyle={{ fontSize:12*(T.fsScale||1), border: `1px solid ${T.border}`, borderRadius:T.r6, padding: "5px 8px", width: 130, fontFamily: "'DM Sans',sans-serif" }}
+                  />
+                  <Btn T={T} variant="ghost" size="sm" disabled={!batchTags[f]?.trim()} onClick={() => applyBatchTag(f)}>
+                    Apply
+                  </Btn>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                    {["Period", ...fields.map(fieldLabel), ...summaryMetrics.map((m) => m.label), ""].map((h, i) => (
+                      <th key={i} style={{ padding: "6px 10px", fontSize:10*(T.fsScale||1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 1 + fields.length && i < 1 + fields.length + summaryMetrics.length ? "right" : "left" }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingRows.map((row, idx) => (
+                    <ReviewRow key={idx} T={T} row={row} onChange={(next) => updateRow(idx, next)} onRemove={() => removeRow(idx)} dimensionValues={dimensionValues} fields={fields} summaryMetrics={summaryMetrics} />
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pendingRows.map((row, idx) => (
-                  <ReviewRow key={idx} T={T} row={row} onChange={(next) => updateRow(idx, next)} onRemove={() => removeRow(idx)} dimensionValues={dimensionValues} fields={fields} summaryMetrics={summaryMetrics} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-            <Btn T={T} variant="primary" size="md" disabled={importing || hasUnresolved} onClick={handleImport}>
-              {importing ? "Importing…" : `Import ${pendingRows.length} row${pendingRows.length === 1 ? "" : "s"}`}
-            </Btn>
-            <Btn T={T} variant="ghost" size="md" onClick={() => setPendingRows([])}>
-              Discard
-            </Btn>
-          </div>
-        </PixelPanel>
-      )}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
+              <Btn T={T} variant="primary" size="md" disabled={importing || hasUnresolved} onClick={handleImport}>
+                {importing ? "Importing…" : `Import ${pendingRows.length} row${pendingRows.length === 1 ? "" : "s"}`}
+              </Btn>
+              <Btn T={T} variant="ghost" size="md" onClick={() => setPendingRows([])}>
+                Discard
+              </Btn>
+            </div>
+          </PixelPanel>
+        )}
 
-      {importResult && (
-        <div
-          style={{
-            marginBottom: 20,
-            padding: "10px 14px",
-            borderRadius:T.r8,
-            fontSize:12*(T.fsScale||1),
-            background: importResult.error ? T.dangerBg : T.successBg,
-            border: `1px solid ${importResult.error ? T.dangerBorder : T.successBorder}`,
-            color: importResult.error ? T.danger : T.success,
-          }}
-        >
-          {importResult.error
-            ? importResult.error
-            : `Imported ${importResult.upserted} row${importResult.upserted === 1 ? "" : "s"}${importResult.skipped?.length ? ` (${importResult.skipped.length} skipped — missing period)` : ""}.`}
-        </div>
-      )}
+        {importResult && (
+          <div
+            style={{
+              marginBottom: 20,
+              padding: "10px 14px",
+              borderRadius:T.r8,
+              fontSize:12*(T.fsScale||1),
+              background: importResult.error ? T.dangerBg : T.successBg,
+              border: `1px solid ${importResult.error ? T.dangerBorder : T.successBorder}`,
+              color: importResult.error ? T.danger : T.success,
+            }}
+          >
+            {importResult.error
+              ? importResult.error
+              : `Imported ${importResult.upserted} row${importResult.upserted === 1 ? "" : "s"}${importResult.skipped?.length ? ` (${importResult.skipped.length} skipped — missing period)` : ""}.`}
+          </div>
+        )}
+      </div>
 
       <ReportingFactsTagger
         T={T}
@@ -429,8 +467,8 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
         campaignTags={campaignTags}
         tagDims={tagDims}
         canEdit={canEdit}
-        variant="embedded"
         refreshSignal={taggerRefreshSignal}
+        onBackToDataSources={onBackToDataSources}
       />
     </div>
   );
