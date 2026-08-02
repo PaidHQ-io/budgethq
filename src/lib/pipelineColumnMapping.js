@@ -73,14 +73,30 @@ export const PIPELINE_STRUCTURAL_FIELD_OPTIONS = [
   { value: "channel", label: "Channel" },
 ];
 
+// Strips common unit/currency NOISE punctuation before collapsing whitespace (2026-08-05, per Mo —
+// "pipeline value still isn't coming in ... blank everywhere"): a real-world export header like
+// "Pipeline ($)" or "Total Pipeline Value:" used to normalize to "pipeline ($)" / "total pipeline
+// value:" — neither matches any alias below verbatim, so the column silently stayed on "Ignore"
+// unless the user happened to notice and fix that one dropdown by hand. Parentheses/$/#/: are
+// stripped outright (not just the underscore/hyphen -> space swap this already did) so "Pipeline
+// ($)" -> "pipeline" and "Total Pipeline Value:" -> "total pipeline value", both of which now match.
 function normalizeHeader(h) {
-  return String(h ?? "").trim().toLowerCase().replace(/[_-]/g, " ").replace(/\s+/g, " ");
+  return String(h ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[()$#:]/g, " ")
+    .replace(/[_-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Exact-match aliases only (deliberately not fuzzy/substring — see this file's top doc comment on
 // why a wrong auto-guess is worse than leaving a column on "Ignore" for the user to set by hand).
 // A couple of plausible Salesforce/PowerBI/HockeyStack variants are included per column, but this
-// isn't meant to be exhaustive — it's a head start, not the whole mapping step.
+// isn't meant to be exhaustive — it's a head start, not the whole mapping step. See
+// PipelineColumnMapper.jsx's "not mapped" banner for the actual safety net when a header doesn't
+// match anything here — it surfaces every canonical metric that didn't get a column BEFORE import,
+// instead of a miss silently showing up as "blank everywhere" after the fact.
 const CAMPAIGN_ALIASES = ["campaign name", "campaign", "opportunity name", "opportunity", "deal name", "account name"];
 const ADGROUP_ALIASES = ["ad group", "ad set", "ad group name", "ad set name", "adset", "adset name", "adgroup name"];
 const CHANNEL_ALIASES = ["channel", "platform", "marketing channel", "source channel", "medium"];
@@ -92,7 +108,7 @@ const METRIC_ALIASES = {
   sqls: ["sqls", "sql", "sales qualified leads", "sales qualified lead"],
   closed_won: ["closed won", "won", "wins", "deals won", "closed won opportunities"],
   closed_lost: ["closed lost", "lost", "losses", "deals lost"],
-  pipeline_value: ["pipeline value", "pipeline", "open pipeline", "total pipeline", "pipeline amount", "pipeline $"],
+  pipeline_value: ["pipeline value", "pipeline", "open pipeline", "total pipeline", "pipeline amount", "pipeline $", "total pipeline value", "open pipeline value", "pipeline value $", "sql pipeline", "sql pipeline value", "pipeline $ value"],
   revenue: ["revenue", "closed revenue", "won revenue", "total revenue", "bookings", "closed won revenue"],
 };
 
@@ -265,12 +281,22 @@ export function findDuplicateMappingTargets(mapping) {
 // import path only ever supports one period per file — see detectImportPeriod's doc comment). Falls
 // back to periodType "unknown" only if a caller genuinely doesn't have one yet.
 //
+// hardcodedChannel (2026-08-05, per Mo — "I'm going to start bringing the data in channel by channel
+// ... I would like a hard coded channel field that is hard coded when the data is imported so I know
+// that that row came in as that particular channel"): when set, OVERRIDES whatever a "channel"-mapped
+// column would have produced for every row in this file, rather than trusting the campaign-naming
+// convention (Mo's own example: a Bing export with campaigns still prefixed "SEA-" because they were
+// duplicated from Google, and a Google export with campaigns prefixed "BIN-" for the same reason —
+// neither the campaign name nor a "Channel" column in the source system can be trusted here, but Mo
+// importing one channel's file at a time can just say so directly). Left undefined/"" this behaves
+// exactly as before (whatever the "channel" column mapping produces, if any).
+//
 // Returns the same per-row shape ReportingAnalyzer's AI-extraction path already normalizes into
 // (source, periodType, periodStart, campaignName, tags, metrics). A column mapped to a metric only
 // sets that key when parseMoney succeeds — a blank/non-numeric cell just leaves the key absent for
 // that row rather than writing a false 0, consistent with how a missing field is already handled
 // elsewhere (deriveMetricColumns/fmtMetric render an absent key as "—", not 0).
-export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod) {
+export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod, hardcodedChannel) {
   const periodType = resolvedPeriod?.periodType || "unknown";
   const periodStart = resolvedPeriod?.periodStart;
   return (rows || []).map((row) => {
@@ -307,6 +333,7 @@ export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLa
         if (n !== null) metrics[key] = n;
       }
     });
+    if (hardcodedChannel) tags[CHANNEL_TAG_KEY] = hardcodedChannel;
     return { source: sourceLabel, periodType, periodStart, campaignName, tags, metrics };
   });
 }

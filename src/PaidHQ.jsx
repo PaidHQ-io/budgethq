@@ -2467,17 +2467,27 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           T.wideLayout-conditional values below are Aida-only in effect (T.wideLayout is
           undefined/falsy on Classic/Midnight, so every ternary's `else` branch is the exact
           original hardcoded value — zero visual change for those two). ── */}
-      <div style={{width:64,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",background:T.wideLayout?"transparent":T.accent,borderRight:T.wideLayout?`1px solid ${T.border}`:"none",zIndex:30,position:"relative"}}>
+      {/* 2026-08-05 fix (per Mo — "make the blue vertical bar on the left hand side the same grey
+          shared by the rest of the classic theme"): this rail used to fill solid T.accent (blue on
+          Classic) on every non-Aida theme — a leftover from before the Aida-driven "transparent
+          rail, colored circular badges only" redesign above ever existed (see this block's other
+          2026-08-01 doc comment). Classic/Midnight now use T.sidebarBg (the exact grey the stats
+          <aside> already uses) instead of a solid accent fill, with a matching border like Aida's
+          own transparent rail — every icon/badge color below that used to assume a dark blue
+          backdrop (white icons, white-alpha hover tints) is updated alongside this to the same
+          neutral tokens Aida's branch already uses, since white-on-white would otherwise be
+          unreadable against the new grey background. */}
+      <div style={{width:64,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",background:T.wideLayout?"transparent":T.sidebarBg,borderRight:`1px solid ${T.border}`,zIndex:30,position:"relative"}}>
         <div style={{flex:1}}/>
 
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,paddingBottom:14,width:"100%",flexShrink:0}}>
           {workspace&&workspaces&&(
             <div style={{position:"relative"}}>
               <button title={workspace.name} onClick={()=>setWorkspaceMenuOpen(o=>!o)}
-                onMouseEnter={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background=T.wideLayout?T.surface:"rgba(255,255,255,0.12)";}}
+                onMouseEnter={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background=T.wideLayout?T.surface:T.surfaceHover;}}
                 onMouseLeave={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background="transparent";}}
-                style={{width:40,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:"none",borderRadius:T.wideLayout?"50%":T.r8,background:workspaceMenuOpen?(T.wideLayout?T.surface:"rgba(255,255,255,0.22)"):"transparent",cursor:"pointer",transition:"background 0.12s",fontFamily:T.font}}>
-                <div style={{width:22,height:22,borderRadius:"50%",background:T.wideLayout?T.accent:"rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10*(T.fsScale||1),fontWeight:700,color:T.wideLayout?T.onAccent:"#FFFFFF",flexShrink:0}}>
+                style={{width:40,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:"none",borderRadius:T.wideLayout?"50%":T.r8,background:workspaceMenuOpen?(T.wideLayout?T.surface:T.accentBg):"transparent",cursor:"pointer",transition:"background 0.12s",fontFamily:T.font}}>
+                <div style={{width:22,height:22,borderRadius:"50%",background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10*(T.fsScale||1),fontWeight:700,color:T.onAccent,flexShrink:0}}>
                   {(workspace.name||"?")[0].toUpperCase()}
                 </div>
               </button>
@@ -2504,7 +2514,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           {session&&(
             <div style={{position:"relative"}}>
               <button title={session.user?.email} onClick={()=>setAccountMenuOpen(o=>!o)}
-                style={{width:30,height:30,borderRadius:"50%",background:T.wideLayout?T.accent:(accountMenuOpen?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)"),border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11*(T.fsScale||1),fontWeight:700,color:T.wideLayout?T.onAccent:"#FFFFFF",fontFamily:T.font}}>
+                style={{width:30,height:30,borderRadius:"50%",background:T.accent,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11*(T.fsScale||1),fontWeight:700,color:T.onAccent,fontFamily:T.font}}>
                 {(session.user?.email||"?")[0].toUpperCase()}
               </button>
               {accountMenuOpen&&(<>
@@ -2541,17 +2551,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             </div>
           )}
           <button title="Settings" onClick={()=>setView("settings")}
-            onMouseEnter={e=>{if(view!=="settings")e.currentTarget.style.background=T.wideLayout?T.surfaceHover:"rgba(255,255,255,0.12)";}}
+            onMouseEnter={e=>{if(view!=="settings")e.currentTarget.style.background=T.wideLayout?T.surfaceHover:T.surfaceHover;}}
             onMouseLeave={e=>{if(view!=="settings")e.currentTarget.style.background="transparent";}}
-            style={{width:40,height:40,borderRadius:T.wideLayout?"50%":T.r10,background:view==="settings"?(T.wideLayout?T.accent:"rgba(255,255,255,0.22)"):"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
-            <Icon name="gear" size={16} color={T.wideLayout?(view==="settings"?T.onAccent:T.textMuted):"rgba(255,255,255,0.8)"}/>
+            style={{width:40,height:40,borderRadius:T.wideLayout?"50%":T.r10,background:view==="settings"?(T.wideLayout?T.accent:T.accentBg):"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
+            <Icon name="gear" size={16} color={T.wideLayout?(view==="settings"?T.onAccent:T.textMuted):(view==="settings"?T.accent:T.textMuted)}/>
           </button>
           <div style={{position:"relative"}}>
             <button title="More" onClick={()=>setFileMenuOpen(o=>!o)}
-              onMouseEnter={e=>{if(!fileMenuOpen)e.currentTarget.style.background=T.wideLayout?T.surfaceHover:"rgba(255,255,255,0.12)";}}
+              onMouseEnter={e=>{if(!fileMenuOpen)e.currentTarget.style.background=T.wideLayout?T.surfaceHover:T.surfaceHover;}}
               onMouseLeave={e=>{if(!fileMenuOpen)e.currentTarget.style.background="transparent";}}
-              style={{width:40,height:40,borderRadius:T.wideLayout?"50%":T.r10,background:fileMenuOpen?(T.wideLayout?T.accent:"rgba(255,255,255,0.22)"):"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
-              <Icon name="dots" size={16} color={T.wideLayout?(fileMenuOpen?T.onAccent:T.textMuted):"rgba(255,255,255,0.8)"}/>
+              style={{width:40,height:40,borderRadius:T.wideLayout?"50%":T.r10,background:fileMenuOpen?(T.wideLayout?T.accent:T.accentBg):"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
+              <Icon name="dots" size={16} color={T.wideLayout?(fileMenuOpen?T.onAccent:T.textMuted):(fileMenuOpen?T.accent:T.textMuted)}/>
             </button>
             {fileMenuOpen&&(<>
               <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>

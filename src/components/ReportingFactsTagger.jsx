@@ -61,6 +61,21 @@ const DEFAULT_COLUMNS = ALL_COLUMNS.map((c) => c.key);
 
 const CAMPAIGN_TAG_ROW_LIMIT = 20000; // sanity cap so a runaway import can't hang this component's group-by
 
+// Bulk Delete panel (2026-08-05, per Mo — "a way of deleting all of the pipeline data, pipeline data
+// by date, by source, by product, by module, by brand, by channel/platform"). Unlike deleteGroup/
+// bulkDeleteGroups above (which delete specific Campaign+AdGroup groups the user has selected in the
+// table), this is a standalone modal for wiping a whole SLICE of the dataset at once — by date range,
+// by source, by any one tag dimension's value (Product/Module/Brand are just examples of tagDims —
+// this works for whichever dimension the workspace has), by Channel, or literally everything. Hits
+// the same DELETE /reporting-facts endpoint (see deleteReportingFacts) with its `all`/`source`
+// params added for exactly this feature. Given how destructive "everything" is, that one mode alone
+// requires typing the literal word DELETE rather than a window.confirm — every other mode uses
+// window.confirm, consistent with deleteGroup/bulkDeleteGroups.
+function monthEndDate(monthStr) {
+  const [y, m] = monthStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); // day 0 of next month = last day of this month
+}
+
 // Groups raw reporting_facts rows into one entry per Campaign + Ad Group combo (see this file's top
 // doc comment), summing every metric key present across that group's rows and majority-voting every
 // OTHER tag dimension (same conflict-flagging approach the prior version of this file used) plus
@@ -185,6 +200,16 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
   const [editVal, setEditVal] = useState("");
   const [editingChannel, setEditingChannel] = useState(null); // group key
 
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bdMode, setBdMode] = useState("date"); // "date" | "source" | "tag" | "channel" | "all"
+  const [bdStart, setBdStart] = useState("");
+  const [bdEnd, setBdEnd] = useState("");
+  const [bdSource, setBdSource] = useState("");
+  const [bdTagDim, setBdTagDim] = useState("");
+  const [bdTagValue, setBdTagValue] = useState("");
+  const [bdChannel, setBdChannel] = useState("");
+  const [bdConfirmText, setBdConfirmText] = useState("");
+
   const showNotif = (msg, type = "success") => {
     setNotif({ msg, type });
     setTimeout(() => setNotif(null), type === "error" ? 6000 : 3000);
@@ -219,6 +244,37 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
   const distinctChannels = useMemo(() => Array.from(new Set(groups.map((g) => g.channel).filter(Boolean))).sort(), [groups]);
   const taggedCount = useMemo(() => groups.filter((g) => Object.keys(g.tags).length > 0).length, [groups]);
   const untaggedCount = groups.length - taggedCount;
+
+  // Bulk Delete panel's own source-of-truth lists — computed straight from the raw imported `rows`
+  // (not `groups`, which is already Campaign+AdGroup-collapsed) since the panel deletes by row-level
+  // criteria (source, any tag dimension's value, date range) rather than by campaign identity.
+  const distinctSources = useMemo(() => Array.from(new Set((rows || []).map((r) => r.source).filter(Boolean))).sort(), [rows]);
+  const distinctTagValues = useMemo(() => {
+    if (!bdTagDim) return [];
+    return Array.from(new Set((rows || []).map((r) => (r.tags || {})[bdTagDim]).filter(Boolean))).sort();
+  }, [rows, bdTagDim]);
+  const previewCount = useMemo(() => {
+    if (!rows) return null;
+    if (bdMode === "all") return rows.length;
+    if (bdMode === "date") {
+      if (!bdStart || !bdEnd) return null;
+      return rows.filter((r) => { const m = (r.periodStart || "").slice(0, 7); return m >= bdStart && m <= bdEnd; }).length;
+    }
+    if (bdMode === "source") return bdSource ? rows.filter((r) => r.source === bdSource).length : null;
+    if (bdMode === "tag") return bdTagDim && bdTagValue ? rows.filter((r) => (r.tags || {})[bdTagDim] === bdTagValue).length : null;
+    if (bdMode === "channel") return bdChannel ? rows.filter((r) => (r.tags || {})[CHANNEL_TAG_KEY] === bdChannel).length : null;
+    return null;
+  }, [rows, bdMode, bdStart, bdEnd, bdSource, bdTagDim, bdTagValue, bdChannel]);
+  const canBulkDelete =
+    bdMode === "all" ? bdConfirmText.trim().toUpperCase() === "DELETE"
+    : bdMode === "date" ? !!(bdStart && bdEnd)
+    : bdMode === "source" ? !!bdSource
+    : bdMode === "tag" ? !!(bdTagDim && bdTagValue)
+    : bdMode === "channel" ? !!bdChannel
+    : false;
+  const resetBulkDelete = () => {
+    setBdMode("date"); setBdStart(""); setBdEnd(""); setBdSource(""); setBdTagDim(""); setBdTagValue(""); setBdChannel(""); setBdConfirmText("");
+  };
 
   const doSort = (col) => {
     setSortDir(sortCol === col && sortDir === "desc" ? "asc" : "desc");
@@ -430,6 +486,37 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
     }
   };
 
+  // Bulk Delete panel's own submit — see this file's "Bulk Delete panel" doc comment above
+  // monthEndDate for why this is a separate path from deleteGroup/bulkDeleteGroups (whole-slice
+  // deletes by date/source/tag/channel/all rather than specific selected Campaign+AdGroup groups).
+  // Re-fetches from the server afterward (refresh()) rather than filtering local `rows` in place,
+  // since a single one of these deletes can span far more rows than are practical to reconcile
+  // against local state by hand.
+  const doBulkDelete = async () => {
+    if (!canEdit || !canBulkDelete) return;
+    let filters = null;
+    let label = "";
+    if (bdMode === "all") { filters = { all: true }; label = "ALL pipeline data in this workspace"; }
+    else if (bdMode === "date") { filters = { start: `${bdStart}-01`, end: monthEndDate(bdEnd) }; label = `pipeline data from ${bdStart} through ${bdEnd}`; }
+    else if (bdMode === "source") { filters = { source: bdSource }; label = `pipeline data from source "${bdSource}"`; }
+    else if (bdMode === "tag") { filters = { tags: { [bdTagDim]: bdTagValue } }; label = `pipeline data tagged ${bdTagDim}: "${bdTagValue}"`; }
+    else if (bdMode === "channel") { filters = { tags: { [CHANNEL_TAG_KEY]: bdChannel } }; label = `pipeline data on channel "${bdChannel}"`; }
+    if (!filters) return;
+    if (bdMode !== "all" && !window.confirm(`Permanently delete ${label} (${previewCount ?? "?"} row${previewCount === 1 ? "" : "s"}) from the database?\n\nThis cannot be undone.`)) return;
+    setApplying(true);
+    try {
+      const result = await deleteReportingFacts(session, workspace.id, filters);
+      showNotif(`Deleted ${result.deleted} row${result.deleted === 1 ? "" : "s"}`);
+      setBulkDeleteOpen(false);
+      resetBulkDelete();
+      refresh();
+    } catch (err) {
+      showNotif(err.message || "Delete failed", "error");
+    } finally {
+      setApplying(false);
+    }
+  };
+
   // Left-column overview (2026-08-03, per Mo — "use the left vertical column better ... give us an
   // overview of the data being tagged and filtered", replacing PaidHQ.jsx's generic ad-spend
   // "Total spend/Campaigns/Tagged/Needs review" default block, which never applied to this data).
@@ -544,7 +631,8 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
               </button>
             );
           })}
-          <div style={{ marginLeft: "auto" }}>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {canEdit && <Btn onClick={() => setBulkDeleteOpen(true)} variant="ghost" size="sm" T={T} title="Delete a whole slice of pipeline data at once (by date, source, tag, channel, or everything)">Bulk delete…</Btn>}
             {onBackToDataSources && <Btn onClick={onBackToDataSources} variant="ghost" size="sm" T={T}>← Back to Data Sources</Btn>}
           </div>
         </div>
@@ -753,6 +841,79 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
         </div>
       </div>
       </div>
+
+      {bulkDeleteOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+          onClick={() => setBulkDeleteOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: T.surfaceEl, border: `1px solid ${T.border}`, borderRadius: T.r12, width: 460, maxWidth: "100%", maxHeight: "85vh", overflow: "auto", padding: 20, fontFamily: T.font }}>
+            <div style={{ fontSize: 15 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 4 }}>Bulk delete pipeline data</div>
+            <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, marginBottom: 14 }}>Permanently removes matching rows from the database. This cannot be undone.</div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 }}>
+              {[
+                { key: "date", label: "By date range" },
+                { key: "source", label: "By source" },
+                { key: "tag", label: "By tag dimension (Product, Module, Brand, etc.)" },
+                { key: "channel", label: "By channel/platform" },
+                { key: "all", label: "Everything" },
+              ].map((m) => (
+                <label key={m.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 * (T.fsScale || 1), color: T.text, cursor: "pointer" }}>
+                  <input type="radio" name="bdMode" checked={bdMode === m.key} onChange={() => setBdMode(m.key)} style={{ accentColor: T.accent, cursor: "pointer" }} />
+                  {m.label}
+                </label>
+              ))}
+            </div>
+
+            {bdMode === "date" && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
+                <input type="month" value={bdStart} onChange={(e) => setBdStart(e.target.value)} style={{ flex: 1, background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "6px 9px", fontSize: 12 * (T.fsScale || 1), fontFamily: T.font, outline: "none" }} />
+                <span style={{ color: T.textMuted }}>→</span>
+                <input type="month" value={bdEnd} onChange={(e) => setBdEnd(e.target.value)} style={{ flex: 1, background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "6px 9px", fontSize: 12 * (T.fsScale || 1), fontFamily: T.font, outline: "none" }} />
+              </div>
+            )}
+            {bdMode === "source" && (
+              <Sel value={bdSource} onChange={setBdSource} T={T} style={{ width: "100%", marginBottom: 14 }}>
+                <option value="">Select a source…</option>
+                {distinctSources.map((s) => <option key={s} value={s}>{s}</option>)}
+              </Sel>
+            )}
+            {bdMode === "tag" && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                <Sel value={bdTagDim} onChange={(v) => { setBdTagDim(v); setBdTagValue(""); }} T={T} style={{ flex: 1 }}>
+                  <option value="">Dimension…</option>
+                  {(tagDims || []).map((d) => <option key={d} value={d}>{d}</option>)}
+                </Sel>
+                <Sel value={bdTagValue} onChange={setBdTagValue} T={T} style={{ flex: 1 }} disabled={!bdTagDim}>
+                  <option value="">Value…</option>
+                  {distinctTagValues.map((v) => <option key={v} value={v}>{v}</option>)}
+                </Sel>
+              </div>
+            )}
+            {bdMode === "channel" && (
+              <Sel value={bdChannel} onChange={setBdChannel} T={T} style={{ width: "100%", marginBottom: 14 }}>
+                <option value="">Select a channel…</option>
+                {distinctChannels.map((c) => <option key={c} value={c}>{c}</option>)}
+              </Sel>
+            )}
+            {bdMode === "all" && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.danger, marginBottom: 6 }}>This deletes every pipeline row in this workspace. Type DELETE to confirm.</div>
+                <input value={bdConfirmText} onChange={(e) => setBdConfirmText(e.target.value)} placeholder="DELETE"
+                  style={{ width: "100%", background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "7px 9px", fontSize: 12.5 * (T.fsScale || 1), fontFamily: T.font, outline: "none" }} />
+              </div>
+            )}
+
+            <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, marginBottom: 14 }}>
+              {previewCount === null ? "Select the criteria above." : `Matches ${previewCount.toLocaleString()} row${previewCount === 1 ? "" : "s"}.`}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <Btn onClick={() => { setBulkDeleteOpen(false); resetBulkDelete(); }} variant="ghost" size="sm" T={T}>Cancel</Btn>
+              <Btn onClick={doBulkDelete} disabled={!canBulkDelete || applying} variant="danger" size="sm" T={T}>Delete</Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

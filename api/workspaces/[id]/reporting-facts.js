@@ -39,9 +39,18 @@
  *        per workspace), not a separate hardcoded vocabulary. This route doesn't validate tag keys
  *        against tag_dims — that's a UI-layer suggestion/consistency aid (see dimension-values.js),
  *        not a hard constraint, so tagging isn't blocked if a dimension gets renamed/removed later.
- * DELETE ?period_type=...&start=...&end=...&campaign_name=...&tags={...} — corrections/undo. At
- *        least one filter required (mirrors spend-rows.js's DELETE guard against an accidental
- *        full wipe).
+ * DELETE ?period_type=...&start=...&end=...&campaign_name=...&source=...&tags={...} —
+ *        corrections/undo. At least one filter required (mirrors spend-rows.js's DELETE guard
+ *        against an accidental full wipe) UNLESS `all=true` is explicitly passed (2026-08-05, per
+ *        Mo — "a way of deleting all of the pipeline data"), which is the one deliberate exception
+ *        to that guard: a genuine "wipe this workspace's entire reporting_facts" action, gated by
+ *        its own explicit flag rather than a caller being able to smuggle a full wipe through by
+ *        accident via some always-true filter combination. `source` (added alongside `all`, same
+ *        request — Mo also asked for "delete pipeline data by source") is an exact match against
+ *        the `source` column (e.g. "pipeline_csv_mapped", "dreamdata_screenshot") — every other
+ *        filter here was already tag/campaign/period based; source is the one dimension that isn't
+ *        stored in `tags` at all, so it needed its own query param rather than reusing the tags
+ *        containment filter.
  * PATCH  Body: { updates: [{ id, tags }] } — Pipeline Tagger (2026-08-01, per Mo — a dedicated
  *        tagging tab for reporting_facts, mirroring Campaign Tagger's UX). Retags an ALREADY-STORED
  *        row in place by primary key. Deliberately separate from POST's upsert: `tags` is part of
@@ -106,7 +115,7 @@ export default withApi(async (req, res) => {
   await requireEntitlement(sql, workspaceId);
 
   if (req.method === "GET") {
-    const { period_type, start, end, campaign_name, tags, afterPeriodStart, afterId } = req.query;
+    const { period_type, start, end, campaign_name, source, tags, afterPeriodStart, afterId } = req.query;
     const tagsFilter = parseTagsFilter(tags);
     const parsedLimit = parseInt(req.query.limit, 10);
     const pageLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
@@ -121,6 +130,7 @@ export default withApi(async (req, res) => {
         and (${start || null}::date is null or period_start >= ${start || null}::date)
         and (${end || null}::date is null or period_start <= ${end || null}::date)
         and (${campaign_name || null}::text is null or campaign_name = ${campaign_name || null})
+        and (${source || null}::text is null or source = ${source || null})
         and (${tagsFilter ? JSON.stringify(tagsFilter) : null}::jsonb is null or tags @> ${tagsFilter ? JSON.stringify(tagsFilter) : null}::jsonb)
         and (
           ${hasCursor ? afterPeriodStart : null}::date is null
@@ -209,19 +219,23 @@ export default withApi(async (req, res) => {
 
   if (req.method === "DELETE") {
     requireEditAccess(myRole);
-    const { period_type, start, end, campaign_name, tags } = req.query;
+    const { period_type, start, end, campaign_name, source, tags, all } = req.query;
     const tagsFilter = parseTagsFilter(tags);
-    if (!period_type && !start && !end && !campaign_name && !tagsFilter) {
-      return res.status(400).json({ error: "At least one filter is required" });
+    const wipeAll = all === "true";
+    if (!wipeAll && !period_type && !start && !end && !campaign_name && !source && !tagsFilter) {
+      return res.status(400).json({ error: "At least one filter is required (or pass all=true to delete every row)" });
     }
     const result = await sql`
       delete from core.reporting_facts
       where workspace_id = ${workspaceId}
-        and (${period_type || null}::text is null or period_type = ${period_type || null})
-        and (${start || null}::date is null or period_start >= ${start || null}::date)
-        and (${end || null}::date is null or period_start <= ${end || null}::date)
-        and (${campaign_name || null}::text is null or campaign_name = ${campaign_name || null})
-        and (${tagsFilter ? JSON.stringify(tagsFilter) : null}::jsonb is null or tags @> ${tagsFilter ? JSON.stringify(tagsFilter) : null}::jsonb)
+        and (${wipeAll}::boolean or (
+          (${period_type || null}::text is null or period_type = ${period_type || null})
+          and (${start || null}::date is null or period_start >= ${start || null}::date)
+          and (${end || null}::date is null or period_start <= ${end || null}::date)
+          and (${campaign_name || null}::text is null or campaign_name = ${campaign_name || null})
+          and (${source || null}::text is null or source = ${source || null})
+          and (${tagsFilter ? JSON.stringify(tagsFilter) : null}::jsonb is null or tags @> ${tagsFilter ? JSON.stringify(tagsFilter) : null}::jsonb)
+        ))
       returning id
     `;
     return res.status(200).json({ deleted: result.length });

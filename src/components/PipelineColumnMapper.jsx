@@ -9,6 +9,7 @@ import {
   PIPELINE_STRUCTURAL_FIELD_OPTIONS,
 } from "../lib/pipelineColumnMapping.js";
 import { normalizePeriodStart, labelForPeriod } from "../lib/reportingPeriods.js";
+import { PLATFORM_OPTIONS } from "../lib/core.js";
 
 // Column-mapping + period step for a raw pipeline CSV/XLSX (2026-08-02/03, per Mo — see
 // pipelineColumnMapping.js's top doc comment for the full "why"). Sits between the raw file (every
@@ -58,6 +59,23 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
 
   const dupeTargets = useMemo(() => findDuplicateMappingTargets(mapping), [mapping]);
   const mappedCount = useMemo(() => Object.values(mapping).filter((t) => t && t !== "ignore").length, [mapping]);
+  // Which of the 9 canonical metrics (PIPELINE_METRIC_MAP_OPTIONS) DIDN'T get mapped to any column
+  // (2026-08-05, per Mo — "pipeline value still isn't coming in ... blank everywhere"). The alias
+  // guesser only exact-matches a header against a known list (see pipelineColumnMapping.js's own
+  // doc comment on why that's deliberate) — a header spelled slightly differently than expected
+  // (or genuinely absent from this file) silently leaves that metric on "Ignore," which used to be
+  // invisible until someone noticed the resulting column was empty everywhere downstream. This is
+  // purely informational, not a blocker (a file legitimately might not report every metric — Closed
+  // Lost especially), but it puts every miss in front of the person confirming the import instead of
+  // depending on them to notice one bad dropdown among many.
+  const mappedMetricKeys = useMemo(
+    () => new Set(Object.values(mapping).filter((t) => t?.startsWith("metric::")).map((t) => t.slice(8))),
+    [mapping]
+  );
+  const unmappedMetrics = useMemo(
+    () => PIPELINE_METRIC_MAP_OPTIONS.filter((m) => !mappedMetricKeys.has(m.key)),
+    [mappedMetricKeys]
+  );
 
   // PERIOD: detected once per file (headers/rows never change under this component), then the user
   // can either accept it or switch to picking one manually — see detectImportPeriod's doc comment
@@ -84,11 +102,23 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
     return null;
   }, [periodMode, detected, year, month, quarter]);
 
+  // CHANNEL AT IMPORT (2026-08-05, per Mo — "I'm going to start bringing the data in channel by
+  // channel ... there are many cases where the channel is Bing but the campaign starts with SEA-
+  // ... I would like a hard coded channel field that is hard coded when the data is imported"):
+  // a "channel" column mapping (guessed or manual) still works as before, but Mo's own point is that
+  // for HIS data neither the campaign name nor a Channel-looking column in the source export can be
+  // trusted — he knows which platform a given file came from because he's importing it one platform
+  // at a time. hardcodedChannel, when set, overrides whatever any mapped "channel" column would have
+  // produced (see buildNormalizedPipelineRows's own doc comment) — left on "Don't set" this behaves
+  // exactly as it did before this feature existed.
+  const channelColumnMapped = useMemo(() => Object.values(mapping).includes("channel"), [mapping]);
+  const [hardcodedChannel, setHardcodedChannel] = useState("");
+
   const canConfirm = dupeTargets.length === 0 && Boolean(resolvedPeriod?.periodStart);
 
   const handleConfirm = () => {
     if (!canConfirm) return;
-    const normalized = buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod);
+    const normalized = buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod, hardcodedChannel);
     onConfirm(normalized);
   };
 
@@ -115,6 +145,14 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
         <div style={{ marginBottom: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), color: T.danger }}>
           More than one column is mapped to {dupeTargets.map((t) => `"${targetLabel(t)}"`).join(", ")} — each
           target can only be used once. Change one of them to continue.
+        </div>
+      )}
+
+      {unmappedMetrics.length > 0 && (
+        <div style={{ marginBottom: 12, padding: "9px 12px", background: T.warningBg, border: `1px solid ${T.warningBorder}`, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), color: T.warning }}>
+          Not mapped to any column: {unmappedMetrics.map((m) => `"${m.label}"`).join(", ")}. If your file has this
+          data under a header the guess above didn't catch, find that column and set it to the matching Metric in
+          its dropdown — otherwise this is expected and fine to ignore.
         </div>
       )}
 
@@ -208,6 +246,23 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
             )}
           </div>
         )}
+      </div>
+
+      <div style={{ marginTop: 12, padding: "12px 14px", background: T.surfaceEl, border: `1px solid ${T.border}`, borderRadius: T.r8 }}>
+        <div style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
+          Channel
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, maxWidth: 420, lineHeight: 1.5 }}>
+            {channelColumnMapped
+              ? "A column is already mapped to Channel above. To force every row in this file to one channel instead (e.g. a campaign-naming quirk makes the source column unreliable), pick it here — it overrides the mapped column."
+              : "No Channel column mapped above. If this whole file is one platform, set it here so every row is tagged with it:"}
+          </span>
+          <Sel value={hardcodedChannel} onChange={setHardcodedChannel} T={T} style={{ width: 160 }}>
+            <option value="">Don't set</option>
+            {PLATFORM_OPTIONS.filter((p) => p !== "auto").map((p) => <option key={p} value={p}>{p}</option>)}
+          </Sel>
+        </div>
       </div>
 
       <div style={{ marginTop: 16, display: "flex", gap: 10 }}>

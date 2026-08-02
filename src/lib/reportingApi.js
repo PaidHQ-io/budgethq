@@ -34,15 +34,17 @@ async function api(session, workspaceId, path, options = {}) {
 // below) — neither needed any changes to pick up the fix.
 const REPORTING_FACTS_PAGE_SIZE = 5000;
 
-// filters: { periodType, start, end, campaignName, tags } — tags is a plain object, e.g.
+// filters: { periodType, start, end, campaignName, source, tags } — tags is a plain object, e.g.
 // { Product: "Spreadsheet Server" }, matched by containment (rows whose tags include at least
-// these key/values), not full equality.
+// these key/values), not full equality. `source` (2026-08-05, per Mo's bulk-delete-by-source
+// request) is an exact match against the row's own `source` column.
 export async function listReportingFacts(session, workspaceId, filters = {}) {
   const baseParams = new URLSearchParams();
   if (filters.periodType) baseParams.set("period_type", filters.periodType);
   if (filters.start) baseParams.set("start", filters.start);
   if (filters.end) baseParams.set("end", filters.end);
   if (filters.campaignName) baseParams.set("campaign_name", filters.campaignName);
+  if (filters.source) baseParams.set("source", filters.source);
   if (filters.tags && Object.keys(filters.tags).length) baseParams.set("tags", JSON.stringify(filters.tags));
   baseParams.set("limit", String(REPORTING_FACTS_PAGE_SIZE));
 
@@ -83,20 +85,24 @@ export function patchReportingFactsTags(session, workspaceId, updates) {
   });
 }
 
-// filters: { campaignName?, tags? } (periodType/start/end also accepted, unused by Pipeline
-// Tagger's own caller today) — permanently deletes every matching reporting_facts row. Used by
-// Pipeline Tagger's per-row/bulk "delete from dataset" (2026-08-03, per Mo — unlike Campaign
-// Tagger's own delete, which only drops a campaign from the local in-memory spend dataset,
-// reporting_facts is already live in the database the moment it's imported, so this hits the real
-// DELETE endpoint rather than just filtering local state). The route requires at least one filter
-// (guards against an accidental full wipe — see reporting-facts.js's DELETE doc comment) and returns
-// { deleted: <count> }.
+// filters: { campaignName?, source?, tags?, all? } (periodType/start/end also accepted) —
+// permanently deletes every matching reporting_facts row. Used by Pipeline Tagger's per-row/bulk
+// "delete from dataset" (2026-08-03, per Mo — unlike Campaign Tagger's own delete, which only drops
+// a campaign from the local in-memory spend dataset, reporting_facts is already live in the
+// database the moment it's imported, so this hits the real DELETE endpoint rather than just
+// filtering local state) AND the Bulk Delete panel (2026-08-05, per Mo — "a way of deleting all of
+// the pipeline data, by date, by source, by product, by module, by brand, by channel/platform").
+// The route requires at least one filter (guards against an accidental full wipe — see
+// reporting-facts.js's DELETE doc comment) UNLESS `all: true` is passed, the one deliberate,
+// explicit exception to that guard. Returns { deleted: <count> }.
 export function deleteReportingFacts(session, workspaceId, filters = {}) {
   const params = new URLSearchParams();
+  if (filters.all) params.set("all", "true");
   if (filters.periodType) params.set("period_type", filters.periodType);
   if (filters.start) params.set("start", filters.start);
   if (filters.end) params.set("end", filters.end);
   if (filters.campaignName) params.set("campaign_name", filters.campaignName);
+  if (filters.source) params.set("source", filters.source);
   if (filters.tags && Object.keys(filters.tags).length) params.set("tags", JSON.stringify(filters.tags));
   return api(session, workspaceId, `?${params.toString()}`, { method: "DELETE" });
 }
