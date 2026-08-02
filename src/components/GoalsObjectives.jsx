@@ -17,9 +17,11 @@ import { labelForPeriod } from "../lib/reportingPeriods.js";
 // about this minimal view forecloses that.
 const GOALS_SOURCE_PREFIX = "goals";
 
-// Goal-flavored metrics worth a column at a glance — mirrors ReportingAnalyzer's SUMMARY_METRICS
-// convention, just pointed at the goal/attainment fields reportingAI.js's schema captures instead
-// of the actuals ones.
+// Goal-flavored metrics worth a column at a glance — a fixed list on purpose (unlike
+// ReportingAnalyzer.jsx/PipelineTagger.jsx, which derive their columns dynamically via
+// reportingMetrics.js's deriveMetricColumns now that the metrics schema is open, 2026-08-02) since
+// this tab is specifically about the goal/attainment fields reportingAI.js's schema documents, not
+// an arbitrary client's own metric names.
 const GOAL_METRICS = [
   { key: "budget_goal", label: "Budget Goal", money: true },
   { key: "spend_pacing_pct", label: "Spend Pacing %" },
@@ -65,7 +67,7 @@ export default function GoalsObjectives({ T, session, workspace }) {
 
   return (
     <div style={{ padding: 28, maxWidth: 1200, margin: "0 auto", fontFamily: T.font, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
-      <SectionLabel T={T}>Performance Intelligence</SectionLabel>
+      <SectionLabel T={T}>Reporting</SectionLabel>
       <div style={{ fontSize: 16 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Goals & Objectives</div>
       <div style={{ fontSize: 13 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
         Targets, budget goals, and attainment/forecast data captured from files uploaded as "Goals" in Data Sources.

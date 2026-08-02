@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn, Icon, PixelPanel, SectionLabel, Pill, TagAutocompleteInput } from "./shared.jsx";
+import ReportingFactsTagger from "./ReportingFactsTagger.jsx";
 import { extractReportingRowsFromImage } from "../lib/reportingAI.js";
-import { listReportingFacts, upsertReportingFacts, getDimensionValues } from "../lib/reportingApi.js";
+import { upsertReportingFacts, getDimensionValues } from "../lib/reportingApi.js";
 import { PERIOD_TYPES, PERIOD_TYPE_LABELS, normalizePeriodStart, labelForPeriod, defaultPeriodStart } from "../lib/reportingPeriods.js";
+import { deriveMetricColumns, fmtMetric } from "../lib/reportingMetrics.js";
 
 // Reporting Analyzer tab (2026-07-30, per Mo — folding ReportingHQ's Dreamdata/PowerBI funnel
 // performance reporting into PaidHQ as a tab instead of running it as a separate product).
@@ -25,29 +27,24 @@ function fileToDataUrl(file) {
   });
 }
 
-// A handful of headline metrics shown in the review/history tables — the full metrics object
-// (every field the extraction captured) still gets stored, this is just what's worth a column at
-// a glance. Matches the metric names reportingAI.js's tool schema uses.
-const SUMMARY_METRICS = [
-  { key: "spend", label: "Spend", money: true },
-  { key: "budget_goal", label: "Budget Goal", money: true },
-  { key: "mqls", label: "MQL" },
-  { key: "sqls", label: "SQL" },
-  { key: "sql_pipeline", label: "SQL Pipeline", money: true },
-];
-
-function fmtMetric(v, money) {
-  if (v === undefined || v === null || v === "") return "—";
-  const n = Number(v);
-  if (isNaN(n)) return String(v);
-  return money ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : n.toLocaleString();
-}
+// Headline metrics shown as columns in the pending-rows review table — the full metrics object
+// (every field extraction captured) still gets stored either way, this is just what's worth a
+// column at a glance while reviewing a fresh extraction before import. Used to be a fixed list
+// matching reportingAI.js's old closed metric enum; now that that schema is open (2026-08-02, see
+// reportingAI.js's OPEN METRICS SCHEMA doc comment — different clients' exports use entirely
+// different column names, e.g. Salesforce/HockeyStack vs. Dreamdata/PowerBI), the columns shown
+// here are derived (via reportingMetrics.js's deriveMetricColumns, shared with the Reporting
+// Intelligence breakdown view) from whatever keys actually show up in the rows being reviewed, so
+// this table adapts to whatever source produced them instead of only ever showing insightsoftware's
+// own metric names. excludeRates isn't needed here — this table shows one row's own values as-is,
+// never a cross-row sum, so a rate/cost-per column is still meaningful.
+const deriveSummaryMetrics = (rows) => deriveMetricColumns(rows, { excludeRates: false });
 
 // "campaignName" is reporting_facts' one fixed identity field (a raw ad-platform-style label);
 // every other field is one of this workspace's CURRENT tag dimension names (Product, Region,
 // Funnel, Pillar, Branded Search, Module, Brand, or whatever Campaign Tagger has today — see
-// dimension-values.js). Both the review table, the batch-tag bar, and the history table are built
-// by iterating this same field list so a workspace's dimensions never have to be hardcoded here.
+// dimension-values.js). Both the review table and the batch-tag bar are built by iterating this
+// same field list so a workspace's dimensions never have to be hardcoded here.
 const CAMPAIGN_FIELD = "campaignName";
 const fieldsFor = (tagDims) => [CAMPAIGN_FIELD, ...tagDims];
 const fieldLabel = (f) => (f === CAMPAIGN_FIELD ? "Campaign" : f);
@@ -62,7 +59,7 @@ const fieldSuggestions = (dimensionValues, f) =>
 // some exports (e.g. a flat campaign breakdown reflecting whatever the dashboard's date filter
 // happened to be) carry no period info at all, so whoever imports has to say what period this
 // batch represents.
-function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields }) {
+function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields, summaryMetrics }) {
   const isUnknown = !row.periodType || row.periodType === "unknown";
   return (
     <tr style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -109,7 +106,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields }) {
           />
         </td>
       ))}
-      {SUMMARY_METRICS.map((m) => (
+      {summaryMetrics.map((m) => (
         <td key={m.key} style={{ padding: "8px 10px", fontSize:12*(T.fsScale||1), color: T.text, textAlign: "right", fontFamily: "'DM Sans',sans-serif" }}>
           {fmtMetric(row.metrics?.[m.key], m.money)}
         </td>
@@ -123,7 +120,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields }) {
   );
 }
 
-export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows }) {
+export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows, campaignTags, tagDims, canEdit }) {
   // initialPendingRows seeds via a lazy initializer rather than an effect + setState — correct
   // here (not just convenient) because PaidHQ.jsx never sets pendingReportingRows and switches to
   // this tab except together (see confirmUnifiedUpload), and this tab is conditionally mounted
@@ -135,9 +132,11 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
   const [extractError, setExtractError] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
-
-  const [history, setHistory] = useState(null); // null = loading
-  const [historyError, setHistoryError] = useState("");
+  // Bumped after a successful import to tell the embedded ReportingFactsTagger below to re-fetch —
+  // it owns its own `rows` state (fetched via listReportingFacts internally), so a fresh import up
+  // here wouldn't otherwise show up there until something remounts it. See that component's own
+  // refreshSignal doc comment.
+  const [taggerRefreshSignal, setTaggerRefreshSignal] = useState(0);
 
   // This workspace's current tag dimension names (same list Campaign Tagger shows — e.g. Product,
   // Region, Funnel, Pillar, Branded Search, Module, Brand) plus known values for each and known
@@ -146,6 +145,10 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
   // instead of a separate hardcoded vocabulary.
   const [dimensionValues, setDimensionValues] = useState({ tagDims: [], values: {}, campaignName: [] });
   const fields = fieldsFor(dimensionValues.tagDims || []);
+  // Derived (see deriveSummaryMetrics doc comment above) rather than a fixed list, so the review
+  // table's columns reflect whatever metric keys THIS batch of extracted rows actually has —
+  // different sources (Salesforce vs. Dreamdata, say) can produce entirely different columns.
+  const summaryMetrics = useMemo(() => deriveSummaryMetrics(pendingRows), [pendingRows]);
   // One free-text value per field for the "apply to all pending rows" bar below the review table —
   // a whole screenshot/CSV import is usually all one Product/Region etc. even when the AI couldn't
   // detect it per row (e.g. a flat monthly-totals table with no breakdown at all). Keyed by field
@@ -158,19 +161,6 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
   // upload surface, route by content) — this tab now only receives that data via
   // initialPendingRows, it doesn't trigger its own extraction for those file types anymore.
   const fileInputRef = useRef(null); // screenshot (AI-vision)
-
-  const refreshHistory = useCallback(() => {
-    listReportingFacts(session, workspace.id)
-      .then((rows) => {
-        setHistory(rows.slice().sort((a, b) => (a.periodStart < b.periodStart ? 1 : -1)));
-        setHistoryError("");
-      })
-      .catch((err) => setHistoryError(err.message || "Couldn't load imported data."));
-  }, [session, workspace.id]);
-
-  useEffect(() => {
-    refreshHistory();
-  }, [refreshHistory]);
 
   // Acknowledge the handoff (clear it on the parent side) once mounted — the rows themselves were
   // already consumed above via the lazy initializer, so this only calls the parent's setter, no
@@ -283,7 +273,7 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
       const result = await upsertReportingFacts(session, workspace.id, rowsToImport);
       setImportResult(result);
       setPendingRows([]);
-      refreshHistory();
+      setTaggerRefreshSignal((n) => n + 1);
     } catch (err) {
       setImportResult({ error: err.message || "Import failed." });
     } finally {
@@ -293,7 +283,7 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
 
   return (
     <div onPaste={handlePaste} style={{ padding: 28, maxWidth: 1100, margin: "0 auto", fontFamily: "'DM Sans',sans-serif", overflow: "auto", height: "100%", boxSizing: "border-box" }}>
-      <SectionLabel T={T}>Performance Intelligence</SectionLabel>
+      <SectionLabel T={T}>Pipeline Tagger</SectionLabel>
       <div style={{ fontSize:16*(T.fsScale||1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Import Dreamdata / PowerBI data</div>
       <div style={{ fontSize:13*(T.fsScale||1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
         Screenshot a table from your Dreamdata/PowerBI dashboard and drop it below, or paste
@@ -361,8 +351,8 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                  {["Period", ...fields.map(fieldLabel), ...SUMMARY_METRICS.map((m) => m.label), ""].map((h, i) => (
-                    <th key={i} style={{ padding: "6px 10px", fontSize:10*(T.fsScale||1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 1 + fields.length && i < 1 + fields.length + SUMMARY_METRICS.length ? "right" : "left" }}>
+                  {["Period", ...fields.map(fieldLabel), ...summaryMetrics.map((m) => m.label), ""].map((h, i) => (
+                    <th key={i} style={{ padding: "6px 10px", fontSize:10*(T.fsScale||1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 1 + fields.length && i < 1 + fields.length + summaryMetrics.length ? "right" : "left" }}>
                       {h}
                     </th>
                   ))}
@@ -370,7 +360,7 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
               </thead>
               <tbody>
                 {pendingRows.map((row, idx) => (
-                  <ReviewRow key={idx} T={T} row={row} onChange={(next) => updateRow(idx, next)} onRemove={() => removeRow(idx)} dimensionValues={dimensionValues} fields={fields} />
+                  <ReviewRow key={idx} T={T} row={row} onChange={(next) => updateRow(idx, next)} onRemove={() => removeRow(idx)} dimensionValues={dimensionValues} fields={fields} summaryMetrics={summaryMetrics} />
                 ))}
               </tbody>
             </table>
@@ -404,50 +394,16 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
         </div>
       )}
 
-      <SectionLabel T={T}>Stored data</SectionLabel>
-      {historyError && (
-        <div style={{ padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize:12*(T.fsScale||1), color: T.danger, marginBottom: 12 }}>
-          {historyError}
-        </div>
-      )}
-      {history === null && !historyError && <div style={{ fontSize:12*(T.fsScale||1), color: T.textMuted }}>Loading…</div>}
-      {history && history.length === 0 && (
-        <div style={{ fontSize:12*(T.fsScale||1), color: T.textMuted }}>Nothing imported yet for this workspace.</div>
-      )}
-      {history && history.length > 0 && (
-        <PixelPanel T={T} contentStyle={{ padding: 0 }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                  {["Period", ...fields.map(fieldLabel), ...SUMMARY_METRICS.map((m) => m.label)].map((h, i) => (
-                    <th key={i} style={{ padding: "8px 10px", fontSize:10*(T.fsScale||1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 1 + fields.length ? "right" : "left" }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((row) => (
-                  <tr key={row.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                    <td style={{ padding: "8px 10px", fontSize:12*(T.fsScale||1), color: T.text, fontWeight: 600 }}>{labelForPeriod(row.periodType, row.periodStart)}</td>
-                    {fields.map((f) => (
-                      <td key={f} style={{ padding: "8px 10px", fontSize:12*(T.fsScale||1), color: T.textSub, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {getField(row, f) || "—"}
-                      </td>
-                    ))}
-                    {SUMMARY_METRICS.map((m) => (
-                      <td key={m.key} style={{ padding: "8px 10px", fontSize:12*(T.fsScale||1), color: T.text, textAlign: "right" }}>
-                        {fmtMetric(row.metrics?.[m.key], m.money)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </PixelPanel>
-      )}
+      <ReportingFactsTagger
+        T={T}
+        session={session}
+        workspace={workspace}
+        campaignTags={campaignTags}
+        tagDims={tagDims}
+        canEdit={canEdit}
+        variant="embedded"
+        refreshSignal={taggerRefreshSignal}
+      />
     </div>
   );
 }

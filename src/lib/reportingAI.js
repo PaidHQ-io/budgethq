@@ -47,20 +47,40 @@
  * confirming the (correct) detected type doesn't cost a second round-trip — only overriding to
  * "spend"/"budget" (which this schema can't extract — PDF import for those isn't supported) forgoes
  * the already-extracted rows, same as before.
+ *
+ * OPEN METRICS SCHEMA (2026-08-02, per Mo — the Pipeline Tagger tab needs to work for clients whose
+ * exports don't look like insightsoftware's Dreamdata/PowerBI dashboards at all, e.g. a raw
+ * Salesforce or HockeyStack pull with entirely different column names). The "metrics" field used to
+ * be a closed ~32-key enum — anything outside that list was silently dropped. It's now an open
+ * { key: number } object (see buildRecordTool's additionalProperties below): the model extracts
+ * EVERY numeric column it sees, not just ones on a known list. REPORTING_METRICS_HELP still lists
+ * the common keys this app already knows how to summarize/label nicely (see reportingMetrics.js's
+ * deriveMetricColumns/labelForMetricKey, shared by ReportingAnalyzer.jsx's review table and
+ * PipelineTagger.jsx's breakdown view) — the model is told to reuse them verbatim when a column
+ * clearly matches, and to invent a reasonable snake_case key from the column header otherwise, kept
+ * consistent for that same column across every row of one import.
  */
 const REPORTING_METRICS_HELP = `
-Known metrics (use these exact keys in the "metrics" object; omit any not shown in this image — do
-not invent numbers). Strip "$", ",", and "%" — store as plain numbers (percentages as e.g. 0.7 for
-0.7%, i.e. the number as shown, not divided by 100 unless the source itself is a plain fraction):
-spend, impressions, clicks, ctr, cpc, all_conversions, cp_all_conv, cvr, inquiries, cp_inquiry,
-cvr_inquiry, leads, cp_lead, mqls, cp_mql, sqls, sql_pipeline, all_conv_to_mql_rate, mql_to_sql_rate
+Metrics: extract EVERY numeric column visible for a row into the "metrics" object as
+{ key: number } pairs — this is not limited to a fixed list, different sources (Dreamdata, PowerBI,
+Salesforce, HockeyStack, etc.) use completely different column names. Strip "$", ",", and "%" —
+store as plain numbers (percentages as e.g. 0.7 for 0.7%, i.e. the number as shown, not divided by
+100 unless the source itself is a plain fraction). Do not invent a number for a column that isn't
+shown.
 
-Goals & Pacing metrics (2026-08-01 — a "Goals & Pacing" report shows targets/attainment/forecast
-alongside actuals; "Total Spend" still maps to the plain "spend" key above, do not use budget_goal
-for it):
+Key naming: derive a snake_case key from each column's own header text (lowercase; spaces and
+punctuation -> underscores; strip $/%/#). Whenever a column clearly matches one of these common
+keys, reuse it verbatim instead of inventing a new one — that keeps the same metric on the same key
+across imports from different sources:
+spend, impressions, clicks, ctr, cpc, all_conversions, cp_all_conv, cvr, inquiries, cp_inquiry,
+cvr_inquiry, leads, cp_lead, mqls, cp_mql, sqls, sql_pipeline, all_conv_to_mql_rate, mql_to_sql_rate,
 mql_goal, mql_attainment_pct, mql_forecast_pct, budget_goal, spend_pct_of_budget, spend_pacing_pct,
 mkt_mql_actuals, mkt_mql_goal, mkt_mql_attainment_pct, mkt_mql_forecast_pct, mkt_pipeline_actuals,
 mkt_pipeline_goal, mkt_pipeline_attainment_pct, mkt_pipeline_forecast_pct
+("Total Spend" on a Goals & Pacing report still maps to the plain "spend" key above, not
+budget_goal.) For a column that doesn't match any of these, make up a clear snake_case key from its
+header and use that SAME key for every row where that column appears in this file — consistency
+within one import matters more than matching one of the names above.
 `.trim();
 
 function buildSystemPrompt(tagDims) {
@@ -117,43 +137,18 @@ function buildRecordTool(tagDims) {
                 description: "Arbitrary { dimensionName: value } pairs — see the workspace's known dimension names in the system prompt. Only include dimensions actually visible in the image.",
                 properties: Object.fromEntries(tagDims.map((d) => [d, { type: "string" }])),
               },
+              // Open schema (2026-08-02, see this file's OPEN METRICS SCHEMA doc comment above) —
+              // was a closed ~32-key enum that silently dropped anything outside it, which doesn't
+              // work for clients whose exports (Salesforce, HockeyStack, etc.) use entirely
+              // different column names. additionalProperties lets the model record any numeric
+              // column it finds under a key it derives from that column's own header; the common
+              // keys are still documented in REPORTING_METRICS_HELP above (sent in the system
+              // prompt) so the model reuses them instead of inventing synonyms when they apply.
               metrics: {
                 type: "object",
-                properties: {
-                  spend: { type: "number" },
-                  impressions: { type: "number" },
-                  clicks: { type: "number" },
-                  ctr: { type: "number" },
-                  cpc: { type: "number" },
-                  all_conversions: { type: "number" },
-                  cp_all_conv: { type: "number" },
-                  cvr: { type: "number" },
-                  inquiries: { type: "number" },
-                  cp_inquiry: { type: "number" },
-                  cvr_inquiry: { type: "number" },
-                  leads: { type: "number" },
-                  cp_lead: { type: "number" },
-                  mqls: { type: "number" },
-                  cp_mql: { type: "number" },
-                  sqls: { type: "number" },
-                  sql_pipeline: { type: "number" },
-                  all_conv_to_mql_rate: { type: "number" },
-                  mql_to_sql_rate: { type: "number" },
-                  mql_goal: { type: "number" },
-                  mql_attainment_pct: { type: "number" },
-                  mql_forecast_pct: { type: "number" },
-                  budget_goal: { type: "number" },
-                  spend_pct_of_budget: { type: "number" },
-                  spend_pacing_pct: { type: "number" },
-                  mkt_mql_actuals: { type: "number" },
-                  mkt_mql_goal: { type: "number" },
-                  mkt_mql_attainment_pct: { type: "number" },
-                  mkt_mql_forecast_pct: { type: "number" },
-                  mkt_pipeline_actuals: { type: "number" },
-                  mkt_pipeline_goal: { type: "number" },
-                  mkt_pipeline_attainment_pct: { type: "number" },
-                  mkt_pipeline_forecast_pct: { type: "number" },
-                },
+                description:
+                  "{ metric_key: number } pairs, one per numeric column visible for this row. Not limited to a fixed list — see the system prompt's key-naming rules.",
+                additionalProperties: { type: "number" },
               },
             },
             required: ["period_type", "metrics"],
