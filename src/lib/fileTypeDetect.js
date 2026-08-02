@@ -11,16 +11,25 @@
  *
  * CSV/XLSX: a cheap deterministic keyword classifier runs first against the header row — no AI
  * call for the common case. Falls back to a lightweight AI classification call (headers + a few
- * sample rows, NOT the whole file) only when the deterministic check is inconclusive. PDF: always
- * AI — there's no cheap way to "peek" at a PDF's structure without reading it — reusing the same
- * native `document` content-block pattern reportingAI.js's PDF extraction already uses.
+ * sample rows, NOT the whole file) only when the deterministic check is inconclusive.
  *
- * This module only classifies; it doesn't parse/extract the file's data. Callers route to the
- * right existing importer (handleFile/applySpendGrid for spend, BudgetManager's ingestRawRows for
- * budget, reportingAI.js/reportingImport.js for pipeline/goals) based on the returned `type`.
+ * PDF: always AI, but NOT via this module's own classify-only call — reportingAI.js's
+ * classifyAndExtractPdf both classifies AND extracts in one request (2026-08-01, added after Mo
+ * asked why PDF uploads were slow: classifying and then, once confirmed, extracting was two full
+ * reads of the same PDF — Claude reading a document block is the slow part of either call, so
+ * doing it twice roughly doubled the wait). classifyImportFile's PDF branch calls that combined
+ * function and returns its `rows` alongside the classification, so a caller that gets back a
+ * "pipeline"/"goals" result already has the extraction too — see PaidHQ.jsx's confirmUnifiedUpload,
+ * which skips a second network call entirely when the confirmed type matches what came back here.
+ *
+ * This module only classifies for CSV/XLSX; it doesn't parse/extract that data (callers route to
+ * handleFile/applySpendGrid for spend, BudgetManager's ingestRawRows for budget, or
+ * reportingImport.js for pipeline/goals). PDFs are the one case where classification and
+ * extraction are already fused, per the paragraph above.
  */
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
+import { classifyAndExtractPdf } from "./reportingAI.js";
 
 // ---- deterministic keyword classifier (CSV/XLSX header row only) ----
 
@@ -90,7 +99,8 @@ function fileToDataUrl(file) {
   });
 }
 
-// ---- AI fallback (inconclusive CSV/XLSX headers, or any PDF) ----
+// ---- AI fallback for inconclusive CSV/XLSX headers (PDFs go through reportingAI.js's
+// classifyAndExtractPdf instead — see this file's top doc comment) ----
 
 function buildClassifyTool() {
   return {
@@ -126,23 +136,17 @@ Base your answer only on the column headers and sample values you can actually s
 beyond what's shown, and use "low" confidence rather than inventing certainty.
 `.trim();
 
-async function classifyWithAI({ headers, sampleRows, dataUrl, token }) {
-  const content = [];
-  if (dataUrl) {
-    const match = /^data:application\/pdf;base64,(.+)$/.exec(dataUrl || "");
-    if (!match) throw new Error("Expected a base64 PDF data URL");
-    content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: match[1] } });
-    content.push({ type: "text", text: "Classify this file using the classify_import_file tool." });
-  } else {
-    const preview = [
-      (headers || []).join(", "),
-      ...(sampleRows || []).slice(0, 5).map((r) => (r || []).join(", ")),
-    ].join("\n");
-    content.push({
+async function classifyWithAI({ headers, sampleRows, token }) {
+  const preview = [
+    (headers || []).join(", "),
+    ...(sampleRows || []).slice(0, 5).map((r) => (r || []).join(", ")),
+  ].join("\n");
+  const content = [
+    {
       type: "text",
       text: `Header row and a few sample rows:\n\n${preview}\n\nClassify this file using the classify_import_file tool.`,
-    });
-  }
+    },
+  ];
 
   const res = await fetch("/api/analyze", {
     method: "POST",
@@ -164,14 +168,18 @@ async function classifyWithAI({ headers, sampleRows, dataUrl, token }) {
 // file: a File from an <input type="file"> or drop handler. token: session.access_token, forwarded
 // to /api/analyze when an AI classification call is needed (see reportingAI.js's AUTH doc comment
 // for why — any logged-in PaidHQ user, no workspace check needed for this stateless proxy).
-// Resolves to { type, confidence, reasoning?, headers? } — `type` is always one of
-// "spend"/"budget"/"pipeline"/"goals". Never throws for "we're not sure" — that's what "low"
-// confidence is for; only throws for a genuinely unreadable file.
-export async function classifyImportFile({ file, token }) {
+// tagDims: only used for the PDF path — forwarded to classifyAndExtractPdf so a PDF that turns out
+// to be pipeline/goals content is fully extracted (not just classified) in this same call.
+// Resolves to { type, confidence, reasoning?, headers?, rows? } — `type` is always one of
+// "spend"/"budget"/"pipeline"/"goals"; `rows` is only present for PDFs (see this file's top doc
+// comment for why). Never throws for "we're not sure" — that's what "low" confidence is for; only
+// throws for a genuinely unreadable file.
+export async function classifyImportFile({ file, token, tagDims = [] }) {
   const ext = file.name.split(".").pop().toLowerCase();
   if (ext === "pdf") {
     const dataUrl = await fileToDataUrl(file);
-    return classifyWithAI({ dataUrl, token });
+    const result = await classifyAndExtractPdf({ dataUrl, token, tagDims });
+    return { type: result.type, confidence: result.confidence, rows: result.rows };
   }
   const { headers, sampleRows } = await readHeaderPreview(file);
   if (!headers.length) throw new Error("Couldn't read any columns from that file.");

@@ -1503,29 +1503,39 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // the SAME importers each type already had (applySpendGrid, BudgetManager's ingestRawRows via
   // the pendingBudgetImportFile handoff, reportingAI.js/reportingImport.js for pipeline/goals).
   const[unifiedClassifying,setUnifiedClassifying]=useState(false);
+  // PDFs take noticeably longer than CSV/Excel — Claude has to actually read the whole document
+  // (there's no cheap way to peek at a PDF's structure the way a header row can be sniffed
+  // instantly), and this one call now also does the extraction, not just classification (see
+  // fileTypeDetect.js's PDF branch). Tracked separately so the button/status can say why it's
+  // slower rather than just spinning with no explanation.
+  const[unifiedClassifyingIsPdf,setUnifiedClassifyingIsPdf]=useState(false);
   const[unifiedClassifyError,setUnifiedClassifyError]=useState("");
-  const[pendingClassification,setPendingClassification]=useState(null); // {file, type, confidence, reasoning}
+  const[pendingClassification,setPendingClassification]=useState(null); // {file, type, confidence, reasoning, rows?}
 
   const handleUnifiedUpload=useCallback(async file=>{
     if(!file)return;
     setUnifiedClassifyError("");
+    setUnifiedClassifyingIsPdf(file.name.split(".").pop().toLowerCase()==="pdf");
     setUnifiedClassifying(true);
     try{
-      const result=await classifyImportFile({file,token:session?.access_token});
+      // tagDims forwarded so a PDF's classification call (which, per fileTypeDetect.js, doubles as
+      // its extraction call for pipeline/goals content) tags with this workspace's real dimension
+      // names instead of a placeholder set.
+      const result=await classifyImportFile({file,token:session?.access_token,tagDims});
       setPendingClassification({file,...result});
     }catch(err){
       setUnifiedClassifyError(err.message||"Couldn't read that file.");
     }finally{
       setUnifiedClassifying(false);
     }
-  },[session]);
+  },[session,tagDims]);
 
   const[unifiedRouting,setUnifiedRouting]=useState(false);
   const[unifiedRouteError,setUnifiedRouteError]=useState("");
 
   const confirmUnifiedUpload=useCallback(async()=>{
     if(!pendingClassification)return;
-    const{file,type}=pendingClassification;
+    const{file,type,rows:alreadyExtractedRows}=pendingClassification;
     const ext=file.name.split(".").pop().toLowerCase();
     setPendingClassification(null);
     if(type==="spend"){
@@ -1535,6 +1545,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       return;
     }
     if(type==="budget"){
+      if(ext==="pdf"){setUnifiedRouteError("PDF budget files aren't supported yet — try a CSV or Excel export.");return;}
       setPendingBudgetImportFile(file);
       setView("budget");
       return;
@@ -1550,9 +1561,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     try{
       let rows;
       if(ext==="pdf"){
-        const dataUrl=await fileToDataUrl(file);
-        rows=await extractReportingRowsFromPdf({dataUrl,token:session?.access_token,tagDims});
-        rows=rows.map(r=>({
+        // classifyImportFile's PDF path (fileTypeDetect.js -> reportingAI.js's
+        // classifyAndExtractPdf) already extracted these rows as part of classifying the file, so
+        // confirming here doesn't cost a second full PDF read — only re-extract if that somehow
+        // didn't happen (defensive; shouldn't occur in practice for a "pipeline"/"goals" result).
+        const raw=alreadyExtractedRows&&alreadyExtractedRows.length
+          ?alreadyExtractedRows
+          :await(async()=>{const dataUrl=await fileToDataUrl(file);return extractReportingRowsFromPdf({dataUrl,token:session?.access_token,tagDims});})();
+        rows=raw.map(r=>({
           source:type==="goals"?"goals_pdf":"powerbi_pdf_goals_pacing",
           periodType:r.period_type||"unknown",
           periodStart:r.period_type&&r.period_type!=="unknown"?normalizePeriodStart(r.period_type,r.period_start)||undefined:undefined,
@@ -3211,7 +3227,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     else{actionLabel="Connect now";onAction=()=>openConnectPanel(pl.key);}
                     return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,domain:pl.domain,mark:pl.mark,isConnected,warn,actionLabel,onAction};
                   }),
-                  {key:"_csv",label:"Spend, Budget or Performance file",desc:"CSV, Excel or PDF — we detect whether it's spend, budget, pipeline performance or goals data",color:T.textMuted,mark:CsvMark,actionLabel:unifiedClassifying?"Reading…":"Upload file",onAction:()=>!unifiedClassifying&&unifiedFileRef.current?.click()},
+                  {key:"_csv",label:"Spend, Budget or Performance file",desc:"CSV, Excel or PDF — we detect whether it's spend, budget, pipeline performance or goals data",color:T.textMuted,mark:CsvMark,actionLabel:unifiedClassifying?(unifiedClassifyingIsPdf?"Reading PDF (takes longer)…":"Reading…"):"Upload file",onAction:()=>!unifiedClassifying&&unifiedFileRef.current?.click()},
                   {key:"_screenshot",label:"Screenshot",desc:"Share a screenshot of a spend report — AI reads it into data",color:T.textMuted,mark:ScreenshotMark,actionLabel:"Upload image",onAction:()=>!screenshotProcessing&&screenshotRef.current?.click()},
                 ].filter(c=>c.label.toLowerCase().includes(dataSourceSearch.trim().toLowerCase()));
                 return(

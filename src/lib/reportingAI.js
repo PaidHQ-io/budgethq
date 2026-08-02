@@ -37,6 +37,16 @@
  * app to run its own PDF-to-text extraction step. The Business Unit/Product Pillar/Product Line
  * columns get picked up by the existing "a column literally labeled with one of these [dimension]
  * names" instruction below — same mechanism a per-row breakdown column already used for images.
+ *
+ * classifyAndExtractPdf (2026-08-01, added after Mo asked why PDF uploads felt slow): the unified
+ * uploader (PaidHQ.jsx) used to classify a PDF's file type with one AI call (fileTypeDetect.js),
+ * then — once the user confirmed — make a SECOND full call here to actually extract the rows. A
+ * PDF document block is the slow part of either call (Claude reads it page-by-page), so sending the
+ * same PDF twice roughly doubled the wait for no benefit. This does both in one call: the same
+ * tool records the extracted rows AND the detected file_type/type_confidence together, so
+ * confirming the (correct) detected type doesn't cost a second round-trip — only overriding to
+ * "spend"/"budget" (which this schema can't extract — PDF import for those isn't supported) forgoes
+ * the already-extracted rows, same as before.
  */
 const REPORTING_METRICS_HELP = `
 Known metrics (use these exact keys in the "metrics" object; omit any not shown in this image — do
@@ -155,14 +165,16 @@ function buildRecordTool(tagDims) {
   };
 }
 
-// Shared by both extraction entry points below — builds the same system prompt/tool schema,
-// sends one `sourceBlock` content block (an image or a document) plus an instruction text block to
-// /api/analyze, and parses the record_reporting_rows tool_use result out of the response. token:
+// Shared by every extraction entry point below — builds the request (a caller-supplied tool
+// schema, defaulting to the plain record_reporting_rows one), sends one `sourceBlock` content
+// block (an image or a document) plus an instruction text block to /api/analyze, and returns the
+// FULL tool_use input object (not just `.rows`) so callers that extended the schema — see
+// classifyAndExtractPdf below — can read their extra fields back out too. token:
 // session.access_token, forwarded as a Bearer header (see api/analyze.js's AUTH doc comment — any
 // logged-in PaidHQ user, no workspace check needed for this stateless proxy). tagDims: this
 // workspace's current tag dimension names (from dimension-values.js's `tagDims`) — used to build
 // the extraction prompt/schema so the model tags with the right vocabulary.
-async function runExtraction({ sourceBlock, instruction, token, tagDims, notFoundMessage }) {
+async function runExtraction({ sourceBlock, instruction, token, tagDims, notFoundMessage, tool }) {
   const res = await fetch("/api/analyze", {
     method: "POST",
     headers: {
@@ -171,7 +183,7 @@ async function runExtraction({ sourceBlock, instruction, token, tagDims, notFoun
     },
     body: JSON.stringify({
       system: buildSystemPrompt(tagDims),
-      tools: [buildRecordTool(tagDims)],
+      tools: [tool || buildRecordTool(tagDims)],
       maxTokens: 4000,
       messages: [
         {
@@ -186,7 +198,7 @@ async function runExtraction({ sourceBlock, instruction, token, tagDims, notFoun
 
   const toolUse = (data.content || []).find((b) => b.type === "tool_use" && b.name === "record_reporting_rows");
   if (!toolUse) throw new Error(notFoundMessage);
-  return toolUse.input?.rows || [];
+  return toolUse.input || {};
 }
 
 // dataUrl: "data:image/png;base64,...." (or jpeg) — whatever the browser's FileReader/paste
@@ -195,28 +207,102 @@ export async function extractReportingRowsFromImage({ dataUrl, token, tagDims = 
   const match = /^data:(image\/\w+);base64,(.+)$/.exec(dataUrl || "");
   if (!match) throw new Error("Expected a base64 image data URL");
   const [, mediaType, base64] = match;
-  return runExtraction({
+  const result = await runExtraction({
     sourceBlock: { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
     instruction: "Extract every reporting row from this screenshot using the record_reporting_rows tool.",
     token,
     tagDims,
     notFoundMessage: "Couldn't read a structured table from that image — try a clearer screenshot of just the table.",
   });
+  return result.rows || [];
 }
 
 // dataUrl: "data:application/pdf;base64,...." — whatever the browser's FileReader produced for an
 // uploaded PDF (e.g. a "Goals & Pacing" export). Sends Anthropic a native `document` content block
 // so Claude reads the PDF's own embedded text/tables directly — no client- or server-side PDF text
-// extraction step needed, see the PDF EXTRACTION doc comment at the top of this file.
+// extraction step needed, see the PDF EXTRACTION doc comment at the top of this file. Kept as a
+// separate export (rather than always going through classifyAndExtractPdf) for callers that already
+// know the file's type and just want rows — currently unused by the unified uploader (which uses
+// classifyAndExtractPdf instead to save the double round-trip) but kept available.
 export async function extractReportingRowsFromPdf({ dataUrl, token, tagDims = [] }) {
   const match = /^data:application\/pdf;base64,(.+)$/.exec(dataUrl || "");
   if (!match) throw new Error("Expected a base64 PDF data URL");
   const [, base64] = match;
-  return runExtraction({
+  const result = await runExtraction({
     sourceBlock: { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
     instruction: "Extract every reporting row from every table in this PDF using the record_reporting_rows tool.",
     token,
     tagDims,
     notFoundMessage: "Couldn't read a structured table from that PDF.",
   });
+  return result.rows || [];
+}
+
+// Combined classify+extract for PDFs — see the PDF EXTRACTION / classifyAndExtractPdf doc comment
+// at the top of this file for why this exists (avoiding a second full PDF read). Extends the
+// normal record_reporting_rows tool with file_type/type_confidence fields, and folds
+// fileTypeDetect.js's classification instructions into the same system prompt so one call does
+// both jobs. Returns { type, confidence, rows } — `rows` uses the exact same extraction this
+// schema always produced, `type`/`confidence` are new. Only meaningful for pipeline/goals content;
+// if the model reports "spend" or "budget", treat `rows` as unusable (this schema doesn't fit
+// those shapes) — same as the old two-call flow's behavior for those types.
+export async function classifyAndExtractPdf({ dataUrl, token, tagDims = [] }) {
+  const match = /^data:application\/pdf;base64,(.+)$/.exec(dataUrl || "");
+  if (!match) throw new Error("Expected a base64 PDF data URL");
+  const [, base64] = match;
+
+  const tool = buildRecordTool(tagDims);
+  tool.input_schema.properties.file_type = {
+    type: "string",
+    enum: ["spend", "budget", "pipeline", "goals"],
+    description:
+      'What kind of PaidHQ import file this is overall: "spend" = ad-platform spend export; ' +
+      '"budget" = planned/allocated $ by segment+period, not actuals; "pipeline" = a funnel ' +
+      'performance export (MQLs/SQLs/pipeline $/inquiries); "goals" = a targets/quotas export with ' +
+      'little or no actual performance data alongside them. If both goals AND actuals appear ' +
+      'together (e.g. a Goals & Pacing report), use "pipeline".',
+  };
+  tool.input_schema.properties.type_confidence = { type: "string", enum: ["low", "medium", "high"] };
+  tool.input_schema.required = [...(tool.input_schema.required || []), "file_type", "type_confidence"];
+
+  const system = `${buildSystemPrompt(tagDims)}
+
+Also classify the file overall by setting file_type and type_confidence on the same tool call, per
+their descriptions in the tool schema — do this even if the extracted rows array ends up empty
+(e.g. because this turns out to be a spend or budget file this tool isn't meant to extract).`;
+
+  const res = await fetch("/api/analyze", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      system,
+      tools: [tool],
+      maxTokens: 4000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+            {
+              type: "text",
+              text: "Classify this file and extract every reporting row from every table in it, using the record_reporting_rows tool.",
+            },
+          ],
+        },
+      ],
+    }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || `Extraction failed (${res.status})`);
+
+  const toolUse = (data.content || []).find((b) => b.type === "tool_use" && b.name === "record_reporting_rows");
+  if (!toolUse) throw new Error("Couldn't read that PDF.");
+  return {
+    type: toolUse.input?.file_type || "pipeline",
+    confidence: toolUse.input?.type_confidence || "low",
+    rows: toolUse.input?.rows || [],
+  };
 }
