@@ -125,13 +125,28 @@ function SH({ T, col, label, sortCol, sortDir, onSort, align }) {
 // Cell width/flex per column type — used for BOTH the header row and every data row so the two stay
 // aligned without a hand-maintained grid-template-columns string (which would need to change every
 // time the column selection changes).
+//
+// FIXED, NON-SHRINKING widths (2026-08-04, per Mo — "there's not much room ... everything is cut
+// off, all of the rows are basically too small ... increase the sizes and make them relative to the
+// content ... allow the user to scroll to the right as much as what's needed"): every column used to
+// carry a shrink factor (flex:"1.6 1 170px" etc.) so the whole row would compress to fit whatever
+// width the pane happened to have — fine with 2-3 columns visible, unreadable once most of
+// ALL_COLUMNS were toggled on. flexShrink:0 here means a column can never compress below its own
+// number; once the row's total width exceeds the pane, the wrapping scroll region below (see this
+// file's own "share ONE horizontally-scrollable region" comment) scrolls horizontally instead of
+// squeezing every cell. Widths themselves are sized per column TYPE rather than one flat number —
+// money metrics get more room than plain counts (bigger numbers, "$" + thousands separators), and
+// Campaign/Ad Group/Channel get enough room to show a realistic label without truncating immediately.
 function colBoxStyle(col) {
-  if (col.key === "campaignName") return { flex: "1.6 1 170px", minWidth: 150 };
-  if (col.key === "adGroup") return { flex: "1.3 1 150px", minWidth: 130 };
-  if (col.key === "channel") return { width: 140, flexShrink: 0 };
-  return { width: 100, flexShrink: 0 }; // metric columns
+  if (col.key === "campaignName") return { width: 260, flexShrink: 0 };
+  if (col.key === "adGroup") return { width: 200, flexShrink: 0 };
+  if (col.key === "channel") return { width: 150, flexShrink: 0 };
+  return { width: col.money ? 130 : 110, flexShrink: 0 }; // metric columns
 }
-const TAGS_BOX_STYLE = { flex: "1.8 1 200px", minWidth: 180 };
+// Tags is the one column allowed to GROW (flex-grow:1) past its own minimum — when every other
+// column's fixed widths don't already fill the pane, Tags absorbs the leftover space instead of
+// leaving a dead gap; flexShrink stays 0 so it never gets crushed below a usable width either.
+const TAGS_BOX_STYLE = { flex: "1 0 260px", minWidth: 260 };
 
 const fIn = { background: "transparent", border: "none", outline: "none", width: "100%" };
 
@@ -533,7 +548,22 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
             {onBackToDataSources && <Btn onClick={onBackToDataSources} variant="ghost" size="sm" T={T}>← Back to Data Sources</Btn>}
           </div>
         </div>
+      </div>
 
+      {/* Column-header row, filter-inputs row, and every data row below share ONE horizontally-
+          scrollable region (2026-08-04, per Mo — "increase the sizes and make them relative to the
+          content ... allow the user to scroll to the right as much as what's needed"). colBoxStyle
+          now gives every column a fixed, non-shrinking width (flexShrink:0 — see that function) sized
+          to comfortably fit its content instead of the old flex-shrink-to-fit-the-viewport behavior
+          that was crushing every column once more than a couple were selected. The inner div's
+          width:"max-content" (floored at minWidth:"100%" so it never looks narrower than the pane)
+          is what makes this row-stack size itself to the widest row's natural content width instead
+          of the viewport — once that exceeds the outer pane's width, the browser scrolls this one
+          region horizontally, carrying the sticky header+filter rows along with the data rows so
+          columns never lose alignment. */}
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <div style={{ minWidth: "100%", width: "max-content" }}>
+        <div style={{ position: "sticky", top: 0, zIndex: 2, background: T.surfaceEl, borderBottom: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", padding: "11px 16px 5px", alignItems: "end", gap: 8, background: T.headerBg }}>
           <div style={{ width: 22, flexShrink: 0 }}>
             <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={selAll} style={{ cursor: "pointer", accentColor: T.accent, width: 14, height: 14 }} />
@@ -618,9 +648,8 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
             <div style={{ width: 22, flexShrink: 0 }} />
           </div>
         )}
-      </div>
+        </div>
 
-      <div style={{ overflow: "auto", flex: 1 }}>
         {filtered.map((g) => {
           const isSel = selected.has(g.key);
           const tc = Object.keys(g.tags).length;
@@ -720,6 +749,7 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
             No rows match your filters. {hasF && <span onClick={clearF} style={{ color: T.text, cursor: "pointer", marginLeft: 6, fontWeight: 400, textDecoration: "underline" }}>Clear filters</span>}
           </div>
         )}
+        </div>
       </div>
       </div>
     </>
