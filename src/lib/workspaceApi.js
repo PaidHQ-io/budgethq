@@ -269,6 +269,19 @@ export async function downloadFile(session, workspaceId, id, filename) {
   URL.revokeObjectURL(url);
 }
 
+// Resolves a stored file's raw bytes as a Blob, unlike downloadFile above which triggers an actual
+// browser download (2026-08-06, per Mo — "save the files I upload... apply/import them into PaidHQ
+// with one click"). Used by the File Store "Apply" action to feed a previously-archived file's
+// content back into that file's own import flow (reconstructed as a real File via
+// `new File([blob], name, {type: mimeType})`) without the user re-picking it from disk.
+export async function fetchFileBlob(session, workspaceId, id) {
+  const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/files?download=${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+  if (!res.ok) throw new Error(`Couldn't load this file (${res.status})`);
+  return res.blob();
+}
+
 // Converts a File/Blob to a base64 string for the files.js POST body — the server expects
 // dataBase64 (JSON-safe), not raw binary, since this route uses Vercel's default JSON body parser
 // rather than the gzip-raw-bytes path putSpendRows/putWorkspaceConfig use.

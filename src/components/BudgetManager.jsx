@@ -28,7 +28,12 @@ import { usePersistentState } from "../lib/persist.js";
 // as _notBudgeted — never added to budgetMetaDims, so it never becomes a real dimension column.
 const CURRENCIES=["USD","EUR","GBP","CAD","AUD","JPY","CHF","MXN","BRL","INR"];
 
-export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true,combineGoogleChannels=false,initialImportFile,onConsumeInitialImportFile}){
+// promptAndArchiveFile defaults to a no-op passthrough (resolves immediately, no naming modal, no
+// File Store save) so this component still works standalone/in isolation (e.g. tests, Storybook-
+// style usage) without PaidHQ.jsx's real implementation wired in — see that function's own doc
+// comment in PaidHQ.jsx for what it actually does when a real one IS passed (2026-08-06, per Mo's
+// save-and-one-click-reapply request).
+export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true,combineGoogleChannels=false,initialImportFile,onConsumeInitialImportFile,promptAndArchiveFile=async file=>({name:file?.name,fileId:null})}){
   const yr=new Date().getFullYear();
   // year/showQ/showA/segFilters persisted (2026-07-30, per Mo — "whatever screen with whatever
   // filters on any tab I've selected" should survive a refresh), same pattern as
@@ -747,6 +752,15 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // whichever version ran most recently (see its doc comment), so this can safely close over
   // ingestRawRows (itself redefined every render, same reasoning) without going stale.
   const gsBudget=useGoogleSheetConnect((grid,tabTitle)=>{ingestRawRows(tabTitle,grid);});
+  // Naming/archiving into File Store (2026-08-06, per Mo — "save the files I upload... apply/
+  // import them into PaidHQ with one click") happens up-front via promptAndArchiveFile at this
+  // function's call site below, before handleImportFile itself runs — same choke-point pattern
+  // PaidHQ.jsx's own spend/tag/pipeline import entry points use. No config sidecar is captured for
+  // budget imports in this first pass (unlike spend/pipeline) — this wizard's own header/format/
+  // dimension-mapping detection (ingestRawRows below) always restarts fresh on a reloaded file, so
+  // "Apply" on a saved budget file re-opens this same review wizard rather than skipping it
+  // pre-filled. Re-confirming the mapping once more per file was judged an acceptable trade-off
+  // against the much larger surgery full replay of iFmt/dimMap/periodCol/amtCol/etc. would need.
   const handleImportFile=file=>{
     if(!file)return;
     parseFileToRows(file,rawRows=>ingestRawRows(file.name,rawRows));
@@ -1979,7 +1993,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     <div style={{marginBottom:10,display:"flex",justifyContent:"center"}}><Icon name="export" size={30} color={T.textSub}/></div>
                     <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,marginBottom:4}}>Drop your budget file here or click to browse</div>
                     <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted}}>Supports <strong style={{color:T.textSub}}>.xlsx</strong> and <strong style={{color:T.textSub}}>.csv</strong> · any row/column layout</div>
-                    <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleImportFile(e.target.files[0])}/>
+                    <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>{
+                      const f=e.target.files[0];e.target.value="";
+                      if(!f)return;
+                      promptAndArchiveFile(f,"Budget import").then(named=>{if(named)handleImportFile(f);});
+                    }}/>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:10,margin:"14px 0"}}>
                     <div style={{flex:1,height:1,background:T.border}}/>

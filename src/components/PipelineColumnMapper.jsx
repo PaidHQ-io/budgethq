@@ -48,11 +48,21 @@ function yearOptions() {
 
 const selStyle = { padding: "5px 8px", fontSize: 12 };
 
-export default function PipelineColumnMapper({ T, headers, rows, tagDims, sourceLabel, onConfirm, onDiscard }) {
+// initialMapping/initialPeriodMode/initialYear/initialMonth/initialQuarter/initialHardcodedChannel
+// (2026-08-06, per Mo — "save the files I upload... with one click apply them/import them into
+// PaidHQ"): when File Store's "Apply" replays a previously-imported pipeline file, these seed every
+// piece of state below with the EXACT mapping/period/channel choices confirmed the first time this
+// file was imported (captured via this component's own onConfirm below, persisted by
+// ReportingAnalyzer.jsx's handleMappedImport as a linked File Store sidecar) — the review screen
+// still shows for a final glance/edit (per Mo's own choice when this was scoped — "re-open the
+// review screen, pre-filled" over a fully silent replay), it just starts from the prior answer
+// instead of a fresh guess. All are simply undefined for every live/first-time import, in which case
+// this component behaves exactly as it did before this feature existed.
+export default function PipelineColumnMapper({ T, headers, rows, tagDims, sourceLabel, onConfirm, onDiscard, initialMapping, initialPeriodMode, initialYear, initialMonth, initialQuarter, initialHardcodedChannel }) {
   // Lazy init so re-renders (e.g. from the parent's other state changing) don't re-run the guess and
   // clobber anything the user already overrode.
   const [mapping, setMapping] = useState(() =>
-    Object.fromEntries(guessColumnMapping(headers, tagDims).map((t, i) => [i, t]))
+    initialMapping || Object.fromEntries(guessColumnMapping(headers, tagDims).map((t, i) => [i, t]))
   );
 
   const setColumnTarget = (i, target) => setMapping((prev) => ({ ...prev, [i]: target }));
@@ -84,11 +94,11 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
   // actually succeeded; once the user switches away from it there's no way back except re-uploading,
   // which is fine since overriding a real detection should be rare.
   const detected = useMemo(() => detectImportPeriod(headers, rows), [headers, rows]);
-  const [periodMode, setPeriodMode] = useState(() => (detected ? "detected" : "month"));
+  const [periodMode, setPeriodMode] = useState(() => initialPeriodMode || (detected ? "detected" : "month"));
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
-  const [quarter, setQuarter] = useState(Math.floor(now.getMonth() / 3) + 1); // 1-4
+  const [year, setYear] = useState(() => initialYear || now.getFullYear());
+  const [month, setMonth] = useState(() => initialMonth || now.getMonth() + 1); // 1-12
+  const [quarter, setQuarter] = useState(() => initialQuarter || Math.floor(now.getMonth() / 3) + 1); // 1-4
 
   const resolvedPeriod = useMemo(() => {
     if (periodMode === "detected") return detected;
@@ -112,14 +122,19 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
   // produced (see buildNormalizedPipelineRows's own doc comment) — left on "Don't set" this behaves
   // exactly as it did before this feature existed.
   const channelColumnMapped = useMemo(() => Object.values(mapping).includes("channel"), [mapping]);
-  const [hardcodedChannel, setHardcodedChannel] = useState("");
+  const [hardcodedChannel, setHardcodedChannel] = useState(() => initialHardcodedChannel || "");
 
   const canConfirm = dupeTargets.length === 0 && Boolean(resolvedPeriod?.periodStart);
 
+  // Second argument (2026-08-06, per Mo's save-and-one-click-reapply request) hands the caller
+  // exactly what was just confirmed — mapping/periodMode+year/month/quarter/hardcodedChannel — so
+  // ReportingAnalyzer.jsx's handleMappedImport can persist it as this file's linked config for next
+  // time. Every existing caller before this feature only used the first argument; this is purely
+  // additive.
   const handleConfirm = () => {
     if (!canConfirm) return;
     const normalized = buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod, hardcodedChannel);
-    onConfirm(normalized);
+    onConfirm(normalized, { mapping, periodMode, year, month, quarter, hardcodedChannel });
   };
 
   return (

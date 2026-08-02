@@ -111,7 +111,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields, summar
   );
 }
 
-export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows, initialRawPipelineImport, onConsumeInitialRawPipelineImport, campaignTags, tagDims, canEdit, onBackToDataSources, sidebarEl }) {
+export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows, initialRawPipelineImport, onConsumeInitialRawPipelineImport, campaignTags, tagDims, canEdit, onBackToDataSources, sidebarEl, archiveImportConfig }) {
   // initialPendingRows seeds via a lazy initializer rather than an effect + setState — correct
   // here (not just convenient) because PaidHQ.jsx never sets pendingReportingRows and switches to
   // this tab except together (see confirmUnifiedUpload), and this tab is conditionally mounted
@@ -210,12 +210,19 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
 
   // PipelineColumnMapper's confirm handler — writes straight to reporting_facts, no staging step.
   // See mappingImporting's doc comment above for why this is a separate path from handleImport.
-  const handleMappedImport = async (normalizedRows) => {
+  const handleMappedImport = async (normalizedRows, mappingMeta) => {
+    // Captures the archivedFileId BEFORE clearing rawPipelineImport below — this is the one point
+    // where the user's actual mapping/period/channel choices for THIS file are finally known, so
+    // it's the right moment to persist them as that file's linked File Store config (2026-08-06,
+    // per Mo's save-and-one-click-reapply request) — fire-and-forget, same as archiveImportConfig
+    // itself; a failed sidecar write never blocks or fails the real import below.
+    const archivedFileId = rawPipelineImport?.archivedFileId;
     setRawPipelineImport(null);
     setMappingImporting(true);
     setImportResult(null);
     try {
       const result = await upsertReportingFacts(session, workspace.id, normalizedRows);
+      if (archivedFileId && mappingMeta) archiveImportConfig?.(archivedFileId, { kind: "pipeline", ...mappingMeta });
       setImportResult(result);
       setTaggerRefreshSignal((n) => n + 1);
     } catch (err) {
@@ -260,6 +267,12 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
             sourceLabel={rawPipelineImport.sourceLabel}
             onConfirm={handleMappedImport}
             onDiscard={() => setRawPipelineImport(null)}
+            initialMapping={rawPipelineImport.initialMapping}
+            initialPeriodMode={rawPipelineImport.initialPeriodMode}
+            initialYear={rawPipelineImport.initialYear}
+            initialMonth={rawPipelineImport.initialMonth}
+            initialQuarter={rawPipelineImport.initialQuarter}
+            initialHardcodedChannel={rawPipelineImport.initialHardcodedChannel}
           />
         )}
         {mappingImporting && (

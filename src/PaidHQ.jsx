@@ -12,7 +12,7 @@ import {
   getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows,
   getAskAIData, putAskAIData,
   listVersions, saveVersion, deleteVersion as apiDeleteVersion,
-  listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64,
+  listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64, fetchFileBlob,
   copyFileToWorkspace, authHeader,
 } from "./lib/workspaceApi";
 import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount, syncSpend, previewConnector } from "./lib/coreApi";
@@ -28,7 +28,7 @@ import {
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
   SectionLabel, Pill, GoogleAdsMark, BingMark, CsvMark, ScreenshotMark, PlatformLogo, Btn, Inp, Sel, StatRow,
-  MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip, Breadcrumb,
+  MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip, Breadcrumb, NameFileModal,
 } from "./components/shared.jsx";
 import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
 import { usePersistentState } from "./lib/persist.js";
@@ -77,6 +77,23 @@ const TabLoadingFallback = () => (
 function pipelineMonthEndDate(monthStr) {
   const [y, m] = monthStr.split("-").map(Number);
   return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); // day 0 of next month = last day of this month
+}
+
+// Save & one-click reapply (2026-08-06, per Mo — "I need a way to save the files that I upload...
+// with one click apply them/import them into PaidHQ... really it should apply to any file"). The
+// File Store (api/workspaces/[id]/files.js / core.files) has no metadata/JSON column of its own —
+// that table's schema lives in the separate paidhq-core repo, not this one, so adding a column
+// wasn't an option here. Instead, a per-import "config" (column mapping, resolved period, platform
+// override, etc. — whatever that flow needs to pre-fill its OWN review screen later) rides as a
+// second, linked FILE in the same File Store: a tiny JSON blob named after the data file's own id,
+// filed under a reserved category so it never shows up as a real file in the visible list (see
+// Settings' File Store rendering, which filters this category out) — no schema migration needed.
+const IMPORT_CONFIG_CATEGORY = "__import_config__";
+const importConfigFileName = (dataFileId) => `.paidhq-import-config-${dataFileId}.json`;
+// Browser-safe UTF-8 -> base64 (btoa alone chokes on non-Latin1 characters e.g. a smart quote in a
+// filename) — same escape/unescape trick used broadly for this exact problem.
+function base64EncodeJson(value) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(value))));
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
@@ -516,12 +533,47 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // Fire-and-forget wrapper for the auto-capture call sites (handleFile, exportTags,
   // importTagsFromCSV below) — a File Store write should never block or fail the actual
   // import/export it's shadowing.
-  const archiveFile=useCallback((file,category)=>{
-    if(!file||!workspace?.id||!session)return Promise.resolve();
+  const archiveFile=useCallback((file,category,customName)=>{
+    if(!file||!workspace?.id||!session)return Promise.resolve(null);
     return fileToBase64(file)
-      .then(dataBase64=>apiUploadFile(session,workspace.id,{name:file.name||"untitled",category,mimeType:file.type||"",dataBase64}))
-      .catch(e=>console.error("[file store save]",e));
+      .then(dataBase64=>apiUploadFile(session,workspace.id,{name:customName||file.name||"untitled",category,mimeType:file.type||"",dataBase64}))
+      .catch(e=>{console.error("[file store save]",e);return null;});
   },[workspace?.id,session]);
+  // Writes the linked "how to pre-fill this flow's review screen next time" sidecar for a just-
+  // archived data file — see IMPORT_CONFIG_CATEGORY's doc comment above for why this rides as a
+  // second File Store record instead of a real metadata column. Fire-and-forget, same as
+  // archiveFile itself — a failed sidecar write just means a future "Apply" on this file starts
+  // from a fresh guess instead of the exact prior mapping, never blocks or fails the import it's
+  // shadowing.
+  const archiveImportConfig=useCallback((dataFileId,metadata)=>{
+    if(!dataFileId||!workspace?.id||!session)return Promise.resolve(null);
+    return apiUploadFile(session,workspace.id,{
+      name:importConfigFileName(dataFileId),category:IMPORT_CONFIG_CATEGORY,mimeType:"application/json",
+      dataBase64:base64EncodeJson(metadata),
+    }).catch(e=>{console.error("[import config save]",e);return null;});
+  },[workspace?.id,session]);
+  // The one shared choke point every real file-import entry point (spend CSV/XLSX, tag CSV, budget
+  // CSV/XLSX, pipeline CSV/XLSX) now routes through (2026-08-06, per Mo — "force the user to rename
+  // (or save the same name) upon import"): shows the NameFileModal, then archives the file under
+  // whatever name was confirmed. Resolves to null if the user cancels (callers should bail out
+  // without processing the file at all), or {name, fileId} once archived — fileId is null if
+  // archiving itself failed (no workspace/session, or a network error already logged by
+  // archiveFile), in which case the import still proceeds under the chosen name, just without a
+  // File Store record to attach a later "Apply" config to.
+  const[pendingNamedFile,setPendingNamedFile]=useState(null); // {file, defaultName, onConfirm, onCancel}
+  const promptAndArchiveFile=useCallback((file,category)=>{
+    if(!file)return Promise.resolve(null);
+    return new Promise(resolve=>{
+      setPendingNamedFile({
+        file,defaultName:file.name,
+        onConfirm:(name)=>{
+          setPendingNamedFile(null);
+          archiveFile(file,category,name).then(record=>resolve({name,fileId:record?.id||null}));
+        },
+        onCancel:()=>{setPendingNamedFile(null);resolve(null);},
+      });
+    });
+  },[archiveFile]);
   // Previously this failed completely silently on error (console.error only) and gave zero visual
   // feedback even on success -- the list just quietly re-rendered after refreshFileStore resolved.
   // With no loading state and no confirmation, a slow network response or a swallowed error both
@@ -569,9 +621,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   },[session,workspace]);
   const addManualFile=useCallback((file)=>{
     if(!file)return;
-    archiveFile(file,"Manual upload").then(refreshFileStore);
-    showNotif(`Saved ${file.name} to File Store`);
-  },[archiveFile,refreshFileStore]);
+    promptAndArchiveFile(file,"Manual upload").then(named=>{
+      if(!named)return;
+      refreshFileStore();
+      showNotif(`Saved ${named.name} to File Store`);
+    });
+  },[promptAndArchiveFile,refreshFileStore]);
 
   // ── Export (CSV/XLSX/PDF/HTML downloads + email) ──
   const[emailExportOpen,setEmailExportOpen]=useState(false);
@@ -1473,17 +1528,25 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
 
   // Shared by handleFile's Papa.parse callback and the Sheets grid below — both end up with
   // the same shape (array of row objects + field names) and need to land on the same review step.
-  const applySpendGrid=useCallback((data,fields,sourceLabel)=>{
+  //
+  // `overrides` (2026-08-06, per Mo's save-and-one-click-reapply request — see
+  // promptAndArchiveFile/archiveImportConfig's doc comments above) — when a file is replayed via
+  // File Store's "Apply" instead of freshly picked, this carries the column mapping/platform/
+  // monthly/as-of choices captured the FIRST time this file was imported, so the "map" step lands
+  // pre-filled with the same answers instead of a fresh autoDetect guess. Omitted (undefined) for
+  // every live upload, which behaves exactly as before this feature existed.
+  const applySpendGrid=useCallback((data,fields,sourceLabel,overrides)=>{
     setFileName(sourceLabel);
-    const detected=autoDetect(fields||[]);
+    const detected=overrides?.colMap||autoDetect(fields||[]);
     setRawRows(data);setHeaders(fields||[]);setColMap(detected);
     const existingTagCount=data.reduce((count,row)=>{
       const name=(row[detected.campaign_group_name]||"").trim();
       return count+(name&&Object.keys(tags[name]||{}).length>0?1:0);
     },0);
     if(existingTagCount>0) showNotif(`${existingTagCount} campaigns already tagged from previous session`);
-    setUploadAsOf("");
-    setUploadIsMonthly(false);
+    setUploadAsOf(overrides?.uploadAsOf||"");
+    setUploadIsMonthly(!!overrides?.uploadIsMonthly);
+    if(overrides?.uploadPlatform)setUploadPlatform(overrides.uploadPlatform);
     setStep("map");
   },[tags]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1499,23 +1562,41 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     setGsheetSpendOpen(false);
   });
 
-  const handleFile=useCallback(file=>{
+  // Which File Store record (if any) the file CURRENTLY on the "map" screen was archived under —
+  // set by handleFile/handleSpendXlsxFile below, read by the "Continue to tagging" commit further
+  // down to attach a linked import-config sidecar once the user's actual mapping choices are known
+  // (see archiveImportConfig's doc comment above). Naming/archiving itself now happens BEFORE these
+  // are called (via promptAndArchiveFile at each entry point), so these two no longer archive
+  // anything themselves — `opts.archivedFileId` is just handed straight through.
+  const[pendingSpendArchivedFileId,setPendingSpendArchivedFileId]=useState(null);
+  // Called from BOTH spend commit points (the direct "Continue to tagging" click below, and
+  // confirmSpendConflictImport when a conflict review had to happen first) right after the merge
+  // actually succeeds, while colMap/uploadPlatform/etc still hold the choices that were just used —
+  // writes the linked sidecar config so a later "Apply" on this same File Store record can restore
+  // this exact mapping instead of guessing fresh (see archiveImportConfig's doc comment above).
+  const commitPendingSpendImportConfig=useCallback(()=>{
+    if(!pendingSpendArchivedFileId)return;
+    archiveImportConfig(pendingSpendArchivedFileId,{kind:"spend",colMap,uploadPlatform,uploadIsMonthly,uploadAsOf,uploadSourceKind});
+    setPendingSpendArchivedFileId(null);
+  },[pendingSpendArchivedFileId,archiveImportConfig,colMap,uploadPlatform,uploadIsMonthly,uploadAsOf,uploadSourceKind]);
+
+  const handleFile=useCallback((file,opts={})=>{
     if(!file)return;
-    archiveFile(file,"Spend import");
+    setPendingSpendArchivedFileId(opts.archivedFileId||null);
     setUploadSourceKind("csv");
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
-      applySpendGrid(r.data,r.meta.fields||[],file.name);
+      applySpendGrid(r.data,r.meta.fields||[],opts.archiveName||file.name,opts.overrides);
     }});
-  },[applySpendGrid,archiveFile]);
+  },[applySpendGrid]);
 
   // Spend files can now arrive as .xlsx/.xls too (the unified Data Sources uploader accepts
   // csv/xlsx/pdf for every import type — see handleUnifiedUpload below), not just CSV. Mirrors
   // gsSpend's own {data,fields} construction above rather than adding a header:1 branch — Excel's
   // default sheet_to_json (no header:1) already returns row objects keyed by header, the exact
   // shape applySpendGrid expects.
-  const handleSpendXlsxFile=useCallback(file=>{
+  const handleSpendXlsxFile=useCallback((file,opts={})=>{
     if(!file)return;
-    archiveFile(file,"Spend import");
+    setPendingSpendArchivedFileId(opts.archivedFileId||null);
     setUploadSourceKind("xlsx");
     const reader=new FileReader();
     reader.onload=e=>{
@@ -1523,10 +1604,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       const ws=wb.Sheets[wb.SheetNames[0]];
       const data=XLSX.utils.sheet_to_json(ws,{defval:""});
       const fields=data.length?Object.keys(data[0]):[];
-      applySpendGrid(data,fields,file.name);
+      applySpendGrid(data,fields,opts.archiveName||file.name,opts.overrides);
     };
     reader.readAsArrayBuffer(file);
-  },[applySpendGrid,archiveFile]);
+  },[applySpendGrid]);
 
   function fileToDataUrl(file){
     return new Promise((resolve,reject)=>{
@@ -1575,19 +1656,34 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[unifiedRouting,setUnifiedRouting]=useState(false);
   const[unifiedRouteError,setUnifiedRouteError]=useState("");
 
+  // NAMING/ARCHIVING (2026-08-06, per Mo — "I need a way to save the files that I upload in the
+  // settings and then with one click apply them/import them into PaidHQ... force the user to
+  // rename... upon import"): spend/budget/pipeline CSV/XLSX each get routed through
+  // promptAndArchiveFile right here, before their own branch actually processes the file — one
+  // choke point for every unified-upload path instead of duplicating the naming step per branch.
+  // If the user cancels the name prompt, `pendingClassification` is deliberately left untouched
+  // (not cleared) so the classify-then-confirm banner stays up and they can just hit "Continue →"
+  // again. Goals imports and pipeline PDFs are NOT included (out of scope for this feature per Mo —
+  // "I'm speaking here about the pipeline data" meant the column-mapped CSV/XLSX flow specifically)
+  // and keep their prior no-archive behavior unchanged.
   const confirmUnifiedUpload=useCallback(async()=>{
     if(!pendingClassification)return;
     const{file,type,rows:alreadyExtractedRows}=pendingClassification;
     const ext=file.name.split(".").pop().toLowerCase();
-    setPendingClassification(null);
     if(type==="spend"){
-      if(ext==="csv")handleFile(file);
-      else if(ext==="xlsx"||ext==="xls")handleSpendXlsxFile(file);
-      else setUnifiedRouteError("PDF spend files aren't supported yet — try a CSV or Excel export.");
+      if(ext!=="csv"&&ext!=="xlsx"&&ext!=="xls"){setPendingClassification(null);setUnifiedRouteError("PDF spend files aren't supported yet — try a CSV or Excel export.");return;}
+      const named=await promptAndArchiveFile(file,"Spend import");
+      if(!named)return;
+      setPendingClassification(null);
+      if(ext==="csv")handleFile(file,{archiveName:named.name,archivedFileId:named.fileId});
+      else handleSpendXlsxFile(file,{archiveName:named.name,archivedFileId:named.fileId});
       return;
     }
     if(type==="budget"){
-      if(ext==="pdf"){setUnifiedRouteError("PDF budget files aren't supported yet — try a CSV or Excel export.");return;}
+      if(ext==="pdf"){setPendingClassification(null);setUnifiedRouteError("PDF budget files aren't supported yet — try a CSV or Excel export.");return;}
+      const named=await promptAndArchiveFile(file,"Budget import");
+      if(!named)return;
+      setPendingClassification(null);
       setPendingBudgetImportFile(file);
       setView("budget");
       return;
@@ -1598,22 +1694,39 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     // distinct source prefix so GoalsObjectives.jsx can filter to just those, everything else
     // (pipeline) keeps the existing powerbi_* source naming reportingAI.js/reportingImport.js
     // already use.
+    //
+    // Pipeline CSV/XLSX (NOT PDF, NOT goals) skips parseCampaignReportFile's fixed header-alias
+    // map entirely (2026-08-02, per Mo — "I want all of the rows to come into the pipeline
+    // tagger... the fields from the csv should also show up... as mappable"): every row/column
+    // reads in untouched, and ReportingAnalyzer shows a column-mapping step (PipelineColumnMapper)
+    // before anything becomes a normalized row. Goals CSV/XLSX still uses parseCampaignReportFile
+    // unchanged — GoalsObjectives.jsx's fixed GOAL_METRICS list is a different, narrower shape
+    // this mapping step wasn't built for.
+    if(type==="pipeline"&&ext!=="pdf"){
+      const named=await promptAndArchiveFile(file,"Pipeline import");
+      if(!named)return;
+      setPendingClassification(null);
+      setUnifiedRouteError("");
+      setUnifiedRouting(true);
+      try{
+        const raw=await parsePipelineFileRaw(file);
+        // archivedFileId rides along on this handoff so ReportingAnalyzer/PipelineColumnMapper can
+        // attach a linked import-config sidecar (mapping + resolved period) once the user confirms
+        // them — see PipelineColumnMapper.jsx's handleConfirm and ReportingAnalyzer's
+        // handleMappedImport for where that actually gets written.
+        setPendingReportingRawImport({...raw,sourceLabel:"pipeline_csv_mapped",archivedFileId:named.fileId});
+        setView("reportingAnalyzer");
+      }catch(err){
+        setUnifiedRouteError(err.message||"Couldn't read that file.");
+      }finally{
+        setUnifiedRouting(false);
+      }
+      return;
+    }
+    setPendingClassification(null);
     setUnifiedRouteError("");
     setUnifiedRouting(true);
     try{
-      // Pipeline CSV/XLSX (NOT PDF, NOT goals) skips parseCampaignReportFile's fixed header-alias
-      // map entirely (2026-08-02, per Mo — "I want all of the rows to come into the pipeline
-      // tagger... the fields from the csv should also show up... as mappable"): every row/column
-      // reads in untouched, and ReportingAnalyzer shows a column-mapping step (PipelineColumnMapper)
-      // before anything becomes a normalized row. Goals CSV/XLSX still uses parseCampaignReportFile
-      // unchanged — GoalsObjectives.jsx's fixed GOAL_METRICS list is a different, narrower shape
-      // this mapping step wasn't built for.
-      if(type==="pipeline"&&ext!=="pdf"){
-        const raw=await parsePipelineFileRaw(file);
-        setPendingReportingRawImport({...raw,sourceLabel:"pipeline_csv_mapped"});
-        setView("reportingAnalyzer");
-        return;
-      }
       let rows;
       if(ext==="pdf"){
         // classifyImportFile's PDF path (fileTypeDetect.js -> reportingAI.js's
@@ -1649,7 +1762,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     }finally{
       setUnifiedRouting(false);
     }
-  },[pendingClassification,handleFile,handleSpendXlsxFile,session,tagDims]);
+  },[pendingClassification,handleFile,handleSpendXlsxFile,session,tagDims,promptAndArchiveFile]);
 
   const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleUnifiedUpload(f);},[handleUnifiedUpload]);
 
@@ -2083,13 +2196,73 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     setTagImportPreview(null);
   };
   const importTagsRef=useRef(null);
+  // Archiving now happens up-front via promptAndArchiveFile at this function's call site(s) (2026-
+  // 08-06, per Mo's save-and-one-click-reapply request) rather than here — no config sidecar is
+  // needed for a tag import specifically, since applyTagRowsFromRecords already re-derives which
+  // column is Campaign/Ad Group/which tag dimension purely from header text every time it runs, so
+  // "Apply" on a saved tag CSV can just re-run this same function on the reloaded file verbatim.
   const importTagsFromCSV=useCallback((file)=>{
     if(!file)return;
-    archiveFile(file,"Tag import");
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>{
       applyTagRowsFromRecords(r.data,r.meta.fields||[]);
     }});
-  },[applyTagRowsFromRecords,archiveFile]);
+  },[applyTagRowsFromRecords]);
+
+  // Settings → File Store "Apply" (2026-08-06, per Mo — "with one click apply them/import them
+  // into PaidHQ so that if I delete all the data to start again, I can easily find all of the files
+  // that I want to use"). Categories a live import actually archives under today — see
+  // promptAndArchiveFile's call sites above — double as the whitelist for which File Store records
+  // even offer this button; a manually-added reference file (PDF, insertion order, "Manual upload")
+  // has no importer to re-run, so it never gets one.
+  const APPLY_CATEGORIES=useMemo(()=>new Set(["Spend import","Tag import","Pipeline import","Budget import"]),[]);
+  const[applyingFileId,setApplyingFileId]=useState(null);
+  const applyStoredFile=useCallback(async(rec)=>{
+    if(!workspace?.id||!session)return;
+    setApplyingFileId(rec.id);
+    try{
+      const blob=await fetchFileBlob(session,workspace.id,rec.id);
+      const file=new File([blob],rec.name,{type:rec.mimeType||""});
+      // Spend/Pipeline look for a linked sidecar config (see IMPORT_CONFIG_CATEGORY's doc comment)
+      // written the last time THIS record was successfully imported — most-recent match wins since
+      // fileStoreList is already sorted newest-first (files.js's GET orders by created_at desc), so
+      // re-Applying after tweaking the mapping keeps using the latest tweak, not the original guess.
+      let config=null;
+      if(rec.category==="Spend import"||rec.category==="Pipeline import"){
+        const sidecar=fileStoreList.find(f=>f.category===IMPORT_CONFIG_CATEGORY&&f.name===importConfigFileName(rec.id));
+        if(sidecar){
+          try{
+            const cfgBlob=await fetchFileBlob(session,workspace.id,sidecar.id);
+            config=JSON.parse(await cfgBlob.text());
+          }catch(e){console.error("[import config load]",e);}
+        }
+      }
+      if(rec.category==="Spend import"){
+        setView("data");
+        const ext=rec.name.split(".").pop().toLowerCase();
+        const overrides=config?{colMap:config.colMap,uploadPlatform:config.uploadPlatform,uploadIsMonthly:config.uploadIsMonthly,uploadAsOf:config.uploadAsOf}:undefined;
+        const opts={archiveName:rec.name,archivedFileId:rec.id,overrides};
+        if(ext==="xlsx"||ext==="xls")handleSpendXlsxFile(file,opts);else handleFile(file,opts);
+      }else if(rec.category==="Tag import"){
+        importTagsFromCSV(file);
+      }else if(rec.category==="Budget import"){
+        setPendingBudgetImportFile(file);
+        setView("budget");
+      }else if(rec.category==="Pipeline import"){
+        const raw=await parsePipelineFileRaw(file);
+        setPendingReportingRawImport({
+          ...raw,sourceLabel:rec.name,archivedFileId:rec.id,
+          initialMapping:config?.mapping,initialPeriodMode:config?.periodMode,
+          initialYear:config?.year,initialMonth:config?.month,initialQuarter:config?.quarter,
+          initialHardcodedChannel:config?.hardcodedChannel,
+        });
+        setView("reportingAnalyzer");
+      }
+    }catch(err){
+      showNotif(err.message||"Couldn't reapply this file.","error");
+    }finally{
+      setApplyingFileId(null);
+    }
+  },[workspace?.id,session,fileStoreList,handleFile,handleSpendXlsxFile,importTagsFromCSV]);
   // Screenshot tag import — same idea as the spend-data screenshot flow, but asks Claude to read
   // the header row itself and return row objects keyed by those header names (rather than a raw
   // grid), since applyTagRowsFromRecords already knows how to find the Campaign/Campaign Group
@@ -2499,6 +2672,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       return!conflictKeys.has(key)||useImportedSet.has(key);
     });
     setMergedNormRows(prev=>mergeRows(prev,rowsToMerge));
+    commitPendingSpendImportConfig();
     const kept=useImportedSet.size;
     checkpoint(`Imported spend data — ${fileLabel} (${rowsToMerge.length} rows)`,"tagger_import");
     showNotif(`Added ${rowsToMerge.length} rows — ${kept} conflict${kept===1?"":"s"} overwritten, rest kept synced values`);
@@ -2951,7 +3125,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
                   <Btn onClick={exportTags} disabled={!campaigns.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↓ Export tags CSV</Btn>
                   <Btn onClick={()=>importTagsRef.current?.click()} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>↑ Import tags CSV</Btn>
-                  <input ref={importTagsRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{importTagsFromCSV(e.target.files[0]);e.target.value="";}} />
+                  <input ref={importTagsRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{
+                    const f=e.target.files[0];e.target.value="";
+                    if(!f)return;
+                    promptAndArchiveFile(f,"Tag import").then(named=>{if(named)importTagsFromCSV(f);});
+                  }} />
                   <Btn onClick={()=>!tagScreenshotImporting&&importTagsScreenshotRef.current?.click()} disabled={tagScreenshotImporting} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center"}}>{tagScreenshotImporting?"Reading screenshot…":"📷 Import tags from screenshot"}</Btn>
                   <input ref={importTagsScreenshotRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{importTagsFromScreenshot(e.target.files[0]);e.target.value="";}} />
                   {tagScreenshotError&&<div style={{fontSize:11*(T.fsScale||1),color:T.danger}}>{tagScreenshotError}</div>}
@@ -3281,7 +3459,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               per Mo — one upload surface, route by file content instead of a separate button per
               destination) and accepts csv/xlsx/pdf, running every file through classifyImportFile
               first rather than assuming spend. */}
-          <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+          <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>{
+            const f=e.target.files[0];e.target.value="";
+            if(!f)return;
+            promptAndArchiveFile(f,"Spend import").then(named=>{if(named)handleFile(f,{archiveName:named.name,archivedFileId:named.fileId});});
+          }}/>
           <input ref={unifiedFileRef} type="file" accept=".csv,.xlsx,.xls,.pdf" style={{display:"none"}} onChange={e=>{handleUnifiedUpload(e.target.files[0]);e.target.value="";}}/>
           <input ref={screenshotRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleScreenshotFile(e.target.files[0])}/>
 
@@ -3845,6 +4027,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   return;
                 }
                 setMergedNormRows(prev=>mergeRows(prev,withAsOf));
+                commitPendingSpendImportConfig();
                 checkpoint(`Imported spend data — ${fileLabel} (${withAsOf.length} rows)`,"tagger_import");
                 showNotif(`Added ${withAsOf.length} rows — merged with existing data`);
                 setUploadPlatform("auto");
@@ -4068,12 +4251,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           other three tabs' chunks are. */}
       <div style={{display:view==="budget"?"contents":"none"}}>
         <Suspense fallback={<TabLoadingFallback/>}>
-        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} session={session} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit} combineGoogleChannels={combineGoogleChannels} initialImportFile={pendingBudgetImportFile} onConsumeInitialImportFile={()=>setPendingBudgetImportFile(null)}/>
+        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} session={session} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit} combineGoogleChannels={combineGoogleChannels} initialImportFile={pendingBudgetImportFile} onConsumeInitialImportFile={()=>setPendingBudgetImportFile(null)} promptAndArchiveFile={promptAndArchiveFile}/>
         </Suspense>
       </div>
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
-      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl}/></Suspense>}
+      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl} archiveImportConfig={archiveImportConfig}/></Suspense>}
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} sidebarEl={pipelineTaggerSidebarEl}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
@@ -4083,6 +4266,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="settings"&&(()=>{
         const budgetYears=Object.keys(budgets).length;
         const budgetSegs=Object.values(budgets).reduce((s,y)=>s+Object.keys(y).length,0);
+        // Hides the linked import-config sidecars (IMPORT_CONFIG_CATEGORY) from the visible File
+        // Store list — they're a real record in the same table (see that constant's doc comment
+        // for why), just not a "file" anyone should see, download, or delete by hand.
+        const visibleFileStoreList=fileStoreList.filter(f=>f.category!==IMPORT_CONFIG_CATEGORY);
         // lastDate below reuses computePlatformFreshness — the same "as of what date is this
         // platform's spend current" signal the Budget Pacing tab's Data Freshness panel already
         // shows (as_of_date-aware: a monthly CSV/screenshot's explicit "accurate through" date
@@ -4284,16 +4471,16 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     </Btn>
                     <input ref={manualFileRef} type="file" style={{display:"none"}} onChange={e=>{addManualFile(e.target.files[0]);e.target.value="";}}/>
                   </div>
-                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Every spend CSV you import and every tag CSV you import or export is automatically archived here as a backup copy. Add anything else you want to keep on hand — PDFs, insertion orders, whatever — with "Add file". These are just stored for reference; nothing here is read by the rest of the app.</div>
+                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Every spend, tag, budget, or pipeline file you import is automatically saved here — you're always asked to name it first, so it's easy to find again later. Click "Apply" on any of them to reload it and reopen its import screen, pre-filled with how it was mapped last time (handy after a "Clear"/"Delete" above, or just to redo an import). Add anything else you want to keep on hand — PDFs, insertion orders, whatever — with "Add file"; those are just stored for reference.</div>
                   {fileStoreLoading?(
                     <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,padding:"12px 0"}}>Loading…</div>
-                  ):fileStoreList.length===0?(
+                  ):visibleFileStoreList.length===0?(
                     <div style={{textAlign:"center",padding:"12px 0"}}>
                       <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>No files saved yet.</div>
                     </div>
                   ):(
                     <div style={{maxHeight:320,overflow:"auto"}}>
-                      {fileStoreList.map((f,i)=>(
+                      {visibleFileStoreList.map((f,i)=>(
                         <div key={f.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"9px 0",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
                           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
                             <Icon name="file" size={14} color={T.textMuted}/>
@@ -4306,6 +4493,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                             </div>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                            {canEdit&&APPLY_CATEGORIES.has(f.category)&&(
+                              <Btn onClick={()=>applyStoredFile(f)} disabled={applyingFileId===f.id} variant="subtle" size="sm" T={T}
+                                title="Reload this file and reopen its import review screen, pre-filled with how it was mapped last time">
+                                {applyingFileId===f.id?"Applying…":"Apply"}
+                              </Btn>
+                            )}
                             <button onClick={()=>downloadFileFromStore(f)} title="Download" style={{width:26,height:26,borderRadius:T.r6,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                               <Icon name="download" size={12} color={T.textSub}/>
                             </button>
@@ -4541,6 +4734,9 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       </main>
 
       </div>
+
+      <NameFileModal key={pendingNamedFile?"open":"closed"} T={T} open={!!pendingNamedFile} defaultName={pendingNamedFile?.defaultName}
+        onConfirm={name=>pendingNamedFile?.onConfirm(name)} onCancel={()=>pendingNamedFile?.onCancel()}/>
 
       {/* ── IMPORT PRE-LOGIN LOCAL DATA ── */}
       {localImportPrompt&&(

@@ -122,6 +122,39 @@ export const Btn=({children,onClick,variant="ghost",size="sm",disabled,T,style={
   return <button className="bhq-btn" disabled={disabled} onClick={disabled?undefined:onClick} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,borderRadius:T.r6,cursor:disabled?"not-allowed":"pointer",fontWeight:500,transition:"background 0.1s",fontFamily:T.font,boxShadow:"none",opacity:disabled?0.5:1,...s[size],...v[variant],...style}}>{children}</button>;
 };
 export const Inp=({value,onChange,placeholder,T,style={},onKeyDown})=>(<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 10px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:"100%",transition:"border-color 0.12s",...style}}/>);
+// Forces a "name this file" step before an upload proceeds (2026-08-06, per Mo — "force the user
+// to rename (or save the same name) upon import" so every file saved into File Store is findable
+// under something recognizable later, not whatever the source system happened to export it as).
+// Used by every real file-import entry point (spend CSV/XLSX, tag CSV, budget CSV/XLSX, pipeline
+// CSV/XLSX) right after a file is picked, before it's archived/parsed — see PaidHQ.jsx's
+// promptAndArchiveFile, the one shared choke point every one of those entry points now routes
+// through. Deliberately generic/reusable (no import-flow-specific logic lives here) so
+// BudgetManager.jsx's own separate file input can use the exact same modal via a prop from its
+// parent rather than duplicating this UI.
+// Callers should pass a `key` that changes every time a NEW prompt opens (e.g. keyed off which
+// file is being named) — this component resets its own `name` state by remounting rather than by
+// syncing a prop into state inside an effect (the latter trips react-hooks/set-state-in-effect and
+// causes an extra render besides).
+export const NameFileModal=({T,open,defaultName,onConfirm,onCancel})=>{
+  const[name,setName]=useState(defaultName||"");
+  if(!open)return null;
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{width:420,maxWidth:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,fontFamily:T.font}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>Name this file</div>
+        <div style={{padding:20}}>
+          <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:10,lineHeight:1.5}}>Saved to File Store so you can find and reapply it later — keep the suggested name or give it something you'll recognize.</div>
+          <input autoFocus value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&name.trim())onConfirm(name.trim());}}
+            style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"8px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
+        </div>
+        <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+          <Btn onClick={onCancel} variant="ghost" T={T}>Cancel</Btn>
+          <Btn onClick={()=>name.trim()&&onConfirm(name.trim())} variant="primary" T={T} disabled={!name.trim()}>Continue</Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
 export const Sel=({value,onChange,children,T,style={},...rest})=>(<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:value?T.text:T.textMuted,padding:"6px 10px",fontSize:12*(T.fsScale||1),outline:"none",cursor:"pointer",fontFamily:T.font,width:"100%",...style}} {...rest}>{children}</select>);
 // stopPropagation on both: several call sites wrap these in a parent <div> that has its own
 // onClick doing the same toggle (for a bigger click target). Without stopping propagation here,
