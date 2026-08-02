@@ -288,7 +288,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, sidebar
   // see PaidHQ.jsx's own view==="pipelineTagger" branch for the portal target this renders into.
   const sidebarPortal = sidebarEl && createPortal(
     <div className="bhq-scroll" style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
-      <SectionLabel T={T} style={{ marginBottom: 8 }}>Reporting Intelligence</SectionLabel>
+      <SectionLabel T={T} style={{ marginBottom: 8 }}>Performance Intelligence</SectionLabel>
       <div style={{ paddingBottom: 12 }}>
         <SectionLabel T={T} style={{ marginBottom: 8, fontSize: 11 * (T.fsScale || 1) }}>Period</SectionLabel>
         <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>

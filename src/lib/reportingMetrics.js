@@ -1,10 +1,12 @@
+import { getDecimalAdjust } from "./core.js";
+
 /**
  * Shared helpers for displaying core.reporting_facts' now-open metrics object (see reportingAI.js's
  * OPEN METRICS SCHEMA doc comment, 2026-08-02 — the extraction schema stopped being a fixed ~32-key
  * enum so different clients' exports, e.g. Salesforce/HockeyStack vs. Dreamdata/PowerBI, can keep
  * their own column names). Anything that needs to turn a raw metric key into a human label, decide
  * whether it's a dollar figure, or decide whether it's safe to SUM across rows lives here — used by
- * both ReportingAnalyzer.jsx's review table and the Reporting Intelligence breakdown view
+ * both ReportingAnalyzer.jsx's review table and the Performance Intelligence breakdown view
  * (PipelineTagger.jsx) so the two don't drift into slightly different labeling/formatting rules.
  */
 
@@ -81,12 +83,18 @@ export function isRateMetric(key) {
 // metrics below, which are stored as plain fractions (won/total), not "as shown" percentages the
 // way REPORTING_METRICS_HELP's AI-extracted rate metrics are. Existing callers only ever pass
 // (v, money), so this stays backward compatible.
+// Decimal places (2026-08-06, per Mo — "increase or decrease the decimal of any numbered/dollar
+// value field") come from core.js's getDecimalAdjust — the same global, workspace-shared "Number
+// formatting" preference fmt$/fmtFull read, ADDED to each branch's own baseline rather than
+// replacing it: money/plain start at 0 decimals, percent stays at its existing 1-decimal baseline
+// (so "increase" from a percent's current 3.2% goes to 3.24%, not to a jarring 3.200000%).
 export function fmtMetric(v, money, pct) {
   if (v === undefined || v === null || v === "") return "—";
   const n = Number(v);
   if (isNaN(n)) return String(v);
-  if (pct) return `${(n * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
-  return money ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : n.toLocaleString();
+  const adjust = getDecimalAdjust();
+  if (pct) return `${(n * 100).toLocaleString(undefined, { minimumFractionDigits: 1 + adjust, maximumFractionDigits: 1 + adjust })}%`;
+  return money ? `$${n.toLocaleString(undefined, { minimumFractionDigits: adjust, maximumFractionDigits: adjust })}` : n.toLocaleString(undefined, { minimumFractionDigits: adjust, maximumFractionDigits: adjust });
 }
 
 // Cost-per and conversion-rate metrics computed FROM SUMMED canonical absolutes (spend, leads,

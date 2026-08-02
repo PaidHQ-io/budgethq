@@ -24,6 +24,7 @@ import {
   groupVersionsByDay, fmtFileSize, normalizeRows, spendRowKey, mergeRows, detectSpendConflicts,
   parseSpendDate, consolidateBudgetSegKeys, computePlatformFreshness,
   renameDimensionValue, GOOGLE_SUBCHANNELS, groupGooglePlatform, migrateGoogleChannelGrouping,
+  setDecimalAdjust as setGlobalDecimalAdjust,
 } from "./lib/core.js";
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
@@ -335,6 +336,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // Campaign Tagger, and the Data Sources "Spend by platform" widget — see groupGooglePlatform in
   // lib/core.js for where this actually takes effect.
   const[combineGoogleChannels,setCombineGoogleChannels]=useState(()=>migrateGoogleChannelGrouping(false));
+
+  // Number formatting (2026-08-06, per Mo — "give users the ability to increase or decrease the
+  // decimal of any numbered/dollar value field"). Workspace-shared, same tier as
+  // combineGoogleChannels above — a report built with 2-decimal precision should look the same to
+  // everyone else on the team, not just the person who set it. The actual number is just an
+  // integer "how many decimals beyond each value type's own baseline" (0 = today's existing
+  // behavior — whole dollars, whole numbers, 1-decimal percentages) — see core.js's
+  // setDecimalAdjust/getDecimalAdjust for why this rides as a plain module-level variable those
+  // shared formatters read directly instead of a prop threaded through every table in the app.
+  const[decimalAdjust,setDecimalAdjust]=useState(0);
+  useEffect(()=>{setGlobalDecimalAdjust(decimalAdjust);},[decimalAdjust]);
 
   // Tag-value autocomplete sources: values already used in the Budget Panel for each dimension,
   // unioned with values already used on other campaigns' tags — either one matching exactly is
@@ -863,6 +875,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         // saved — see migrateGoogleChannelGrouping's own doc comment for exactly what each case
         // preserves. Safe to run on every load; a no-op once a workspace is already on the new shape.
         setCombineGoogleChannels(migrateGoogleChannelGrouping(config.combineGoogleChannels));
+        setDecimalAdjust(config.decimalAdjust||0);
         const dedupedRows=mergeRows([],rows||[]);
         const rowsDeduped=dedupedRows.length!==(rows||[]).length;
         setMergedNormRows(dedupedRows);
@@ -920,7 +933,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const rowsDirtyRef=useRef(false);
   const latestConfigRef=useRef(null);
   const latestRowsRef=useRef(null);
-  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels};});
+  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust};});
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
   // ── Second, independent safety net (2026-07-20) ─────────────────────────────────────────────
@@ -948,7 +961,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels};
+      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust};
       if(isEmptyConfig(payload)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current){
         console.error("[workspace config save] BLOCKED — refusing to overwrite known real data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's data, use Settings → Clear data instead of whatever just triggered this.");
         return; // stays dirty — retries on the next change, or once real data is back
@@ -959,7 +972,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
-  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
   // replace-all (not incremental) is the sync model here.
@@ -4356,6 +4369,29 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+                <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
+                  <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Number formatting</div>
+                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Workspace-shared — everyone sees the same decimal precision on spend, budgets, pacing %, and other reported values. Works like Excel's increase/decrease decimal buttons: raises or lowers precision beyond each value type's normal default.</div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                    <Btn onClick={()=>setDecimalAdjust(d=>Math.max(0,d-1))} variant="ghost" size="sm" T={T} disabled={decimalAdjust<=0||!canEdit} title="Decrease decimal">.0◂</Btn>
+                    <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontFamily:T.font,minWidth:110,textAlign:"center"}}>{decimalAdjust===0?"Default precision":`+${decimalAdjust} decimal${decimalAdjust===1?"":"s"}`}</div>
+                    <Btn onClick={()=>setDecimalAdjust(d=>Math.min(6,d+1))} variant="ghost" size="sm" T={T} disabled={decimalAdjust>=6||!canEdit} title="Increase decimal">▸.00</Btn>
+                  </div>
+                  <div style={{display:"flex",gap:20,padding:"12px 14px",background:T.surfaceEl,borderRadius:T.r6,fontFamily:T.font}}>
+                    <div>
+                      <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,marginBottom:2}}>Dollar</div>
+                      <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600}}>{fmt$(48213.7)}</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,marginBottom:2}}>Number</div>
+                      <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600}}>{(1284).toLocaleString(undefined,{minimumFractionDigits:decimalAdjust,maximumFractionDigits:decimalAdjust})}</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,marginBottom:2}}>Percent</div>
+                      <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600}}>{(87.436).toLocaleString(undefined,{minimumFractionDigits:1+decimalAdjust,maximumFractionDigits:1+decimalAdjust})}%</div>
+                    </div>
                   </div>
                 </div>
                 {canManageTeam&&(

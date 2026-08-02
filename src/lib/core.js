@@ -444,7 +444,9 @@ export const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","
 // into the first pass of the deferred breakdown/analysis tab (see PipelineTagger.jsx's own doc
 // comment). Route keys (reportingAnalyzer/pipelineTagger) are UNCHANGED — only the labels swapped —
 // so this is a display-only rename, not a URL/state-shape change.
-export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Pipeline Tagger",icon:"tag"},{key:"pipelineTagger",label:"Reporting Intelligence",icon:"search"},{key:"goalsObjectives",label:"Goals & Objectives",icon:"target"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
+// Relabeled again 2026-08-06, per Mo: "pipelineTagger"'s "Reporting Intelligence" label becomes
+// "Performance Intelligence" — same route key, same component (PipelineTagger.jsx), display-only.
+export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Pipeline Tagger",icon:"tag"},{key:"pipelineTagger",label:"Performance Intelligence",icon:"search"},{key:"goalsObjectives",label:"Goals & Objectives",icon:"target"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 export function autoDetect(h){
@@ -540,9 +542,26 @@ export function resolveBudgetDimValue(dim,key,t,platformIndex){
 // d.getFullYear()/getMonth()/getDate() below read the same LOCAL fields the Date was constructed
 // from, so this round-trips exactly instead of drifting across the UTC boundary.
 export const localISODate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+// Global, in-memory mirror of the "Number formatting" Settings choice (2026-08-06, per Mo —
+// "give users the ability to increase or decrease the decimal of any numbered/dollar value
+// field"). Every shared formatter that displays a $ or plain number (fmt$/fmtFull here,
+// reportingMetrics.js's fmtMetric) reads this directly instead of taking it as a parameter —
+// threading an explicit decimals argument through every one of the hundreds of existing fmt$/
+// fmtFull/fmtMetric call sites across every tab would have been a huge, invasive refactor for what
+// is fundamentally one shared display preference. PaidHQ.jsx keeps this in sync with the real,
+// persisted, workspace-shared `decimalAdjust` config value via setDecimalAdjust — called once when
+// that config loads and again every time the Settings stepper changes it (see PaidHQ.jsx's own
+// decimalAdjust state/effect for exactly where). Clamped to 0-6: money/plain-number formatting
+// never had a NEGATIVE decimal count to begin with (their baseline is 0 decimals), so "decrease"
+// simply has no effect once already at the floor, matching Excel's own decrease-decimal behavior
+// at 0 rather than going negative.
+let _decimalAdjust=0;
+export function setDecimalAdjust(n){_decimalAdjust=Number.isFinite(Number(n))?Math.max(0,Math.min(6,Math.round(Number(n)))):0;}
+export function getDecimalAdjust(){return _decimalAdjust;}
+
 export const parseMoney=v=>{if(v===""||v==null)return null;const n=parseFloat(String(v).replace(/[$,\s%]/g,""));return isNaN(n)?null:n;};
-export const fmt$=n=>{if(!n)return"";return"$"+Math.round(n).toLocaleString();};
-export const fmtFull=n=>n?"$"+Math.round(n).toLocaleString():"—";
+export const fmt$=n=>{if(!n)return"";return"$"+n.toLocaleString(undefined,{minimumFractionDigits:_decimalAdjust,maximumFractionDigits:_decimalAdjust});};
+export const fmtFull=n=>n?"$"+n.toLocaleString(undefined,{minimumFractionDigits:_decimalAdjust,maximumFractionDigits:_decimalAdjust}):"—";
 export const isMonthHdr=c=>{const x=c.trim().toLowerCase().replace(/\s+\d{4}$/,"");return!!MONTH_MAP[x];};
 export const getMonthKey=c=>{const x=c.trim().toLowerCase().replace(/\s+\d{4}$/,"");return MONTH_MAP[x]||null;};
 // Detects a single flat recurring-monthly amount column (e.g. "Monthly Budget", "Monthly Spend")
