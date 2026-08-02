@@ -410,6 +410,9 @@ export const Icon=({name,size=18,color="currentColor",style})=>{
     case"ban":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5l13 13"/></svg>;
     case"filter":return<svg {...p}><path d="M3 4.5h18L14 12.5v6l-4 2v-8Z"/></svg>;
     case"info":return<svg {...p}><circle cx="12" cy="12" r="9"/><path d="M12 8h.01"/><path d="M11.25 11.5h1v5.5h1"/></svg>;
+    // Goals & Objectives tab (2026-08-01, per Mo) — simple bullseye, matches the flat-line 24x24
+    // language every other nav icon here uses.
+    case"target":return<svg {...p}><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill={color} stroke="none"/></svg>;
     // Ask AI improvements (2026-07-28, per Mo — "start building" on the model picker/voice/
     // image-upload/copy/stop set) — four new glyphs matching the same flat-line 24x24 language
     // as everything above.

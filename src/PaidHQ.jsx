@@ -1,6 +1,11 @@
 import { useState, useMemo, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import Papa from "papaparse";
+import * as XLSX from "xlsx";
+import { classifyImportFile, IMPORT_TYPE_LABELS } from "./lib/fileTypeDetect.js";
+import { extractReportingRowsFromPdf } from "./lib/reportingAI.js";
+import { parseCampaignReportFile } from "./lib/reportingImport.js";
+import { normalizePeriodStart } from "./lib/reportingPeriods.js";
 import {
   getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows,
   getAskAIData, putAskAIData,
@@ -20,7 +25,7 @@ import {
 } from "./lib/core.js";
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
-  SectionLabel, Pill, GoogleAdsMark, BingMark, CsvMark, ScreenshotMark, BudgetFileMark, PlatformLogo, Btn, Inp, Sel, StatRow,
+  SectionLabel, Pill, GoogleAdsMark, BingMark, CsvMark, ScreenshotMark, PlatformLogo, Btn, Inp, Sel, StatRow,
   MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip, Breadcrumb,
 } from "./components/shared.jsx";
 import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
@@ -46,6 +51,10 @@ const ReportingAnalyzer = lazy(() => import("./components/ReportingAnalyzer.jsx"
 // Campaign Tagger uses, kept entirely separate from that spend data — see the component's own doc
 // comment for why this never touches platform spend/budget).
 const PipelineTagger = lazy(() => import("./components/PipelineTagger.jsx"));
+// Goals & Objectives (2026-08-01, per Mo — minimal first pass: a read-only view over reporting_facts
+// rows the unified Data Sources uploader classified as "goals". See the component's own doc
+// comment for why this doesn't have its own storage yet.
+const GoalsObjectives = lazy(() => import("./components/GoalsObjectives.jsx"));
 // Data Audit tab (2026-07-31, per Mo — "I need a new tab where I can review in detail what data
 // has been brought into PaidHQ and from where"). Read-only view over mergedNormRows; no data of
 // its own to fetch, so lazy-loading it costs nothing beyond the chunk itself.
@@ -208,6 +217,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[filtersOpen,setFiltersOpen]=useState(()=>{try{const v=localStorage.getItem("paidhq_tagger_filters_open");return v===null?true:v==="1";}catch(e){return true;}});
   useEffect(()=>{try{localStorage.setItem("paidhq_tagger_filters_open",filtersOpen?"1":"0");}catch(e){}},[filtersOpen]);
   const fileRef=useRef();
+  const unifiedFileRef=useRef();
   const screenshotRef=useRef();
   const[screenshotProcessing,setScreenshotProcessing]=useState(false);
   const[screenshotError,setScreenshotError]=useState("");
@@ -246,6 +256,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // to the Reporting & Pacing tab where PacingDashboard applies it via its own applyViewConfig and
   // immediately clears it via onConsumeInitialViewConfig so a later visit doesn't re-apply it.
   const[pendingViewConfig,setPendingViewConfig]=useState(null);
+
+  // Unified upload handoff (2026-08-01, per Mo — "one upload surface in Data Sources, route by
+  // file content" instead of separate CSV/budget/pipeline upload buttons scattered across tabs).
+  // Same one-shot relay pattern as pendingAskQuestion/pendingViewConfig above: the Data Sources
+  // upload handler classifies a file, then for "budget"/"pipeline"/"goals" types it can't finish
+  // the import itself (budget's wizard lives inside BudgetManager; pipeline/goals' review table
+  // lives inside ReportingAnalyzer, and neither is necessarily mounted right now) — it stashes
+  // the handoff payload here and switches tabs, and the destination tab consumes-and-clears it on
+  // mount via onConsumeInitial.../initialImportFile props, same as initialQuestion/initialViewConfig.
+  const[pendingBudgetImportFile,setPendingBudgetImportFile]=useState(null); // a raw File
+  const[pendingReportingRows,setPendingReportingRows]=useState(null); // already-extracted/parsed rows, or null
 
   const[budgets,setBudgets]=useState({});
   const[budgetDims,setBudgetDims]=useState([]);
@@ -1444,7 +1465,122 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       applySpendGrid(r.data,r.meta.fields||[],file.name);
     }});
   },[applySpendGrid,archiveFile]);
-  const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);},[handleFile]);
+
+  // Spend files can now arrive as .xlsx/.xls too (the unified Data Sources uploader accepts
+  // csv/xlsx/pdf for every import type — see handleUnifiedUpload below), not just CSV. Mirrors
+  // gsSpend's own {data,fields} construction above rather than adding a header:1 branch — Excel's
+  // default sheet_to_json (no header:1) already returns row objects keyed by header, the exact
+  // shape applySpendGrid expects.
+  const handleSpendXlsxFile=useCallback(file=>{
+    if(!file)return;
+    archiveFile(file,"Spend import");
+    setUploadSourceKind("xlsx");
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const data=XLSX.utils.sheet_to_json(ws,{defval:""});
+      const fields=data.length?Object.keys(data[0]):[];
+      applySpendGrid(data,fields,file.name);
+    };
+    reader.readAsArrayBuffer(file);
+  },[applySpendGrid,archiveFile]);
+
+  function fileToDataUrl(file){
+    return new Promise((resolve,reject)=>{
+      const reader=new FileReader();
+      reader.onload=()=>resolve(reader.result);
+      reader.onerror=reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ── Unified upload (2026-08-01, per Mo) ──────────────────────────────────────────────────────
+  // Single entry point for the "Spend, Budget or Performance file" card: classify the file
+  // (fileTypeDetect.js), show a confirm/override banner, then route to whichever existing importer
+  // owns that data type. Doesn't parse/extract anything itself beyond the cheap classification
+  // preview — the actual parse happens in confirmUnifiedUpload once the type is confirmed, using
+  // the SAME importers each type already had (applySpendGrid, BudgetManager's ingestRawRows via
+  // the pendingBudgetImportFile handoff, reportingAI.js/reportingImport.js for pipeline/goals).
+  const[unifiedClassifying,setUnifiedClassifying]=useState(false);
+  const[unifiedClassifyError,setUnifiedClassifyError]=useState("");
+  const[pendingClassification,setPendingClassification]=useState(null); // {file, type, confidence, reasoning}
+
+  const handleUnifiedUpload=useCallback(async file=>{
+    if(!file)return;
+    setUnifiedClassifyError("");
+    setUnifiedClassifying(true);
+    try{
+      const result=await classifyImportFile({file,token:session?.access_token});
+      setPendingClassification({file,...result});
+    }catch(err){
+      setUnifiedClassifyError(err.message||"Couldn't read that file.");
+    }finally{
+      setUnifiedClassifying(false);
+    }
+  },[session]);
+
+  const[unifiedRouting,setUnifiedRouting]=useState(false);
+  const[unifiedRouteError,setUnifiedRouteError]=useState("");
+
+  const confirmUnifiedUpload=useCallback(async()=>{
+    if(!pendingClassification)return;
+    const{file,type}=pendingClassification;
+    const ext=file.name.split(".").pop().toLowerCase();
+    setPendingClassification(null);
+    if(type==="spend"){
+      if(ext==="csv")handleFile(file);
+      else if(ext==="xlsx"||ext==="xls")handleSpendXlsxFile(file);
+      else setUnifiedRouteError("PDF spend files aren't supported yet — try a CSV or Excel export.");
+      return;
+    }
+    if(type==="budget"){
+      setPendingBudgetImportFile(file);
+      setView("budget");
+      return;
+    }
+    // pipeline / goals both land in reporting_facts via ReportingAnalyzer's review table — the
+    // extraction has to happen here (not inside ReportingAnalyzer) since that tab isn't
+    // necessarily mounted right now. `type` becomes each row's tag: goals-classified rows get a
+    // distinct source prefix so GoalsObjectives.jsx can filter to just those, everything else
+    // (pipeline) keeps the existing powerbi_* source naming reportingAI.js/reportingImport.js
+    // already use.
+    setUnifiedRouteError("");
+    setUnifiedRouting(true);
+    try{
+      let rows;
+      if(ext==="pdf"){
+        const dataUrl=await fileToDataUrl(file);
+        rows=await extractReportingRowsFromPdf({dataUrl,token:session?.access_token,tagDims});
+        rows=rows.map(r=>({
+          source:type==="goals"?"goals_pdf":"powerbi_pdf_goals_pacing",
+          periodType:r.period_type||"unknown",
+          periodStart:r.period_type&&r.period_type!=="unknown"?normalizePeriodStart(r.period_type,r.period_start)||undefined:undefined,
+          campaignName:r.campaign_name||"",
+          tags:r.tags||{},
+          metrics:r.metrics||{},
+        }));
+      }else{
+        const parsed=await parseCampaignReportFile(file);
+        rows=parsed.map(r=>({
+          source:type==="goals"?"goals_campaign_export":"powerbi_campaign_export",
+          periodType:"unknown",
+          periodStart:undefined,
+          campaignName:r.campaignName||"",
+          tags:{},
+          metrics:r.metrics||{},
+        }));
+      }
+      setPendingReportingRows(rows);
+      setView("reportingAnalyzer");
+    }catch(err){
+      setUnifiedRouteError(err.message||"Couldn't read that file.");
+    }finally{
+      setUnifiedRouting(false);
+    }
+  },[pendingClassification,handleFile,handleSpendXlsxFile,session,tagDims]);
+
+  const handleDrop=useCallback(e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleUnifiedUpload(f);},[handleUnifiedUpload]);
 
   // Auto-default "Data accurate through" for month-grain exports (Google/Bing report one row per
   // ad group PER MONTH — e.g. "Jul-26" — not a real per-day date). Runs off colMap.date (the field
@@ -2999,8 +3135,15 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
 
           {/* Hidden file inputs for the manual-import cards on the Add data source grid — kept
               mounted here rather than per-card so fileRef/screenshotRef stay valid no matter which
-              card (or which subview) triggers them. */}
+              card (or which subview) triggers them. fileRef stays CSV-only/spend-only — it's shared
+              by the per-platform "status==='csv'" cards (e.g. Capterra) where the platform is
+              already known from which card was clicked, so there's nothing to classify.
+              unifiedFileRef backs the "Spend, Budget or Performance file" card below (2026-08-01,
+              per Mo — one upload surface, route by file content instead of a separate button per
+              destination) and accepts csv/xlsx/pdf, running every file through classifyImportFile
+              first rather than assuming spend. */}
           <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+          <input ref={unifiedFileRef} type="file" accept=".csv,.xlsx,.xls,.pdf" style={{display:"none"}} onChange={e=>{handleUnifiedUpload(e.target.files[0]);e.target.value="";}}/>
           <input ref={screenshotRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleScreenshotFile(e.target.files[0])}/>
 
           {dataSourcesSubView==="add"?(
@@ -3018,6 +3161,40 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               <h1 style={{fontSize:isMobile?20:24,fontWeight:700,color:T.text,letterSpacing:"-0.4px",margin:"6px 0 14px"}}>Add data source</h1>
               <input value={dataSourceSearch} onChange={e=>setDataSourceSearch(e.target.value)} placeholder="Search data sources…"
                 style={{width:"100%",maxWidth:360,boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r8,color:T.text,padding:"8px 12px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font,marginBottom:20}}/>
+
+              {/* Classify-then-confirm banner for the unified uploader (2026-08-01, per Mo) — shows
+                  between file selection and actually routing/parsing, so a wrong auto-detect (e.g.
+                  a budget file that reads a lot like a spend export) can be corrected before it
+                  lands in the wrong tab. */}
+              {unifiedClassifyError&&(
+                <div style={{marginBottom:16,padding:"10px 14px",borderRadius:T.r8,fontSize:12*(T.fsScale||1),background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger}}>{unifiedClassifyError}</div>
+              )}
+              {unifiedRouteError&&(
+                <div style={{marginBottom:16,padding:"10px 14px",borderRadius:T.r8,fontSize:12*(T.fsScale||1),background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger}}>{unifiedRouteError}</div>
+              )}
+              {unifiedRouting&&(
+                <div style={{marginBottom:16,padding:"10px 14px",borderRadius:T.r8,fontSize:12*(T.fsScale||1),background:T.accentBg,border:`1px solid ${T.accentBorder}`,color:T.text}}>Reading file…</div>
+              )}
+              {pendingClassification&&(
+                <PixelPanel T={T} contentStyle={{padding:16,marginBottom:20}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                    <div style={{flex:1,minWidth:220}}>
+                      <div style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:2}}>"{pendingClassification.file.name}"</div>
+                      <div style={{fontSize:12*(T.fsScale||1),color:T.textSub}}>
+                        We think this is a <strong>{IMPORT_TYPE_LABELS[pendingClassification.type]}</strong> file
+                        {pendingClassification.confidence==="low"&&" (not very confident — please double-check)"}.
+                        {pendingClassification.reasoning?` ${pendingClassification.reasoning}`:""}
+                      </div>
+                    </div>
+                    <Sel value={pendingClassification.type} onChange={v=>setPendingClassification(p=>({...p,type:v}))} T={T} style={{width:190}}>
+                      {Object.entries(IMPORT_TYPE_LABELS).map(([v,l])=>(<option key={v} value={v}>{l}</option>))}
+                    </Sel>
+                    <Btn T={T} variant="primary" size="md" onClick={confirmUnifiedUpload}>Continue →</Btn>
+                    <Btn T={T} variant="ghost" size="md" onClick={()=>setPendingClassification(null)}>Cancel</Btn>
+                  </div>
+                </PixelPanel>
+              )}
+
               {(()=>{
                 const cards=[
                   ...PLATFORMS.map(pl=>{
@@ -3034,9 +3211,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     else{actionLabel="Connect now";onAction=()=>openConnectPanel(pl.key);}
                     return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,domain:pl.domain,mark:pl.mark,isConnected,warn,actionLabel,onAction};
                   }),
-                  {key:"_csv",label:"Spend Data CSV",desc:"Any spend CSV — Google Ads, LinkedIn, Meta, Bing, Capterra exports all work",color:T.textMuted,mark:CsvMark,actionLabel:"Upload CSV",onAction:()=>fileRef.current?.click()},
+                  {key:"_csv",label:"Spend, Budget or Performance file",desc:"CSV, Excel or PDF — we detect whether it's spend, budget, pipeline performance or goals data",color:T.textMuted,mark:CsvMark,actionLabel:unifiedClassifying?"Reading…":"Upload file",onAction:()=>!unifiedClassifying&&unifiedFileRef.current?.click()},
                   {key:"_screenshot",label:"Screenshot",desc:"Share a screenshot of a spend report — AI reads it into data",color:T.textMuted,mark:ScreenshotMark,actionLabel:"Upload image",onAction:()=>!screenshotProcessing&&screenshotRef.current?.click()},
-                  {key:"_budget",label:"Budget file",desc:"Excel or CSV budget spreadsheet — AI maps your columns",color:T.textMuted,mark:BudgetFileMark,actionLabel:"Go to Budgets →",onAction:()=>setView("budget")},
                 ].filter(c=>c.label.toLowerCase().includes(dataSourceSearch.trim().toLowerCase()));
                 return(
                   <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(230px,1fr))",gap:14}}>
@@ -3752,13 +3928,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           other three tabs' chunks are. */}
       <div style={{display:view==="budget"?"contents":"none"}}>
         <Suspense fallback={<TabLoadingFallback/>}>
-        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} session={session} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit} combineGoogleChannels={combineGoogleChannels}/>
+        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} session={session} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit} combineGoogleChannels={combineGoogleChannels} initialImportFile={pendingBudgetImportFile} onConsumeInitialImportFile={()=>setPendingBudgetImportFile(null)}/>
         </Suspense>
       </div>
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
-      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace}/></Suspense>}
+      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)}/></Suspense>}
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} campaignTags={tags} tagDims={tagDims} canEdit={canEdit}/></Suspense>}
+      {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
           been imported, including anything a user has since hidden from the dashboards. */}

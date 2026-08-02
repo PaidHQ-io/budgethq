@@ -28,7 +28,7 @@ import { usePersistentState } from "../lib/persist.js";
 // as _notBudgeted — never added to budgetMetaDims, so it never becomes a real dimension column.
 const CURRENCIES=["USD","EUR","GBP","CAD","AUD","JPY","CHF","MXN","BRL","INR"];
 
-export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true,combineGoogleChannels=false}){
+export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true,combineGoogleChannels=false,initialImportFile,onConsumeInitialImportFile}){
   const yr=new Date().getFullYear();
   // year/showQ/showA/segFilters persisted (2026-07-30, per Mo — "whatever screen with whatever
   // filters on any tab I've selected" should survive a refresh), same pattern as
@@ -751,6 +751,28 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     if(!file)return;
     parseFileToRows(file,rawRows=>ingestRawRows(file.name,rawRows));
   };
+
+  // Handoff from the unified Data Sources uploader (2026-08-01, per Mo — "Spend, Budget or
+  // Performance file" classifies a file as "budget" and sends it here instead of re-implementing
+  // this whole wizard a second time). BudgetManager is kept permanently mounted (see the doc
+  // comment at its render site in PaidHQ.jsx) rather than getting a fresh mount at handoff time the
+  // way ReportingAnalyzer/AskAI's one-shot relays do — so unlike those, this genuinely IS "react to
+  // a later prop change on an already-mounted instance," not "seed initial state," and can't be
+  // rewritten as a lazy useState initializer. setImportOpen(true) is required in addition to
+  // ingestRawRows — ingestRawRows only sets the wizard's internal step/rows state, it doesn't open
+  // the modal itself (confirmed against the grid-paste-into-dimension-cell call site above, which
+  // pairs the two the same way). Same justified exception as PacingDashboard's initialViewConfig
+  // effect — see its doc comment for the general reasoning.
+  /* eslint-disable react-hooks/set-state-in-effect -- external handoff on an always-mounted
+     component reacting to a prop change, not a prop-into-state sync; see doc comment above. */
+  useEffect(()=>{
+    if(!initialImportFile)return;
+    setImportOpen(true);
+    parseFileToRows(initialImportFile,rawRows=>ingestRawRows(initialImportFile.name,rawRows));
+    onConsumeInitialImportFile?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[initialImportFile]);
+  /* eslint-enable react-hooks/set-state-in-effect */
   // Parses the vision model's "JSON array of row arrays" response, tolerating the case where the
   // response got cut off mid-row before finishing (2026-07-31, per a real failure Mo hit on a
   // large multi-brand budget table — "Unterminated string in JSON at position 6451" surfaced as a
