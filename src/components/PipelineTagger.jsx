@@ -78,6 +78,43 @@ function aggregateByDimension(rows, dimKey) {
   return Array.from(map.values());
 }
 
+// Generic column-sort for the three tables below (2026-08-10, per Mo — "sortable"). `getLabelSort`
+// returns the value the "label" column (Period, or the slice/campaign key) sorts by — a raw ISO
+// date string for periods (chronological) or the group's own label for breakdown/campaign
+// (alphabetical); `getRowsCount` returns the row count for the Rows column. sort.key===null is the
+// caller's cue to fall back to that table's own default order instead of calling this at all.
+// Undefined/missing metric values always sort last regardless of direction — same "don't pretend a
+// missing value is a 0" convention this file already uses when DISPLAYING a metric (fmtMetric's
+// "—" for undefined).
+function applySort(items, sort, getLabelSort, getRowsCount) {
+  if (!sort.key) return items;
+  const dirMul = sort.dir === "asc" ? 1 : -1;
+  return items.slice().sort((a, b) => {
+    let av, bv;
+    if (sort.key === "__label__") { av = getLabelSort(a); bv = getLabelSort(b); }
+    else if (sort.key === "__rows__") { av = getRowsCount(a); bv = getRowsCount(b); }
+    else { av = a.metrics[sort.key]; bv = b.metrics[sort.key]; }
+    const aU = av === undefined || av === null, bU = bv === undefined || bv === null;
+    if (aU && bU) return 0;
+    if (aU) return 1;
+    if (bU) return -1;
+    if (typeof av === "string" || typeof bv === "string") return dirMul * String(av).localeCompare(String(bv));
+    return dirMul * (av - bv);
+  });
+}
+
+// Sortable <th> shared by the Trend-by-period, Breakdown, and Campaign tables — click toggles sort
+// on that column (asc/desc), with a small ▲/▼ marking whichever column is currently active.
+function SortTh({ label, sortKey, sort, onSort, align, T }) {
+  const active = sort.key === sortKey;
+  return (
+    <th onClick={() => onSort(sortKey)} title="Click to sort"
+      style={{ padding: "8px 10px", fontSize: 10 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: active ? T.text : T.textMuted, textAlign: align, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
+      {label}{active ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+    </th>
+  );
+}
+
 // One bucket per exact (periodType, periodStart) pair actually present in the filtered rows — never
 // re-grained (a quarter-imported row never gets split into 3 months, a run of monthly rows never
 // gets merged up into a quarter) so a bucket's own total is always exactly what was imported for it,
@@ -176,6 +213,22 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
     if (prev.length >= MAX_CHART_METRICS) return prev; // at cap — ignored, the picker below disables the button so this is just a safety no-op
     return [...prev, key];
   });
+
+  // Table sort + show/hide (2026-08-10, per Mo — "sortable (as do trend by period and breakdown by
+  // product)... Add a toggle at the top right of each table to show or hide the table"). Sort state
+  // is transient (plain useState, not persisted — same convention persist.js documents for
+  // selection/UI state), one { key, dir } pair per table; key===null means "use that table's own
+  // natural default order" (chronological for periods, biggest-group-first for breakdown/campaign)
+  // rather than forcing a sort choice on tables that already had a sensible default. Visibility
+  // toggles ARE persisted (usePersistentState) since collapsing a table you don't care about is a
+  // real preference worth keeping across a refresh, same tier as filtersOpen.
+  const [periodSort, setPeriodSort] = useState({ key: null, dir: "desc" });
+  const [breakdownSort, setBreakdownSort] = useState({ key: null, dir: "desc" });
+  const [campaignSort, setCampaignSort] = useState({ key: null, dir: "desc" });
+  const toggleSort = (setSort, key) => setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "__label__" ? "asc" : "desc" }));
+  const [periodTableOpen, setPeriodTableOpen] = usePersistentState("paidhq_reporting_intel_periodTableOpen", true);
+  const [breakdownTableOpen, setBreakdownTableOpen] = usePersistentState("paidhq_reporting_intel_breakdownTableOpen", true);
+  const [campaignTableOpen, setCampaignTableOpen] = usePersistentState("paidhq_reporting_intel_campaignTableOpen", true);
 
   useEffect(() => {
     listReportingFacts(session, workspace.id)
@@ -284,11 +337,27 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   );
 
   // No longer needs to re-filter by fSearch itself — sliceGroups above is already built from
-  // searchedRows, so every group here already matches. Just sorts.
-  const filteredSliceGroups = useMemo(
-    () => sliceGroups.slice().sort((a, b) => b.rows.length - a.rows.length || a.key.localeCompare(b.key)),
-    [sliceGroups]
+  // searchedRows, so every group here already matches. Default order (no column clicked yet) is
+  // biggest-group-first; applySort takes over once the user clicks a column header.
+  const filteredSliceGroups = useMemo(() => {
+    if (breakdownSort.key) return applySort(sliceGroups, breakdownSort, (g) => g.key, (g) => g.rows.length);
+    return sliceGroups.slice().sort((a, b) => b.rows.length - a.rows.length || a.key.localeCompare(b.key));
+  }, [sliceGroups, breakdownSort]);
+
+  // Campaign-level table (2026-08-10, per Mo — "I need a campaign level table at the bottom that
+  // lists performance by campaign... any filters at the top need to be applicable to the campaign
+  // table"). Deliberately ALWAYS grouped by campaignName regardless of whatever the "Slice by"
+  // dropdown above is set to — this is a fixed, always-available view, not another slice option —
+  // but built from searchedRows so it still inherits every active filter (sidebar Filters, period
+  // range, AND the slice search box) exactly like the other two tables.
+  const campaignGroups = useMemo(
+    () => aggregateByDimension(searchedRows, "campaignName").map((g) => ({ ...g, metrics: { ...g.metrics, ...computeDerivedPipelineMetrics(g.metrics), ...computeCustomMetrics(g.metrics, customMetrics) } })),
+    [searchedRows, customMetrics]
   );
+  const sortedCampaignGroups = useMemo(() => {
+    if (campaignSort.key) return applySort(campaignGroups, campaignSort, (g) => g.key, (g) => g.rows.length);
+    return campaignGroups.slice().sort((a, b) => b.rows.length - a.rows.length || a.key.localeCompare(b.key));
+  }, [campaignGroups, campaignSort]);
 
   // FORECAST — see this file's top doc comment for the full "why." Only ever computed for the
   // LAST (most recent) period bucket actually in the filtered set, and only if today's date falls
@@ -317,6 +386,15 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
       projected: { ...projectedAbsolutes, ...computeDerivedPipelineMetrics(projectedAbsolutes), ...computeCustomMetrics(projectedAbsolutes, customMetrics) },
     };
   }, [periodBuckets, nowMs, customMetrics]);
+
+  // Trend-by-period table's own sort — kept SEPARATE from periodBuckets itself (which stays
+  // chronological for the chart above and for forecast's "last bucket" logic) so sorting the table
+  // never disturbs either of those. Default order (no column clicked) is the original chronological
+  // one.
+  const sortedPeriodBuckets = useMemo(() => {
+    if (!periodSort.key) return periodBuckets;
+    return applySort(periodBuckets, periodSort, (b) => b.periodStart, (b) => b.rows.length);
+  }, [periodBuckets, periodSort]);
 
   const activeMetricColumns = useMemo(() => ALL_METRIC_OPTIONS.filter((m) => metrics.includes(m.key)), [metrics, ALL_METRIC_OPTIONS]);
   const toggleMetric = (key) => setMetrics((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -581,100 +659,178 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
               )}
             </PixelPanel>
 
-            {/* Trend by period — every selected metric as a column, one row per period bucket. */}
+            {/* Trend by period — every selected metric as a column, one row per period bucket.
+                Sortable (click any header) + collapsible (2026-08-10, per Mo). */}
             <PixelPanel T={T} contentStyle={{ padding: 0, marginBottom: 16 }}>
-              <div style={{ padding: "12px 16px", fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text, borderBottom: `1px solid ${T.border}` }}>Trend by period</div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
-                  <thead>
-                    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                      {["Period", "Rows", ...activeMetricColumns.map((c) => c.label)].map((h, i) => (
-                        <th key={i} style={{ padding: "8px 10px", fontSize: 10 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 2 ? "right" : "left" }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {periodBuckets.length === 0 && (
-                      <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No periods match your filters.</td></tr>
-                    )}
-                    {periodBuckets.map((b, i) => {
-                      const isForecastRow = forecast && i === periodBuckets.length - 1;
-                      return (
-                        <tr key={b.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
-                          <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text }}>
-                            {labelForPeriod(b.periodType, b.periodStart)}
-                            {isForecastRow && <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{ marginLeft: 8, fontSize: 10 * (T.fsScale || 1) }}>in progress</Pill>}
-                          </td>
-                          <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1) }}>{b.rows.length}</td>
-                          {activeMetricColumns.map((c) => (
-                            <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>
-                              {fmtMetric(b.metrics[c.key], c.money, c.pct)}
-                              {isForecastRow && forecast.projected[c.key] !== undefined && (
-                                <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.accent }}>proj. {fmtMetric(forecast.projected[c.key], c.money, c.pct)}</div>
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  {periodBuckets.length > 0 && (
-                    <tfoot>
-                      <tr style={{ borderTop: `2px solid ${T.border}` }}>
-                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
-                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{searchedRows.length}</td>
+              <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: periodTableOpen ? `1px solid ${T.border}` : "none" }}>
+                <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Trend by period</div>
+                <button onClick={() => setPeriodTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
+                  {periodTableOpen ? "Hide" : "Show"}
+                  <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: periodTableOpen ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+                </button>
+              </div>
+              {periodTableOpen && (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
+                    <thead>
+                      <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <SortTh label="Period" sortKey="__label__" sort={periodSort} onSort={(k) => toggleSort(setPeriodSort, k)} align="left" T={T} />
+                        <SortTh label="Rows" sortKey="__rows__" sort={periodSort} onSort={(k) => toggleSort(setPeriodSort, k)} align="right" T={T} />
                         {activeMetricColumns.map((c) => (
-                          <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
+                          <SortTh key={c.key} label={c.label} sortKey={c.key} sort={periodSort} onSort={(k) => toggleSort(setPeriodSort, k)} align="right" T={T} />
                         ))}
                       </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {sortedPeriodBuckets.length === 0 && (
+                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No periods match your filters.</td></tr>
+                      )}
+                      {sortedPeriodBuckets.map((b) => {
+                        // Matched by KEY, not array position — sorting the table can reorder rows,
+                        // but the forecast is always for one specific real bucket (the most recent
+                        // one chronologically), so "is this the forecast row" must stay tied to
+                        // that bucket's identity rather than "am I last in whatever order I'm in".
+                        const isForecastRow = forecast && b.key === forecast.bucket.key;
+                        return (
+                          <tr key={b.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+                            <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text }}>
+                              {labelForPeriod(b.periodType, b.periodStart)}
+                              {isForecastRow && <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{ marginLeft: 8, fontSize: 10 * (T.fsScale || 1) }}>in progress</Pill>}
+                            </td>
+                            <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{b.rows.length}</td>
+                            {activeMetricColumns.map((c) => (
+                              <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>
+                                {fmtMetric(b.metrics[c.key], c.money, c.pct)}
+                                {isForecastRow && forecast.projected[c.key] !== undefined && (
+                                  <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.accent }}>proj. {fmtMetric(forecast.projected[c.key], c.money, c.pct)}</div>
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    {sortedPeriodBuckets.length > 0 && (
+                      <tfoot>
+                        <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                          <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
+                          <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{searchedRows.length}</td>
+                          {activeMetricColumns.map((c) => (
+                            <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
+                          ))}
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              )}
             </PixelPanel>
 
             {/* Breakdown by dimension — unchanged shape from v1, now driven by the same selected
-                metric columns as the trend table above instead of a derived/capped column list. */}
-            <PixelPanel T={T} contentStyle={{ padding: 0 }}>
-              <div style={{ padding: "12px 16px", fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text, borderBottom: `1px solid ${T.border}` }}>
-                Breakdown by {sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice"}
+                metric columns as the trend table above instead of a derived/capped column list.
+                Sortable + collapsible, same as the other two tables (2026-08-10, per Mo). */}
+            <PixelPanel T={T} contentStyle={{ padding: 0, marginBottom: 16 }}>
+              <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: breakdownTableOpen ? `1px solid ${T.border}` : "none" }}>
+                <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Breakdown by {sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice"}</div>
+                <button onClick={() => setBreakdownTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
+                  {breakdownTableOpen ? "Hide" : "Show"}
+                  <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: breakdownTableOpen ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+                </button>
               </div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
-                  <thead>
-                    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                      {[sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice", "Rows", ...activeMetricColumns.map((c) => c.label)].map((h, i) => (
-                        <th key={i} style={{ padding: "8px 10px", fontSize: 10 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: i >= 2 ? "right" : "left" }}>{h}</th>
+              {breakdownTableOpen && (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
+                    <thead>
+                      <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <SortTh label={sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice"} sortKey="__label__" sort={breakdownSort} onSort={(k) => toggleSort(setBreakdownSort, k)} align="left" T={T} />
+                        <SortTh label="Rows" sortKey="__rows__" sort={breakdownSort} onSort={(k) => toggleSort(setBreakdownSort, k)} align="right" T={T} />
+                        {activeMetricColumns.map((c) => (
+                          <SortTh key={c.key} label={c.label} sortKey={c.key} sort={breakdownSort} onSort={(k) => toggleSort(setBreakdownSort, k)} align="right" T={T} />
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredSliceGroups.length === 0 && (
+                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No groups match your filters.</td></tr>
+                      )}
+                      {filteredSliceGroups.map((g) => (
+                        <tr key={g.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+                          <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={g.key}>{g.key}</td>
+                          <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{g.rows.length}</td>
+                          {activeMetricColumns.map((c) => (
+                            <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>{fmtMetric(g.metrics[c.key], c.money, c.pct)}</td>
+                          ))}
+                        </tr>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSliceGroups.length === 0 && (
-                      <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No groups match your filters.</td></tr>
+                    </tbody>
+                    {filteredSliceGroups.length > 0 && (
+                      <tfoot>
+                        <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                          <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
+                          <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{searchedRows.length}</td>
+                          {activeMetricColumns.map((c) => (
+                            <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
+                          ))}
+                        </tr>
+                      </tfoot>
                     )}
-                    {filteredSliceGroups.map((g) => (
-                      <tr key={g.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
-                        <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={g.key}>{g.key}</td>
-                        <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1) }}>{g.rows.length}</td>
-                        {activeMetricColumns.map((c) => (
-                          <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>{fmtMetric(g.metrics[c.key], c.money, c.pct)}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                  {filteredSliceGroups.length > 0 && (
-                    <tfoot>
-                      <tr style={{ borderTop: `2px solid ${T.border}` }}>
-                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
-                        <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{searchedRows.length}</td>
-                        {activeMetricColumns.map((c) => (
-                          <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
-                        ))}
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
+                  </table>
+                </div>
+              )}
+            </PixelPanel>
+
+            {/* By Campaign (2026-08-10, per Mo — "I need a campaign level table at the bottom that
+                lists performance by campaign"). Always grouped by campaignName regardless of the
+                "Slice by" dropdown above — see campaignGroups' own doc comment. Sortable +
+                collapsible, same as the other two tables. */}
+            <PixelPanel T={T} contentStyle={{ padding: 0 }}>
+              <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: campaignTableOpen ? `1px solid ${T.border}` : "none" }}>
+                <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>By Campaign</div>
+                <button onClick={() => setCampaignTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
+                  {campaignTableOpen ? "Hide" : "Show"}
+                  <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: campaignTableOpen ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+                </button>
               </div>
+              {campaignTableOpen && (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
+                    <thead>
+                      <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <SortTh label="Campaign" sortKey="__label__" sort={campaignSort} onSort={(k) => toggleSort(setCampaignSort, k)} align="left" T={T} />
+                        <SortTh label="Rows" sortKey="__rows__" sort={campaignSort} onSort={(k) => toggleSort(setCampaignSort, k)} align="right" T={T} />
+                        {activeMetricColumns.map((c) => (
+                          <SortTh key={c.key} label={c.label} sortKey={c.key} sort={campaignSort} onSort={(k) => toggleSort(setCampaignSort, k)} align="right" T={T} />
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedCampaignGroups.length === 0 && (
+                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No campaigns match your filters.</td></tr>
+                      )}
+                      {sortedCampaignGroups.map((g) => (
+                        <tr key={g.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+                          <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={g.key}>{g.key}</td>
+                          <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{g.rows.length}</td>
+                          {activeMetricColumns.map((c) => (
+                            <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>{fmtMetric(g.metrics[c.key], c.money, c.pct)}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                    {sortedCampaignGroups.length > 0 && (
+                      <tfoot>
+                        <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                          <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
+                          <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{searchedRows.length}</td>
+                          {activeMetricColumns.map((c) => (
+                            <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
+                          ))}
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              )}
             </PixelPanel>
           </>
         )}
@@ -690,17 +846,27 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
 // plots one metric at a time — mixed count/$/% scales don't share an axis meaningfully.
 // Reworked 2026-08-09 (per Mo — "select up to three metrics to view month by month or quarter by
 // quarter") from a single-series bar chart into a grouped-bar chart: one differently-colored bar
-// per selected metric within each period's slot, sharing one linear Y axis. A shared axis is a
-// deliberate simplification — mixing e.g. Spend ($) with a small count metric can make one series
-// look flat next to the other, but a real dual/independent-axis chart is a much bigger build than
-// this tab's existing "simple, honest, table-backed" charts elsewhere, and most real comparisons
-// (spend vs. pipeline value, or leads vs. MQLs vs. SQLs) sit at roughly the same order of magnitude
-// anyway. Y-axis tick labels only get a "$" prefix when EVERY selected series is a money metric —
-// mixing money and count series shows plain numbers rather than mislabeling a count as a dollar
-// figure. Each bar carries a native SVG <title> so the exact value is still available on hover
-// regardless of how the shared axis renders it.
+// per selected metric within each period's slot. Each bar carries a native SVG <title> so the
+// exact value is still available on hover regardless of how either axis renders it.
+//
+// DUAL AXIS (2026-08-10, per Mo — "All three metrics can't use the same left vertical axis since
+// the numbers can differ significantly... if we have MQLs, SQLs and pipeline value, then MQLs and
+// SQLs can use the same axis (left) and pipeline value can use the right axis"): series split into
+// two axis groups by their own .money flag — non-money counts (MQLs, SQLs, leads, ...) on the
+// LEFT, money figures (Spend, Pipeline Value, Revenue) on the RIGHT. A right axis is only drawn
+// when BOTH groups are non-empty; if every selected metric happens to be the same kind (all money,
+// or all counts), there's nothing to split and everything just shares the left axis as before. Both
+// axes plot against the SAME 0/25/50/75/100% height fractions (each bar's height is value/its OWN
+// axis's max), so one shared gridline legitimately labels both axes at once — this is what makes a
+// dual-axis chart honest rather than two unrelated charts stacked on top of each other.
 function TrendMiniChart({ T, periods, series, hasForecast }) {
-  const H = 200, padL = 56, padB = 30, padT = 12, padR = 16;
+  let axisLeft = series.filter((s) => !s.money);
+  let axisRight = series.filter((s) => s.money);
+  if (axisLeft.length === 0) { axisLeft = axisRight; axisRight = []; } // all-money selection — everything on one axis
+  const hasRightAxis = axisRight.length > 0;
+  const rightKeys = new Set(axisRight.map((s) => s.key));
+
+  const H = 200, padT = 12, padB = 30, padL = 56, padR = hasRightAxis ? 56 : 16;
   const n = periods.length + (hasForecast ? 1 : 0);
   const W = 720;
   const plotW = W - padL - padR;
@@ -710,21 +876,28 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
   const groupW = plotW / n - groupGap;
   const barGap = 3;
   const barW = Math.max(3, (groupW - barGap * (seriesCount - 1)) / seriesCount);
-  const allMoney = series.length > 0 && series.every((s) => s.money);
-  const allValues = series.flatMap((s) => (hasForecast ? [...s.values, s.projectedValue || 0] : s.values));
-  const maxY = Math.max(1, ...allValues);
-  const yFor = (v) => padT + plotH - (v / maxY) * plotH;
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxY * f));
-  const fmtTick = (v) => { const prefix = allMoney ? "$" : ""; return v >= 1000 ? `${prefix}${Math.round(v / 1000)}k` : `${prefix}${v}`; };
+
+  const valuesFor = (arr) => arr.flatMap((s) => (hasForecast ? [...s.values, s.projectedValue || 0] : s.values));
+  const leftMax = Math.max(1, ...valuesFor(axisLeft));
+  const rightMax = Math.max(1, ...(hasRightAxis ? valuesFor(axisRight) : [0]));
+  const maxFor = (key) => (rightKeys.has(key) ? rightMax : leftMax);
+  const leftMoney = axisLeft.length > 0 && axisLeft.every((s) => s.money); // only true in the "all-money, no split" fallback above
+
+  const fracs = [0, 0.25, 0.5, 0.75, 1];
+  const fmtTick = (v, money) => { const prefix = money ? "$" : ""; return v >= 1000 ? `${prefix}${Math.round(v / 1000)}k` : `${prefix}${Math.round(v)}`; };
+
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
-        {yTicks.map((t, i) => {
-          const y = yFor(t);
+        {fracs.map((f, i) => {
+          const y = padT + plotH - f * plotH;
           return (
             <g key={i}>
               <line x1={padL} y1={y} x2={W - padR} y2={y} stroke={T.border} strokeWidth={1} />
-              <text x={padL - 8} y={y + 3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(t)}</text>
+              <text x={padL - 8} y={y + 3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(leftMax * f, leftMoney)}</text>
+              {hasRightAxis && (
+                <text x={W - padR + 8} y={y + 3} textAnchor="start" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(rightMax * f, true)}</text>
+              )}
             </g>
           );
         })}
@@ -734,11 +907,11 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
             <g key={p + i}>
               {series.map((s, si) => {
                 const v = s.values[i] || 0;
-                const h = (v / maxY) * plotH;
+                const h = (v / maxFor(s.key)) * plotH;
                 const x = groupX + si * (barW + barGap);
                 return (
                   <rect key={s.key} x={x} y={padT + plotH - h} width={barW} height={h} fill={s.color} rx={2}>
-                    <title>{s.label}: {v.toLocaleString()}</title>
+                    <title>{s.label}{rightKeys.has(s.key) ? " (right axis)" : hasRightAxis ? " (left axis)" : ""}: {v.toLocaleString()}</title>
                   </rect>
                 );
               })}
@@ -754,7 +927,7 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
                 <>
                   {series.map((s, si) => {
                     const v = s.projectedValue || 0;
-                    const h = (v / maxY) * plotH;
+                    const h = (v / maxFor(s.key)) * plotH;
                     const x = groupX + si * (barW + barGap);
                     return (
                       <rect key={s.key} x={x} y={padT + plotH - h} width={barW} height={h} fill={s.color} opacity={0.35} rx={2}>
@@ -774,7 +947,7 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
           {series.map((s) => (
             <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-              <span style={{ fontSize: 11, color: T.textSub, fontFamily: "'DM Sans',sans-serif" }}>{s.label}</span>
+              <span style={{ fontSize: 11, color: T.textSub, fontFamily: "'DM Sans',sans-serif" }}>{s.label}{rightKeys.has(s.key) ? " (right axis)" : hasRightAxis ? " (left axis)" : ""}</span>
             </div>
           ))}
         </div>
