@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Btn, Icon, PixelPanel, SectionLabel, Pill, TagAutocompleteInput } from "./shared.jsx";
 import ReportingFactsTagger from "./ReportingFactsTagger.jsx";
+import PipelineColumnMapper from "./PipelineColumnMapper.jsx";
 import { extractReportingRowsFromImage } from "../lib/reportingAI.js";
 import { upsertReportingFacts, getDimensionValues } from "../lib/reportingApi.js";
 import { PERIOD_TYPES, PERIOD_TYPE_LABELS, normalizePeriodStart, labelForPeriod, defaultPeriodStart } from "../lib/reportingPeriods.js";
@@ -120,7 +121,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields, summar
   );
 }
 
-export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows, campaignTags, tagDims, canEdit }) {
+export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows, initialRawPipelineImport, onConsumeInitialRawPipelineImport, campaignTags, tagDims, canEdit }) {
   // initialPendingRows seeds via a lazy initializer rather than an effect + setState — correct
   // here (not just convenient) because PaidHQ.jsx never sets pendingReportingRows and switches to
   // this tab except together (see confirmUnifiedUpload), and this tab is conditionally mounted
@@ -128,6 +129,11 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
   // always freshly mounts at the exact moment of handoff, the same reasoning AskAI's
   // initialQuestion uses for its own one-shot relay.
   const [pendingRows, setPendingRows] = useState(() => initialPendingRows || []); // extracted, not yet imported
+  // Same one-shot relay pattern, for a raw (un-mapped) pipeline CSV/XLSX handoff instead of already-
+  // normalized rows (2026-08-02, per Mo's column-mapping request — see PipelineColumnMapper.jsx and
+  // pipelineColumnMapping.js). Rendered as its own step ABOVE the pendingRows review table; confirming
+  // it there appends normalized rows into pendingRows above, same as every other import path.
+  const [rawPipelineImport, setRawPipelineImport] = useState(() => initialRawPipelineImport || null);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState("");
   const [importing, setImporting] = useState(false);
@@ -167,6 +173,11 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
   // local setState here (same split AskAI's initialQuestion effect uses).
   useEffect(() => {
     if (initialPendingRows && initialPendingRows.length) onConsumeInitialPendingRows?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (initialRawPipelineImport) onConsumeInitialRawPipelineImport?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -287,11 +298,13 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
       <div style={{ fontSize:16*(T.fsScale||1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Import Dreamdata / PowerBI data</div>
       <div style={{ fontSize:13*(T.fsScale||1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
         Screenshot a table from your Dreamdata/PowerBI dashboard and drop it below, or paste
-        directly (Cmd/Ctrl+V) anywhere on this page. Campaign-level PowerBI exports (Excel/CSV) and
-        Goals &amp; Pacing PDFs now upload from the "Spend, Budget or Performance file" card in Data
-        Sources — they land here for review automatically. Re-importing a period that's already
-        stored overwrites it with the new numbers — nothing is duplicated. Channel spend connections
-        live in the Data Sources tab; this is specifically for funnel/pipeline performance data.
+        directly (Cmd/Ctrl+V) anywhere on this page. Pipeline/funnel CSV or Excel exports (PowerBI,
+        Salesforce, or anything else) and Goals &amp; Pacing PDFs now upload from the "Spend, Budget
+        or Performance file" card in Data Sources — they land here automatically, with a column-
+        mapping step first for CSV/Excel so every row comes in regardless of that source's own
+        column names. Re-importing a period that's already stored overwrites it with the new
+        numbers — nothing is duplicated. Channel spend connections live in the Data Sources tab;
+        this is specifically for funnel/pipeline performance data.
       </div>
 
       <PixelPanel T={T} contentStyle={{ padding: 20, marginBottom: 20 }}>
@@ -317,6 +330,21 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
           </div>
         )}
       </PixelPanel>
+
+      {rawPipelineImport && (
+        <PipelineColumnMapper
+          T={T}
+          headers={rawPipelineImport.headers}
+          rows={rawPipelineImport.rows}
+          tagDims={dimensionValues.tagDims || []}
+          sourceLabel={rawPipelineImport.sourceLabel}
+          onConfirm={(normalized) => {
+            setPendingRows((prev) => [...prev, ...normalized]);
+            setRawPipelineImport(null);
+          }}
+          onDiscard={() => setRawPipelineImport(null)}
+        />
+      )}
 
       {pendingRows.length > 0 && (
         <PixelPanel T={T} contentStyle={{ padding: 20, marginBottom: 20 }}>

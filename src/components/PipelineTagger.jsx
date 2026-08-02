@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { PixelPanel, SectionLabel, Sel } from "./shared.jsx";
 import { listReportingFacts } from "../lib/reportingApi.js";
-import { deriveMetricColumns, fmtMetric, isRateMetric } from "../lib/reportingMetrics.js";
+import { deriveMetricColumns, fmtMetric, isRateMetric, computeDerivedPipelineMetrics, deriveDerivedPipelineColumns } from "../lib/reportingMetrics.js";
 import { usePersistentState } from "../lib/persist.js";
 
 // This file originally shipped as the "Pipeline Tagger" tab (2026-08-01), then briefly as a thin
@@ -19,13 +19,19 @@ import { usePersistentState } from "../lib/persist.js";
 // correct; summing or averaging a rate/cost-per/percentage metric (ctr, cp_mql, mql_attainment_pct)
 // across rows is NOT — the correct value has to be recomputed from the underlying counts, and with
 // an open per-client metrics schema (2026-08-02, see reportingAI.js's OPEN METRICS SCHEMA doc
-// comment) there's no reliable generic way to know which raw counts a given rate key was derived
-// from. So this view's aggregation (see reportingMetrics.js's isRateMetric/deriveMetricColumns)
-// deliberately EXCLUDES rate-like metrics from every summed group rather than showing a
-// mathematically wrong number — v1 shows accurate summed counts/dollars sliced by dimension, not a
-// full rate-recomputation engine (a real "compute ctr from summed clicks/impressions" system would
-// need to know which raw pair backs each rate key, which isn't knowable for an arbitrary client's
-// export without a per-client mapping step — future work, not v1).
+// comment) there's no reliable generic way to know which raw counts an ARBITRARY client's rate key
+// was derived from. So this view's aggregation (see reportingMetrics.js's isRateMetric/
+// deriveMetricColumns) still EXCLUDES rate-like metrics from every summed group rather than showing
+// a mathematically wrong number for anything outside this app's own known vocabulary.
+//
+// The one place this got a real fix instead of just an exclusion (2026-08-02, per Mo's pipeline
+// column-mapping request): the 9 canonical funnel absolutes pipelineColumnMapping.js's mapping step
+// offers (spend, leads, mqls, sals, sqls, closed_won, closed_lost, pipeline_value, revenue) have a
+// KNOWN, fixed set of derived cost-per/conversion-rate metrics (reportingMetrics.js's
+// DERIVED_PIPELINE_METRICS) — unlike an arbitrary client-supplied rate key, exactly which absolutes
+// back e.g. "win_rate" is never ambiguous here. See the computeDerivedPipelineMetrics call below,
+// applied AFTER summing (never averaging the rates themselves) — that ordering is what makes it
+// correct.
 function aggregateByDimension(rows, dimKey) {
   const map = new Map();
   (rows || []).forEach((r) => {
@@ -78,8 +84,25 @@ export default function PipelineTagger({ T, session, workspace, tagDims }) {
     });
   }, [rows, fSource, fPeriodType]);
 
-  const groups = useMemo(() => aggregateByDimension(filteredRows, sliceBy || null), [filteredRows, sliceBy]);
-  const columns = useMemo(() => deriveMetricColumns(groups, { excludeRates: true }), [groups]);
+  // Each group's own absolute metrics get summed first (aggregateByDimension), THEN the known
+  // pipeline derived metrics (cp_lead, win_rate, roas, ...) get computed from that group's own sums
+  // and merged in — never the other way around (never sum/average an already-derived rate across
+  // groups). Safe to merge into one `metrics` object: the 9 canonical absolute keys and the 11
+  // derived keys never collide (see reportingMetrics.js's PIPELINE_METRIC_MAP_OPTIONS/
+  // DERIVED_PIPELINE_METRICS), and isRateMetric still correctly tells the two apart below.
+  const groups = useMemo(() => {
+    return aggregateByDimension(filteredRows, sliceBy || null).map((g) => ({
+      ...g,
+      metrics: { ...g.metrics, ...computeDerivedPipelineMetrics(g.metrics) },
+    }));
+  }, [filteredRows, sliceBy]);
+  // Absolute (summable) columns first, then whichever derived pipeline metrics actually have a
+  // value in at least one group — deriveMetricColumns' excludeRates:true still filters the derived
+  // keys back out of this first call (they match isRateMetric), so they only show up once, via
+  // deriveDerivedPipelineColumns.
+  const absoluteColumns = useMemo(() => deriveMetricColumns(groups, { excludeRates: true }), [groups]);
+  const derivedColumns = useMemo(() => deriveDerivedPipelineColumns(groups.map((g) => g.metrics)), [groups]);
+  const columns = useMemo(() => [...absoluteColumns, ...derivedColumns], [absoluteColumns, derivedColumns]);
 
   const filteredGroups = useMemo(() => {
     const fs = fSearch.trim().toLowerCase();
@@ -91,15 +114,19 @@ export default function PipelineTagger({ T, session, workspace, tagDims }) {
     });
   }, [groups, fSearch, columns]);
 
+  // Absolute totals are a plain sum across groups (always correct for a count/dollar column); the
+  // derived totals are then recomputed from THOSE totals, not summed from each group's own derived
+  // value — summing e.g. per-group win rates would be exactly the mathematically-wrong average this
+  // whole rollup-correctness rule exists to avoid.
   const totals = useMemo(() => {
-    const t = {};
+    const absoluteTotals = {};
     filteredGroups.forEach((g) => {
-      columns.forEach((c) => {
-        t[c.key] = (t[c.key] || 0) + (g.metrics[c.key] || 0);
+      absoluteColumns.forEach((c) => {
+        absoluteTotals[c.key] = (absoluteTotals[c.key] || 0) + (g.metrics[c.key] || 0);
       });
     });
-    return t;
-  }, [filteredGroups, columns]);
+    return { ...absoluteTotals, ...computeDerivedPipelineMetrics(absoluteTotals) };
+  }, [filteredGroups, absoluteColumns]);
 
   const sliceOptions = [{ value: "campaignName", label: "Campaign" }, ...((tagDims || []).map((d) => ({ value: d, label: d })))];
 
@@ -115,10 +142,12 @@ export default function PipelineTagger({ T, session, workspace, tagDims }) {
       <div style={{ fontSize: 16 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Pipeline performance breakdown</div>
       <div style={{ fontSize: 13 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
         Slices every tagged reporting row by Campaign or any tag dimension this workspace uses, with counts and dollar
-        figures summed correctly across periods. Rate/percentage/cost-per metrics (CTR, CP MQL, attainment %, etc.) are
-        left out of these sums on purpose — averaging or adding them together across rows produces a number that looks
-        precise but is wrong; see this view's per-row detail in Pipeline Tagger for those. Tag more rows there to sharpen
-        this breakdown.
+        figures summed correctly across periods. Cost-per and conversion-rate columns for the standard funnel metrics
+        (CP Lead, CP MQL, Win Rate, ROAS, etc.) are recomputed from those summed absolutes for each group — never
+        averaged across rows. Any other rate/percentage/cost-per metric this workspace's data happens to include is
+        still left out of these sums on purpose, since there's no reliable way to know what it should be recomputed
+        from; see this view's per-row detail in Pipeline Tagger for those. Tag more rows there to sharpen this
+        breakdown.
       </div>
 
       {loadError && (
@@ -194,7 +223,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims }) {
                       <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1) }}>{g.rows.length}</td>
                       {columns.map((c) => (
                         <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>
-                          {fmtMetric(g.metrics[c.key], c.money)}
+                          {fmtMetric(g.metrics[c.key], c.money, c.pct)}
                         </td>
                       ))}
                     </tr>
@@ -207,7 +236,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims }) {
                       <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1) }}>{filteredRows.length}</td>
                       {columns.map((c) => (
                         <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>
-                          {fmtMetric(totals[c.key], c.money)}
+                          {fmtMetric(totals[c.key], c.money, c.pct)}
                         </td>
                       ))}
                     </tr>

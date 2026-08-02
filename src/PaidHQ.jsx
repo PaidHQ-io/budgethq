@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { classifyImportFile, IMPORT_TYPE_LABELS } from "./lib/fileTypeDetect.js";
 import { extractReportingRowsFromPdf } from "./lib/reportingAI.js";
 import { parseCampaignReportFile } from "./lib/reportingImport.js";
+import { parsePipelineFileRaw } from "./lib/pipelineColumnMapping.js";
 import { normalizePeriodStart } from "./lib/reportingPeriods.js";
 import {
   getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows,
@@ -267,6 +268,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // mount via onConsumeInitial.../initialImportFile props, same as initialQuestion/initialViewConfig.
   const[pendingBudgetImportFile,setPendingBudgetImportFile]=useState(null); // a raw File
   const[pendingReportingRows,setPendingReportingRows]=useState(null); // already-extracted/parsed rows, or null
+  // Raw (un-mapped) pipeline CSV/XLSX handoff — {headers,rows,sourceLabel} or null. Separate from
+  // pendingReportingRows above because a pipeline CSV/XLSX (2026-08-02, per Mo's column-mapping
+  // request) needs a mapping step inside ReportingAnalyzer before it becomes normalized rows; PDFs
+  // and screenshots still go straight to pendingReportingRows since reportingAI.js already derives
+  // its own metric keys per column during extraction. See pipelineColumnMapping.js's top doc comment.
+  const[pendingReportingRawImport,setPendingReportingRawImport]=useState(null);
 
   const[budgets,setBudgets]=useState({});
   const[budgetDims,setBudgetDims]=useState([]);
@@ -1559,6 +1566,19 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     setUnifiedRouteError("");
     setUnifiedRouting(true);
     try{
+      // Pipeline CSV/XLSX (NOT PDF, NOT goals) skips parseCampaignReportFile's fixed header-alias
+      // map entirely (2026-08-02, per Mo — "I want all of the rows to come into the pipeline
+      // tagger... the fields from the csv should also show up... as mappable"): every row/column
+      // reads in untouched, and ReportingAnalyzer shows a column-mapping step (PipelineColumnMapper)
+      // before anything becomes a normalized row. Goals CSV/XLSX still uses parseCampaignReportFile
+      // unchanged — GoalsObjectives.jsx's fixed GOAL_METRICS list is a different, narrower shape
+      // this mapping step wasn't built for.
+      if(type==="pipeline"&&ext!=="pdf"){
+        const raw=await parsePipelineFileRaw(file);
+        setPendingReportingRawImport({...raw,sourceLabel:"pipeline_csv_mapped"});
+        setView("reportingAnalyzer");
+        return;
+      }
       let rows;
       if(ext==="pdf"){
         // classifyImportFile's PDF path (fileTypeDetect.js -> reportingAI.js's
@@ -3949,7 +3969,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       </div>
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
-      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit}/></Suspense>}
+      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit}/></Suspense>}
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
