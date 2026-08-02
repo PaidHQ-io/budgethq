@@ -5,7 +5,8 @@ import * as XLSX from "xlsx";
 import { classifyImportFile, IMPORT_TYPE_LABELS } from "./lib/fileTypeDetect.js";
 import { extractReportingRowsFromPdf } from "./lib/reportingAI.js";
 import { parseCampaignReportFile } from "./lib/reportingImport.js";
-import { parsePipelineFileRaw, CHANNEL_TAG_KEY } from "./lib/pipelineColumnMapping.js";
+import { parsePipelineFileRaw, CHANNEL_TAG_KEY, PIPELINE_METRIC_MAP_OPTIONS } from "./lib/pipelineColumnMapping.js";
+import { CUSTOM_METRIC_OPERATORS, computeCustomMetric, formulaPreview, fmtMetric } from "./lib/reportingMetrics.js";
 import { listReportingFacts, deleteReportingFacts } from "./lib/reportingApi.js";
 import { normalizePeriodStart } from "./lib/reportingPeriods.js";
 import {
@@ -347,6 +348,75 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // shared formatters read directly instead of a prop threaded through every table in the app.
   const[decimalAdjust,setDecimalAdjust]=useState(0);
   useEffect(()=>{setGlobalDecimalAdjust(decimalAdjust);},[decimalAdjust]);
+
+  // Custom metrics (2026-08-08, per Mo — "allow users to create custom fields for cost/lead,
+  // cost/demo, cost/SQL, cost/pipeline dollar generated, pipeline dollar generated/spend, demo -> MQL
+  // conversion rate, MQL -> SQL conversion rate, etc."). Workspace-shared, same tier as tags/budgets
+  // — a formula built by one teammate should show up for everyone. Each entry is
+  // { key, label, format:"money"|"pct"|"number", terms:[{field,op},...] }, evaluated by
+  // reportingMetrics.js's computeCustomMetric against Performance Intelligence's already-SUMMED
+  // canonical absolutes (see that file's own doc comment for why no operator precedence is needed).
+  // Only consumed by PipelineTagger.jsx today (Performance Intelligence) — that's the only tab with
+  // the canonical funnel absolutes (spend/leads/demos/mqls/sqls/pipeline_value/...) these formulas
+  // are built from.
+  const[customMetrics,setCustomMetrics]=useState([]);
+  // Add/edit modal state for the above — null editKey means "creating new"; editing an existing
+  // metric keeps its stable `key` (so it stays selected wherever a teammate already toggled it on
+  // in Performance Intelligence's metric picker) and only replaces label/format/terms.
+  const[customMetricModalOpen,setCustomMetricModalOpen]=useState(false);
+  const[customMetricEditKey,setCustomMetricEditKey]=useState(null);
+  const[customMetricName,setCustomMetricName]=useState("");
+  const[customMetricFormat,setCustomMetricFormat]=useState("money");
+  const[customMetricTerms,setCustomMetricTerms]=useState([{field:"spend",op:null},{field:"leads",op:"/"}]);
+  const[customMetricError,setCustomMetricError]=useState("");
+  const openAddCustomMetric=()=>{
+    setCustomMetricEditKey(null);
+    setCustomMetricName("");
+    setCustomMetricFormat("money");
+    setCustomMetricTerms([{field:"spend",op:null},{field:"leads",op:"/"}]);
+    setCustomMetricError("");
+    setCustomMetricModalOpen(true);
+  };
+  const openEditCustomMetric=(cm)=>{
+    setCustomMetricEditKey(cm.key);
+    setCustomMetricName(cm.label);
+    setCustomMetricFormat(cm.format||"number");
+    setCustomMetricTerms((cm.terms&&cm.terms.length?cm.terms:[{field:"spend",op:null},{field:"leads",op:"/"}]).map(t=>({...t})));
+    setCustomMetricError("");
+    setCustomMetricModalOpen(true);
+  };
+  const addCustomMetricTerm=()=>setCustomMetricTerms(prev=>[...prev,{field:PIPELINE_METRIC_MAP_OPTIONS[0].key,op:"/"}]);
+  const removeCustomMetricTerm=(i)=>setCustomMetricTerms(prev=>prev.length>2?prev.filter((_,idx)=>idx!==i):prev);
+  const updateCustomMetricTerm=(i,patch)=>setCustomMetricTerms(prev=>prev.map((t,idx)=>idx===i?{...t,...patch}:t));
+  // Slugifies the name into a stable key, deduping against every OTHER custom metric's key (not
+  // against this one's own current key when editing, so re-saving under the same name doesn't
+  // collide with itself) — this key is what Performance Intelligence's metrics array/columns key
+  // off of, so it needs to be unique and to never change once teammates may have it toggled on.
+  const slugifyCustomMetricKey=(name)=>{
+    const base="custom_"+(name.trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"metric");
+    const others=customMetrics.filter(cm=>cm.key!==customMetricEditKey).map(cm=>cm.key);
+    let key=base,n=2;
+    while(others.includes(key)){key=`${base}_${n}`;n++;}
+    return key;
+  };
+  const saveCustomMetric=()=>{
+    const name=customMetricName.trim();
+    if(!name){setCustomMetricError("Give this metric a name.");return;}
+    if(customMetricTerms.some(t=>!t.field)){setCustomMetricError("Every term needs a field selected.");return;}
+    const key=customMetricEditKey||slugifyCustomMetricKey(name);
+    const next={key,label:name,format:customMetricFormat,terms:customMetricTerms.map((t,i)=>({field:t.field,op:i===0?null:(t.op||"/")}))};
+    setCustomMetrics(prev=>{
+      const exists=prev.some(cm=>cm.key===key);
+      return exists?prev.map(cm=>cm.key===key?next:cm):[...prev,next];
+    });
+    setCustomMetricModalOpen(false);
+  };
+  const deleteCustomMetric=(key)=>setCustomMetrics(prev=>prev.filter(cm=>cm.key!==key));
+  // Sample values for the modal's live preview — realistic-looking round numbers spanning every
+  // canonical field a formula might reference, so a preview is always computable regardless of
+  // which fields the user picks (2026-08-08, per Mo's "user picks per metric" formatting answer —
+  // seeing the actual $/%/number rendering before saving is what makes that choice meaningful).
+  const CUSTOM_METRIC_PREVIEW_SUMS={spend:10000,leads:500,mqas:300,handraisers:120,demos:80,free_trials:60,pqls:40,meetings_booked:70,mqls:150,sals:90,sqls:50,closed_won:12,closed_lost:28,pipeline_value:240000,revenue:96000};
 
   // Tag-value autocomplete sources: values already used in the Budget Panel for each dimension,
   // unioned with values already used on other campaigns' tags — either one matching exactly is
@@ -876,6 +946,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         // preserves. Safe to run on every load; a no-op once a workspace is already on the new shape.
         setCombineGoogleChannels(migrateGoogleChannelGrouping(config.combineGoogleChannels));
         setDecimalAdjust(config.decimalAdjust||0);
+        setCustomMetrics(config.customMetrics||[]);
         const dedupedRows=mergeRows([],rows||[]);
         const rowsDeduped=dedupedRows.length!==(rows||[]).length;
         setMergedNormRows(dedupedRows);
@@ -933,7 +1004,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const rowsDirtyRef=useRef(false);
   const latestConfigRef=useRef(null);
   const latestRowsRef=useRef(null);
-  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust};});
+  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};});
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
   // ── Second, independent safety net (2026-07-20) ─────────────────────────────────────────────
@@ -961,7 +1032,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust};
+      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};
       if(isEmptyConfig(payload)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current){
         console.error("[workspace config save] BLOCKED — refusing to overwrite known real data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's data, use Settings → Clear data instead of whatever just triggered this.");
         return; // stays dirty — retries on the next change, or once real data is back
@@ -972,7 +1043,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
-  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
   // replace-all (not incremental) is the sync model here.
@@ -4270,7 +4341,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl} archiveImportConfig={archiveImportConfig}/></Suspense>}
-      {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} sidebarEl={pipelineTaggerSidebarEl}/></Suspense>}
+      {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} customMetrics={customMetrics} sidebarEl={pipelineTaggerSidebarEl}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
@@ -4393,6 +4464,30 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600}}>{(87.436).toLocaleString(undefined,{minimumFractionDigits:1+decimalAdjust,maximumFractionDigits:1+decimalAdjust})}%</div>
                     </div>
                   </div>
+                </div>
+                <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
+                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>Custom metrics</div>
+                    <Btn onClick={openAddCustomMetric} variant="ghost" size="sm" T={T} disabled={!canEdit}>+ Add custom metric</Btn>
+                  </div>
+                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:customMetrics.length?14:0}}>Workspace-shared formulas — e.g. cost/demo, pipeline $ generated/spend, MQL → SQL rate — built from Performance Intelligence's canonical funnel fields (Spend, Leads, Demos, MQLs, SQLs, Pipeline Value, ...). Show up as toggleable columns in Performance Intelligence's metric picker.</div>
+                  {customMetrics.length>0&&(
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      {customMetrics.map(cm=>(
+                        <div key={cm.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:"10px 12px",border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surfaceEl}}>
+                          <div style={{minWidth:0}}>
+                            <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font}}>{cm.label}</div>
+                            <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,marginTop:2}}>{formulaPreview(cm)} · {cm.format==="money"?"$":cm.format==="pct"?"%":"number"}</div>
+                          </div>
+                          <div style={{display:"flex",gap:6,flexShrink:0}}>
+                            <Btn onClick={()=>openEditCustomMetric(cm)} variant="ghost" size="sm" T={T} disabled={!canEdit}>Edit</Btn>
+                            <button onClick={()=>deleteCustomMetric(cm.key)} disabled={!canEdit} title="Delete this custom metric"
+                              style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.danger,cursor:canEdit?"pointer":"not-allowed",fontSize:13*(T.fsScale||1),lineHeight:1,padding:0,opacity:canEdit?1:0.5}}>✕</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {canManageTeam&&(
                   <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
@@ -5058,6 +5153,74 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",gap:8}}>
               <Btn onClick={cancelTagImport} variant="ghost" T={T}>Cancel</Btn>
               <Btn onClick={confirmTagImport} variant="primary" T={T}>✓ Apply tags</Btn>
+            </div>
+          </PixelPanel>
+        </div>
+      )}
+
+      {/* ── CUSTOM METRIC BUILDER (2026-08-08, per Mo — "allow users to create custom fields for
+          cost/lead, cost/demo, ... etc.") — see the customMetrics state block above for the full
+          "why" on the data shape. Flexible left-to-right term chain (no operator precedence), user
+          picks the display format explicitly rather than it being inferred. ── */}
+      {customMetricModalOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <PixelPanel T={T} style={{width:"100%",maxWidth:520,maxHeight:"85vh"}} contentStyle={{background:T.surface,padding:0,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"16px 22px",borderBottom:`1px solid ${T.border}`,fontSize:15*(T.fsScale||1),fontWeight:700,color:T.text}}>{customMetricEditKey?"Edit custom metric":"Add custom metric"}</div>
+            <div style={{flex:1,overflow:"auto",padding:22,display:"flex",flexDirection:"column",gap:16}}>
+              <div>
+                <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:6,fontFamily:T.font}}>Name</div>
+                <input autoFocus value={customMetricName} onChange={e=>{setCustomMetricName(e.target.value);setCustomMetricError("");}}
+                  placeholder="e.g. Cost per Demo" style={{width:"100%",boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r7,color:T.text,padding:"8px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
+              </div>
+              <div>
+                <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:6,fontFamily:T.font}}>Display as</div>
+                <div style={{display:"flex",gap:6}}>
+                  {[["money","$ Cost"],["pct","% Rate"],["number","Number"]].map(([k,l])=>(
+                    <button key={k} onClick={()=>setCustomMetricFormat(k)}
+                      style={{flex:1,fontSize:12*(T.fsScale||1),fontWeight:600,padding:"7px 0",borderRadius:T.r7,border:`1.5px solid ${customMetricFormat===k?T.accentHover:T.border}`,background:customMetricFormat===k?T.accentBg:"transparent",color:customMetricFormat===k?T.text:T.textMuted,cursor:"pointer",fontFamily:T.font}}>{l}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:6,fontFamily:T.font}}>Formula</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {customMetricTerms.map((t,i)=>(
+                    <div key={i} style={{display:"flex",gap:6,alignItems:"center"}}>
+                      {i===0?(
+                        <div style={{width:100,flexShrink:0,fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>—</div>
+                      ):(
+                        <div style={{width:100,flexShrink:0}}>
+                          <Sel value={t.op||"/"} onChange={v=>updateCustomMetricTerm(i,{op:v})} T={T}>
+                            {CUSTOM_METRIC_OPERATORS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+                          </Sel>
+                        </div>
+                      )}
+                      <div style={{flex:1}}>
+                        <Sel value={t.field} onChange={v=>updateCustomMetricTerm(i,{field:v})} T={T}>
+                          {PIPELINE_METRIC_MAP_OPTIONS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
+                        </Sel>
+                      </div>
+                      <button onClick={()=>removeCustomMetricTerm(i)} disabled={customMetricTerms.length<=2} title="Remove term"
+                        style={{width:26,height:26,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,color:customMetricTerms.length<=2?T.textMuted:T.danger,cursor:customMetricTerms.length<=2?"not-allowed":"pointer",fontSize:12*(T.fsScale||1),padding:0,opacity:customMetricTerms.length<=2?0.5:1}}>✕</button>
+                    </div>
+                  ))}
+                </div>
+                <Btn onClick={addCustomMetricTerm} variant="ghost" size="sm" T={T} style={{marginTop:8}}>+ Add term</Btn>
+              </div>
+              <div>
+                <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:6,fontFamily:T.font}}>Preview (sample numbers)</div>
+                <div style={{padding:"12px 14px",background:T.surfaceEl,borderRadius:T.r6,fontFamily:T.font}}>
+                  <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginBottom:4}}>{formulaPreview({terms:customMetricTerms})}</div>
+                  <div style={{fontSize:17*(T.fsScale||1),fontWeight:700,color:T.text}}>
+                    {(()=>{const v=computeCustomMetric(CUSTOM_METRIC_PREVIEW_SUMS,{terms:customMetricTerms});return v===undefined?"—":fmtMetric(v,customMetricFormat==="money",customMetricFormat==="pct");})()}
+                  </div>
+                </div>
+              </div>
+              {customMetricError&&<div style={{fontSize:12*(T.fsScale||1),color:T.danger}}>{customMetricError}</div>}
+            </div>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn onClick={()=>setCustomMetricModalOpen(false)} variant="ghost" T={T}>Cancel</Btn>
+              <Btn onClick={saveCustomMetric} variant="primary" T={T}>{customMetricEditKey?"Save changes":"Add metric"}</Btn>
             </div>
           </PixelPanel>
         </div>

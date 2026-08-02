@@ -5,6 +5,7 @@ import { listReportingFacts } from "../lib/reportingApi.js";
 import {
   fmtMetric, isRateMetric, isMoneyMetric, labelForMetricKey,
   computeDerivedPipelineMetrics, DERIVED_PIPELINE_METRICS,
+  computeCustomMetrics,
 } from "../lib/reportingMetrics.js";
 import { PIPELINE_METRIC_MAP_OPTIONS, AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY } from "../lib/pipelineColumnMapping.js";
 import { stepPeriodStart, labelForPeriod } from "../lib/reportingPeriods.js";
@@ -44,8 +45,6 @@ const RESERVED_TAG_KEYS = new Set([AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY]);
 
 const ABSOLUTE_METRIC_OPTIONS = PIPELINE_METRIC_MAP_OPTIONS.map((m) => ({ key: m.key, label: m.label, money: isMoneyMetric(m.key), pct: false, kind: "absolute" }));
 const DERIVED_METRIC_OPTIONS = DERIVED_PIPELINE_METRICS.map((d) => ({ key: d.key, label: labelForMetricKey(d.key), money: !!d.money, pct: !!d.pct, kind: "derived" }));
-const ALL_METRIC_OPTIONS = [...ABSOLUTE_METRIC_OPTIONS, ...DERIVED_METRIC_OPTIONS];
-const METRIC_OPTION_BY_KEY = Object.fromEntries(ALL_METRIC_OPTIONS.map((m) => [m.key, m]));
 // Default selection centers on MQLs + Pipeline (per Mo's framing of this tab's focus) plus the
 // specific cost-per/conversion metrics called out by name, with Spend/Leads/SQLs along for context
 // since a cost-per or conversion number is meaningless without its inputs visible alongside it.
@@ -110,9 +109,20 @@ function periodBounds(periodType, periodStart) {
 
 const fIn = { background: "transparent", border: "none", outline: "none", width: "100%" };
 
-export default function PipelineTagger({ T, session, workspace, tagDims, sidebarEl }) {
+export default function PipelineTagger({ T, session, workspace, tagDims, customMetrics, sidebarEl }) {
   const [rows, setRows] = useState(null); // null = loading
   const [loadError, setLoadError] = useState("");
+
+  // Workspace-configured custom metrics (2026-08-08, per Mo — see PaidHQ.jsx's Settings "Custom
+  // Metrics" panel and reportingMetrics.js's own doc comment on computeCustomMetric). Merged
+  // alongside the fixed DERIVED_PIPELINE_METRICS everywhere below — same "computed from summed
+  // absolutes, never from a raw per-row rate" rule applies.
+  const CUSTOM_METRIC_OPTIONS = useMemo(
+    () => (customMetrics || []).map((cm) => ({ key: cm.key, label: cm.label, money: cm.format === "money", pct: cm.format === "pct", kind: "custom" })),
+    [customMetrics]
+  );
+  const ALL_METRIC_OPTIONS = useMemo(() => [...ABSOLUTE_METRIC_OPTIONS, ...DERIVED_METRIC_OPTIONS, ...CUSTOM_METRIC_OPTIONS], [CUSTOM_METRIC_OPTIONS]);
+  const METRIC_OPTION_BY_KEY = useMemo(() => Object.fromEntries(ALL_METRIC_OPTIONS.map((m) => [m.key, m])), [ALL_METRIC_OPTIONS]);
 
   // Filters — see this file's top "FILTER SYSTEM" doc comment.
   const [filtersOpen, setFiltersOpen] = usePersistentState("paidhq_reporting_intel_filtersOpen", true);
@@ -229,17 +239,17 @@ export default function PipelineTagger({ T, session, workspace, tagDims, sidebar
         if (!isNaN(n)) absoluteTotals[k] = (absoluteTotals[k] || 0) + n;
       });
     });
-    return { ...absoluteTotals, ...computeDerivedPipelineMetrics(absoluteTotals) };
-  }, [filteredRows]);
+    return { ...absoluteTotals, ...computeDerivedPipelineMetrics(absoluteTotals), ...computeCustomMetrics(absoluteTotals, customMetrics) };
+  }, [filteredRows, customMetrics]);
 
   const periodBuckets = useMemo(
-    () => bucketByPeriod(filteredRows).map((b) => ({ ...b, metrics: { ...b.metrics, ...computeDerivedPipelineMetrics(b.metrics) } })),
-    [filteredRows]
+    () => bucketByPeriod(filteredRows).map((b) => ({ ...b, metrics: { ...b.metrics, ...computeDerivedPipelineMetrics(b.metrics), ...computeCustomMetrics(b.metrics, customMetrics) } })),
+    [filteredRows, customMetrics]
   );
 
   const sliceGroups = useMemo(
-    () => aggregateByDimension(filteredRows, sliceBy || null).map((g) => ({ ...g, metrics: { ...g.metrics, ...computeDerivedPipelineMetrics(g.metrics) } })),
-    [filteredRows, sliceBy]
+    () => aggregateByDimension(filteredRows, sliceBy || null).map((g) => ({ ...g, metrics: { ...g.metrics, ...computeDerivedPipelineMetrics(g.metrics), ...computeCustomMetrics(g.metrics, customMetrics) } })),
+    [filteredRows, sliceBy, customMetrics]
   );
 
   const filteredSliceGroups = useMemo(() => {
@@ -272,11 +282,11 @@ export default function PipelineTagger({ T, session, workspace, tagDims, sidebar
       fraction,
       elapsedDays: Math.round(elapsedMs / 86400000),
       totalDays: Math.round(totalMs / 86400000),
-      projected: { ...projectedAbsolutes, ...computeDerivedPipelineMetrics(projectedAbsolutes) },
+      projected: { ...projectedAbsolutes, ...computeDerivedPipelineMetrics(projectedAbsolutes), ...computeCustomMetrics(projectedAbsolutes, customMetrics) },
     };
-  }, [periodBuckets, nowMs]);
+  }, [periodBuckets, nowMs, customMetrics]);
 
-  const activeMetricColumns = useMemo(() => ALL_METRIC_OPTIONS.filter((m) => metrics.includes(m.key)), [metrics]);
+  const activeMetricColumns = useMemo(() => ALL_METRIC_OPTIONS.filter((m) => metrics.includes(m.key)), [metrics, ALL_METRIC_OPTIONS]);
   const toggleMetric = (key) => setMetrics((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   const chartValues = useMemo(() => periodBuckets.map((b) => b.metrics[chartMetric] || 0), [periodBuckets, chartMetric]);
   const chartOption = METRIC_OPTION_BY_KEY[chartMetric] || CHARTABLE_METRICS[0];
@@ -332,7 +342,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, sidebar
           })}
         </div>
         <SectionLabel T={T} style={{ marginBottom: 6, fontSize: 11 * (T.fsScale || 1) }}>Cost &amp; conversion</SectionLabel>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: CUSTOM_METRIC_OPTIONS.length ? 10 : 0 }}>
           {DERIVED_METRIC_OPTIONS.map((m) => {
             const on = metrics.includes(m.key);
             return (
@@ -343,6 +353,24 @@ export default function PipelineTagger({ T, session, workspace, tagDims, sidebar
             );
           })}
         </div>
+        {/* Custom metrics (2026-08-08, per Mo) — built in Settings, only shown here once at least
+            one exists so a workspace that hasn't defined any doesn't see an empty section. */}
+        {CUSTOM_METRIC_OPTIONS.length > 0 && (
+          <>
+            <SectionLabel T={T} style={{ marginBottom: 6, fontSize: 11 * (T.fsScale || 1) }}>Custom</SectionLabel>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {CUSTOM_METRIC_OPTIONS.map((m) => {
+                const on = metrics.includes(m.key);
+                return (
+                  <button key={m.key} onClick={() => toggleMetric(m.key)}
+                    style={{ fontSize: 11 * (T.fsScale || 1), background: on ? T.accentBg : "transparent", border: `1px solid ${on ? T.accentBorder : T.border}`, color: on ? T.text : T.textMuted, borderRadius: T.r14, padding: "2px 9px", cursor: "pointer", fontFamily: T.font, fontWeight: 500 }}>
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
       <Divider T={T} />
       <div style={{ padding: "12px 0", display: "flex", flexDirection: "column", gap: 10 }}>

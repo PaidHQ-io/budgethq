@@ -140,6 +140,67 @@ export function computeDerivedPipelineMetrics(sums) {
   return out;
 }
 
+// USER-DEFINED CUSTOM METRICS (2026-08-02, per Mo — "allow users to create custom fields for
+// cost/lead, cost/demo, cost/SQL, cost/pipeline dollar generated, pipeline dollar generated/spend,
+// demo -> MQL conversion rate, MQL -> SQL conversion rate, etc."). Unlike the fixed
+// DERIVED_PIPELINE_METRICS list above, these are workspace-configured (stored as
+// workspace_config.customMetrics, see PaidHQ.jsx's Settings "Custom Metrics" panel) — a flexible
+// left-to-right term chain rather than a single fixed numerator/denominator, so a workspace can
+// build anything from a simple ratio (spend / demos) up to a multi-step formula (e.g.
+// (mqls - sals) / leads) without needing a real expression parser. No operator precedence/
+// parentheses — each term is applied strictly in the order the user added it, which covers every
+// example above (all single-operator two-term formulas) and stays predictable for anything longer.
+//
+// Shape of one entry in workspace_config.customMetrics:
+//   { key, label, format: "money"|"pct"|"number", terms: [{field,op}, ...] }
+// terms[0].op is ignored (nothing precedes the first term). `field` is always one of
+// pipelineColumnMapping.js's PIPELINE_METRIC_MAP_OPTIONS keys — the same canonical, safe-to-sum
+// absolutes DERIVED_PIPELINE_METRICS itself reads from, so these are computed FROM SUMS the exact
+// same way (never summed/averaged as a rate directly — see this file's isRateMetric doc comment).
+export const CUSTOM_METRIC_OPERATORS = [
+  { value: "/", label: "÷ (divide by)" },
+  { value: "*", label: "× (multiply by)" },
+  { value: "+", label: "+ (add)" },
+  { value: "-", label: "− (subtract)" },
+];
+function applyCustomMetricOp(acc, op, v) {
+  if (op === "/") return v ? acc / v : undefined; // a zero/missing denominator anywhere omits the whole metric, same as safeDiv
+  if (op === "*") return acc * v;
+  if (op === "-") return acc - v;
+  return acc + v; // default/"+"
+}
+// Returns undefined (never NaN/Infinity) when the formula can't be evaluated — no terms, or a
+// division landed on a zero/missing denominator partway through the chain.
+export function computeCustomMetric(sums, customMetric) {
+  const terms = customMetric && customMetric.terms;
+  if (!Array.isArray(terms) || terms.length === 0) return undefined;
+  const valueOf = (field) => { const n = Number((sums || {})[field]); return isNaN(n) ? 0 : n; };
+  let acc = valueOf(terms[0].field);
+  for (let i = 1; i < terms.length; i++) {
+    const next = applyCustomMetricOp(acc, terms[i].op || "+", valueOf(terms[i].field));
+    if (next === undefined) return undefined;
+    acc = next;
+  }
+  return isFinite(acc) ? acc : undefined;
+}
+// Returns { [customMetricKey]: number } — mirrors computeDerivedPipelineMetrics's own contract,
+// used identically (merged into an already-summed absolutes object, never before summing).
+export function computeCustomMetrics(sums, customMetrics) {
+  const out = {};
+  (customMetrics || []).forEach((cm) => {
+    const v = computeCustomMetric(sums, cm);
+    if (v !== undefined) out[cm.key] = v;
+  });
+  return out;
+}
+// Human-readable formula preview for the Settings list, e.g. "Spend ÷ Demos" or
+// "Mqls − Sals ÷ Leads" — purely cosmetic, used nowhere in computation.
+export function formulaPreview(customMetric) {
+  const terms = (customMetric && customMetric.terms) || [];
+  const opLabel = { "/": "÷", "*": "×", "+": "+", "-": "−" };
+  return terms.map((t, i) => (i === 0 ? labelForMetricKey(t.field) : `${opLabel[t.op] || "+"} ${labelForMetricKey(t.field)}`)).join(" ");
+}
+
 // Derives which metric keys are worth showing as columns from whatever rows are actually present,
 // instead of a fixed list — see this file's top doc comment. `excludeRates`: pass true for an
 // AGGREGATED view (multiple rows summed into one) where rate-like keys would be mathematically
