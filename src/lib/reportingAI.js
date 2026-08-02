@@ -73,11 +73,12 @@ punctuation -> underscores; strip $/%/#). Whenever a column clearly matches one 
 keys, reuse it verbatim instead of inventing a new one — that keeps the same metric on the same key
 across imports from different sources:
 spend, impressions, clicks, ctr, cpc, all_conversions, cp_all_conv, cvr, inquiries, cp_inquiry,
-cvr_inquiry, leads, cp_lead, mqls, cp_mql, sals, sqls, sql_pipeline, pipeline_value, revenue,
-closed_won, closed_lost, all_conv_to_mql_rate, mql_to_sql_rate, mql_goal, mql_attainment_pct,
-mql_forecast_pct, budget_goal, spend_pct_of_budget, spend_pacing_pct, mkt_mql_actuals, mkt_mql_goal,
-mkt_mql_attainment_pct, mkt_mql_forecast_pct, mkt_pipeline_actuals, mkt_pipeline_goal,
-mkt_pipeline_attainment_pct, mkt_pipeline_forecast_pct
+cvr_inquiry, leads, cp_lead, mqas, handraisers, demos, free_trials, pqls, meetings_booked, mqls,
+cp_mql, sals, sqls, sql_pipeline, pipeline_value, revenue, closed_won, closed_lost,
+all_conv_to_mql_rate, mql_to_sql_rate, mql_goal, mql_attainment_pct, mql_forecast_pct, budget_goal,
+spend_pct_of_budget, spend_pacing_pct, mkt_mql_actuals, mkt_mql_goal, mkt_mql_attainment_pct,
+mkt_mql_forecast_pct, mkt_pipeline_actuals, mkt_pipeline_goal, mkt_pipeline_attainment_pct,
+mkt_pipeline_forecast_pct
 ("Total Spend" on a Goals & Pacing report still maps to the plain "spend" key above, not
 budget_goal.) pipeline_value is the TOTAL pipeline dollar figure for a row (a column literally
 called "Pipeline," "Pipeline Value," "Open Pipeline," or similar) — this is DIFFERENT from

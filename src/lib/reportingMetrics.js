@@ -18,6 +18,19 @@ const METRIC_LABEL_OVERRIDES = {
   // PIPELINE_METRIC_MAP_OPTIONS) and their derived cost-per/conversion-rate metrics (see
   // DERIVED_PIPELINE_METRICS below) — 2026-08-02, per Mo's column-mapping request.
   leads: "Leads",
+  // Optional intermediate funnel-stage metrics (2026-08-06, per Mo — "add MQA, Handraiser, Demo,
+  // Free Trial, PQL, Meeting Booked to the fields ... so the user can pick the one he/she wants to
+  // use"). PIPELINE_METRIC_MAP_OPTIONS already carries the correctly-cased label Pipeline Tagger/
+  // Reporting Intelligence's metric pickers actually render, so these overrides only matter for any
+  // OTHER place that falls back to labelForMetricKey for one of these keys (e.g. a generic metric-
+  // column render outside those two components) — without them, "mqas"/"pqls" would title-case to
+  // "Mqas"/"Pqls" instead of "MQAs"/"PQLs".
+  mqas: "MQAs",
+  handraisers: "Handraisers",
+  demos: "Demos",
+  free_trials: "Free Trials",
+  pqls: "PQLs",
+  meetings_booked: "Meetings Booked",
   sals: "SAL",
   closed_won: "Closed Won",
   closed_lost: "Closed Lost",

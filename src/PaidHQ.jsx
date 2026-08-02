@@ -5,7 +5,8 @@ import * as XLSX from "xlsx";
 import { classifyImportFile, IMPORT_TYPE_LABELS } from "./lib/fileTypeDetect.js";
 import { extractReportingRowsFromPdf } from "./lib/reportingAI.js";
 import { parseCampaignReportFile } from "./lib/reportingImport.js";
-import { parsePipelineFileRaw } from "./lib/pipelineColumnMapping.js";
+import { parsePipelineFileRaw, CHANNEL_TAG_KEY } from "./lib/pipelineColumnMapping.js";
+import { listReportingFacts, deleteReportingFacts } from "./lib/reportingApi.js";
 import { normalizePeriodStart } from "./lib/reportingPeriods.js";
 import {
   getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows,
@@ -69,6 +70,14 @@ const TabLoadingFallback = () => (
     Loading…
   </div>
 );
+
+// Settings → "Clear Pipeline data" date-range mode picks whole months (same <input type="month">
+// convention Pipeline Tagger/Reporting Intelligence already use); the DELETE endpoint itself wants a
+// real end-of-month date so a row dated anywhere within the selected end month is still included.
+function pipelineMonthEndDate(monthStr) {
+  const [y, m] = monthStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); // day 0 of next month = last day of this month
+}
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchWorkspace,onCreateWorkspace,accounts,activeAccountKey,onSwitchAccount,onAddAccount,onSignOutAccount,onWorkspacesChanged}={}){
@@ -467,6 +476,28 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     setFileStoreLoading(true);
     listFiles(session,workspace.id).then(setFileStoreList).catch(e=>console.error("[file store list]",e)).finally(()=>setFileStoreLoading(false));
   },[workspace?.id,session]);
+  // ── Settings → Clear Pipeline data (server-backed core.reporting_facts rows — 2026-08-06, per Mo:
+  // "move the deletion section to settings along with the other delete functions." Previously this
+  // was its own "Bulk delete…" button + modal inside Pipeline Tagger's toolbar; moved here so it sits
+  // next to Clear Tagger data/Clear Tagger data by channel/by date range/Clear Budget data instead of
+  // living apart from every other destructive action in the app. Same DELETE /reporting-facts
+  // endpoint as before (see reportingApi.js's deleteReportingFacts doc comment) — only the UI moved. ──
+  const[pipelineRows,setPipelineRows]=useState(null); // null = not loaded yet
+  const[pipelineRowsLoading,setPipelineRowsLoading]=useState(false);
+  const refreshPipelineRows=useCallback(()=>{
+    if(!workspace?.id||!session)return;
+    setPipelineRowsLoading(true);
+    listReportingFacts(session,workspace.id).then(setPipelineRows).catch(e=>console.error("[pipeline rows list]",e)).finally(()=>setPipelineRowsLoading(false));
+  },[workspace?.id,session]);
+  const[pdMode,setPdMode]=useState("date"); // "date" | "source" | "tag" | "channel" | "all"
+  const[pdStart,setPdStart]=useState("");
+  const[pdEnd,setPdEnd]=useState("");
+  const[pdSource,setPdSource]=useState("");
+  const[pdTagDim,setPdTagDim]=useState("");
+  const[pdTagValue,setPdTagValue]=useState("");
+  const[pdChannel,setPdChannel]=useState("");
+  const[pdConfirmText,setPdConfirmText]=useState("");
+  const[pdDeleting,setPdDeleting]=useState(false);
   // Team and File Store are populated only when refreshTeam()/refreshFileStore() actually run --
   // until recently that only happened from the Settings gear icon's onClick, which misses two real
   // cases: (1) `view` is restored from localStorage on load (see its useState initializer above),
@@ -480,7 +511,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     if(view!=="settings")return;
     refreshFileStore();
     refreshTeam();
-  },[view,workspace?.id,refreshFileStore,refreshTeam]);
+    refreshPipelineRows();
+  },[view,workspace?.id,refreshFileStore,refreshTeam,refreshPipelineRows]);
   // Fire-and-forget wrapper for the auto-capture call sites (handleFile, exportTags,
   // importTagsFromCSV below) — a File Store write should never block or fail the actual
   // import/export it's shadowing.
@@ -2291,6 +2323,60 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     setMergedNormRows(prev=>prev.filter(r=>!clearRangeMatch(r)));
     showNotif(`Cleared ${matches.length.toLocaleString()} row${matches.length===1?"":"s"} for ${platLabel}, ${rangeLabel}`);
     setClearRangeStart("");setClearRangeEnd("");
+  };
+
+  // Settings → Clear Pipeline data's own source-of-truth lists, computed from the raw reporting_facts
+  // rows fetched by refreshPipelineRows above — same shape/approach as ReportingFactsTagger.jsx's own
+  // former bulk-delete panel this replaced (see that file's git history), just living here now.
+  const pipelineDistinctSources=useMemo(()=>Array.from(new Set((pipelineRows||[]).map(r=>r.source).filter(Boolean))).sort(),[pipelineRows]);
+  const pipelineDistinctChannels=useMemo(()=>Array.from(new Set((pipelineRows||[]).map(r=>(r.tags||{})[CHANNEL_TAG_KEY]).filter(Boolean))).sort(),[pipelineRows]);
+  const pipelineDistinctTagValues=useMemo(()=>{
+    if(!pdTagDim)return[];
+    return Array.from(new Set((pipelineRows||[]).map(r=>(r.tags||{})[pdTagDim]).filter(Boolean))).sort();
+  },[pipelineRows,pdTagDim]);
+  const pipelineDeletePreviewCount=useMemo(()=>{
+    if(!pipelineRows)return null;
+    if(pdMode==="all")return pipelineRows.length;
+    if(pdMode==="date"){
+      if(!pdStart||!pdEnd)return null;
+      return pipelineRows.filter(r=>{const m=(r.periodStart||"").slice(0,7);return m>=pdStart&&m<=pdEnd;}).length;
+    }
+    if(pdMode==="source")return pdSource?pipelineRows.filter(r=>r.source===pdSource).length:null;
+    if(pdMode==="tag")return pdTagDim&&pdTagValue?pipelineRows.filter(r=>(r.tags||{})[pdTagDim]===pdTagValue).length:null;
+    if(pdMode==="channel")return pdChannel?pipelineRows.filter(r=>(r.tags||{})[CHANNEL_TAG_KEY]===pdChannel).length:null;
+    return null;
+  },[pipelineRows,pdMode,pdStart,pdEnd,pdSource,pdTagDim,pdTagValue,pdChannel]);
+  const canDeletePipelineData=
+    pdMode==="all"?pdConfirmText.trim().toUpperCase()==="DELETE"
+    :pdMode==="date"?!!(pdStart&&pdEnd)
+    :pdMode==="source"?!!pdSource
+    :pdMode==="tag"?!!(pdTagDim&&pdTagValue)
+    :pdMode==="channel"?!!pdChannel
+    :false;
+  const resetPipelineDeleteForm=()=>{
+    setPdMode("date");setPdStart("");setPdEnd("");setPdSource("");setPdTagDim("");setPdTagValue("");setPdChannel("");setPdConfirmText("");
+  };
+  const doPipelineDelete=async()=>{
+    if(!canEdit||!canDeletePipelineData)return;
+    let filters=null;let label="";
+    if(pdMode==="all"){filters={all:true};label="ALL pipeline data in this workspace";}
+    else if(pdMode==="date"){filters={start:`${pdStart}-01`,end:pipelineMonthEndDate(pdEnd)};label=`pipeline data from ${pdStart} through ${pdEnd}`;}
+    else if(pdMode==="source"){filters={source:pdSource};label=`pipeline data from source "${pdSource}"`;}
+    else if(pdMode==="tag"){filters={tags:{[pdTagDim]:pdTagValue}};label=`pipeline data tagged ${pdTagDim}: "${pdTagValue}"`;}
+    else if(pdMode==="channel"){filters={tags:{[CHANNEL_TAG_KEY]:pdChannel}};label=`pipeline data on channel "${pdChannel}"`;}
+    if(!filters)return;
+    if(pdMode!=="all"&&!window.confirm(`Permanently delete ${label} (${pipelineDeletePreviewCount??"?"} row${pipelineDeletePreviewCount===1?"":"s"}) from the database?\n\nThis cannot be undone.`))return;
+    setPdDeleting(true);
+    try{
+      const result=await deleteReportingFacts(session,workspace.id,filters);
+      showNotif(`Deleted ${result.deleted} pipeline row${result.deleted===1?"":"s"}`);
+      resetPipelineDeleteForm();
+      refreshPipelineRows();
+    }catch(err){
+      showNotif(err.message||"Delete failed","error");
+    }finally{
+      setPdDeleting(false);
+    }
   };
 
   // ── Export (the ··· menu's "Export [view]" + "Email a copy") ──
@@ -4347,6 +4433,79 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         </div>
                       );
                     })()}
+                  </div>
+                )}
+                {canEdit&&pipelineRowsLoading&&pipelineRows===null&&(
+                  <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px",fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>Loading pipeline data…</div>
+                )}
+                {canEdit&&pipelineRows&&pipelineRows.length>0&&(
+                  <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
+                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Clear Pipeline data</div>
+                    <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:560,marginBottom:14}}>
+                      Permanently removes reporting/pipeline rows (MQLs, SQLs, Pipeline Value, and the rest of the funnel data behind Pipeline Tagger and Reporting Intelligence) from the database. Tagger spend data and Budget allocations are not affected.
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:14}}>
+                      {[
+                        {key:"date",label:"By date range"},
+                        {key:"source",label:"By source"},
+                        {key:"tag",label:"By tag dimension (Product, Module, Brand, etc.)"},
+                        {key:"channel",label:"By channel/platform"},
+                        {key:"all",label:"Everything"},
+                      ].map(m=>(
+                        <label key={m.key} style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5*(T.fsScale||1),color:T.text,cursor:"pointer"}}>
+                          <input type="radio" name="pdMode" checked={pdMode===m.key} onChange={()=>setPdMode(m.key)} style={{accentColor:T.accent,cursor:"pointer"}}/>
+                          {m.label}
+                        </label>
+                      ))}
+                    </div>
+                    {pdMode==="date"&&(
+                      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
+                        <input type="month" value={pdStart} onChange={e=>setPdStart(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),fontFamily:T.font,outline:"none"}}/>
+                        <span style={{color:T.textMuted}}>→</span>
+                        <input type="month" value={pdEnd} onChange={e=>setPdEnd(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),fontFamily:T.font,outline:"none"}}/>
+                      </div>
+                    )}
+                    {pdMode==="source"&&(
+                      <div style={{marginBottom:14,maxWidth:260}}>
+                        <Sel value={pdSource} onChange={setPdSource} T={T}>
+                          <option value="">Select a source…</option>
+                          {pipelineDistinctSources.map(s=><option key={s} value={s}>{s}</option>)}
+                        </Sel>
+                      </div>
+                    )}
+                    {pdMode==="tag"&&(
+                      <div style={{display:"flex",gap:8,marginBottom:14,maxWidth:400}}>
+                        <Sel value={pdTagDim} onChange={v=>{setPdTagDim(v);setPdTagValue("");}} T={T} style={{flex:1}}>
+                          <option value="">Dimension…</option>
+                          {(tagDims||[]).map(d=><option key={d} value={d}>{d}</option>)}
+                        </Sel>
+                        <Sel value={pdTagValue} onChange={setPdTagValue} T={T} style={{flex:1}} disabled={!pdTagDim}>
+                          <option value="">Value…</option>
+                          {pipelineDistinctTagValues.map(v=><option key={v} value={v}>{v}</option>)}
+                        </Sel>
+                      </div>
+                    )}
+                    {pdMode==="channel"&&(
+                      <div style={{marginBottom:14,maxWidth:260}}>
+                        <Sel value={pdChannel} onChange={setPdChannel} T={T}>
+                          <option value="">Select a channel…</option>
+                          {pipelineDistinctChannels.map(c=><option key={c} value={c}>{c}</option>)}
+                        </Sel>
+                      </div>
+                    )}
+                    {pdMode==="all"&&(
+                      <div style={{marginBottom:14,maxWidth:320}}>
+                        <div style={{fontSize:12*(T.fsScale||1),color:T.danger,marginBottom:6}}>This deletes every pipeline row in this workspace. Type DELETE to confirm.</div>
+                        <input value={pdConfirmText} onChange={e=>setPdConfirmText(e.target.value)} placeholder="DELETE"
+                          style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 9px",fontSize:12.5*(T.fsScale||1),fontFamily:T.font,outline:"none"}}/>
+                      </div>
+                    )}
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
+                      <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>
+                        {pipelineDeletePreviewCount===null?"Select the criteria above.":`Matches ${pipelineDeletePreviewCount.toLocaleString()} row${pipelineDeletePreviewCount===1?"":"s"}.`}
+                      </div>
+                      <Btn onClick={doPipelineDelete} disabled={!canDeletePipelineData||pdDeleting} variant="danger" size="sm" T={T} style={{flexShrink:0}}>{pdDeleting?"Deleting…":"Delete"}</Btn>
+                    </div>
                   </div>
                 )}
                 {rowSection({

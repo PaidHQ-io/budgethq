@@ -47,9 +47,26 @@ import { normalizePeriodStart } from "./reportingPeriods.js";
 
 // The only mapping targets a CSV column can become besides "ignore" / a structural field / a tag
 // dimension — see this file's top doc comment for why cost-per/rate metrics are deliberately absent.
+//
+// The six after Leads (2026-08-06, per Mo — "add MQA, Handraiser, Demo, Free Trial, PQL, Meeting
+// Booked to the fields ... so the user can pick the one he/she wants to use") are optional
+// intermediate funnel stages some workspaces track between Leads and MQLs/SALs and some don't — they
+// show up as ordinary selectable/mappable metrics everywhere PIPELINE_METRIC_MAP_OPTIONS already
+// drives that (Pipeline Tagger's column picker in ReportingFactsTagger.jsx, Reporting Intelligence's
+// metric picker in PipelineTagger.jsx, and this file's own column-mapping dropdown/unmapped-metrics
+// banner), with no obligation to use any of them — a workspace that doesn't track Handraisers just
+// never maps a column to it and it never appears with data. No derived cost-per/conversion-rate
+// metric was added for these (unlike Lead/MQL/SQL) since Mo didn't ask for one and there's no fixed
+// "stage order" across workspaces to safely assume a rate between them and an adjacent stage.
 export const PIPELINE_METRIC_MAP_OPTIONS = [
   { key: "spend", label: "Spend" },
   { key: "leads", label: "Leads" },
+  { key: "mqas", label: "MQAs" },
+  { key: "handraisers", label: "Handraisers" },
+  { key: "demos", label: "Demos" },
+  { key: "free_trials", label: "Free Trials" },
+  { key: "pqls", label: "PQLs" },
+  { key: "meetings_booked", label: "Meetings Booked" },
   { key: "mqls", label: "MQLs" },
   { key: "sals", label: "SALs" },
   { key: "sqls", label: "SQLs" },
@@ -103,6 +120,12 @@ const CHANNEL_ALIASES = ["channel", "platform", "marketing channel", "source cha
 const METRIC_ALIASES = {
   spend: ["spend", "total spend", "ad spend", "cost", "total cost", "media spend"],
   leads: ["leads", "total leads", "lead count", "new leads", "inquiries", "inquiry"],
+  mqas: ["mqa", "mqas", "marketing qualified accounts", "marketing qualified account"],
+  handraisers: ["handraiser", "handraisers", "hand raiser", "hand raisers", "hand raise"],
+  demos: ["demo", "demos", "demo requests", "demo request", "demos scheduled", "demos completed"],
+  free_trials: ["free trial", "free trials", "trial", "trials", "trial signups", "trial signup"],
+  pqls: ["pql", "pqls", "product qualified leads", "product qualified lead"],
+  meetings_booked: ["meeting booked", "meetings booked", "meeting", "meetings", "booked meetings", "booked meeting"],
   mqls: ["mqls", "mql", "marketing qualified leads", "marketing qualified lead"],
   sals: ["sals", "sal", "sales accepted leads", "sales accepted lead"],
   sqls: ["sqls", "sql", "sales qualified leads", "sales qualified lead"],
