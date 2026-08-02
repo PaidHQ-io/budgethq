@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Btn, Icon, PixelPanel, SectionLabel, Pill, TagAutocompleteInput } from "./shared.jsx";
+import { useEffect, useMemo, useState } from "react";
+import { Btn, Icon, PixelPanel, Pill, TagAutocompleteInput } from "./shared.jsx";
 import ReportingFactsTagger from "./ReportingFactsTagger.jsx";
 import PipelineColumnMapper from "./PipelineColumnMapper.jsx";
-import { extractReportingRowsFromImage } from "../lib/reportingAI.js";
 import { upsertReportingFacts, getDimensionValues } from "../lib/reportingApi.js";
 import { PERIOD_TYPES, PERIOD_TYPE_LABELS, normalizePeriodStart, labelForPeriod, defaultPeriodStart } from "../lib/reportingPeriods.js";
 import { deriveMetricColumns, fmtMetric } from "../lib/reportingMetrics.js";
@@ -18,15 +17,6 @@ import { deriveMetricColumns, fmtMetric } from "../lib/reportingMetrics.js";
 //
 // T is accepted as a prop (not hardcoded locally, unlike the ReportingHQ original) to match every
 // other PaidHQ tab's convention — PaidHQ.jsx computes THEME once and threads it down.
-
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 // Headline metrics shown as columns in the pending-rows review table — the full metrics object
 // (every field extraction captured) still gets stored either way, this is just what's worth a
@@ -121,7 +111,7 @@ function ReviewRow({ T, row, onChange, onRemove, dimensionValues, fields, summar
   );
 }
 
-export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows, initialRawPipelineImport, onConsumeInitialRawPipelineImport, campaignTags, tagDims, canEdit, onBackToDataSources }) {
+export default function ReportingAnalyzer({ T, session, workspace, initialPendingRows, onConsumeInitialPendingRows, initialRawPipelineImport, onConsumeInitialRawPipelineImport, campaignTags, tagDims, canEdit, onBackToDataSources, sidebarEl }) {
   // initialPendingRows seeds via a lazy initializer rather than an effect + setState — correct
   // here (not just convenient) because PaidHQ.jsx never sets pendingReportingRows and switches to
   // this tab except together (see confirmUnifiedUpload), and this tab is conditionally mounted
@@ -134,8 +124,6 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
   // pipelineColumnMapping.js). Rendered as its own step ABOVE the pendingRows review table; confirming
   // it there appends normalized rows into pendingRows above, same as every other import path.
   const [rawPipelineImport, setRawPipelineImport] = useState(() => initialRawPipelineImport || null);
-  const [extracting, setExtracting] = useState(false);
-  const [extractError, setExtractError] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   // CSV/XLSX pipeline imports (2026-08-03, per Mo — "all of the data should be imported into the
@@ -167,13 +155,6 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
   // detect it per row (e.g. a flat monthly-totals table with no breakdown at all). Keyed by field
   // name directly (campaignName, or a tag dimension name like "Product").
   const [batchTags, setBatchTags] = useState({});
-
-  // Ref to the hidden screenshot file input, so the visible "Upload screenshot" button can trigger
-  // it directly. CSV/XLSX/PDF uploads (campaign-level exports, Goals & Pacing PDFs) moved to the
-  // unified "Spend, Budget or Performance file" card in Data Sources (2026-08-01, per Mo — one
-  // upload surface, route by content) — this tab now only receives that data via
-  // initialPendingRows, it doesn't trigger its own extraction for those file types anymore.
-  const fileInputRef = useRef(null); // screenshot (AI-vision)
 
   // Acknowledge the handoff (clear it on the parent side) once mounted — the rows themselves were
   // already consumed above via the lazy initializer, so this only calls the parent's setter, no
@@ -217,61 +198,6 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
       });
       return next;
     });
-
-  const handleImage = useCallback(
-    async (dataUrl) => {
-      setExtracting(true);
-      setExtractError("");
-      try {
-        const rows = await extractReportingRowsFromImage({
-          dataUrl,
-          token: session?.access_token,
-          tagDims: dimensionValues.tagDims || [],
-        });
-        const normalized = rows.map((r) => ({
-          source: "dreamdata_screenshot",
-          periodType: r.period_type || "unknown",
-          periodStart:
-            r.period_type && r.period_type !== "unknown"
-              ? normalizePeriodStart(r.period_type, r.period_start) || undefined
-              : undefined,
-          campaignName: r.campaign_name || "",
-          tags: r.tags || {},
-          metrics: r.metrics || {},
-        }));
-        setPendingRows((prev) => [...prev, ...normalized]);
-      } catch (err) {
-        setExtractError(err.message || "Couldn't read that screenshot.");
-      } finally {
-        setExtracting(false);
-      }
-    },
-    [session, dimensionValues.tagDims]
-  );
-
-  const handleFileInput = useCallback(
-    async (e) => {
-      const file = e.target.files?.[0];
-      e.target.value = ""; // allow re-selecting the same file later
-      if (!file) return;
-      const dataUrl = await fileToDataUrl(file);
-      handleImage(dataUrl);
-    },
-    [handleImage]
-  );
-
-
-  const handlePaste = useCallback(
-    async (e) => {
-      const item = Array.from(e.clipboardData?.items || []).find((i) => i.type.startsWith("image/"));
-      if (!item) return;
-      const file = item.getAsFile();
-      if (!file) return;
-      const dataUrl = await fileToDataUrl(file);
-      handleImage(dataUrl);
-    },
-    [handleImage]
-  );
 
   const updateRow = (idx, next) => {
     setPendingRows((prev) => prev.map((r, i) => (i === idx ? next : r)));
@@ -323,48 +249,8 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
     // old centered maxWidth:1100 page. The upload/mapping panels above the table incidentally go
     // full width too now — a reasonable side effect, not something worth special-casing back to a
     // narrower column just for those.
-    <div onPaste={handlePaste} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, fontFamily: "'DM Sans',sans-serif" }}>
-      <div style={{ padding: "28px 28px 0", flexShrink: 0 }}>
-        <SectionLabel T={T}>Pipeline Tagger</SectionLabel>
-        <div style={{ fontSize:16*(T.fsScale||1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Import Dreamdata / PowerBI data</div>
-        <div style={{ fontSize:13*(T.fsScale||1), color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
-          Screenshot a table from your Dreamdata/PowerBI dashboard and drop it below, or paste
-          directly (Cmd/Ctrl+V) anywhere on this page. Pipeline/funnel CSV or Excel exports (PowerBI,
-          Salesforce, or anything else) and Goals &amp; Pacing PDFs now upload from the "Spend, Budget
-          or Performance file" card in Data Sources — they land here automatically. CSV/Excel gets a
-          column-mapping + period step first (every row comes in regardless of that source's own
-          column names) and then lands straight in the table below, tag-ready — no separate review
-          click. Re-importing a period that's already stored overwrites it with the new numbers —
-          nothing is duplicated. Channel spend connections live in the Data Sources tab; this is
-          specifically for funnel/pipeline performance data.
-        </div>
-      </div>
-
-      <div style={{ padding: "0 28px", flexShrink: 0 }}>
-        <PixelPanel T={T} contentStyle={{ padding: 20, marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileInput} style={{ display: "none" }} />
-            <Btn T={T} variant="primary" size="md" onClick={() => fileInputRef.current?.click()}>
-              <Icon name="paperclip" size={14} /> Upload screenshot
-            </Btn>
-            <span style={{ fontSize:12*(T.fsScale||1), color: T.textMuted }}>
-              or paste a screenshot anywhere on this page — campaign-level and Goals &amp; Pacing files now upload from
-              the "Spend, Budget or Performance file" card in Data Sources
-            </span>
-            {extracting && (
-              <span style={{ fontSize:12*(T.fsScale||1), color: T.accent, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 12, height: 12, border: `2px solid ${T.accentBorder}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.7s linear infinite", display: "inline-block" }} />
-                Reading table…
-              </span>
-            )}
-          </div>
-          {extractError && (
-            <div style={{ marginTop: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius:T.r8, fontSize:12*(T.fsScale||1), color: T.danger }}>
-              {extractError}
-            </div>
-          )}
-        </PixelPanel>
-
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, fontFamily: "'DM Sans',sans-serif" }}>
+      <div style={{ padding: "20px 28px 0", flexShrink: 0 }}>
         {rawPipelineImport && (
           <PipelineColumnMapper
             T={T}
@@ -469,6 +355,7 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
         canEdit={canEdit}
         refreshSignal={taggerRefreshSignal}
         onBackToDataSources={onBackToDataSources}
+        sidebarEl={sidebarEl}
       />
     </div>
   );

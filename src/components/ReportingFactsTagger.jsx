@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Btn, Icon, Pill, Sel, TagAutocompleteInput, MatchModeToggle, IconField } from "./shared.jsx";
+import { createPortal } from "react-dom";
+import { Btn, Icon, Pill, Sel, TagAutocompleteInput, MatchModeToggle, IconField, SectionLabel, Divider, StatRow } from "./shared.jsx";
 import { listReportingFacts, patchReportingFactsTags, deleteReportingFacts, getDimensionValues } from "../lib/reportingApi.js";
 import { TAG_DIM_COLORS, PLATFORM_OPTIONS, PLATFORM_COLORS, campaignKey, splitFilterTerms, matchesTerms } from "../lib/core.js";
 import { usePersistentState } from "../lib/persist.js";
@@ -134,7 +135,7 @@ const TAGS_BOX_STYLE = { flex: "1.8 1 200px", minWidth: 180 };
 
 const fIn = { background: "transparent", border: "none", outline: "none", width: "100%" };
 
-export default function ReportingFactsTagger({ T, session, workspace, campaignTags, tagDims, canEdit, refreshSignal, onBackToDataSources }) {
+export default function ReportingFactsTagger({ T, session, workspace, tagDims, canEdit, refreshSignal, onBackToDataSources, sidebarEl }) {
   const [rows, setRows] = useState(null); // null = loading
   const [loadError, setLoadError] = useState("");
   const [dimensionValues, setDimensionValues] = useState({ tagDims: [], values: {}, campaignName: [] });
@@ -168,7 +169,6 @@ export default function ReportingFactsTagger({ T, session, workspace, campaignTa
   const [editingTag, setEditingTag] = useState(null); // {key, dim}
   const [editVal, setEditVal] = useState("");
   const [editingChannel, setEditingChannel] = useState(null); // group key
-  const [dismissedSuggestions, setDismissedSuggestions] = useState(new Set());
 
   const showNotif = (msg, type = "success") => {
     setNotif({ msg, type });
@@ -202,6 +202,8 @@ export default function ReportingFactsTagger({ T, session, workspace, campaignTa
   const showAdGroup = visibleCols.some((c) => c.key === "adGroup");
   const showChannel = visibleCols.some((c) => c.key === "channel");
   const distinctChannels = useMemo(() => Array.from(new Set(groups.map((g) => g.channel).filter(Boolean))).sort(), [groups]);
+  const taggedCount = useMemo(() => groups.filter((g) => Object.keys(g.tags).length > 0).length, [groups]);
+  const untaggedCount = groups.length - taggedCount;
 
   const doSort = (col) => {
     setSortDir(sortCol === col && sortDir === "desc" ? "asc" : "desc");
@@ -413,88 +415,71 @@ export default function ReportingFactsTagger({ T, session, workspace, campaignTa
     }
   };
 
-  // Cross-match against Campaign Tagger's own tags (same tagging effort shouldn't have to happen
-  // twice for a campaign you've already tagged for ad spend). Exact, case-insensitive match only,
-  // against either half of a campaignKey — checked against BOTH this group's Campaign Name and its
-  // Ad Group/Ad Set Name (spend rows' own two-level identity), never fuzzy/substring.
-  const campaignTagLookup = useMemo(() => {
-    const lookup = new Map();
-    Object.entries(campaignTags || {}).forEach(([key, t]) => {
-      if (!t || !Object.keys(t).length) return;
-      const [groupName, name] = key.split("||");
-      [groupName, name].forEach((n) => {
-        const norm = (n || "").trim().toLowerCase();
-        if (norm && !lookup.has(norm)) lookup.set(norm, { key, tags: t });
-      });
-    });
-    return lookup;
-  }, [campaignTags]);
-
-  const suggestFor = useCallback(
-    (group) => {
-      if (dismissedSuggestions.has(group.key)) return null;
-      const match = campaignTagLookup.get(group.campaignName.trim().toLowerCase()) || campaignTagLookup.get(group.adGroup.trim().toLowerCase());
-      if (!match) return null;
-      const missing = Object.entries(match.tags).filter(([dim, val]) => val && !group.tags[dim]);
-      if (!missing.length) return null;
-      return { ...match, missing };
-    },
-    [campaignTagLookup, dismissedSuggestions]
+  // Left-column overview (2026-08-03, per Mo — "use the left vertical column better ... give us an
+  // overview of the data being tagged and filtered", replacing PaidHQ.jsx's generic ad-spend
+  // "Total spend/Campaigns/Tagged/Needs review" default block, which never applied to this data).
+  // Portaled in via sidebarEl the same way BudgetManager/PacingDashboard/AskAI populate their own
+  // dedicated slice of the shared stats <aside> (see PaidHQ.jsx's own view==="reportingAnalyzer"
+  // branch) — this component owns `groups`/`filtered`, so the overview lives here rather than being
+  // recomputed a second time in the parent. Mirrors Campaign Tagger's own inline sidebar "Overview"
+  // section (PaidHQ.jsx's view==="tagger" branch) — same StatRow list shape, same tagged-% bar.
+  const sidebarPortal = sidebarEl && createPortal(
+    <div className="bhq-scroll" style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
+      <SectionLabel T={T} style={{ marginBottom: 8, fontSize: 11 * (T.fsScale || 1) }}>Pipeline Tagger</SectionLabel>
+      <div style={{ padding: "12px 0" }}>
+        <SectionLabel T={T} style={{ fontSize: 11 * (T.fsScale || 1) }}>Overview</SectionLabel>
+        <StatRow T={T} size={11} label="Rows imported" value={(rows || []).length.toLocaleString()} />
+        <StatRow T={T} size={11} label="Campaigns" value={groups.length.toLocaleString()} />
+        <StatRow T={T} size={11} label="Showing" value={filtered.length.toLocaleString()} />
+        <StatRow T={T} size={11} label="Tagged" value={taggedCount.toLocaleString()} color={T.success} />
+        <StatRow T={T} size={11} label="Needs review" value={untaggedCount.toLocaleString()} color={untaggedCount > 0 ? T.warning : T.success} />
+        <div style={{ marginTop: 10, height: 3, background: T.border, borderRadius: T.r2, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${groups.length ? (taggedCount / groups.length) * 100 : 0}%`, background: T.accent, transition: "width 0.4s", borderRadius: T.r2 }} />
+        </div>
+        <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, marginTop: 4 }}>{groups.length ? Math.round((taggedCount / groups.length) * 100) : 0}% tagged</div>
+      </div>
+      {distinctChannels.length > 0 && (
+        <>
+          <Divider T={T} />
+          <div style={{ padding: "0 0 12px" }}>
+            <SectionLabel T={T} style={{ fontSize: 11 * (T.fsScale || 1) }}>Channels</SectionLabel>
+            <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.6 }}>{distinctChannels.join(", ")}</div>
+          </div>
+        </>
+      )}
+    </div>,
+    sidebarEl
   );
-
-  const suggestions = useMemo(
-    () => filtered.map((g) => ({ group: g, s: suggestFor(g) })).filter((x) => x.s).slice(0, 6),
-    [filtered, suggestFor]
-  );
-
-  const applySuggestion = (group) => {
-    if (!canEdit) return;
-    const s = suggestFor(group);
-    if (!s) return;
-    const updates = [];
-    group.rows.forEach((r) => {
-      const merged = { ...(r.tags || {}) };
-      let changed = false;
-      s.missing.forEach(([dim, val]) => {
-        if (!merged[dim]) { merged[dim] = val; changed = true; }
-      });
-      if (changed) updates.push({ id: r.id, tags: merged });
-    });
-    patchRows(updates, (result) => `Applied ${s.missing.length} tag${s.missing.length === 1 ? "" : "s"} from "${group.campaignName || group.adGroup}"'s matched ad campaign to ${result.updated} row${result.updated === 1 ? "" : "s"}`);
-    setDismissedSuggestions((p) => new Set(p).add(group.key));
-  };
 
   if (rows === null && !loadError) {
-    return <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>Loading…</div>;
+    return (
+      <>
+        {sidebarPortal}
+        <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>Loading…</div>
+      </>
+    );
   }
 
   if (groups.length === 0 && !loadError) {
     return (
-      <div style={{ padding: "40px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>
-        Nothing imported yet — bring in a file above first.
-      </div>
+      <>
+        {sidebarPortal}
+        <div style={{ padding: "40px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>
+          Nothing imported yet — bring in a file above first.
+        </div>
+      </>
     );
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
+    <>
+      {sidebarPortal}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
       {loadError && (
         <div style={{ padding: "9px 16px", background: T.dangerBg, borderBottom: `1px solid ${T.dangerBorder}`, fontSize: 12 * (T.fsScale || 1), color: T.danger, flexShrink: 0 }}>{loadError}</div>
       )}
       {notif && (
         <div style={{ padding: "9px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 12 * (T.fsScale || 1), background: notif.type === "error" ? T.dangerBg : T.successBg, color: notif.type === "error" ? T.danger : T.success, flexShrink: 0 }}>{notif.msg}</div>
-      )}
-
-      {suggestions.length > 0 && (
-        <div style={{ padding: "7px 16px", background: T.accentBg, borderBottom: `1px solid ${T.border}`, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-          <span style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: T.text }}>Suggest</span>
-          {suggestions.map(({ group, s }) => (
-            <button key={group.key} onClick={() => applySuggestion(group)} disabled={!canEdit || applying}
-              style={{ fontSize: 12 * (T.fsScale || 1), background: T.surface, border: `1px solid ${T.border}`, color: T.text, borderRadius: T.r14, padding: "3px 10px", cursor: canEdit ? "pointer" : "default", fontFamily: T.font, fontWeight: 500 }}>
-              "{group.campaignName || group.adGroup}" matches a tagged ad campaign — apply {s.missing.length} tag{s.missing.length === 1 ? "" : "s"}
-            </button>
-          ))}
-        </div>
       )}
 
       {selected.size > 0 && (
@@ -736,6 +721,7 @@ export default function ReportingFactsTagger({ T, session, workspace, campaignTa
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

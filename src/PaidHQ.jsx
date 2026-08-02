@@ -119,6 +119,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[budgetSidebarEl,setBudgetSidebarEl]=useState(null); // portal target inside <aside> for the Budget tab's controls
   const[pacingSidebarEl,setPacingSidebarEl]=useState(null); // portal target inside <aside> for the Reporting tab's controls
   const[askSidebarEl,setAskSidebarEl]=useState(null); // portal target inside <aside> for Ask AI's search/projects/labels/pinned-chats panel — replaces the generic "Total spend" stat tiles that used to show here (not relevant to Ask AI, see 2026-07-21 UX note)
+  const[reportingAnalyzerSidebarEl,setReportingAnalyzerSidebarEl]=useState(null); // portal target inside <aside> for Pipeline Tagger's own tagged/filtered overview (2026-08-03, per Mo — same reasoning as askSidebarEl above, the generic ad-spend stat tiles never applied to reporting_facts data)
   useEffect(()=>{
     const onMove=e=>{
       if(!statsResizing.current)return;
@@ -2653,6 +2654,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             <div ref={setPacingSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="ask"?(
             <div ref={setAskSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="reportingAnalyzer"?(
+            <div ref={setReportingAnalyzerSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="data"?(
             // Data Sources' own left column (2026-07-24, per Mo — modeled on Funnel.io's Data
             // sources page, scoped down since PaidHQ has ~8 connectors total, not Funnel's scale).
@@ -3970,7 +3973,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       </div>
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
-      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")}/></Suspense>}
+      {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl}/></Suspense>}
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
