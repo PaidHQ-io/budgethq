@@ -514,7 +514,13 @@ async function streamAnalyze({messages,system,tools,maxTokens,model,signal,onTex
 // Runs the full tool-use loop against /api/analyze: send the conversation, execute any tool
 // calls the model makes against real local data, send the results back, repeat until the model
 // gives a final text answer. Capped at MAX_TOOL_ROUNDS as a runaway guard.
-export const ASK_AI_MAX_ROUNDS=6;
+// Raised from 6 to 9 (2026-08-16, alongside the maxTokens bump above) — a genuinely multi-step
+// analytical question (e.g. a specific campaign's month-by-month spend/pipeline breakdown across
+// 5 months, since query_pipeline groups by DIMENSION rather than by period, so a per-month trend
+// means one call per month) could legitimately need most of the old 6-round budget just for tool
+// calls, leaving no room for a final synthesis round. Still a hard cap either way — runs out into
+// the same "took too many steps" error below rather than looping forever.
+export const ASK_AI_MAX_ROUNDS=9;
 // question can be a plain string OR an Anthropic content-blocks array (used when images/files are
 // attached — see AskAI.jsx's send(), which builds the block array itself so this function stays a
 // dumb pass-through rather than knowing about File/canvas/CSV-parsing details). model/signal are
@@ -541,12 +547,25 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
   const steps=[];
   const usage={inputTokens:0,outputTokens:0};
   for(let round=0;round<ASK_AI_MAX_ROUNDS;round++){
-    const data=await streamAnalyze({messages,system,tools:ASK_AI_TOOLS,maxTokens:1200,model,signal,onTextDelta,token});
+    // maxTokens raised from 1200 to 4096 (2026-08-16, per Mo — reported "(no response)" on detailed
+    // multi-tool-call questions, e.g. a specific campaign's month-over-month spend-to-pipeline-dollar
+    // breakdown). Root cause: 1200 output tokens isn't always enough for a round that BOTH continues
+    // calling tools (a large tool_use input) AND, on a later round, synthesizes a full comparative
+    // answer — when the model hit that ceiling mid-generation, Anthropic reports stop_reason
+    // "max_tokens" (not "tool_use"), so this loop took the "final answer" branch below, but the
+    // round's content had EITHER no text block yet (still mid tool_use when cut off) or only a
+    // partial one — the "no text block at all" case is exactly what produced "(no response)": a
+    // real, if truncated, model turn silently presented as an empty one.
+    const data=await streamAnalyze({messages,system,tools:ASK_AI_TOOLS,maxTokens:4096,model,signal,onTextDelta,token});
     usage.inputTokens+=data.usage.input_tokens||0;
     usage.outputTokens+=data.usage.output_tokens||0;
     if(data.stop_reason!=="tool_use"){
       const text=data.content.find(b=>b.type==="text")?.text||"";
-      return{answer:text||"(no response)",messages,steps,usage};
+      // Distinguishes "the model was cut off before producing any text" from a genuine empty
+      // response — the former is a real answer that just ran out of room, worth telling the user
+      // to retry/narrow their question rather than implying nothing happened at all.
+      const answer=text||(data.stop_reason==="max_tokens"?"(response cut off before finishing — try asking a more specific or narrower question)":"(no response)");
+      return{answer,messages,steps,usage};
     }
     // Strip empty text blocks before this assistant turn joins the conversation history (2026-08-16,
     // per Mo — reported "messages: text content blocks must be non-empty" from the API after a few
