@@ -563,6 +563,32 @@ export async function askAIExecuteTool(toolName,input,ctx){
   return{error:`Unknown tool: ${toolName}`};
 }
 
+// Prompt caching (2026-08-19, per Mo — "otherwise I won't be able to use Ask AI at all", after
+// tracing a big share of Ask AI's token cost to this: system+tools together run ~6,000 tokens of
+// essentially IDENTICAL content (ASK_AI_TOOLS' JSON schemas measure ~4,675 tokens alone), resent
+// from scratch, at full price, on EVERY round of EVERY question — a turn that took 8 tool-call
+// rounds was paying that ~6,000-token toll 8 separate times just to restate content that never
+// changed between those calls. Anthropic caches whatever precedes a `cache_control` breakpoint
+// (ephemeral, ~5min TTL) at roughly a tenth of normal read cost on a hit — system and tools are
+// effectively constant within one chat (system's only variable parts are this workspace's tag/
+// budget-dimension names, not the bulk of the text), so marking both as breakpoints turns every
+// round after the first into a near-free re-send instead of a full-price one. api/analyze.js needs
+// NO changes for this — it already forwards whatever shape `system`/`tools` arrive in unchanged;
+// Anthropic's API accepts `system` as either a plain string or a content-blocks array, and only the
+// latter can carry cache_control, which is the one thing this function changes about the request.
+// Both system (~1,300-1,500 tokens) and the tools array (~4,675 tokens) comfortably clear
+// Anthropic's minimum-cacheable-length floor for every model in ASK_AI_MODELS. Deliberately NOT
+// caching further into `messages` (the actual growing conversation/tool-result history) — which
+// messages are "stable enough to cache" shifts every round, so doing that safely/correctly is a
+// separate, more involved change; system+tools alone already eliminates the majority of the
+// same-content-every-round waste this was diagnosed against.
+function withPromptCaching(system,tools){
+  return{
+    system:system?[{type:"text",text:system,cache_control:{type:"ephemeral"}}]:undefined,
+    tools:tools&&tools.length?tools.map((t,i)=>i===tools.length-1?{...t,cache_control:{type:"ephemeral"}}:t):tools,
+  };
+}
+
 // Streams one /api/analyze call and reconstructs it into the exact same {content, stop_reason,
 // usage} shape the non-streaming JSON response returns — so askAIRun's round loop below doesn't
 // need two code paths, only one (streaming) that happens to also report progress as it goes.
@@ -577,7 +603,8 @@ export async function askAIExecuteTool(toolName,input,ctx){
 // answer). onTextDelta, if given, is called with the CURRENT ROUND's full accumulated text after
 // every text delta — the caller (AskAI.jsx) shows this live instead of a static "Thinking…".
 async function streamAnalyze({messages,system,tools,maxTokens,model,signal,onTextDelta,token}){
-  const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({messages,system,tools,maxTokens,model,stream:true}),signal});
+  const cached=withPromptCaching(system,tools);
+  const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({messages,system:cached.system,tools:cached.tools,maxTokens,model,stream:true}),signal});
   if(!res.ok){
     const data=await res.json().catch(()=>({}));
     throw new Error(data?.error||"Ask AI request failed");
@@ -788,8 +815,11 @@ export async function askAIBuildView({question,ctx,token}){
   const system=`You configure the Reporting & Pacing tab's "View by" table from a plain-English request. Tag dimensions: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available too — derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the ONLY ones usable for mode="budget" grouping/filters/status): ${ctx.budgetDims.join(", ")}. If the user wants to filter or group by something outside that list, use mode="custom" instead (include the dimension in dims).`:"No Budget By dimensions are set up yet, so mode=\"budget\" has nothing to group by — use mode=\"custom\" for anything about spend by dimension."} When the user names a value casually (e.g. "meta" or "emea"), call list_dimension_values first to confirm the exact stored spelling before filtering — filters must match exactly, not a substring. For requests with a numeric condition ("daily burn over $500", "pacing above 100%", "spend under $10,000", "projected to blow past budget"), use apply_view's numeric_filters param — do NOT try to express a numeric condition via the plain-text filters map, which only does exact string equality. Call apply_view exactly once, as your final action.`;
   const tools=[ASK_AI_TOOLS[0],ASK_AI_TOOLS[1],APPLY_VIEW_TOOL]; // list_tag_dimensions, list_dimension_values, apply_view
   const messages=[{role:"user",content:question}];
+  // system/tools are identical on every round of this loop (unlike messages, which grows) — hoisted
+  // outside the loop rather than recomputed per round, same withPromptCaching helper as streamAnalyze.
+  const cached=withPromptCaching(system,tools);
   for(let round=0;round<ASK_AI_VIEW_MAX_ROUNDS;round++){
-    const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({messages,system,tools,maxTokens:800})});
+    const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({messages,system:cached.system,tools:cached.tools,maxTokens:800})});
     const data=await res.json();
     if(!res.ok)throw new Error(data?.error||"Ask AI request failed");
     const applyBlock=(data.content||[]).find(b=>b.type==="tool_use"&&b.name==="apply_view");

@@ -32,11 +32,16 @@
  *
  * FULL (multi-turn, tool-use, vision) — used by Ask AI's view-builder and AI Summary (and the
  * chat's regular, non-streaming fallback shape if ever needed):
- *   POST /api/analyze  Body: { messages: Array, system?: string, tools?: Array, maxTokens?: number }
+ *   POST /api/analyze  Body: { messages: Array, system?: string|Array, tools?: Array, maxTokens?: number }
  *   `messages` follows the Anthropic Messages API shape directly (role + content, where content
  *   can be a plain string OR an array of blocks — text / image / tool_use / tool_result) so the
  *   caller can run a full tool-use loop or send an image without this proxy needing to know
  *   anything about what's being asked — it's a dumb pass-through that only exists to hide the key.
+ *   `system` and each entry in `tools` may likewise be either a plain value or a content-block
+ *   object carrying `cache_control` (2026-08-19, per Mo — prompt caching to cut Ask AI's token
+ *   cost; see src/lib/askAI.js's withPromptCaching) — this route does zero inspection or
+ *   reshaping of either, it just forwards whatever shape the caller sends straight to Anthropic,
+ *   same "dumb pipe" principle as everything else here.
  *
  * STREAMING (2026-07-28, per Mo — live token-by-token Ask AI chat) — same body shape as FULL,
  * plus `stream: true`. Response becomes a raw `text/event-stream` pass-through of Anthropic's own
