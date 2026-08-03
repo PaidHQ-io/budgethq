@@ -1301,8 +1301,23 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
   // 2026-08-13, per Mo — the previous sizes were "too small" once the earlier scaling bug was fixed).
   const H = 220, padT = 30, padB = 34, padL = 60, padR = hasRightAxis ? 60 : 16;
   const n = periods.length + (hasForecast ? 1 : 0);
-  const W = Math.max(320, measuredWidth);
-  const plotW = W - padL - padR;
+
+  // FIXED PER-PERIOD WIDTH PAST 12 PERIODS (2026-08-17, per Mo — "I like how the data gets smaller
+  // to accommodate more months but there should be a limit and then we should just allow horizontal
+  // scroll. Let's fix things at the size of 12 months before we turn on horizontal scroll"): this
+  // chart used to shrink every bar/group to squeeze however many periods were selected into the
+  // container's own width, so a wide date range (e.g. a 31-month Jan 2024-Jul 2026 span in Reporting
+  // Intelligence) compressed bars and period labels until adjacent months' labels overlapped
+  // illegibly. Fixed by computing the per-period width from a fixed 12-period reference layout (the
+  // container's own current width divided across 12 slots) and never shrinking narrower than that —
+  // past 12 periods, the chart's total width grows beyond the container instead, and the outer
+  // wrapper (containerRef below) scrolls horizontally rather than continuing to compress.
+  const MAX_FIT_PERIODS = 12;
+  const availableW = Math.max(1, measuredWidth - padL - padR);
+  const unitPlotW = availableW / MAX_FIT_PERIODS;
+  const needsScroll = n > MAX_FIT_PERIODS;
+  const plotW = needsScroll ? unitPlotW * n : availableW;
+  const W = plotW + padL + padR;
   const plotH = H - padT - padB;
   const seriesCount = Math.max(1, series.length);
   const groupGap = Math.min(18, (plotW / n) * 0.3);
@@ -1331,8 +1346,8 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
   const barLabel = (v, money) => (v > 0 ? fmtTick(v, money) : null);
 
   return (
-    <div ref={containerRef}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
+    <div ref={containerRef} style={needsScroll ? { overflowX: "auto" } : undefined}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: needsScroll ? W : "100%", height: H, display: "block" }}>
         {fracs.map((f, i) => {
           const y = padT + plotH - f * plotH;
           return (
