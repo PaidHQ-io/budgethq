@@ -57,8 +57,37 @@
  * describe). If the very first live sync throws an UNRECOGNIZED_FIELD/INVALID_QUERY fault, start by
  * removing the search-impression-share lines one at a time to isolate which name is wrong before
  * assuming a different bug class — everything else in this query is the well-documented tier.
+ *
+ * DDMQL (2026-08-03, per Mo — validated as "close enough to work with" as a directional ad-group
+ * signal, unlike DDSQL/DD Pipeline which were found to diverge from PowerBI by 3-4x — see that
+ * conversation for the full reconciliation investigation). metrics.conversions/.all_conversions
+ * above are BLENDED totals across every conversion action the account counts as a conversion — they
+ * do NOT isolate DDMQL specifically. Getting one named conversion action's own number requires
+ * segmenting by segments.conversion_action_name, which — if selected in the main query above — would
+ * multiply row grain to one row per ad group per day per conversion action, breaking the "won't
+ * increase row count" requirement this whole round of connector changes was scoped to. Fixed instead
+ * by running a THIRD, separate query (buildDdmqlQuery) that both selects AND filters on
+ * segments.conversion_action_name — safe, ordinary GAQL segment usage, unlike the WHERE-only-without-
+ * SELECT filtering some advertisers use to avoid segmenting (deliberately NOT used here since that
+ * behavior isn't something this file's author could verify without a live account) — then merges its
+ * per-(campaign, ad group, date) value into the SAME row buildQuery()'s results already produce, via
+ * ddmqlByKey (see getSpend below). Net effect: an extra API query, but zero extra stored rows.
+ *
+ * DDMQL_CONVERSION_ACTION_NAME is hardcoded to Mo's own account's conversion action name — this is
+ * workspace-specific, not something every PaidHQ workspace would share, so it'll need to become a
+ * per-workspace config value (e.g. a Settings field: "which conversion action represents your MQL
+ * signal") the moment a second workspace wants this. Not built that way yet since only one workspace
+ * uses this today. If the name is ever renamed in Google Ads, this silently returns zero DDMQL rows
+ * rather than erroring — worth spot-checking after any Google Ads conversion-action rename.
+ *
+ * Scoped to the ad_group (Search-eligible) query only, not PMax's asset_group — DDMQL activity on
+ * PMax campaigns, if any, isn't captured here yet (known gap, not verified either way).
  */
 import { adsApiSearchAll } from "../lib/googleAdsOAuth.js";
+
+// See DDMQL doc note up top for why this is hardcoded and what needs to change to support a second
+// workspace.
+const DDMQL_CONVERSION_ACTION_NAME = "DDMQL";
 
 // ad_group (not campaign or ad_group_ad) — one row per ad group per real calendar day via
 // segments.date, not a range total. Same reasoning as Meta's time_increment=1: PaidHQ's pacing
@@ -105,13 +134,46 @@ function buildAssetGroupQuery(startDate, endDate) {
   `.trim();
 }
 
+// DDMQL-specific query — see DDMQL doc note up top. Selecting AND filtering on
+// segments.conversion_action_name together is ordinary, well-documented GAQL segment usage (unlike
+// filtering on it alone without selecting it, which this file's author couldn't verify without a
+// live account and so deliberately avoided) — the query below returns one row per (ad group, date)
+// where DDMQL actually fired, segmented by conversion_action_name, which getSpend() below reduces
+// back down to a per-(campaign, ad group, date) lookup before merging into buildQuery()'s rows.
+function buildDdmqlQuery(startDate, endDate) {
+  return `
+    SELECT
+      campaign.id, ad_group.id,
+      segments.date, segments.conversion_action_name,
+      metrics.all_conversions
+    FROM ad_group
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+      AND segments.conversion_action_name = '${DDMQL_CONVERSION_ACTION_NAME}'
+  `.trim();
+}
+
+// campaignId/adGroupId/date -> summed DDMQL value. Summed rather than assigned directly in case
+// Google ever returns more than one row per key for a single named conversion action (shouldn't
+// happen given the exact-name filter above, but summing degrades safely instead of silently
+// dropping data if it ever does).
+export function buildDdmqlLookup(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const n = Number(r.metrics?.allConversions);
+    if (!Number.isFinite(n)) continue;
+    const key = `${r.campaign?.id || ""}|${r.adGroup?.id || ""}|${r.segments?.date || ""}`;
+    map.set(key, (map.get(key) || 0) + n);
+  }
+  return map;
+}
+
 // Builds the extra_metrics bag from a GAQL row's metrics/campaign/child fields — only includes a
 // key when the API actually returned something for it, same "drop rather than fabricate" rule
 // roundPipelineMetrics (src/lib/askAI.js) already uses, so a field Google didn't return (e.g. an
 // impression-share metric with no eligible auctions that day) doesn't show up as a misleading 0.
 // Micros fields (average_cpc) get the same /1e6 treatment as cost_micros in mapRow below; ratio
 // fields (ctr, conversions counts/values, impression-share fractions) are used as-is.
-export function buildExtraMetrics(r, child) {
+export function buildExtraMetrics(r, child, ddmql) {
   const m = r.metrics || {};
   const out = {};
   const put = (key, raw, transform = (x) => x) => {
@@ -119,6 +181,7 @@ export function buildExtraMetrics(r, child) {
     const n = transform(Number(raw));
     if (Number.isFinite(n)) out[key] = Math.round(n * 10000) / 10000;
   };
+  put("ddmql", ddmql);
   put("conversions", m.conversions);
   put("conversions_value", m.conversionsValue);
   put("all_conversions", m.allConversions);
@@ -143,10 +206,11 @@ export function buildExtraMetrics(r, child) {
 // convention (same unit Search Ads 360/other Google Ads-adjacent APIs use). `child` is whichever of
 // r.adGroup/r.assetGroup this row came from — the thing that plays Ad Group's role as PaidHQ's
 // second grouping level (see the two-level-model doc note up top).
-function mapRow(r, child) {
+function mapRow(r, child, ddmqlByKey) {
   const spend = Math.round((parseInt(r.metrics?.costMicros || "0", 10) / 1e6) * 100) / 100;
   const date = r.segments?.date || null;
   if (!date || spend <= 0) return null;
+  const ddmqlKey = `${r.campaign?.id || ""}|${child?.id || ""}|${date}`;
   return {
     campaign_group_name: r.campaign?.name || `Campaign ${r.campaign?.id || ""}`.trim(),
     campaign_name: child?.name || `Ad Group ${child?.id || ""}`.trim(),
@@ -156,7 +220,7 @@ function mapRow(r, child) {
     spend,
     impressions: parseInt(r.metrics?.impressions || "0", 10) || 0,
     clicks: parseInt(r.metrics?.clicks || "0", 10) || 0,
-    extra_metrics: buildExtraMetrics(r, child),
+    extra_metrics: buildExtraMetrics(r, child, ddmqlByKey?.get(ddmqlKey)),
   };
 }
 
@@ -174,14 +238,16 @@ export async function getSpend({ startDate, endDate, credential }) {
     loginCustomerId: credential.loginCustomerId || undefined,
   };
 
-  const [adGroupRows, assetGroupRows] = await Promise.all([
+  const [adGroupRows, assetGroupRows, ddmqlRows] = await Promise.all([
     adsApiSearchAll(credential.accountId, buildQuery(startDate, endDate), auth),
     adsApiSearchAll(credential.accountId, buildAssetGroupQuery(startDate, endDate), auth),
+    adsApiSearchAll(credential.accountId, buildDdmqlQuery(startDate, endDate), auth),
   ]);
+  const ddmqlByKey = buildDdmqlLookup(ddmqlRows);
 
   return [
-    ...adGroupRows.map((r) => mapRow(r, r.adGroup)),
-    ...assetGroupRows.map((r) => mapRow(r, r.assetGroup)),
+    ...adGroupRows.map((r) => mapRow(r, r.adGroup, ddmqlByKey)),
+    ...assetGroupRows.map((r) => mapRow(r, r.assetGroup, null)),
   ].filter(Boolean);
 }
 

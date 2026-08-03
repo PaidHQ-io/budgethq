@@ -8,6 +8,60 @@ import { isRateMetric, computeDerivedPipelineMetrics, DERIVED_PIPELINE_METRICS, 
 // response for a workspace with hundreds of segments.
 const ASK_AI_MAX_LISTED_SEGMENTS=50;
 
+// Google connector's extra_metrics fields (api/connectors/google.js) that askAIQuerySpend now
+// surfaces (2026-08-03, per Mo's DDMQL/channel-signal request). Split into two families because
+// they aggregate differently — see accumulateExtraMetrics/finalizeExtraMetrics below:
+//   - EXTRA_METRIC_SUM_FIELDS: plain counts/dollar totals, safe to sum directly across rows, same
+//     "only ever sum an absolute" rule reportingMetrics.js's isRateMetric already enforces for
+//     pipeline data.
+//   - IMPRESSION_SHARE_FIELDS: ratios (impressions received / impressions eligible) — naively
+//     averaging per-row percentages across ad groups with very different impression volumes would
+//     be misleading (a 100-impression ad group at 100% share and a 10,000-impression one at 20%
+//     share should blend to ~20%, not 60%), so these get impressions-weighted aggregation instead.
+// average_cpc/ctr are deliberately NOT in either list — they're exactly total_spend/total_clicks and
+// total_clicks/total_impressions respectively, which askAIQuerySpend already computes correctly from
+// its existing totals, so re-aggregating the raw per-row fields would be redundant.
+const EXTRA_METRIC_SUM_FIELDS=["ddmql","conversions","conversions_value","all_conversions","all_conversions_value"];
+const IMPRESSION_SHARE_FIELDS=["search_impression_share","search_top_impression_share","search_absolute_top_impression_share","search_rank_lost_impression_share","search_rank_lost_top_impression_share","search_rank_lost_absolute_top_impression_share"];
+const EXTRA_METRIC_HAVING_FIELDS=[...EXTRA_METRIC_SUM_FIELDS,"cost_per_ddmql",...IMPRESSION_SHARE_FIELDS];
+
+// Accumulator for the extra-metrics fields above across a set of matching rows — see the two
+// families' doc note up top for why sums and impression-share fields aggregate differently.
+function emptyExtraAccumulator(){
+  return{
+    sums:Object.fromEntries(EXTRA_METRIC_SUM_FIELDS.map(k=>[k,0])),
+    shareWeighted:Object.fromEntries(IMPRESSION_SHARE_FIELDS.map(k=>[k,{weightedImpr:0,eligibleImpr:0}])),
+  };
+}
+function accumulateExtraMetrics(acc,row){
+  const em=row.extra_metrics||{};
+  const impr=row.impressions||0;
+  EXTRA_METRIC_SUM_FIELDS.forEach(k=>{if(typeof em[k]==="number")acc.sums[k]+=em[k];});
+  IMPRESSION_SHARE_FIELDS.forEach(k=>{
+    const share=em[k];
+    // impressions_eligible = impressions_received / share (share=0 means either no eligible
+    // auctions or a genuine 0% share — either way there's nothing safe to divide by, so skip it
+    // rather than risk a divide-by-zero/Infinity poisoning the blended total).
+    if(typeof share==="number"&&share>0&&impr>0){
+      acc.shareWeighted[k].weightedImpr+=impr;
+      acc.shareWeighted[k].eligibleImpr+=impr/share;
+    }
+  });
+}
+// Collapses an accumulator into plain output fields — a sum field is omitted entirely if it never
+// saw a real value (same "drop rather than fabricate a 0" rule used throughout this file), same for
+// an impression-share field with no weighted data to blend.
+function finalizeExtraMetrics(acc,spend){
+  const out={};
+  EXTRA_METRIC_SUM_FIELDS.forEach(k=>{if(acc.sums[k])out[k]=Math.round(acc.sums[k]*100)/100;});
+  IMPRESSION_SHARE_FIELDS.forEach(k=>{
+    const w=acc.shareWeighted[k];
+    if(w.eligibleImpr>0)out[k]=Math.round((w.weightedImpr/w.eligibleImpr)*10000)/10000;
+  });
+  if(typeof out.ddmql==="number"&&out.ddmql>0)out.cost_per_ddmql=Math.round((spend/out.ddmql)*100)/100;
+  return out;
+}
+
 // Model picker options (2026-07-28, per Mo). Values must match api/analyze.js's ALLOWED_MODELS
 // allow-list exactly — that file validates server-side and silently falls back to the default if
 // a value here ever drifts out of sync with it, so a stale/renamed model just quietly downgrades
@@ -83,14 +137,16 @@ export const ASK_AI_TOOLS=[
   },
   {
     name:"query_spend",
-    description:"Get total ACTUAL spend/clicks/impressions for campaigns matching a set of dimension filters within a date range, optionally broken down by one more dimension, optionally restricted to only fully-tagged or only untagged campaigns. This has no concept of budget — use query_budget or query_pacing for anything about allocated/planned amounts. This is the only source of truth for spend numbers — never estimate or recall a figure without calling this.",
+    description:"Get total ACTUAL spend/clicks/impressions for campaigns matching a set of dimension filters within a date range, optionally broken down by one more dimension, optionally restricted to only fully-tagged or only untagged campaigns. This has no concept of budget — use query_budget or query_pacing for anything about allocated/planned amounts. This is the only source of truth for spend numbers — never estimate or recall a figure without calling this."+
+      " CHANNEL SIGNAL (2026-08-03): Google-synced rows only (not other platforms, not manually-imported/CSV rows) also carry ddmql, cost_per_ddmql (derived), conversions/conversions_value/all_conversions/all_conversions_value (blended totals across EVERY conversion action the account counts — NOT ddmql-specific), and the search_impression_share family (search_impression_share, search_top_impression_share, search_absolute_top_impression_share, search_rank_lost_impression_share, search_rank_lost_top_impression_share, search_rank_lost_absolute_top_impression_share — impressions-weighted when broken down by group_by, never a naive average of percentages) in the response whenever present."+
+      " ddmql is Mo's own Google Ads conversion action used as a directional proxy for MQLs at the ad-group level (PowerBI's real MQL/SQL/pipeline data — query_pipeline — only exists at Campaign grain, never Ad Group). It is NOT validated against PowerBI at the ad-group level and the size (and direction) of the gap between ddmql and the real PowerBI MQL count VARIES by campaign and date range — never assume a gap seen for one campaign applies to another. Whenever a question uses ddmql to recommend an ad-group-level action (e.g. where to allocate budget), ALSO call query_pipeline filtered to that ad group's parent campaign over the same date range, and explicitly state the ddmql-vs-PowerBI comparison for that specific scope in the answer — never present a ddmql-based recommendation without that live cross-check.",
     input_schema:{type:"object",properties:{
       filters:{type:"object",description:"Map of dimension name -> exact value to filter to (use \"Platform\", \"Campaign\", or \"Ad Group\" as a key to filter on those). Omit a dimension entirely to not filter on it.",additionalProperties:{type:"string"}},
       start_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no lower bound."},
       end_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no upper bound."},
       group_by:{type:"string",description:"Optional dimension name (or \"Platform\", \"Campaign\", \"Ad Group\") to break the total down by."},
       tagged_status:{type:"string",enum:["any","tagged","untagged"],description:"\"tagged\" = only campaigns that have a value set for EVERY tag dimension (fully tagged, matching the Tagger's own definition). \"untagged\" = campaigns missing at least one. Defaults to \"any\" (no restriction). Use this for questions like \"how much spend is untagged\" or \"what's tagged vs. not\"."},
-      having:havingSchema(["spend"]),
+      having:havingSchema(["spend",...EXTRA_METRIC_HAVING_FIELDS]),
     },required:[]},
   },
   {
@@ -251,6 +307,7 @@ export function askAIQuerySpend({mergedNormRows,tags,tagDims,filters,startDate,e
   const groupMap={};
   const seenCampaigns=new Set();
   let totalSpend=0,totalClicks=0,totalImpr=0;
+  const totalExtra=emptyExtraAccumulator();
   mergedNormRows.forEach(row=>{
     const d=parseSpendDate(row.date);
     if(start&&(!d||d<start))return;
@@ -265,10 +322,13 @@ export function askAIQuerySpend({mergedNormRows,tags,tagDims,filters,startDate,e
     const matches=filterEntries.every(([dim,val])=>askAIDimValue(row,rowTags,dim).toLowerCase()===String(val).toLowerCase());
     if(!matches)return;
     totalSpend+=row.spend||0;totalClicks+=row.clicks||0;totalImpr+=row.impressions||0;
+    accumulateExtraMetrics(totalExtra,row);
     seenCampaigns.add(key);
     if(groupBy){
       const gv=askAIDimValue(row,rowTags,groupBy,"Untagged");
-      groupMap[gv]=(groupMap[gv]||0)+(row.spend||0);
+      if(!groupMap[gv])groupMap[gv]={spend:0,extra:emptyExtraAccumulator()};
+      groupMap[gv].spend+=(row.spend||0);
+      accumulateExtraMetrics(groupMap[gv].extra,row);
     }
   });
   const result={
@@ -276,12 +336,14 @@ export function askAIQuerySpend({mergedNormRows,tags,tagDims,filters,startDate,e
     total_clicks:totalClicks,
     total_impressions:totalImpr,
     campaign_count:seenCampaigns.size,
+    ...finalizeExtraMetrics(totalExtra,totalSpend),
   };
   if(groupBy){
-    const havingFilters=sanitizeNumericFilters(having,["spend"]);
+    const havingFilters=sanitizeNumericFilters(having,["spend",...EXTRA_METRIC_HAVING_FIELDS]);
     result.breakdown=Object.entries(groupMap)
-      .filter(([,spend])=>matchesNumericFilters({spend},havingFilters))
-      .sort((a,b)=>b[1]-a[1]).map(([value,spend])=>({value,spend:Math.round(spend*100)/100}));
+      .map(([value,g])=>({value,spend:Math.round(g.spend*100)/100,...finalizeExtraMetrics(g.extra,g.spend)}))
+      .filter(r=>matchesNumericFilters(r,havingFilters))
+      .sort((a,b)=>b.spend-a.spend);
   }
   return result;
 }
