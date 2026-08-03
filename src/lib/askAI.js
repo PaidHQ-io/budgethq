@@ -548,7 +548,18 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
       const text=data.content.find(b=>b.type==="text")?.text||"";
       return{answer:text||"(no response)",messages,steps,usage};
     }
-    messages.push({role:"assistant",content:data.content});
+    // Strip empty text blocks before this assistant turn joins the conversation history (2026-08-16,
+    // per Mo — reported "messages: text content blocks must be non-empty" from the API after a few
+    // rounds of tool calls). streamAnalyze's content_block_start always seeds a text block as
+    // {type:"text",text:""} (see that function above) — if the model streams straight into tool_use
+    // without ever sending a text_delta for it (common on a tool-only round, no visible preamble),
+    // that block stays permanently empty and rides into `messages` unchanged. Anthropic's API
+    // accepts an empty text block as the LATEST message in a request, but rejects it once it's
+    // replayed back as HISTORY on the next round/turn — exactly what happened here. A text block
+    // with nothing in it carries no information anyway, so it's safe to just drop it; the tool_use
+    // block(s) in the same turn are untouched.
+    const assistantContent=data.content.filter(b=>b.type!=="text"||b.text.length>0);
+    messages.push({role:"assistant",content:assistantContent});
     const toolResults=[];
     for(const block of data.content){
       if(block.type!=="tool_use")continue;
@@ -614,7 +625,10 @@ export async function askAIBuildView({question,ctx,token}){
     if(data.stop_reason!=="tool_use"){
       throw new Error(data.text||"Couldn't figure out a view for that — try rephrasing.");
     }
-    messages.push({role:"assistant",content:data.content});
+    // Same defensive filter as askAIRun above — this loop doesn't go through streamAnalyze (it's a
+    // plain non-streaming fetch), so an empty text block is less likely here, but guarding costs
+    // nothing and keeps both tool-loops consistent.
+    messages.push({role:"assistant",content:(data.content||[]).filter(b=>b.type!=="text"||b.text.length>0)});
     const toolResults=[];
     for(const block of data.content){
       if(block.type!=="tool_use"||block.name==="apply_view")continue;
