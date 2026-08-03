@@ -149,6 +149,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[askSidebarEl,setAskSidebarEl]=useState(null); // portal target inside <aside> for Ask AI's search/projects/labels/pinned-chats panel — replaces the generic "Total spend" stat tiles that used to show here (not relevant to Ask AI, see 2026-07-21 UX note)
   const[reportingAnalyzerSidebarEl,setReportingAnalyzerSidebarEl]=useState(null); // portal target inside <aside> for Pipeline Tagger's own tagged/filtered overview (2026-08-03, per Mo — same reasoning as askSidebarEl above, the generic ad-spend stat tiles never applied to reporting_facts data)
   const[pipelineTaggerSidebarEl,setPipelineTaggerSidebarEl]=useState(null); // portal target inside <aside> for Reporting Intelligence's Period/Metrics/Summary controls (2026-08-04, per Mo — "works like the budget pacing tab", same portal pattern as pacingSidebarEl above)
+  const[goalsObjectivesSidebarEl,setGoalsObjectivesSidebarEl]=useState(null); // portal target inside <aside> for Goals & Objectives' own tagged/filtered overview (2026-08-19) — same reasoning as reportingAnalyzerSidebarEl above, just for the goals-scoped ReportingFactsTagger instance instead of the pipeline one
   useEffect(()=>{
     const onMove=e=>{
       if(!statsResizing.current)return;
@@ -305,6 +306,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // and screenshots still go straight to pendingReportingRows since reportingAI.js already derives
   // its own metric keys per column during extraction. See pipelineColumnMapping.js's top doc comment.
   const[pendingReportingRawImport,setPendingReportingRawImport]=useState(null);
+  // Same one-shot raw-import handoff as pendingReportingRawImport above, for goals CSV/XLSX instead
+  // of pipeline (2026-08-19, per Mo's goals-import build) — kept as its own state rather than reusing
+  // pendingReportingRawImport, since GoalsObjectives.jsx and ReportingAnalyzer.jsx are two separately-
+  // mounted tabs that each need their own handoff without racing each other.
+  const[pendingGoalsRawImport,setPendingGoalsRawImport]=useState(null);
 
   const[budgets,setBudgets]=useState({});
   const[budgetDims,setBudgetDims]=useState([]);
@@ -1808,20 +1814,25 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       setView("budget");
       return;
     }
-    // pipeline / goals both land in reporting_facts via ReportingAnalyzer's review table — the
-    // extraction has to happen here (not inside ReportingAnalyzer) since that tab isn't
-    // necessarily mounted right now. `type` becomes each row's tag: goals-classified rows get a
-    // distinct source prefix so GoalsObjectives.jsx can filter to just those, everything else
-    // (pipeline) keeps the existing powerbi_* source naming reportingAI.js/reportingImport.js
-    // already use.
+    // pipeline / goals both land in reporting_facts via ReportingAnalyzer's (or, for goals,
+    // GoalsObjectives') review table — the extraction has to happen here (not inside either tab)
+    // since neither is necessarily mounted right now. `type` becomes each row's tag: goals-
+    // classified rows get a distinct source prefix so GoalsObjectives.jsx can filter to just those,
+    // everything else (pipeline) keeps the existing powerbi_* source naming reportingAI.js/
+    // reportingImport.js already use.
     //
-    // Pipeline CSV/XLSX (NOT PDF, NOT goals) skips parseCampaignReportFile's fixed header-alias
-    // map entirely (2026-08-02, per Mo — "I want all of the rows to come into the pipeline
-    // tagger... the fields from the csv should also show up... as mappable"): every row/column
-    // reads in untouched, and ReportingAnalyzer shows a column-mapping step (PipelineColumnMapper)
-    // before anything becomes a normalized row. Goals CSV/XLSX still uses parseCampaignReportFile
-    // unchanged — GoalsObjectives.jsx's fixed GOAL_METRICS list is a different, narrower shape
-    // this mapping step wasn't built for.
+    // Pipeline AND (as of 2026-08-19, per Mo — "build the goals & objectives import like we've done
+    // with... pipeline import") Goals CSV/XLSX both skip parseCampaignReportFile's fixed header-
+    // alias map entirely: every row/column reads in untouched, and PipelineColumnMapper shows a
+    // column-mapping step before anything becomes a normalized row — same open-mapping flow for
+    // both, differing only in sourceLabel/archive-category/destination view/destination state, which
+    // is why these two branches are near-identical rather than actually shared code: they hand off
+    // to two separately-mounted tabs (ReportingAnalyzer vs GoalsObjectives), each with its own
+    // one-shot relay state (pendingReportingRawImport vs pendingGoalsRawImport — see PaidHQ.jsx's own
+    // state declarations for why these can't just be one shared piece of state). PDF stays on the
+    // OLD parseCampaignReportFile/AI-extraction path below for both types, unchanged — out of scope
+    // for this pass, matching exactly how pipeline's own PDF vs CSV/XLSX split already worked before
+    // goals import existed.
     if(type==="pipeline"&&ext!=="pdf"){
       const named=await promptAndArchiveFile(file,"Pipeline import");
       if(!named)return;
@@ -1836,6 +1847,26 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         // handleMappedImport for where that actually gets written.
         setPendingReportingRawImport({...raw,sourceLabel:"pipeline_csv_mapped",archivedFileId:named.fileId});
         setView("reportingAnalyzer");
+      }catch(err){
+        setUnifiedRouteError(err.message||"Couldn't read that file.");
+      }finally{
+        setUnifiedRouting(false);
+      }
+      return;
+    }
+    if(type==="goals"&&ext!=="pdf"){
+      const named=await promptAndArchiveFile(file,"Goals import");
+      if(!named)return;
+      setPendingClassification(null);
+      setUnifiedRouteError("");
+      setUnifiedRouting(true);
+      try{
+        const raw=await parsePipelineFileRaw(file);
+        // sourceLabel MUST start with "goals" (isGoalsSource's prefix, pipelineColumnMapping.js) —
+        // GoalsObjectives.jsx's own ReportingFactsTagger instance filters on exactly this, so getting
+        // this wrong would silently make every row from this import invisible there.
+        setPendingGoalsRawImport({...raw,sourceLabel:"goals_csv_mapped",archivedFileId:named.fileId});
+        setView("goalsObjectives");
       }catch(err){
         setUnifiedRouteError(err.message||"Couldn't read that file.");
       }finally{
@@ -2334,7 +2365,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // promptAndArchiveFile's call sites above — double as the whitelist for which File Store records
   // even offer this button; a manually-added reference file (PDF, insertion order, "Manual upload")
   // has no importer to re-run, so it never gets one.
-  const APPLY_CATEGORIES=useMemo(()=>new Set(["Spend import","Tag import","Pipeline import","Budget import"]),[]);
+  const APPLY_CATEGORIES=useMemo(()=>new Set(["Spend import","Tag import","Pipeline import","Budget import","Goals import"]),[]);
   const[applyingFileId,setApplyingFileId]=useState(null);
   const applyStoredFile=useCallback(async(rec)=>{
     if(!workspace?.id||!session)return;
@@ -2347,7 +2378,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       // fileStoreList is already sorted newest-first (files.js's GET orders by created_at desc), so
       // re-Applying after tweaking the mapping keeps using the latest tweak, not the original guess.
       let config=null;
-      if(rec.category==="Spend import"||rec.category==="Pipeline import"){
+      if(rec.category==="Spend import"||rec.category==="Pipeline import"||rec.category==="Goals import"){
         const sidecar=fileStoreList.find(f=>f.category===IMPORT_CONFIG_CATEGORY&&f.name===importConfigFileName(rec.id));
         if(sidecar){
           try{
@@ -2376,6 +2407,21 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           initialHardcodedChannel:config?.hardcodedChannel,
         });
         setView("reportingAnalyzer");
+      }else if(rec.category==="Goals import"){
+        const raw=await parsePipelineFileRaw(file);
+        // sourceLabel is deliberately "goals_csv_mapped" here, NOT rec.name the way Pipeline import
+        // above uses — GoalsObjectives.jsx's browse grid filters on isGoalsSource (a "goals" prefix
+        // check), so replaying under an arbitrary saved file name (e.g. "Q3 Targets") would silently
+        // make these rows invisible there. Pipeline's own use of rec.name here doesn't have the same
+        // risk since ReportingAnalyzer's filter is the inverse (isPipelineSource) and rec.name is
+        // vanishingly unlikely to itself start with "goals".
+        setPendingGoalsRawImport({
+          ...raw,sourceLabel:"goals_csv_mapped",archivedFileId:rec.id,
+          initialMapping:config?.mapping,initialPeriodMode:config?.periodMode,
+          initialYear:config?.year,initialMonth:config?.month,initialQuarter:config?.quarter,
+          initialHardcodedChannel:config?.hardcodedChannel,
+        });
+        setView("goalsObjectives");
       }
     }catch(err){
       showNotif(err.message||"Couldn't reapply this file.","error");
@@ -3047,6 +3093,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             <div ref={setAskSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="reportingAnalyzer"?(
             <div ref={setReportingAnalyzerSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="goalsObjectives"?(
+            <div ref={setGoalsObjectivesSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="pipelineTagger"?(
             <div ref={setPipelineTaggerSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="data"?(
@@ -4378,7 +4426,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} workspace={workspace} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} customMetrics={customMetrics} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl} archiveImportConfig={archiveImportConfig}/></Suspense>}
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} customMetrics={customMetrics} sidebarEl={pipelineTaggerSidebarEl} pipelineDimensions={pipelineDimensions} setPipelineDimensions={setPipelineDimensions} pipelineViews={pipelineViews} setPipelineViews={setPipelineViews} canEdit={canEdit}/></Suspense>}
-      {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace}/></Suspense>}
+      {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace} tagDims={tagDims} canEdit={canEdit} sidebarEl={goalsObjectivesSidebarEl} archiveImportConfig={archiveImportConfig} initialRawGoalsImport={pendingGoalsRawImport} onConsumeInitialRawGoalsImport={()=>setPendingGoalsRawImport(null)}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
           been imported, including anything a user has since hidden from the dashboards. */}

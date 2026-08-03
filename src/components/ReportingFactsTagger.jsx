@@ -228,7 +228,28 @@ const TAGS_BOX_STYLE = { flex: "1 0 260px", minWidth: 260 };
 
 const fIn = { background: "transparent", border: "none", outline: "none", width: "100%" };
 
-export default function ReportingFactsTagger({ T, session, workspace, tagDims, canEdit, refreshSignal, onBackToDataSources, sidebarEl }) {
+// GENERALIZED FOR GOALS & OBJECTIVES (2026-08-19, per Mo — "build the goals & objectives import
+// like we've done with campaign spend and pipeline import... tag them with similar dimensions and
+// tags"): this component used to be pipeline-only (implicitly, by never filtering source at all —
+// it read and displayed EVERY core.reporting_facts row, goals-sourced or not, undifferentiated).
+// Now takes three optional params so GoalsObjectives.jsx can reuse this exact grid/tagging engine
+// scoped to just its own rows, instead of either mixing goals into Pipeline Tagger's view or forking
+// a second ~700-line copy of this file:
+//   - sourceFilter(source): predicate applied to each row's `source` field at fetch time. Undefined
+//     (every existing pipeline call site) means no filtering — unchanged behavior. GoalsObjectives
+//     passes one that matches its own "goals"-prefixed sources; a generalized ReportingAnalyzer (see
+//     that file's own doc note) passes the inverse so Pipeline's browse grid stops showing goals rows
+//     now that goals import is a real, populated flow rather than a rare edge case.
+//   - datasetLabel: the sidebar title text (defaults to "Pipeline Tagger", the original hardcoded
+//     string) — "Goals & Objectives" for the goals instance.
+//   - storageKeyPrefix: every usePersistentState key below (columns/filters/sort) is now built via
+//     the local k() helper off this prefix (defaults to "paidhq_pipeline_tagger_", preserving every
+//     existing pipeline user's already-saved localStorage prefs verbatim) — WITHOUT this, a goals
+//     instance and the pipeline instance would silently share the same column/filter/sort state,
+//     since both would otherwise read/write the exact same localStorage keys. GoalsObjectives passes
+//     "paidhq_goals_tagger_" so the two tabs' UI preferences stay fully independent.
+export default function ReportingFactsTagger({ T, session, workspace, tagDims, canEdit, refreshSignal, onBackToDataSources, sidebarEl, sourceFilter, datasetLabel = "Pipeline Tagger", storageKeyPrefix = "paidhq_pipeline_tagger_" }) {
+  const k = (suffix) => `${storageKeyPrefix}${suffix}`;
   const [rows, setRows] = useState(null); // null = loading
   const [loadError, setLoadError] = useState("");
   const [dimensionValues, setDimensionValues] = useState({ tagDims: [], values: {}, campaignName: [] });
@@ -236,25 +257,25 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
   const [applying, setApplying] = useState(false);
   const [undoStack, setUndoStack] = useState([]); // array of batches; each batch = [{id,tags}] pre-change snapshot
 
-  const [columns, setColumns] = usePersistentState("paidhq_pipeline_tagger_columns", DEFAULT_COLUMNS);
-  const [filtersOpen, setFiltersOpen] = usePersistentState("paidhq_pipeline_tagger_filtersOpen", true);
-  const [sortCol, setSortCol] = usePersistentState("paidhq_pipeline_tagger_sortCol", "campaignName");
-  const [sortDir, setSortDir] = usePersistentState("paidhq_pipeline_tagger_sortDir", "asc");
+  const [columns, setColumns] = usePersistentState(k("columns"), DEFAULT_COLUMNS);
+  const [filtersOpen, setFiltersOpen] = usePersistentState(k("filtersOpen"), true);
+  const [sortCol, setSortCol] = usePersistentState(k("sortCol"), "campaignName");
+  const [sortDir, setSortDir] = usePersistentState(k("sortDir"), "asc");
 
-  const [fCampaignName, setFCampaignName] = usePersistentState("paidhq_pipeline_tagger_fCampaignName", "");
-  const [fCampaignNameExclude, setFCampaignNameExclude] = usePersistentState("paidhq_pipeline_tagger_fCampaignNameExclude", "");
-  const [fCampaignNameInclMode, setFCampaignNameInclMode] = usePersistentState("paidhq_pipeline_tagger_fCampaignNameInclMode", "or");
-  const [fCampaignNameExclMode, setFCampaignNameExclMode] = usePersistentState("paidhq_pipeline_tagger_fCampaignNameExclMode", "or");
-  const [fAdGroup, setFAdGroup] = usePersistentState("paidhq_pipeline_tagger_fAdGroup", "");
-  const [fAdGroupExclude, setFAdGroupExclude] = usePersistentState("paidhq_pipeline_tagger_fAdGroupExclude", "");
-  const [fAdGroupInclMode, setFAdGroupInclMode] = usePersistentState("paidhq_pipeline_tagger_fAdGroupInclMode", "or");
-  const [fAdGroupExclMode, setFAdGroupExclMode] = usePersistentState("paidhq_pipeline_tagger_fAdGroupExclMode", "or");
-  const [fChannel, setFChannel] = usePersistentState("paidhq_pipeline_tagger_fChannel", "");
-  const [fTag, setFTag] = usePersistentState("paidhq_pipeline_tagger_fTag", "");
-  const [fTagExclude, setFTagExclude] = usePersistentState("paidhq_pipeline_tagger_fTagExclude", "");
-  const [fTagInclMode, setFTagInclMode] = usePersistentState("paidhq_pipeline_tagger_fTagInclMode", "or");
-  const [fTagExclMode, setFTagExclMode] = usePersistentState("paidhq_pipeline_tagger_fTagExclMode", "or");
-  const [fStatus, setFStatus] = usePersistentState("paidhq_pipeline_tagger_fStatus", "all");
+  const [fCampaignName, setFCampaignName] = usePersistentState(k("fCampaignName"), "");
+  const [fCampaignNameExclude, setFCampaignNameExclude] = usePersistentState(k("fCampaignNameExclude"), "");
+  const [fCampaignNameInclMode, setFCampaignNameInclMode] = usePersistentState(k("fCampaignNameInclMode"), "or");
+  const [fCampaignNameExclMode, setFCampaignNameExclMode] = usePersistentState(k("fCampaignNameExclMode"), "or");
+  const [fAdGroup, setFAdGroup] = usePersistentState(k("fAdGroup"), "");
+  const [fAdGroupExclude, setFAdGroupExclude] = usePersistentState(k("fAdGroupExclude"), "");
+  const [fAdGroupInclMode, setFAdGroupInclMode] = usePersistentState(k("fAdGroupInclMode"), "or");
+  const [fAdGroupExclMode, setFAdGroupExclMode] = usePersistentState(k("fAdGroupExclMode"), "or");
+  const [fChannel, setFChannel] = usePersistentState(k("fChannel"), "");
+  const [fTag, setFTag] = usePersistentState(k("fTag"), "");
+  const [fTagExclude, setFTagExclude] = usePersistentState(k("fTagExclude"), "");
+  const [fTagInclMode, setFTagInclMode] = usePersistentState(k("fTagInclMode"), "or");
+  const [fTagExclMode, setFTagExclMode] = usePersistentState(k("fTagExclMode"), "or");
+  const [fStatus, setFStatus] = usePersistentState(k("fStatus"), "all");
 
   const [selected, setSelected] = useState(new Set()); // Set of group keys
   const [applyDim, setApplyDim] = useState("");
@@ -279,11 +300,11 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
   const refresh = useCallback(() => {
     listReportingFacts(session, workspace.id)
       .then((r) => {
-        setRows(r);
+        setRows(sourceFilter ? r.filter((row) => sourceFilter(row.source || "")) : r);
         setLoadError("");
       })
-      .catch((err) => setLoadError(err.message || "Couldn't load pipeline data."));
-  }, [session, workspace.id]);
+      .catch((err) => setLoadError(err.message || `Couldn't load ${datasetLabel.toLowerCase()} data.`));
+  }, [session, workspace.id, sourceFilter, datasetLabel]);
 
   useEffect(() => {
     refresh();
@@ -599,7 +620,7 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
   // section (PaidHQ.jsx's view==="tagger" branch) — same StatRow list shape, same tagged-% bar.
   const sidebarPortal = sidebarEl && createPortal(
     <div className="bhq-scroll" style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
-      <SectionLabel T={T} style={{ marginBottom: 8, fontSize: 11 * (T.fsScale || 1) }}>Pipeline Tagger</SectionLabel>
+      <SectionLabel T={T} style={{ marginBottom: 8, fontSize: 11 * (T.fsScale || 1) }}>{datasetLabel}</SectionLabel>
       <div style={{ padding: "12px 0" }}>
         <SectionLabel T={T} style={{ fontSize: 11 * (T.fsScale || 1) }}>Overview</SectionLabel>
         <StatRow T={T} size={11} label="Rows imported" value={(rows || []).length.toLocaleString()} />

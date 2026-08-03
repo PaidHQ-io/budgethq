@@ -5,6 +5,7 @@ import PipelineColumnMapper from "./PipelineColumnMapper.jsx";
 import { upsertReportingFacts, getDimensionValues } from "../lib/reportingApi.js";
 import { PERIOD_TYPES, PERIOD_TYPE_LABELS, normalizePeriodStart, labelForPeriod, defaultPeriodStart } from "../lib/reportingPeriods.js";
 import { deriveMetricColumns, fmtMetric } from "../lib/reportingMetrics.js";
+import { isPipelineSource } from "../lib/pipelineColumnMapping.js";
 
 // Reporting Analyzer tab (2026-07-30, per Mo — folding ReportingHQ's Dreamdata/PowerBI funnel
 // performance reporting into PaidHQ as a tab instead of running it as a separate product).
@@ -369,6 +370,11 @@ export default function ReportingAnalyzer({ T, session, workspace, initialPendin
         refreshSignal={taggerRefreshSignal}
         onBackToDataSources={onBackToDataSources}
         sidebarEl={sidebarEl}
+        // Goals & Objectives (2026-08-19) now imports into the SAME reporting_facts table under a
+        // "goals"-prefixed source — excluded here so this tab's browse grid stays pipeline-only, same
+        // as before goals import was a real populated flow. See GoalsObjectives.jsx for the mirror
+        // image of this filter.
+        sourceFilter={isPipelineSource}
       />
     </div>
   );

@@ -81,6 +81,19 @@ export const PIPELINE_METRIC_MAP_OPTIONS = [
 export const AD_GROUP_TAG_KEY = "__pipeline_ad_group";
 export const CHANNEL_TAG_KEY = "__pipeline_channel";
 
+// Goals vs. pipeline live in the SAME core.reporting_facts table (see GoalsObjectives.jsx's own
+// STORAGE doc note) — the only thing distinguishing a row is whether its `source` starts with this
+// prefix. Centralized here (2026-08-19, per Mo's goals-import build) as the ONE place both source-
+// filter predicates are defined, rather than each of ReportingAnalyzer.jsx/GoalsObjectives.jsx
+// re-deriving its own "startsWith" check and risking the two definitions drifting apart. Both
+// predicates are plain top-level functions (not created inline in JSX/useCallback) specifically so
+// they're stable references forever — ReportingFactsTagger.jsx's refresh() depends on whichever one
+// a caller passes, and a fresh function identity on every render would re-trigger that effect and
+// silently refetch on every render.
+export const GOALS_SOURCE_PREFIX = "goals";
+export const isGoalsSource = (source) => (source || "").startsWith(GOALS_SOURCE_PREFIX);
+export const isPipelineSource = (source) => !isGoalsSource(source);
+
 // Mapping targets "campaign" | "adgroup" | "channel" (as opposed to "ignore", `tag::${dim}`, or
 // `metric::${key}`) — driven from one array so PipelineColumnMapper.jsx's dropdown and this file's
 // guessing logic can't drift out of sync with each other.
