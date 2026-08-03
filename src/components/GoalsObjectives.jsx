@@ -3,7 +3,7 @@ import { SectionLabel } from "./shared.jsx";
 import ReportingFactsTagger from "./ReportingFactsTagger.jsx";
 import PipelineColumnMapper from "./PipelineColumnMapper.jsx";
 import { upsertReportingFacts } from "../lib/reportingApi.js";
-import { isGoalsSource, GOAL_METRIC_MAP_OPTIONS } from "../lib/pipelineColumnMapping.js";
+import { isGoalsSource, GOAL_METRIC_MAP_OPTIONS, GOALS_STRUCTURAL_FIELD_OPTIONS } from "../lib/pipelineColumnMapping.js";
 
 // Goals & Objectives tab (REBUILT 2026-08-19, per Mo — "let's build the goals & objectives import
 // like we've done with the campaign spend and pipeline import. we'll need to save and be able to
@@ -32,6 +32,16 @@ import { isGoalsSource, GOAL_METRIC_MAP_OPTIONS } from "../lib/pipelineColumnMap
 // default to PIPELINE_METRIC_MAP_OPTIONS, so every goal number lands under a distinctly-suffixed key
 // (mqls_goal, pipeline_value_goal, ...) that can never collide with — or get silently summed into —
 // the real performance metric it's a target FOR. See GOAL_METRIC_MAP_OPTIONS' own doc note.
+//
+// A VISIBLY DIFFERENT IMPORT SCREEN (2026-08-19, per Mo — "once the user selects 'goals' as the
+// import type, it should be a different import UX and process than the pipeline performance import"):
+// beyond the metric vocabulary, this now also passes structuralFieldOptions={GOALS_STRUCTURAL_FIELD_
+// OPTIONS} (drops Ad Group/Channel as mapping targets — goals data has neither — and relabels the
+// primary identifier "Product / Item Name" instead of "Campaign Name"; also adds "period" as a target
+// for vertical/one-row-per-period files), showChannelSection={false} (the whole Channel block simply
+// doesn't render), and goals-flavored title/description copy. The underlying component is still
+// shared (see ARCHITECTURE above for why), but everything the user actually SEES now differs from a
+// pipeline import.
 //
 // NOT carried over from this file's prior version: PDF goals imports still route through
 // ReportingAnalyzer's own AI-extraction review flow (PaidHQ.jsx's confirmUnifiedUpload — out of
@@ -107,6 +117,10 @@ export default function GoalsObjectives({
             initialHardcodedChannel={rawGoalsImport.initialHardcodedChannel}
             metricOptions={GOAL_METRIC_MAP_OPTIONS}
             metricKeySuffix="_goal"
+            structuralFieldOptions={GOALS_STRUCTURAL_FIELD_OPTIONS}
+            showChannelSection={false}
+            title="Map your goals columns"
+            description={"Every column from your file is listed below with a best guess at what it is — change any of them, or leave a column on \"Ignore\" if it doesn't matter. Map your dimension(s) (Product, Region, Module, Brand, BU, etc.) to a tag below, and map each goal number (MQL Goal, Pipeline Goal, SQL Goal, etc.) to its matching Metric. Total/summary rows and columns are detected and skipped automatically. Every other row in the file comes in regardless of what's mapped."}
           />
         )}
         {mappingImporting && (

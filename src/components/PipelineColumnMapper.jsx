@@ -6,6 +6,8 @@ import {
   buildNormalizedPipelineRows,
   detectImportPeriod,
   detectMonthColumn,
+  detectQuarterColumn,
+  isTotalRow,
   PIPELINE_METRIC_MAP_OPTIONS,
   PIPELINE_STRUCTURAL_FIELD_OPTIONS,
 } from "../lib/pipelineColumnMapping.js";
@@ -25,9 +27,9 @@ import { usePersistentState } from "../lib/persist.js";
 // API itself.
 const PREVIEW_ROWS = 6;
 
-function targetLabel(target, metricOptions) {
+function targetLabel(target, metricOptions, structuralFieldOptions) {
   if (!target || target === "ignore") return "Ignore";
-  const structural = PIPELINE_STRUCTURAL_FIELD_OPTIONS.find((f) => f.value === target);
+  const structural = (structuralFieldOptions || PIPELINE_STRUCTURAL_FIELD_OPTIONS).find((f) => f.value === target);
   if (structural) return structural.label;
   if (target.startsWith("tag::")) return target.slice(5);
   if (target.startsWith("metric::")) {
@@ -66,11 +68,26 @@ const selStyle = { padding: "5px 8px", fontSize: 12 };
 // existing (pipeline) call site. GoalsObjectives.jsx passes GOAL_METRIC_MAP_OPTIONS/"_goal" so a
 // goal number always lands under a distinctly-suffixed key, never the same key real pipeline
 // performance data uses for the same underlying concept.
-export default function PipelineColumnMapper({ T, headers, rows, tagDims, sourceLabel, onConfirm, onDiscard, initialMapping, initialPeriodMode, initialYear, initialMonth, initialQuarter, initialHardcodedChannel, metricOptions = PIPELINE_METRIC_MAP_OPTIONS, metricKeySuffix = "" }) {
+// structuralFieldOptions/showChannelSection/title/description (2026-08-19, per Mo — "once the user
+// selects 'goals' as the import type, it should be a different import UX and process than the
+// pipeline performance import"): everything pipeline-specific about this screen — Ad Group/Channel as
+// mapping targets, the Channel section, the pipeline-flavored copy — is now prop-driven rather than
+// hardcoded, so GoalsObjectives.jsx can offer a visibly different screen (GOALS_STRUCTURAL_FIELD_
+// OPTIONS, no Channel section, goals-flavored copy) from the SAME component instead of forking a
+// second one. Every default here reproduces pipeline import's exact prior behavior unchanged.
+export default function PipelineColumnMapper({
+  T, headers, rows, tagDims, sourceLabel, onConfirm, onDiscard,
+  initialMapping, initialPeriodMode, initialYear, initialMonth, initialQuarter, initialHardcodedChannel,
+  metricOptions = PIPELINE_METRIC_MAP_OPTIONS, metricKeySuffix = "",
+  structuralFieldOptions = PIPELINE_STRUCTURAL_FIELD_OPTIONS, showChannelSection = true,
+  title = "Map your columns",
+  description = "Every column from your file is listed below with a best guess at what it is — change any of them, or leave a column on \"Ignore\" if it doesn't matter. Cost-per and conversion-rate columns aren't mapping targets here; PaidHQ computes those from the absolute numbers you map (Spend, Leads, MQLs, etc.) once these rows are tagged. Every row in the file comes in regardless of what's mapped — nothing gets filtered out.",
+}) {
+  const structuralFieldValues = useMemo(() => structuralFieldOptions.map((f) => f.value), [structuralFieldOptions]);
   // Lazy init so re-renders (e.g. from the parent's other state changing) don't re-run the guess and
   // clobber anything the user already overrode.
   const [mapping, setMapping] = useState(() =>
-    initialMapping || Object.fromEntries(guessColumnMapping(headers, tagDims, metricKeySuffix).map((t, i) => [i, t]))
+    initialMapping || Object.fromEntries(guessColumnMapping(headers, tagDims, metricKeySuffix, structuralFieldValues).map((t, i) => [i, t]))
   );
 
   const setColumnTarget = (i, target) => setMapping((prev) => ({ ...prev, [i]: target }));
@@ -148,28 +165,46 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
     return null;
   }, [periodMode, detected, year, month, quarter]);
 
-  // WIDE/MONTH-COLUMN FILES (2026-08-19, per Mo — a goals file with one row per Product and 12
-  // separate month columns per metric, e.g. "January"/"February"/... twice over for two different
-  // goal metrics, plus Q1-Q4/grand-total columns that must NOT also be treated as periods — see
-  // detectMonthColumn's own doc comment for why only bare month names match). Any header that
-  // resolves to a month number gets its own {periodType:"month",periodStart} entry here, keyed by
-  // header index, using `year` from the Reporting period section below as the year to pair every
-  // detected month with (the single most sensible reuse of that control — the file itself never
-  // states a year on the month columns, so someone has to pick one, and periodMode's own year field
-  // is already exactly that "which year is this file for" input). buildNormalizedPipelineRows uses
-  // this to fan a single source row out into one row per distinct month for any metric column mapped
-  // under a month header, while every metric column NOT in a detected-month header still falls back
-  // to the single resolvedPeriod, unaffected — so a normal (non-wide) file produces columnPeriods={}
-  // and behaves exactly as before this feature existed.
+  // WIDE/MONTH-OR-QUARTER-COLUMN FILES (2026-08-19, per Mo — a goals file with one row per Product
+  // and 12 separate month columns per metric, e.g. "January"/"February"/... twice over for two
+  // different goal metrics, plus Q1-Q4/grand-total columns that must NOT also be treated as periods —
+  // see detectMonthColumn/detectQuarterColumn's own doc comments for why only bare month/quarter
+  // labels match, and "month and/or quarter headers" — a file might use quarter columns instead of
+  // month columns, with no month columns at all). Any header that resolves to a month OR bare quarter
+  // number gets its own {periodType,periodStart} entry here, keyed by header index, using `year` from
+  // the Reporting period section below as the year to pair every detected column with (the single most
+  // sensible reuse of that control — the file itself never states a year on a bare month/quarter
+  // header, so someone has to pick one, and periodMode's own year field is already exactly that "which
+  // year is this file for" input). buildNormalizedPipelineRows uses this to fan a single source row
+  // out into one row per distinct period for any metric column mapped under such a header, while every
+  // metric column NOT in a detected header still falls back to the single resolvedPeriod (or a mapped
+  // "period" column's own per-row value — see rowPeriodYear below), unaffected — so a normal (non-wide)
+  // file produces columnPeriods={} and behaves exactly as before this feature existed.
   const columnPeriods = useMemo(() => {
     const out = {};
     (headers || []).forEach((h, i) => {
       const m = detectMonthColumn(h);
-      if (m) out[i] = { periodType: "month", periodStart: normalizePeriodStart("month", `${year}-${String(m).padStart(2, "0")}-01`) };
+      if (m) { out[i] = { periodType: "month", periodStart: normalizePeriodStart("month", `${year}-${String(m).padStart(2, "0")}-01`) }; return; }
+      const q = detectQuarterColumn(h);
+      if (q) out[i] = { periodType: "quarter", periodStart: normalizePeriodStart("quarter", `${year}-${String((q - 1) * 3 + 1).padStart(2, "0")}-01`) };
     });
     return out;
   }, [headers, year]);
   const hasWideColumns = Object.keys(columnPeriods).length > 0;
+
+  // VERTICAL PERIOD COLUMN (2026-08-19, per Mo — "month and/or quarter headers ... could be
+  // horizontal or vertical"): when the user maps a column to "period" (only offered when the caller's
+  // structuralFieldOptions includes it — currently just GoalsObjectives.jsx), buildNormalizedPipelineRows
+  // dates each row from THAT row's own cell instead of the single whole-file resolvedPeriod.
+  // rowPeriodYear is passed through as the fallback year for a bare month/quarter cell with no year of
+  // its own (e.g. a "Month" column just containing "January") — same `year` control as columnPeriods
+  // above.
+  const periodColumnMapped = useMemo(() => Object.values(mapping).includes("period"), [mapping]);
+
+  // TOTAL/SUMMARY ROWS (2026-08-19, per Mo — "we need to ignore total rows or columns"): computed here
+  // purely so the user can SEE, before confirming, how many rows will be silently skipped — the actual
+  // skip happens inside buildNormalizedPipelineRows using the identical isTotalRow rule.
+  const totalRowCount = useMemo(() => (rows || []).filter((r) => isTotalRow(headers, r, mapping)).length, [headers, rows, mapping]);
 
   // CHANNEL AT IMPORT (2026-08-05, per Mo — "I'm going to start bringing the data in channel by
   // channel ... there are many cases where the channel is Bing but the campaign starts with SEA-
@@ -197,7 +232,7 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
   // additive.
   const handleConfirm = () => {
     if (!canConfirm) return;
-    const normalized = buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod, hardcodedChannel, columnPeriods);
+    const normalized = buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod, hardcodedChannel, columnPeriods, year);
     onConfirm(normalized, { mapping, periodMode, year, month, quarter, hardcodedChannel });
   };
 
@@ -206,13 +241,10 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 4 }}>
-            Map your columns — {rows.length} row{rows.length === 1 ? "" : "s"} detected
+            {title} — {rows.length} row{rows.length === 1 ? "" : "s"} detected
           </div>
           <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.6, maxWidth: 640 }}>
-            Every column from your file is listed below with a best guess at what it is — change any of them, or leave a
-            column on "Ignore" if it doesn't matter. Cost-per and conversion-rate columns aren't mapping targets here;
-            PaidHQ computes those from the absolute numbers you map (Spend, Leads, MQLs, etc.) once these rows are
-            tagged. Every row in the file comes in regardless of what's mapped — nothing gets filtered out.
+            {description}
           </div>
         </div>
         {mappedCount === 0 && (
@@ -222,7 +254,7 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
 
       {dupeTargets.length > 0 && (
         <div style={{ marginBottom: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), color: T.danger }}>
-          More than one column is mapped to {dupeTargets.map((t) => `"${targetLabel(t, metricOptions)}"`).join(", ")} — each
+          More than one column is mapped to {dupeTargets.map((t) => `"${targetLabel(t, metricOptions, structuralFieldOptions)}"`).join(", ")} — each
           target can only be used once. Change one of them to continue.
         </div>
       )}
@@ -232,6 +264,13 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
           Not mapped to any column: {unmappedMetrics.map((m) => `"${m.label}"`).join(", ")}. If your file has this
           data under a header the guess above didn't catch, find that column and set it to the matching Metric in
           its dropdown — otherwise this is expected and fine to ignore.
+        </div>
+      )}
+
+      {totalRowCount > 0 && (
+        <div style={{ marginBottom: 12, padding: "9px 12px", background: T.accentBg, border: `1px solid ${T.accentBorder}`, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), color: T.text }}>
+          {totalRowCount} row{totalRowCount === 1 ? "" : "s"} look{totalRowCount === 1 ? "s" : ""} like a Total/Summary row
+          (e.g. a "Grand Total" line) and will be skipped automatically — they're never counted as real data.
         </div>
       )}
 
@@ -251,7 +290,7 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
                   )}
                   <Sel T={T} value={mapping[i] || "ignore"} onChange={(v) => setColumnTarget(i, v)} style={{ fontSize: 12 * (T.fsScale || 1), padding: "4px 6px" }}>
                     <option value="ignore">Ignore</option>
-                    {PIPELINE_STRUCTURAL_FIELD_OPTIONS.map((f) => (
+                    {structuralFieldOptions.map((f) => (
                       <option key={f.value} value={f.value}>{f.label}</option>
                     ))}
                     {(tagDims || []).length > 0 && (
@@ -297,8 +336,15 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
         {hasWideColumns && (
           <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.5, marginBottom: 8 }}>
             {Object.keys(columnPeriods).length} column{Object.keys(columnPeriods).length === 1 ? "" : "s"} above were recognized as
-            individual months (marked with <span style={{ color: T.accent }}>→</span>) — each becomes its own dated row using the year
-            picked below. The period below only applies to any OTHER mapped metric column that isn't one of those month columns.
+            individual months or quarters (marked with <span style={{ color: T.accent }}>→</span>) — each becomes its own dated row
+            using the year picked below. The period below only applies to any OTHER mapped metric column that isn't one of those.
+          </div>
+        )}
+        {periodColumnMapped && (
+          <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.5, marginBottom: 8 }}>
+            A column is mapped to "Month / Quarter (varies per row)" — each row will be dated from its own value in that
+            column (falling back to the year picked below if that row's value is a bare month/quarter with no year). The
+            period below only applies to any row whose own period cell doesn't parse.
           </div>
         )}
         {periodMode === "detected" && detected ? (
@@ -339,26 +385,28 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
         )}
       </div>
 
-      <div style={{ marginTop: 12, padding: "12px 14px", background: T.surfaceEl, border: `1px solid ${T.border}`, borderRadius: T.r8 }}>
-        <div style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
-          Channel
+      {showChannelSection && (
+        <div style={{ marginTop: 12, padding: "12px 14px", background: T.surfaceEl, border: `1px solid ${T.border}`, borderRadius: T.r8 }}>
+          <div style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
+            Channel
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, maxWidth: 420, lineHeight: 1.5 }}>
+              {channelColumnMapped
+                ? "A column is already mapped to Channel above. To force every row in this file to one channel instead (e.g. a campaign-naming quirk makes the source column unreliable), pick it here — it overrides the mapped column."
+                : "No Channel column mapped above. If this whole file is one platform, set it here so every row is tagged with it:"}
+            </span>
+            <Sel value={hardcodedChannel} onChange={setHardcodedChannel} T={T} style={{ width: 160 }}>
+              <option value="">Don't set</option>
+              {PLATFORM_OPTIONS.filter((p) => p !== "auto").map((p) => <option key={p} value={p}>{p}</option>)}
+            </Sel>
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, maxWidth: 420, lineHeight: 1.5 }}>
-            {channelColumnMapped
-              ? "A column is already mapped to Channel above. To force every row in this file to one channel instead (e.g. a campaign-naming quirk makes the source column unreliable), pick it here — it overrides the mapped column."
-              : "No Channel column mapped above. If this whole file is one platform, set it here so every row is tagged with it:"}
-          </span>
-          <Sel value={hardcodedChannel} onChange={setHardcodedChannel} T={T} style={{ width: 160 }}>
-            <option value="">Don't set</option>
-            {PLATFORM_OPTIONS.filter((p) => p !== "auto").map((p) => <option key={p} value={p}>{p}</option>)}
-          </Sel>
-        </div>
-      </div>
+      )}
 
       <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
         <Btn T={T} variant="primary" size="md" disabled={!canConfirm} onClick={handleConfirm}>
-          Bring in {rows.length} row{rows.length === 1 ? "" : "s"}
+          Bring in {rows.length - totalRowCount} row{rows.length - totalRowCount === 1 ? "" : "s"}
         </Btn>
         <Btn T={T} variant="ghost" size="md" onClick={onDiscard}>
           Discard
