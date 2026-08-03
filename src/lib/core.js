@@ -1,6 +1,6 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { stepPeriodStart } from "./reportingPeriods.js";
+import { stepPeriodStart, normalizePeriodStart } from "./reportingPeriods.js";
 
 // src/lib/core.js — pure data/pacing logic extracted from the monolithic PaidHQ.jsx
 // (2026-07-25 split, per Mo). No React, no JSX — every export here is a plain function or
@@ -2052,7 +2052,19 @@ export function computeReportingAudit({reportingFacts,tagDims=[]}){
   tagDims.forEach(d=>{tagMissingCounts[d]=0;});
 
   rows.forEach(r=>{
-    const ps=r.periodStart,pt=r.periodType;
+    const pt=r.periodType;
+    // Fixed 2026-08-17 (per Mo — Data Audit showed 30 of 31 months "missing" for a Bing/Google
+    // import Mo confirmed was done correctly): period_start comes back from the API as whatever the
+    // Postgres driver serializes a `date` column to, which can be a full ISO timestamp like
+    // "2024-02-01T00:00:00.000Z" rather than a bare "YYYY-MM-DD" — using that raw value as this
+    // grain's "present periods" Set key, while collapseMissingPeriods below walks the span with
+    // stepPeriodStart (which always returns a BARE date), meant almost every real period silently
+    // failed the presentSet.has(k) check below and got misreported as missing — only the very first
+    // period (started from p.start, itself raw) ever happened to match. Same root cause (and same
+    // fix) as the Q1-2001 grain-rollup bug and the "Invalid Date" display bug fixed earlier this
+    // session — normalize once via normalizePeriodStart right where periodStart enters this
+    // function, so every Set/comparison below is built from a consistent bare-date string.
+    const ps=normalizePeriodStart(pt,r.periodStart)||r.periodStart;
     // Every row that's actually made it through the Reporting Analyzer's import review has both
     // (the review step requires a resolved period before Import is even clickable) — this guard is
     // just so one somehow-malformed row can't throw off every stat below.
@@ -2151,16 +2163,23 @@ export function computeReportingAudit({reportingFacts,tagDims=[]}){
   // Both are O(rows) / O(rows-per-campaign²) respectively — reporting_facts is one row per
   // campaign per PERIOD (not per day), so even a multi-year, many-campaign workspace stays small
   // enough for the per-campaign pairwise check to be cheap.
+  // Both blocks below normalize periodStart the same way the main loop above now does (see that
+  // loop's 2026-08-17 doc comment) — mixing a raw (possibly full-timestamp) periodStart against a
+  // bare-date value from stepPeriodStart in the same string comparison is exactly the fragile
+  // pattern that caused the gap-detection bug, so this normalizes once up front rather than risk
+  // the same class of mistake in the overlap range check below.
   const normCampaign=name=>(name||"").trim().toLowerCase().replace(/\s+/g," ");
+  const normRow=r=>({...r,periodStart:normalizePeriodStart(r.periodType,r.periodStart)||r.periodStart});
   const dupGroups={};
-  rows.forEach(r=>{
-    if(!r.periodStart||!r.periodType)return;
+  rows.forEach(raw=>{
+    if(!raw.periodStart||!raw.periodType)return;
+    const r=normRow(raw);
     const key=`${r.periodType}|${r.periodStart}|${normCampaign(r.campaignName)}`;
     if(!dupGroups[key])dupGroups[key]={periodType:r.periodType,periodStart:r.periodStart,names:new Map()};
     const g=dupGroups[key];
-    const raw=r.campaignName||"(none)";
-    if(!g.names.has(raw))g.names.set(raw,{campaignName:raw,rows:0});
-    g.names.get(raw).rows++;
+    const name=r.campaignName||"(none)";
+    if(!g.names.has(name))g.names.set(name,{campaignName:name,rows:0});
+    g.names.get(name).rows++;
   });
   const possibleDuplicates=Object.values(dupGroups)
     .filter(g=>g.names.size>1)
@@ -2168,8 +2187,9 @@ export function computeReportingAudit({reportingFacts,tagDims=[]}){
     .sort((a,b)=>(a.periodStart<b.periodStart?-1:a.periodStart>b.periodStart?1:0));
 
   const byCampaignForOverlap={};
-  rows.forEach(r=>{
-    if(!r.periodStart||!r.periodType)return;
+  rows.forEach(raw=>{
+    if(!raw.periodStart||!raw.periodType)return;
+    const r=normRow(raw);
     const norm=normCampaign(r.campaignName)||"(none)";
     if(!byCampaignForOverlap[norm])byCampaignForOverlap[norm]=[];
     byCampaignForOverlap[norm].push(r);
