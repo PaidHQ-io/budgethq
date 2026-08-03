@@ -252,9 +252,20 @@ const MONTH_NAME_TO_NUM = {
 // double-count if BOTH got auto-mapped to the same metric; keeping those un-auto-detected means a
 // user has to consciously choose to map one or the other, not both, rather than the tool silently
 // deciding for them.
+//
+// Trailing-token fallback (2026-08-19, per Mo's actual file — a two-row-header export where a group
+// title like "Paid Media MQLs" sits above a block of month columns; see resolveHeaderRows' own doc
+// comment for why that gets merged into ONE header per column, e.g. "Paid Media MQLs January"): after
+// a merge, the bare month name is no longer the WHOLE header, just its last word. Checking the last
+// token keeps this still narrow — "Jan-26"'s last token is "26" (not a month), "January 2026"'s last
+// token is "2026" (not a month), "Q1 Total"'s last token is "total" (not a month) — so none of those
+// deliberately-excluded shapes start matching just because this fallback was added.
 export function detectMonthColumn(header) {
   const n = normalizeHeader(header);
-  return MONTH_NAME_TO_NUM[n] || null;
+  if (MONTH_NAME_TO_NUM[n]) return MONTH_NAME_TO_NUM[n];
+  const tokens = n.split(" ");
+  const last = tokens[tokens.length - 1];
+  return (tokens.length > 1 && MONTH_NAME_TO_NUM[last]) || null;
 }
 
 // headers: raw header strings in column order. tagDims: this workspace's current tag dimension
@@ -286,6 +297,86 @@ function findHeaderRowIdx(rows) {
   return -1;
 }
 
+function nonBlankCount(row) {
+  return (row || []).filter((c) => String(c ?? "").trim() !== "").length;
+}
+
+// A row "looks like data" when most of its non-blank cells parse as numbers — the practical signal
+// that separates an actual value row from a text-labeled header row.
+function isDataish(row) {
+  const cells = (row || []).filter((c) => String(c ?? "").trim() !== "");
+  if (!cells.length) return false;
+  const numeric = cells.filter((c) => String(c).trim() !== "" && !Number.isNaN(Number(String(c).replace(/[,$%]/g, "").trim())));
+  return numeric.length / cells.length >= 0.6;
+}
+
+// TWO-ROW / MERGED-CELL HEADERS (2026-08-19, per Mo's actual goals file — a real PowerBI/Excel-style
+// export where row 1 has a FEW sparse group-title cells ("Paid Media MQLs" merged across a block of
+// month columns, "Marketing Pipeline" merged across another), and the real per-column names (BU,
+// Product Pillar, Product, January, February, ..., Total) live in row 2. findHeaderRowIdx's ">=2
+// non-blank cells" rule picked row 1 (it has exactly 2 non-blank cells — the two group titles), so
+// almost every column fell back to "Column N" and the real "January"/"BU"/etc. labels were read as
+// the FIRST DATA ROW instead — nothing downstream (metric guessing, month detection, period
+// detection) had a chance, hence the "why am I being asked for a channel/month" confusion: nothing
+// mapped, so the mapper fell all the way back to manual everything.
+//
+// resolveHeaderRows detects this specific shape and merges the two rows into one real header per
+// column, rather than trying to be a general N-row-header solver: starting from findHeaderRowIdx's
+// own candidate (call it i0), if the row immediately below (i0+1) is BOTH more densely populated than
+// i0 AND itself looks header-like (mostly text, not numbers), AND the row after THAT (i0+2, the
+// presumed first real data row) looks data-like (mostly numbers) — three independent signals, not
+// one — then i0 is treated as a sparse group-title overlay rather than the real header.
+//
+// Only DUPLICATED column labels get the group prefix, not every column the group cell happens to
+// visually span. This matters because a real merged group cell (e.g. C1:O1 to make a nice title bar
+// in Excel) can visually overlap a structural column too — Mo's actual file had "Paid Media MQLs"
+// merged starting at the SAME column as "Product" (the merge was cosmetic, spanning Product's column
+// plus all its month columns), not starting at the first month column. Forward-filling the group
+// value onto every column under it would rename "Product" itself to "Paid Media MQLs Product",
+// breaking guessOneColumn's exact-alias match for the one column that most needs to resolve cleanly.
+// Prefixing only labels that collide (both "January" columns, both "Q1 Total" columns, ...) fixes the
+// actual ambiguity — telling the two identical month columns apart — without touching any column
+// whose plain label is already unique. detectMonthColumn's trailing-token fallback (added alongside
+// this) still recognizes "Paid Media MQLs January" as month 1 despite the prefix.
+//
+// Any of the three overlay signals failing (no i0+1, i0+1 isn't text-majority, i0+1 isn't denser than
+// i0, or there's no i0+2 to confirm data starts there) falls straight back to the original
+// single-header-row behavior — every ordinary single-header file (nearly everything imported into
+// PaidHQ so far) is completely unaffected.
+export function resolveHeaderRows(rows) {
+  const i0 = findHeaderRowIdx(rows);
+  if (i0 === -1) return null;
+  const groupRow = rows[i0];
+  const headerRow = rows[i0 + 1];
+  const firstDataRow = rows[i0 + 2];
+  const looksLikeGroupOverlay =
+    headerRow &&
+    firstDataRow &&
+    nonBlankCount(headerRow) > nonBlankCount(groupRow) &&
+    !isDataish(headerRow) &&
+    isDataish(firstDataRow);
+  if (!looksLikeGroupOverlay) {
+    return { headers: (rows[i0] || []).map((h, i) => String(h ?? "").trim() || `Column ${i + 1}`), dataStartIdx: i0 + 1 };
+  }
+
+  const plainLabels = headerRow.map((h) => String(h ?? "").trim());
+  const labelCounts = new Map();
+  plainLabels.forEach((label) => {
+    if (!label) return;
+    labelCounts.set(normalizeHeader(label), (labelCounts.get(normalizeHeader(label)) || 0) + 1);
+  });
+
+  let lastGroup = "";
+  const headers = plainLabels.map((label, i) => {
+    const g = String((groupRow || [])[i] ?? "").trim();
+    if (g) lastGroup = g;
+    if (!label) return `Column ${i + 1}`;
+    const isDuplicate = (labelCounts.get(normalizeHeader(label)) || 0) > 1;
+    return isDuplicate && lastGroup ? `${lastGroup} ${label}` : label;
+  });
+  return { headers, dataStartIdx: i0 + 2 };
+}
+
 // file: a File from an <input type="file"> or drop handler. Resolves to { headers: string[],
 // rows: Array<Array<string|number>> } — EVERY data row below the detected header row, in the file's
 // own column order, no row dropped for lacking a recognized column and no column dropped for not
@@ -305,12 +396,11 @@ export function parsePipelineFileRaw(file) {
     const ext = file.name.split(".").pop().toLowerCase();
     const finish = (rawRows) => {
       try {
-        const headerRowIdx = findHeaderRowIdx(rawRows);
-        if (headerRowIdx === -1) throw new Error("Couldn't find a header row in this file.");
-        const headerRow = rawRows[headerRowIdx];
-        const headers = headerRow.map((h, i) => String(h ?? "").trim() || `Column ${i + 1}`);
+        const resolved = resolveHeaderRows(rawRows);
+        if (!resolved) throw new Error("Couldn't find a header row in this file.");
+        const { headers, dataStartIdx } = resolved;
         const rows = rawRows
-          .slice(headerRowIdx + 1)
+          .slice(dataStartIdx)
           .filter((r) => (r || []).some((c) => String(c ?? "").trim() !== ""))
           .map((r) => headers.map((_, i) => (r[i] === undefined ? "" : r[i])));
         if (!rows.length) throw new Error("No data rows found below the header row.");
