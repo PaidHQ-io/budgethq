@@ -1,4 +1,6 @@
 import { campaignKey, derivePlatform, parseSpendDate, getPeriodRange, computePacing, NUMERIC_FIELDS, NUMERIC_OPERATORS, matchesNumericFilters } from "./core.js";
+import { PIPELINE_METRIC_MAP_OPTIONS, AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY } from "./pipelineColumnMapping.js";
+import { isRateMetric, computeDerivedPipelineMetrics, DERIVED_PIPELINE_METRICS, computeCustomMetrics } from "./reportingMetrics.js";
 
 // How many individual segments a having-filtered or small unfiltered result includes in
 // matching_segments (see askAIQueryPacing) before falling back to just the count — keeps a
@@ -117,17 +119,121 @@ export const ASK_AI_TOOLS=[
       having:havingSchema(["budget","spend","actualPct","dailyRate","projected","projectedVariance"],{requiresGroupBy:false}),
     },required:["year"]},
   },
+  {
+    name:"query_pipeline",
+    description:"Get pipeline/funnel performance — Spend, Leads, MQLs, SQLs, Pipeline Value, Revenue, and whichever other funnel-stage counts this workspace tracks (MQAs, Handraisers, Demos, Free Trials, PQLs, Meetings Booked, SALs, Closed Won/Lost), PLUS derived cost-per metrics (cp_lead, cp_mql, cp_sal, cp_sql, cp_win) and conversion-rate metrics (lead_to_mql_rate, mql_to_sal_rate, mql_to_sql_rate, sal_to_sql_rate, sql_to_win_rate, win_rate, roas) — for rows matching a set of dimension filters within a date range, optionally broken down by one more dimension. This is the SAME tagged pipeline/funnel data the Performance Intelligence tab shows — a SEPARATE dataset from ad-platform spend/click data (imported and tagged independently, even though both happen to have a \"spend\" and \"Campaign\"/\"Ad Group\" concept). Use this for ANY question about leads, MQLs, SQLs, demos, pipeline value, revenue, funnel conversion rates, or cost-per-X — use query_spend/query_budget/query_pacing instead for pure ad-platform spend or budget/pacing questions. Any workspace-defined custom metric also appears in the response under its own key (see its label from list_tag_dimensions is not applicable — custom metric keys are self-descriptive, e.g. \"custom_cost_per_demo\") but can't be filtered via `having`.",
+    input_schema:{type:"object",properties:{
+      filters:{type:"object",description:"Map of dimension name -> exact value to filter to. Use \"Campaign\", \"Ad Group\", or \"Channel\" as a key to filter on those — Channel and this dataset's own Ad Group are pipeline-specific fields with their own value pools, distinct from spend data's Platform/Ad Group. Any other key must be a real tag dimension name from list_tag_dimensions. Omit a dimension entirely to not filter on it.",additionalProperties:{type:"string"}},
+      start_date:{type:"string",description:"YYYY-MM-DD, inclusive — matched against each imported period's month (this data is monthly/quarterly/yearly, never daily-grain). Omit for no lower bound."},
+      end_date:{type:"string",description:"YYYY-MM-DD, inclusive. Omit for no upper bound."},
+      group_by:{type:"string",description:"Optional dimension name (or \"Campaign\", \"Ad Group\", \"Channel\") to break the totals down by — e.g. group_by=\"Product\" to compare pipeline performance across products, or group_by=\"Campaign\" (with a Product filter set) to see campaign-level performance within one product."},
+      having:{
+        type:"array",
+        description:`Optional post-aggregation numeric threshold filter(s) on the group_by breakdown — REQUIRES group_by to be set, since this filters which breakdown GROUPS appear (like SQL's HAVING), not individual rows. Each entry: {field, operator, value}. field must be one of: ${[...PIPELINE_METRIC_MAP_OPTIONS.map(m=>m.key),...DERIVED_PIPELINE_METRICS.map(d=>d.key)].join(", ")}. operator is one of ${NUMERIC_OPERATORS.join(", ")}. Multiple entries are ANDed together. The rate fields (${DERIVED_PIPELINE_METRICS.filter(d=>d.pct).map(d=>d.key).join(", ")}) and roas are FRACTIONS/multipliers, not the 0-100 number a person would say out loud — e.g. use value:0.5 for "a 50% MQL to SQL rate", not value:50.`,
+        items:{type:"object",properties:{field:{type:"string"},operator:{type:"string",enum:NUMERIC_OPERATORS},value:{type:"number"}},required:["field","operator","value"]},
+      },
+    },required:[]},
+  },
 ];
 
-export function askAIListDimensionValues({mergedNormRows,tags,dimension}){
+// Resolves one dimension's value for a reporting_facts row (2026-08-11, per Mo — "train the AI on
+// all of the spend, budget and pipeline performance data"). "Campaign", "Ad Group", "Channel" are
+// synthetic/reserved for THIS dataset specifically — Ad Group and Channel live inside the row's own
+// `tags` object under pipelineColumnMapping.js's reserved AD_GROUP_TAG_KEY/CHANNEL_TAG_KEY (never
+// as a real tag_dims entry, so they can't collide with a user-created dimension of the same name —
+// see that file's own doc comment), rather than being derived from anything spend-side. A plain tag
+// dimension name (e.g. "Product") reads straight off row.tags, same convention as askAIDimValue.
+function askAIPipelineDimValue(row,dim,fallback=""){
+  const d=(dim||"").toLowerCase();
+  if(d==="campaign")return (row.campaignName||"").trim()||fallback;
+  if(d==="ad group"||d==="adgroup"||d==="ad set"||d==="adset")return (row.tags||{})[AD_GROUP_TAG_KEY]||fallback;
+  if(d==="channel")return (row.tags||{})[CHANNEL_TAG_KEY]||fallback;
+  return (row.tags||{})[dim]||fallback;
+}
+
+// Unions spend-side and pipeline-side values for one dimension — a tag dimension name (e.g.
+// "Product") is shared vocabulary, but the two datasets are tagged INDEPENDENTLY (Campaign Tagger's
+// own per-campaign tags vs. reporting_facts rows' own tags — see reportingFacts param's own callers
+// for why), so a value used only on one side (or spelled slightly differently) would otherwise be
+// invisible to whichever query_* tool needs the other side's exact spelling. reportingFacts is
+// optional so this still works for spend-only questions when Ask AI hasn't loaded any pipeline data
+// (e.g. a workspace that's never used Pipeline Tagger).
+export function askAIListDimensionValues({mergedNormRows,tags,reportingFacts,dimension}){
   const vals=new Set();
-  mergedNormRows.forEach(row=>{
+  (mergedNormRows||[]).forEach(row=>{
     const key=campaignKey(row.campaign_group_name,row.campaign_name);
     const rowTags=tags[key]||{};
     const v=askAIDimValue(row,rowTags,dimension);
     if(v)vals.add(v);
   });
+  (reportingFacts||[]).forEach(row=>{
+    const v=askAIPipelineDimValue(row,dimension);
+    if(v)vals.add(v);
+  });
   return Array.from(vals).sort();
+}
+
+// Rounds every numeric metric to cent-level precision for the response — same convention this
+// file already uses everywhere else ($/count totals rounded via Math.round(x*100)/100) — and drops
+// any non-finite value rather than surfacing a NaN/Infinity to the model.
+function roundPipelineMetrics(metrics){
+  const out={};
+  Object.entries(metrics||{}).forEach(([k,v])=>{
+    if(typeof v!=="number"||!isFinite(v))return;
+    out[k]=Math.round(v*100)/100;
+  });
+  return out;
+}
+
+// Pipeline/funnel query (2026-08-11, per Mo's "train the AI on all of the spend, budget and
+// pipeline performance data" request) — reuses the EXACT SAME rollup rules Performance
+// Intelligence itself uses (reportingMetrics.js's isRateMetric/computeDerivedPipelineMetrics/
+// computeCustomMetrics): every absolute funnel count/dollar figure sums correctly across rows, a
+// rate/cost-per metric is NEVER summed or averaged directly, only recomputed from already-summed
+// absolutes. periodStart/periodType mean this data is never daily-grain, so date filtering matches
+// by MONTH slice (YYYY-MM), same convention PipelineTagger's own range filter already uses.
+export function askAIQueryPipeline({reportingFacts,customMetrics,filters,startDate,endDate,groupBy,having}){
+  const filterEntries=Object.entries(filters||{}).filter(([,v])=>v);
+  const startMonth=startDate?startDate.slice(0,7):null;
+  const endMonth=endDate?endDate.slice(0,7):null;
+  const absoluteTotals={};
+  const groupMap={};
+  const campaignSet=new Set();
+  (reportingFacts||[]).forEach(row=>{
+    const rowMonth=(row.periodStart||"").slice(0,7);
+    if(startMonth&&rowMonth<startMonth)return;
+    if(endMonth&&rowMonth>endMonth)return;
+    const matches=filterEntries.every(([dim,val])=>askAIPipelineDimValue(row,dim).toLowerCase()===String(val).toLowerCase());
+    if(!matches)return;
+    campaignSet.add((row.campaignName||"").trim()||"(no campaign)");
+    const addTo=target=>Object.entries(row.metrics||{}).forEach(([k,v])=>{
+      if(isRateMetric(k))return; // never sum a raw imported rate — see reportingMetrics.js's own doc comment
+      const n=Number(v);
+      if(isNaN(n))return;
+      target[k]=(target[k]||0)+n;
+    });
+    addTo(absoluteTotals);
+    if(groupBy){
+      const gv=askAIPipelineDimValue(row,groupBy,"Untagged");
+      if(!groupMap[gv])groupMap[gv]={};
+      addTo(groupMap[gv]);
+    }
+  });
+  const result={
+    campaign_count:campaignSet.size,
+    metrics:roundPipelineMetrics({...absoluteTotals,...computeDerivedPipelineMetrics(absoluteTotals),...computeCustomMetrics(absoluteTotals,customMetrics)}),
+  };
+  if(groupBy){
+    const havingFields=[...PIPELINE_METRIC_MAP_OPTIONS.map(m=>m.key),...DERIVED_PIPELINE_METRICS.map(d=>d.key)];
+    const havingFilters=sanitizeNumericFilters(having,havingFields);
+    const rows=Object.entries(groupMap).map(([value,sums])=>({
+      value,
+      metrics:roundPipelineMetrics({...sums,...computeDerivedPipelineMetrics(sums),...computeCustomMetrics(sums,customMetrics)}),
+    }));
+    result.breakdown=(havingFilters.length?rows.filter(r=>matchesNumericFilters(r.metrics,havingFilters)):rows)
+      .sort((a,b)=>(b.metrics.spend||0)-(a.metrics.spend||0)||(b.metrics.pipeline_value||0)-(a.metrics.pipeline_value||0));
+  }
+  return result;
 }
 
 // "tagged" here means the SAME thing the Tagger's own "needs review" count means: every tag
@@ -309,7 +415,7 @@ export function askAIExecuteTool(toolName,input,ctx){
       budget_years_with_data:Object.keys(ctx.budgets||{}).sort(),
     };
   }
-  if(toolName==="list_dimension_values")return{values:askAIListDimensionValues({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,dimension:input.dimension})};
+  if(toolName==="list_dimension_values")return{values:askAIListDimensionValues({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,reportingFacts:ctx.reportingFacts,dimension:input.dimension})};
   if(toolName==="query_spend")return askAIQuerySpend({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,tagDims:ctx.tagDims,filters:input.filters,startDate:input.start_date,endDate:input.end_date,groupBy:input.group_by,taggedStatus:input.tagged_status,having:input.having});
   if(toolName==="query_budget"){
     if(!(ctx.budgetDims||[]).length)return{error:"No Budget By dimensions are set up yet in the Budget Panel — there's no budget data to query."};
@@ -318,6 +424,10 @@ export function askAIExecuteTool(toolName,input,ctx){
   if(toolName==="query_pacing"){
     if(!(ctx.budgetDims||[]).length)return{error:"No Budget By dimensions are set up yet in the Budget Panel — there's no budget data to compare spend against."};
     return askAIQueryPacing({mergedNormRows:ctx.mergedNormRows,tags:ctx.tags,budgetDims:ctx.budgetDims,budgets:ctx.budgets,budgetRowMeta:ctx.budgetRowMeta,defaultForecastModel:ctx.defaultForecastModel,filters:input.filters,year:input.year,periodType:input.period_type,month:input.month,quarter:input.quarter,groupBy:input.group_by,having:input.having,combineGoogleChannels:ctx.combineGoogleChannels});
+  }
+  if(toolName==="query_pipeline"){
+    if(!(ctx.reportingFacts||[]).length)return{error:"No pipeline/funnel data has been imported yet — nothing to query. Import it via Pipeline Tagger first."};
+    return askAIQueryPipeline({reportingFacts:ctx.reportingFacts,customMetrics:ctx.customMetrics,filters:input.filters,startDate:input.start_date,endDate:input.end_date,groupBy:input.group_by,having:input.having});
   }
   return{error:`Unknown tool: ${toolName}`};
 }
@@ -425,7 +535,8 @@ export const ASK_AI_MAX_ROUNDS=6;
 export async function askAIRun({question,history,ctx,model,signal,onTextDelta,token}){
   const today=new Date().toISOString().slice(0,10);
   const hasBudgets=(ctx.budgetDims||[]).length>0;
-  const system=`You are answering questions about the user's paid-media budget and spend data inside PaidHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} Dates for query_spend must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures). For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image. If the user attached a CSV/spreadsheet file, its content appears as plain text context below the question, clearly marked — that data is NOT part of the workspace's real budget/spend data (it was never imported), so don't call query_spend/query_budget/query_pacing expecting to find it; just read and reason about the attached text directly, and say so if the question seems to assume it was imported. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
+  const hasPipeline=(ctx.reportingFacts||[]).length>0;
+  const system=`You are answering questions about the user's paid-media budget, spend, and pipeline/funnel data inside PaidHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name; query_pipeline has its OWN separate "Campaign"/"Ad Group" plus "Channel", from the pipeline dataset — see query_pipeline's own description). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} ${hasPipeline?"Pipeline/funnel data (leads, MQLs, SQLs, pipeline value, revenue, and the workspace's own custom metrics) IS available via query_pipeline.":"No pipeline/funnel data has been imported yet, so query_pipeline has nothing to query — say so rather than guessing if asked about leads/MQLs/SQLs/pipeline value."} Dates for query_spend and query_pipeline must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual ad-platform spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures), query_pipeline for anything about leads, MQLs, SQLs, demos, pipeline value, revenue, funnel conversion rates, or cost-per-X — query_pipeline's own "spend" field belongs to the pipeline dataset, NOT the same number query_spend would return for the same campaign, since the two are imported/tagged independently; never mix a query_pipeline total with a query_spend total as if they were one figure. For "campaign performance for each product" or similar cross-dimension questions, call query_pipeline once with group_by="Product" for the overview, then call it again per product with a Product filter and group_by="Campaign" to drill into that product's campaigns — don't guess at campaign names. For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500", "products with an MQL to SQL rate under 20%"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering — this also resolves values for query_pipeline's filters, including Channel. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image. If the user attached a CSV/spreadsheet file, its content appears as plain text context below the question, clearly marked — that data is NOT part of the workspace's real budget/spend/pipeline data (it was never imported), so don't call query_spend/query_budget/query_pacing/query_pipeline expecting to find it; just read and reason about the attached text directly, and say so if the question seems to assume it was imported. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
   const messages=[...history,{role:"user",content:question}];
   const steps=[];
   const usage={inputTokens:0,outputTokens:0};

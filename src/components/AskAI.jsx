@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { askAIRun, askAIBuildView, aiConfigToViewConfig, ASK_AI_MODELS, ASK_AI_DEFAULT_MODEL } from "../lib/askAI.js";
+import { listReportingFacts } from "../lib/reportingApi.js";
 import { Inp, Btn, Sel, Icon, SectionLabel, MarkdownLite } from "./shared.jsx";
 import { usePersistentState } from "../lib/persist.js";
 
@@ -155,7 +156,20 @@ function groupChatsByRecency(chats){
 // rather than the small header dropdown alone. The header History dropdown stays as-is
 // underneath — it's the only access point on mobile, where sidebarEl is never mounted (see the
 // `!isMobile` gate around the whole stats <aside> in PaidHQ's render).
-export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView,combineGoogleChannels=false}){
+export default function AskAI({T,session,workspace,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,customMetrics,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView,combineGoogleChannels=false}){
+  // Pipeline/funnel data for query_pipeline (2026-08-11, per Mo — "train the AI on all of the
+  // spend, budget and pipeline performance data"). Fetched lazily on mount here, the same way
+  // PipelineTagger.jsx fetches its own copy of reporting_facts — this tab only mounts when
+  // view==="ask" (see PaidHQ.jsx), so a user who never opens Ask AI never pays for this call, and a
+  // user who never uses Pipeline Tagger just gets an empty array (query_pipeline then tells them
+  // there's nothing to query instead of erroring). Deliberately its own independent fetch rather
+  // than lifting reporting_facts into PaidHQ.jsx's always-loaded state — that would make every
+  // other tab pay for a fetch only this one and Pipeline Tagger actually need.
+  const[reportingFacts,setReportingFacts]=useState([]);
+  useEffect(()=>{
+    if(!workspace?.id)return;
+    listReportingFacts(session,workspace.id).then(setReportingFacts).catch(()=>setReportingFacts([]));
+  },[session,workspace?.id]);
   // initialQuestion seeds input via a lazy initializer rather than an effect — correct here (not
   // just convenient) because this component and PacingDashboard's "Ask AI about this view" button
   // are mutually exclusive: the button only exists on view==="pacing", AskAI only renders on
@@ -305,7 +319,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
     const controller=new AbortController();
     abortRef.current=controller;
     try{
-      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels},model,signal:controller.signal,onTextDelta:setStreamingText,token:session?.access_token});
+      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,reportingFacts,customMetrics},model,signal:controller.signal,onTextDelta:setStreamingText,token:session?.access_token});
       const finalHistory=[...newHistory,{role:"assistant",content:answer}];
       const finalMessages=[...newMessages,{role:"assistant",text:answer,steps,usage,historyMark:finalHistory.length}];
       setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
@@ -319,7 +333,7 @@ export default function AskAI({T,session,mergedNormRows,tags,tagDims,budgetDims,
       setStreamingText("");
       abortRef.current=null;
     }
-  },[mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,model,setAskChats,session]);
+  },[mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,reportingFacts,customMetrics,model,setAskChats,session]);
 
   const send=useCallback(async(question)=>{
     const q=(question||input).trim();

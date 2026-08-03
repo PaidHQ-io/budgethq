@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { PixelPanel, SectionLabel, Sel, Icon, Pill, IconField, MatchModeToggle, Divider } from "./shared.jsx";
 import { listReportingFacts } from "../lib/reportingApi.js";
@@ -229,6 +229,26 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   const [periodTableOpen, setPeriodTableOpen] = usePersistentState("paidhq_reporting_intel_periodTableOpen", true);
   const [breakdownTableOpen, setBreakdownTableOpen] = usePersistentState("paidhq_reporting_intel_breakdownTableOpen", true);
   const [campaignTableOpen, setCampaignTableOpen] = usePersistentState("paidhq_reporting_intel_campaignTableOpen", true);
+  // Nested Product -> Campaign breakdown (2026-08-11, per Mo — "I need to understand performance
+  // trends at the campaign level for each product... it needs to be easy for me to surface"). Only
+  // meaningful when Slice by is a TAG dimension (Product, Channel, etc.) — when Slice by is already
+  // Campaign, expanding a campaign row into its own campaign breakdown would be a no-op, so the
+  // expand control is hidden entirely in that case (the separate always-on "By Campaign" table
+  // below already covers that view). Transient (plain useState), not persisted — which rows are
+  // expanded is exploratory state, not a saved preference.
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const toggleExpandGroup = (key) => setExpandedGroups((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  // Computed on demand (only for rows actually expanded) rather than eagerly for every group —
+  // reuses the exact same aggregateByDimension + derived/custom metric merge every other table
+  // here uses, just scoped to one group's own rows instead of all searchedRows.
+  const campaignsForGroup = (g) =>
+    aggregateByDimension(g.rows, "campaignName")
+      .map((c) => ({ ...c, metrics: { ...c.metrics, ...computeDerivedPipelineMetrics(c.metrics), ...computeCustomMetrics(c.metrics, customMetrics) } }))
+      .sort((a, b) => b.rows.length - a.rows.length || a.key.localeCompare(b.key));
 
   useEffect(() => {
     listReportingFacts(session, workspace.id)
@@ -753,15 +773,57 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                       {filteredSliceGroups.length === 0 && (
                         <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No groups match your filters.</td></tr>
                       )}
-                      {filteredSliceGroups.map((g) => (
-                        <tr key={g.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
-                          <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={g.key}>{g.key}</td>
-                          <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{g.rows.length}</td>
-                          {activeMetricColumns.map((c) => (
-                            <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>{fmtMetric(g.metrics[c.key], c.money, c.pct)}</td>
-                          ))}
-                        </tr>
-                      ))}
+                      {filteredSliceGroups.map((g) => {
+                        // Nested campaign expand (2026-08-11, per Mo — "performance trends at the
+                        // campaign level for each product"). Hidden when Slice by is already
+                        // Campaign — expanding a campaign row into its own campaign breakdown would
+                        // just repeat the same row.
+                        const canExpand = sliceBy !== "campaignName";
+                        const expanded = canExpand && expandedGroups.has(g.key);
+                        return (
+                          <Fragment key={g.key}>
+                            <tr className="bhq-row" style={{ borderBottom: expanded ? "none" : `1px solid ${T.border}` }}>
+                              <td onClick={canExpand ? () => toggleExpandGroup(g.key) : undefined}
+                                style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: canExpand ? "pointer" : "default", userSelect: canExpand ? "none" : "auto" }} title={g.key}>
+                                {canExpand && <Icon name="chevronDown" size={10} color={T.textMuted} style={{ marginRight: 6, transform: expanded ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />}
+                                {g.key}
+                              </td>
+                              <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{g.rows.length}</td>
+                              {activeMetricColumns.map((c) => (
+                                <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>{fmtMetric(g.metrics[c.key], c.money, c.pct)}</td>
+                              ))}
+                            </tr>
+                            {expanded && (
+                              <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                                <td colSpan={2 + activeMetricColumns.length} style={{ padding: "0 10px 12px 28px", background: T.surfaceEl }}>
+                                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 * (T.fsScale || 1) }}>
+                                    <thead>
+                                      <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                                        <th style={{ padding: "6px 8px", fontSize: 9 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "left" }}>Campaign</th>
+                                        <th style={{ padding: "6px 8px", fontSize: 9 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "right" }}>Rows</th>
+                                        {activeMetricColumns.map((c) => (
+                                          <th key={c.key} style={{ padding: "6px 8px", fontSize: 9 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "right" }}>{c.label}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {campaignsForGroup(g).map((c) => (
+                                        <tr key={c.key} className="bhq-row">
+                                          <td style={{ padding: "6px 8px", color: T.textSub, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.key}>{c.key}</td>
+                                          <td style={{ padding: "6px 8px", color: T.textMuted, fontSize: 11 * (T.fsScale || 1), textAlign: "right" }}>{c.rows.length}</td>
+                                          {activeMetricColumns.map((col) => (
+                                            <td key={col.key} style={{ padding: "6px 8px", color: T.textSub, textAlign: "right" }}>{fmtMetric(c.metrics[col.key], col.money, col.pct)}</td>
+                                          ))}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                     {filteredSliceGroups.length > 0 && (
                       <tfoot>
