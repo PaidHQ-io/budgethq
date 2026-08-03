@@ -14,7 +14,7 @@ import {
   getAskAIData, putAskAIData,
   listVersions, saveVersion, deleteVersion as apiDeleteVersion,
   listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64, fetchFileBlob,
-  copyFileToWorkspace, authHeader,
+  copyFileToWorkspace, authHeader, renameFile as apiRenameFile,
 } from "./lib/workspaceApi";
 import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount, syncSpend, previewConnector } from "./lib/coreApi";
 import { exportReportToGoogleSheets, preloadGoogleSheetsApi, preloadGoogleSheetsPicker } from "./lib/googleSheets";
@@ -684,6 +684,24 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     if(!workspace?.id||!session)return;
     apiDownloadFile(session,workspace.id,rec.id,rec.name).catch(e=>console.error("[file store download]",e));
   },[workspace?.id,session]);
+  // Rename (2026-08-17, per Mo — "I need a way of editing the names of all stored files"). Same
+  // inline-edit shape AskAI.jsx's own chat-title rename uses (renamingXId/renamingXTitle + a commit
+  // function that trims/no-ops on blank, Enter to commit, Escape to cancel) — one row turns its
+  // name into an autofocused input rather than opening a modal, since this is a quick single-field
+  // edit, not a multi-field form. Updates fileStoreList in place on success (matching every other
+  // File Store mutation's own optimistic-refresh pattern) rather than a full refreshFileStore()
+  // round-trip, since the PATCH response already carries the corrected record.
+  const[renamingFileId,setRenamingFileId]=useState(null);
+  const[renamingFileName,setRenamingFileName]=useState("");
+  const commitFileRename=useCallback((id,name)=>{
+    setRenamingFileId(null);
+    const trimmed=(name||"").trim();
+    const current=fileStoreList.find(f=>f.id===id);
+    if(!trimmed||!current||trimmed===current.name)return;
+    apiRenameFile(session,workspace.id,id,trimmed)
+      .then(updated=>{setFileStoreList(prev=>prev.map(f=>f.id===id?{...f,name:updated.name}:f));showNotif(`Renamed to ${updated.name}`);})
+      .catch(e=>window.alert(e.message||"Couldn't rename this file."));
+  },[session,workspace?.id,fileStoreList]);
   // Cross-workspace file sharing — opt-in and explicit (see copy.js's doc comment): files are
   // hard-siloed by default, this is the one deliberate escape hatch. Only workspaces where this
   // person has edit access are offered as targets client-side (the server enforces the same rule
@@ -4621,10 +4639,26 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     <div style={{maxHeight:320,overflow:"auto"}}>
                       {visibleFileStoreList.map((f,i)=>(
                         <div key={f.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"9px 0",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
                             <Icon name="file" size={14} color={T.textMuted}/>
-                            <div style={{minWidth:0}}>
-                              <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:340}}>{f.name}</div>
+                            <div style={{minWidth:0,flex:1}}>
+                              {renamingFileId===f.id?(
+                                <input autoFocus value={renamingFileName} onChange={e=>setRenamingFileName(e.target.value)}
+                                  onKeyDown={e=>{if(e.key==="Enter")commitFileRename(f.id,renamingFileName);if(e.key==="Escape")setRenamingFileId(null);}}
+                                  onBlur={()=>commitFileRename(f.id,renamingFileName)}
+                                  style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,width:"100%",maxWidth:340,boxSizing:"border-box",padding:"2px 6px",borderRadius:T.r5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,outline:"none"}}/>
+                              ):(
+                                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                  <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:340}}>{f.name}</div>
+                                  {canEdit&&(
+                                    <button onClick={()=>{setRenamingFileId(f.id);setRenamingFileName(f.name);}} title="Rename"
+                                      style={{width:20,height:20,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",cursor:"pointer",padding:0,opacity:0.5}}
+                                      onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.5}>
+                                      <Icon name="pencil" size={11} color={T.textMuted}/>
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                               <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>
                                 <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{marginRight:6,fontSize:10*(T.fsScale||1)}}>{f.category}</Pill>
                                 {fmtFileSize(f.size)} · {new Date(f.createdAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}

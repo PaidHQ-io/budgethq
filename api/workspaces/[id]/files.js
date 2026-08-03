@@ -10,6 +10,11 @@
  * GET  /files?download=<id>   — streams the raw file back with a Content-Disposition header, for
  *                                an actual download rather than a base64 JSON blob.
  * POST /files                 — upload. Body: { name, category, mimeType, dataBase64 }.
+ * PATCH /files                — rename one file. Body: { fileId, name }. Deliberately a body field
+ *                                (not a query param) — no [id]-collision risk there either way (see
+ *                                DELETE's own doc comment below for why query params need care on
+ *                                this route), this just mirrors DELETE's fileId naming for
+ *                                consistency. Renames only — category/mimeType/data are untouched.
  * DELETE /files?id=<id>       — remove one file.
  *
  * Storing binary data directly in Postgres (bytea) rather than a dedicated blob store (S3/Vercel
@@ -70,6 +75,24 @@ export default withApi(async (req, res) => {
     });
   }
 
+  if (req.method === "PATCH") {
+    requireEditAccess(myRole);
+    const { fileId, name } = req.body || {};
+    if (!fileId || !name || !name.trim()) {
+      return res.status(400).json({ error: "fileId and a non-empty name are required" });
+    }
+    const [row] = await sql`
+      update core.files set name = ${name.trim()}
+      where id = ${fileId} and workspace_id = ${workspaceId}
+      returning id, name, category, mime_type, size_bytes, created_at
+    `;
+    if (!row) return res.status(404).json({ error: "File not found" });
+    return res.status(200).json({
+      id: row.id, name: row.name, category: row.category,
+      mimeType: row.mime_type, size: row.size_bytes, createdAt: row.created_at,
+    });
+  }
+
   if (req.method === "DELETE") {
     requireEditAccess(myRole);
     // Deliberately NOT named `id` -- this route lives at /api/workspaces/[id]/files, so a query
@@ -86,6 +109,6 @@ export default withApi(async (req, res) => {
     return res.status(200).json({ deleted: true });
   }
 
-  res.setHeader("Allow", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Allow", "GET, POST, PATCH, DELETE, OPTIONS");
   return res.status(405).json({ error: "Method not allowed" });
 });

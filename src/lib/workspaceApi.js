@@ -232,6 +232,17 @@ export function uploadFile(session, workspaceId, { name, category, mimeType, dat
   });
 }
 
+// Rename (2026-08-17, per Mo — "I need a way of editing the names of all stored files"). Only
+// touches the name column — category/mimeType/binary data are untouched. Body field is `fileId`
+// (not a query param), so there's no risk of the [id]-collision bug deleteFile's own doc comment
+// below describes, but the naming stays consistent with it either way.
+export function renameFile(session, workspaceId, fileId, name) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/files`, {
+    method: "PATCH",
+    body: JSON.stringify({ fileId, name }),
+  });
+}
+
 export function deleteFile(session, workspaceId, id) {
   // Query param is named fileId, not id -- see files.js's DELETE handler doc comment: `id` collides
   // with this route's own [id] (workspace) dynamic segment and silently breaks the delete.
