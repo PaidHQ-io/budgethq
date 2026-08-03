@@ -156,7 +156,7 @@ function groupChatsByRecency(chats){
 // rather than the small header dropdown alone. The header History dropdown stays as-is
 // underneath — it's the only access point on mobile, where sidebarEl is never mounted (see the
 // `!isMobile` gate around the whole stats <aside> in PaidHQ's render).
-export default function AskAI({T,session,workspace,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,customMetrics,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView,combineGoogleChannels=false}){
+export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,customMetrics,hasData,askChats,setAskChats,askProjects,setAskProjects,activeAskChatId,setActiveAskChatId,sidebarEl,initialQuestion,onConsumeInitialQuestion,onSaveAsView,combineGoogleChannels=false}){
   // Pipeline/funnel data for query_pipeline (2026-08-11, per Mo — "train the AI on all of the
   // spend, budget and pipeline performance data"). Fetched lazily on mount here, the same way
   // PipelineTagger.jsx fetches its own copy of reporting_facts — this tab only mounts when
@@ -329,7 +329,12 @@ export default function AskAI({T,session,workspace,mergedNormRows,tags,tagDims,b
     const controller=new AbortController();
     abortRef.current=controller;
     try{
-      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,reportingFacts,customMetrics},model,signal:controller.signal,onTextDelta:setStreamingText,token:session?.access_token});
+      // session/workspaceId/canEdit (2026-08-19, per Mo — "have Ask AI log the changes in PaidHQ
+      // from the screenshot") are the one addition ctx needed beyond its existing read-only data —
+      // log_change_event is the only ASK_AI_TOOLS entry that makes a real network write, and needs
+      // these three to do it (and to know whether it's even allowed to). Every other tool in ctx
+      // ignores them entirely, same as they already ignore fields they don't use.
+      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,reportingFacts,customMetrics,session,workspaceId:workspace?.id,canEdit},model,signal:controller.signal,onTextDelta:setStreamingText,token:session?.access_token});
       const finalHistory=[...newHistory,{role:"assistant",content:answer}];
       const finalMessages=[...newMessages,{role:"assistant",text:answer,steps,usage,historyMark:finalHistory.length}];
       setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
@@ -343,7 +348,7 @@ export default function AskAI({T,session,workspace,mergedNormRows,tags,tagDims,b
       setStreamingText("");
       abortRef.current=null;
     }
-  },[mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,reportingFacts,customMetrics,model,setAskChats,session]);
+  },[mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,reportingFacts,customMetrics,model,setAskChats,session,canEdit,workspace?.id]);
 
   const send=useCallback(async(question)=>{
     const q=(question||input).trim();

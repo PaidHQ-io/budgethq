@@ -1,6 +1,7 @@
 import { campaignKey, derivePlatform, parseSpendDate, getPeriodRange, computePacing, NUMERIC_FIELDS, NUMERIC_OPERATORS, matchesNumericFilters } from "./core.js";
 import { PIPELINE_METRIC_MAP_OPTIONS, AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY } from "./pipelineColumnMapping.js";
 import { isRateMetric, computeDerivedPipelineMetrics, DERIVED_PIPELINE_METRICS, computeCustomMetrics } from "./reportingMetrics.js";
+import { createChangeEvents, CHANGE_TYPE_OPTIONS, ENTITY_TYPE_OPTIONS } from "./changeEventsApi.js";
 
 // How many individual segments a having-filtered or small unfiltered result includes in
 // matching_segments (see askAIQueryPacing) before falling back to just the count — keeps a
@@ -189,6 +190,37 @@ export const ASK_AI_TOOLS=[
         items:{type:"object",properties:{field:{type:"string"},operator:{type:"string",enum:NUMERIC_OPERATORS},value:{type:"number"}},required:["field","operator","value"]},
       },
     },required:[]},
+  },
+  {
+    // Change History's write tool (2026-08-19, per Mo — "what If I share a screenshot with Ask AI
+    // and have Ask AI log the changes in PaidHQ from the screenshot?"). Every OTHER tool in this
+    // array is a pure read against already-loaded ctx data; this is the one exception — it makes a
+    // real network write to core.change_events (see askAIExecuteTool's handler below), which is why
+    // askAIRun filters it OUT of the tools list entirely for a view-only (!canEdit) caller rather
+    // than relying on the model to decline, and why askAIExecuteTool is async (every other tool
+    // handler is a synchronous return). entries is an ARRAY specifically so one screenshot showing
+    // several rows (e.g. Google Ads' own native Change History page, which is exactly the kind of
+    // screenshot Mo described) logs in a single tool call instead of one round-trip per row.
+    name:"log_change_event",
+    description:"Log one or more changes into PaidHQ's Change History (core.change_events) — use this when the user shares a screenshot or description of changes made in an ad platform (e.g. a screenshot of Google Ads' own \"Change history\" page) and asks you to log them here. Extract EACH distinct row/change as its own entry in the array — never merge multiple different changes into one entry, and never invent a value that isn't actually shown or stated; omit an optional field rather than guess. This always creates MANUAL entries (entrySource is not settable) — it does not affect or duplicate the separate automated Google Ads pull. Requires edit access; if the workspace member asking doesn't have it, this tool won't be offered at all.",
+    input_schema:{type:"object",properties:{
+      entries:{
+        type:"array",
+        description:"One object per distinct change.",
+        items:{type:"object",properties:{
+          platform:{type:"string",description:"e.g. \"Google\", \"Meta\", \"LinkedIn\", \"Bing\", \"Capterra\", \"Reddit\", \"TikTok\", \"YouTube\", \"Pinterest\", or \"Other\" if genuinely unclear."},
+          entity_type:{type:"string",enum:ENTITY_TYPE_OPTIONS,description:"What kind of object changed, if determinable."},
+          entity_name:{type:"string",description:"The campaign or ad group name the change applied to, if shown."},
+          change_type:{type:"string",enum:CHANGE_TYPE_OPTIONS,description:"Best-fit category for the change."},
+          summary:{type:"string",description:"Short human-readable description, e.g. \"Budget amount increased\" or \"1 ad group enabled\" — mirror the platform's own wording where possible rather than paraphrasing."},
+          details:{type:"string",description:"Any additional detail shown (e.g. the full row's extra text) that doesn't fit summary/old/new value."},
+          old_value:{type:"string",description:"The value before the change, if shown (e.g. \"$400.00\")."},
+          new_value:{type:"string",description:"The value after the change, if shown (e.g. \"$1,200.00\")."},
+          changed_by:{type:"string",description:"Who made the change, if shown (e.g. an email address)."},
+          changed_at:{type:"string",description:"When the change happened, if shown — any reasonably parseable date/time string (e.g. \"Aug 3, 2026, 1:32:33 PM\"). Omit if not shown; defaults to right now."},
+        },required:["platform","change_type","summary"]},
+      },
+    },required:["entries"]},
   },
 ];
 
@@ -469,7 +501,12 @@ export function askAIQueryPacing({mergedNormRows,tags,budgetDims,budgets,budgetR
 
 // Executes one tool_use block against the app's actual in-memory data — this is what keeps
 // answers grounded, since the model never sees raw rows, only what these return.
-export function askAIExecuteTool(toolName,input,ctx){
+//
+// ASYNC (2026-08-19) even though every branch except log_change_event is a synchronous, pure
+// computation over ctx's already-loaded data — log_change_event is the one tool that makes a real
+// network write (see its own branch below), and askAIRun's call site now awaits this uniformly
+// rather than having two different call conventions for "most tools" vs. "the one that writes".
+export async function askAIExecuteTool(toolName,input,ctx){
   if(toolName==="list_tag_dimensions"){
     return{
       dimensions:ctx.tagDims,
@@ -490,6 +527,38 @@ export function askAIExecuteTool(toolName,input,ctx){
   if(toolName==="query_pipeline"){
     if(!(ctx.reportingFacts||[]).length)return{error:"No pipeline/funnel data has been imported yet — nothing to query. Import it via Pipeline Tagger first."};
     return askAIQueryPipeline({reportingFacts:ctx.reportingFacts,customMetrics:ctx.customMetrics,filters:input.filters,startDate:input.start_date,endDate:input.end_date,groupBy:input.group_by,having:input.having});
+  }
+  if(toolName==="log_change_event"){
+    // Belt-and-suspenders alongside askAIRun's tools-list filtering below (which keeps a !canEdit
+    // caller's model from ever being OFFERED this tool in the first place) — defends the same rule
+    // a second way in case ctx.canEdit and the filtered tools list ever drift out of sync.
+    if(!ctx.canEdit)return{error:"This workspace member has view-only access, so I can't log changes here."};
+    if(!ctx.session||!ctx.workspaceId)return{error:"Missing session/workspace context — can't log a change right now."};
+    const entries=Array.isArray(input.entries)?input.entries:[];
+    if(!entries.length)return{error:"No entries provided."};
+    const rows=entries.map(e=>({
+      platform:e.platform,
+      entityType:e.entity_type||null,
+      entityName:e.entity_name||null,
+      changeType:e.change_type,
+      summary:e.summary,
+      details:e.details||null,
+      oldValue:e.old_value||null,
+      newValue:e.new_value||null,
+      changedBy:e.changed_by||null,
+      // A date string the model read off a screenshot (e.g. "Aug 3, 2026, 1:32:33 PM") goes through
+      // plain Date parsing — good enough for a human-supplied timestamp from a UI it's reading, same
+      // trust level as the "+ Log a change" form's own datetime-local input. Falls back to right now
+      // if omitted or unparseable, rather than rejecting the whole entry over a missing/bad date.
+      changedAt:(()=>{const d=e.changed_at?new Date(e.changed_at):null;return d&&!isNaN(d.getTime())?d.toISOString():new Date().toISOString();})(),
+      entrySource:"manual",
+    }));
+    try{
+      const result=await createChangeEvents(ctx.session,ctx.workspaceId,rows);
+      return{logged:result.inserted,skipped:result.skipped};
+    }catch(err){
+      return{error:err.message||"Failed to log the change(s)."};
+    }
   }
   return{error:`Unknown tool: ${toolName}`};
 }
@@ -604,7 +673,13 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
   const today=new Date().toISOString().slice(0,10);
   const hasBudgets=(ctx.budgetDims||[]).length>0;
   const hasPipeline=(ctx.reportingFacts||[]).length>0;
-  const system=`You are answering questions about the user's paid-media budget, spend, and pipeline/funnel data inside PaidHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name; query_pipeline has its OWN separate "Campaign"/"Ad Group" plus "Channel", from the pipeline dataset — see query_pipeline's own description). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} ${hasPipeline?"Pipeline/funnel data (leads, MQLs, SQLs, pipeline value, revenue, and the workspace's own custom metrics) IS available via query_pipeline.":"No pipeline/funnel data has been imported yet, so query_pipeline has nothing to query — say so rather than guessing if asked about leads/MQLs/SQLs/pipeline value."} Dates for query_spend and query_pipeline must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual ad-platform spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures), query_pipeline for anything about leads, MQLs, SQLs, demos, pipeline value, revenue, funnel conversion rates, or cost-per-X — query_pipeline's own "spend" field belongs to the pipeline dataset, NOT the same number query_spend would return for the same campaign, since the two are imported/tagged independently; never mix a query_pipeline total with a query_spend total as if they were one figure. For "campaign performance for each product" or similar cross-dimension questions, call query_pipeline once with group_by="Product" for the overview, then call it again per product with a Product filter and group_by="Campaign" to drill into that product's campaigns — don't guess at campaign names. For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500", "products with an MQL to SQL rate under 20%"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering — this also resolves values for query_pipeline's filters, including Channel. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image. If the user attached a CSV/spreadsheet file, its content appears as plain text context below the question, clearly marked — that data is NOT part of the workspace's real budget/spend/pipeline data (it was never imported), so don't call query_spend/query_budget/query_pacing/query_pipeline expecting to find it; just read and reason about the attached text directly, and say so if the question seems to assume it was imported. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
+  // log_change_event is the one tool in ASK_AI_TOOLS that writes rather than reads — offered to the
+  // model at all ONLY when the caller actually has edit access (2026-08-19, per Mo's screenshot-
+  // logging request). Filtering it out of the tools list here means a view-only member's model never
+  // even considers calling it, rather than calling it and getting back an error every time — belt-
+  // and-suspenders with askAIExecuteTool's own ctx.canEdit check.
+  const tools=ctx.canEdit?ASK_AI_TOOLS:ASK_AI_TOOLS.filter(t=>t.name!=="log_change_event");
+  const system=`You are answering questions about the user's paid-media budget, spend, and pipeline/funnel data inside PaidHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name; query_pipeline has its OWN separate "Campaign"/"Ad Group" plus "Channel", from the pipeline dataset — see query_pipeline's own description). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} ${hasPipeline?"Pipeline/funnel data (leads, MQLs, SQLs, pipeline value, revenue, and the workspace's own custom metrics) IS available via query_pipeline.":"No pipeline/funnel data has been imported yet, so query_pipeline has nothing to query — say so rather than guessing if asked about leads/MQLs/SQLs/pipeline value."} Dates for query_spend and query_pipeline must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual ad-platform spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures), query_pipeline for anything about leads, MQLs, SQLs, demos, pipeline value, revenue, funnel conversion rates, or cost-per-X — query_pipeline's own "spend" field belongs to the pipeline dataset, NOT the same number query_spend would return for the same campaign, since the two are imported/tagged independently; never mix a query_pipeline total with a query_spend total as if they were one figure. For "campaign performance for each product" or similar cross-dimension questions, call query_pipeline once with group_by="Product" for the overview, then call it again per product with a Product filter and group_by="Campaign" to drill into that product's campaigns — don't guess at campaign names. For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500", "products with an MQL to SQL rate under 20%"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering — this also resolves values for query_pipeline's filters, including Channel. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image${ctx.canEdit?" — UNLESS it's a screenshot of a platform's own change-history/audit page (e.g. Google Ads' \"Change history\") and the user is asking you to log or save those changes, in which case call log_change_event with one entry per distinct row you can see, using exactly what's shown (never invent a value that isn't visibly there)":""}. If the user attached a CSV/spreadsheet file, its content appears as plain text context below the question, clearly marked — that data is NOT part of the workspace's real budget/spend/pipeline data (it was never imported), so don't call query_spend/query_budget/query_pacing/query_pipeline expecting to find it; just read and reason about the attached text directly, and say so if the question seems to assume it was imported. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
   const messages=[...history,{role:"user",content:question}];
   const steps=[];
   const usage={inputTokens:0,outputTokens:0};
@@ -618,7 +693,7 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
     // round's content had EITHER no text block yet (still mid tool_use when cut off) or only a
     // partial one — the "no text block at all" case is exactly what produced "(no response)": a
     // real, if truncated, model turn silently presented as an empty one.
-    const data=await streamAnalyze({messages,system,tools:ASK_AI_TOOLS,maxTokens:4096,model,signal,onTextDelta,token});
+    const data=await streamAnalyze({messages,system,tools,maxTokens:4096,model,signal,onTextDelta,token});
     usage.inputTokens+=data.usage.input_tokens||0;
     usage.outputTokens+=data.usage.output_tokens||0;
     if(data.stop_reason!=="tool_use"){
@@ -645,7 +720,7 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
     for(const block of data.content){
       if(block.type!=="tool_use")continue;
       let output;
-      try{output=askAIExecuteTool(block.name,block.input||{},ctx);}
+      try{output=await askAIExecuteTool(block.name,block.input||{},ctx);}
       catch(err){output={error:err.message};}
       steps.push({tool:block.name,input:block.input||{},output});
       toolResults.push({type:"tool_result",tool_use_id:block.id,content:JSON.stringify(output)});
@@ -714,7 +789,7 @@ export async function askAIBuildView({question,ctx,token}){
     for(const block of data.content){
       if(block.type!=="tool_use"||block.name==="apply_view")continue;
       let output;
-      try{output=askAIExecuteTool(block.name,block.input||{},ctx);}
+      try{output=await askAIExecuteTool(block.name,block.input||{},ctx);}
       catch(err){output={error:err.message};}
       toolResults.push({type:"tool_result",tool_use_id:block.id,content:JSON.stringify(output)});
     }
