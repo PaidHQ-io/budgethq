@@ -5,6 +5,17 @@
  * drifting reimplementation. See spend-rows.js's own top-of-file doc comment for the full history of
  * why this normalization exists at all (a single unparseable date used to fail — and, worse, wipe —
  * an entire workspace's save).
+ *
+ * extra_metrics (2026-08-03, per Mo — "pull in all of the data that will not increase the row
+ * count... for both google and bing"): a flexible jsonb bag for whatever additional fields a
+ * connector pulls beyond the core spend/impressions/clicks columns (conversions, bidding strategy,
+ * impression share, etc. — see connectors/google.js and connectors/bing.js's own WIDENED FIELD SET
+ * doc notes for exactly what each platform puts in here). Deliberately jsonb rather than a rigid
+ * column per metric, same "flexible bucket" reasoning as core.ai_chats/core.reporting_column_views —
+ * this set of fields will keep growing (per-platform, per-connector-update) and a jsonb column means
+ * that never needs another schema migration, only a code change in the connector that populates it.
+ * SCHEMA (paidhq-core, not in this checkout): alter table core.spend_rows add column if not exists
+ * extra_metrics jsonb not null default '{}'::jsonb;
  */
 
 // Row dates aren't always real per-day dates by the time they reach this API — CSV imports (esp.
@@ -76,5 +87,9 @@ export function toColumns(rows) {
     // sync with paidhq-core's identical copy of this file so both writers agree on spend_rows'
     // column shape.
     is_monthly: valid.map((r) => !!r.is_monthly),
+    // See this file's own extra_metrics doc note up top — stringified per-row since unnest() needs
+    // an array of jsonb-castable text, same convention used everywhere else in this codebase that
+    // bulk-writes a jsonb column (e.g. reporting-column-views.js's single-row insert).
+    extra_metrics: valid.map((r) => JSON.stringify(r.extra_metrics && typeof r.extra_metrics === "object" ? r.extra_metrics : {})),
   };
 }

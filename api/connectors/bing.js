@@ -56,6 +56,21 @@
  * above, all found via Mo's actual sync) — the element-order landmines documented above apply
  * here too, so if this throws a new SOAP fault, check nested element order first before assuming
  * it's a fresh bug class.
+ *
+ * WIDENED FIELD SET (2026-08-03, per Mo — "pull in all of the data that will not increase the row
+ * count, just the data per row, for both google and bing"): added conversions/revenue/ROAS/CTR/
+ * avg CPC/status/bid-strategy columns below — same Daily aggregation, same one-row-per-ad-group-
+ * per-day grain, just wider rows. These land in downloadAndParseReport's returned `extra_metrics`
+ * object, same "flexible bag" approach as the Google connector's identical addition (see that
+ * file's matching doc note for why — avoids a schema migration per metric).
+ *
+ * CONFIDENCE NOTE: unlike AdGroupId/AdGroupName above, NONE of these new columns have been checked
+ * against Microsoft's live AdGroupPerformanceReportColumn reference or a real sync — only the
+ * original 10 columns (through Spend/Impressions/Clicks) carry the "confirmed live 2026-07-23"
+ * verification the rest of this file's history describes. If the next sync throws a SOAP fault or
+ * an ApiFaultDetail after the element-order fixes above, remove these new <a:AdGroupPerformance
+ * ReportColumn> lines one at a time (or diff against learn.microsoft.com's AdGroupPerformanceReport
+ * Column enum) to isolate an invalid column name before assuming a different bug class.
  */
 
 const REPORTING_SVC_URL = "https://reporting.api.bingads.microsoft.com/Api/Advertiser/Reporting/v13/ReportingService.svc";
@@ -103,6 +118,19 @@ function buildSubmitReportXml({ accessToken, developerToken, customerId, account
           <a:AdGroupPerformanceReportColumn>Impressions</a:AdGroupPerformanceReportColumn>
           <a:AdGroupPerformanceReportColumn>Clicks</a:AdGroupPerformanceReportColumn>
           <a:AdGroupPerformanceReportColumn>Spend</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>Ctr</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>AverageCpc</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>Conversions</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>ConversionRate</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>CostPerConversion</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>Revenue</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>ReturnOnAdSpend</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>AllConversions</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>AllRevenue</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>AllReturnOnAdSpend</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>CampaignStatus</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>AdGroupStatus</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>BidStrategyType</a:AdGroupPerformanceReportColumn>
         </Columns>
         <Scope>
           <AccountIds xmlns:a="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
@@ -262,9 +290,49 @@ async function downloadAndParseReport(url) {
         spend: Math.round(spend * 100) / 100,
         impressions: parseInt(row.Impressions, 10) || 0,
         clicks: parseInt(row.Clicks, 10) || 0,
+        extra_metrics: buildExtraMetrics(row),
       };
     })
     .filter(Boolean);
+}
+
+// Bing's CSV reports use "--" (or a blank cell) for any numeric column that's N/A rather than a
+// real zero (e.g. CostPerConversion with zero conversions) — parseFloat("--") is NaN, so this
+// treats both as "no value" and drops the key entirely rather than writing a misleading 0, same
+// "drop rather than fabricate" rule the Google connector's buildExtraMetrics uses. Percent-style
+// columns (Ctr, ConversionRate) come back from Bing as a string like "3.91%" — stripped here so
+// extra_metrics stores a plain 0-1 fraction, consistent with how Google's equivalent fields land.
+export function numOrNull(raw) {
+  if (raw === undefined || raw === null) return null;
+  const cleaned = String(raw).trim().replace(/%$/, "");
+  if (!cleaned || cleaned === "--") return null;
+  const n = parseFloat(cleaned);
+  if (!Number.isFinite(n)) return null;
+  return String(raw).trim().endsWith("%") ? Math.round((n / 100) * 10000) / 10000 : Math.round(n * 10000) / 10000;
+}
+
+// See WIDENED FIELD SET / CONFIDENCE NOTE at the top of this file — every key here beyond what
+// mapRow's core spend/impressions/clicks already covers is unverified against a real account.
+export function buildExtraMetrics(row) {
+  const out = {};
+  const put = (key, col) => {
+    const n = numOrNull(row[col]);
+    if (n !== null) out[key] = n;
+  };
+  put("ctr", "Ctr");
+  put("average_cpc", "AverageCpc");
+  put("conversions", "Conversions");
+  put("conversion_rate", "ConversionRate");
+  put("cost_per_conversion", "CostPerConversion");
+  put("revenue", "Revenue");
+  put("return_on_ad_spend", "ReturnOnAdSpend");
+  put("all_conversions", "AllConversions");
+  put("all_revenue", "AllRevenue");
+  put("all_return_on_ad_spend", "AllReturnOnAdSpend");
+  if (row.CampaignStatus) out.campaign_status = row.CampaignStatus;
+  if (row.AdGroupStatus) out.ad_group_status = row.AdGroupStatus;
+  if (row.BidStrategyType) out.bidding_strategy_type = row.BidStrategyType;
+  return out;
 }
 
 export async function getSpend({ startDate, endDate, credential }) {

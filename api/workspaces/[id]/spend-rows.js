@@ -39,6 +39,11 @@
  * DELETE ?platform=Google&start=...&end=... — mirrors the existing "Clear Tagger data by
  *        channel" / "by date range" Settings panels. At least one filter is required; DELETE with
  *        no filters at all is rejected to avoid an accidental full wipe via a malformed request.
+ *
+ * extra_metrics (2026-08-03): every row now carries a jsonb `extra_metrics` field — the connector-
+ * specific bag of conversions/bidding-strategy/impression-share/etc. fields described in
+ * connectors/google.js and connectors/bing.js's own doc comments. Passed through as-is on GET/POST/
+ * PUT, same "opaque bucket, not validated here" treatment spendRowsColumns.js's toColumns gives it.
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
@@ -73,6 +78,7 @@ const toCamel = (r) => ({
   clicks: Number(r.clicks),
   source: r.source,
   is_monthly: r.is_monthly,
+  extra_metrics: r.extra_metrics || {},
 });
 
 // Date normalization + row->column transposition now live in lib/spendRowsColumns.js — see that
@@ -132,12 +138,12 @@ export default withApi(async (req, res) => {
       await sql`
         insert into core.spend_rows
           (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
-           date, as_of_date, spend, impressions, clicks, source, is_monthly)
+           date, as_of_date, spend, impressions, clicks, source, is_monthly, extra_metrics)
         select ${workspaceId}, * from unnest(
           ${c.campaign_group_name}::text[], ${c.campaign_name}::text[], ${c.campaign_id}::text[],
           ${c.platform}::text[], ${c.campaign_type}::text[], ${c.date}::date[], ${c.as_of_date}::date[],
           ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[],
-          ${c.is_monthly}::boolean[]
+          ${c.is_monthly}::boolean[], ${c.extra_metrics}::jsonb[]
         )
       `;
     }
@@ -175,12 +181,12 @@ export default withApi(async (req, res) => {
         ? [tx`
             insert into core.spend_rows
               (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
-               date, as_of_date, spend, impressions, clicks, source, is_monthly)
+               date, as_of_date, spend, impressions, clicks, source, is_monthly, extra_metrics)
             select ${workspaceId}, * from unnest(
               ${c.campaign_group_name}::text[], ${c.campaign_name}::text[], ${c.campaign_id}::text[],
               ${c.platform}::text[], ${c.campaign_type}::text[], ${c.date}::date[], ${c.as_of_date}::date[],
               ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[],
-              ${c.is_monthly}::boolean[]
+              ${c.is_monthly}::boolean[], ${c.extra_metrics}::jsonb[]
             )
           `]
         : []),

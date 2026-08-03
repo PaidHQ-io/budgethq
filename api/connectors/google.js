@@ -33,6 +33,30 @@
  * are fully automated/closed campaign types with no per-ad-group or per-asset-group cost breakdown
  * resource in the Google Ads API at all, so there's no query that would surface them short of
  * campaign-level-only totals (a different, coarser resource than either query here).
+ *
+ * WIDENED FIELD SET (2026-08-03, per Mo — "pull in all of the data that will not increase the row
+ * count, just the data per row, for both google and bing"): both queries below now also pull
+ * conversions/conversion value, average CPC, CTR, campaign/ad-group status, and bidding strategy —
+ * all plain metric/attribute fields, so grain is unchanged (still one row per ad group per day).
+ * The ad_group (Search-eligible) query additionally pulls the search-impression-share family, which
+ * doesn't apply to PMax's asset_group resource so it's omitted from buildAssetGroupQuery. These new
+ * values land in mapRow's returned `extra_metrics` object (see below), NOT as new top-level spend/
+ * impressions/clicks-style fields — same "flexible bag, not a schema migration per metric" approach
+ * already used for core.ai_chats/core.reporting_column_views (see spendRowsColumns.js's toColumns
+ * for where extra_metrics gets written to core.spend_rows).
+ *
+ * CONFIDENCE NOTE on the new fields: metrics.conversions/.conversions_value/.all_conversions/
+ * .all_conversions_value/.average_cpc/.ctr and campaign.status/.advertising_channel_type/
+ * .bidding_strategy_type and ad_group.status/asset_group.status are all long-stable, well-documented
+ * GAQL fields — high confidence. The search-impression-share family (search_impression_share,
+ * search_top_impression_share, search_absolute_top_impression_share, search_rank_lost_impression_
+ * share, search_rank_lost_top_impression_share, search_rank_lost_absolute_top_impression_share) is
+ * lower confidence — Google's docs split "lost to rank" vs "lost to budget" as separate metrics and
+ * the exact field-name split used below hasn't been checked against a live account (still no
+ * developer token as of this writing, same blocker the rest of this file's confidence notes
+ * describe). If the very first live sync throws an UNRECOGNIZED_FIELD/INVALID_QUERY fault, start by
+ * removing the search-impression-share lines one at a time to isolate which name is wrong before
+ * assuming a different bug class — everything else in this query is the well-documented tier.
  */
 import { adsApiSearchAll } from "../lib/googleAdsOAuth.js";
 
@@ -45,10 +69,17 @@ import { adsApiSearchAll } from "../lib/googleAdsOAuth.js";
 function buildQuery(startDate, endDate) {
   return `
     SELECT
-      campaign.id, campaign.name,
-      ad_group.id, ad_group.name,
+      campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type,
+      campaign.bidding_strategy_type,
+      ad_group.id, ad_group.name, ad_group.status,
       segments.date,
-      metrics.cost_micros, metrics.impressions, metrics.clicks
+      metrics.cost_micros, metrics.impressions, metrics.clicks,
+      metrics.conversions, metrics.conversions_value, metrics.all_conversions,
+      metrics.all_conversions_value, metrics.average_cpc, metrics.ctr,
+      metrics.search_impression_share, metrics.search_top_impression_share,
+      metrics.search_absolute_top_impression_share, metrics.search_rank_lost_impression_share,
+      metrics.search_rank_lost_top_impression_share,
+      metrics.search_rank_lost_absolute_top_impression_share
     FROM ad_group
     WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
   `.trim();
@@ -56,18 +87,55 @@ function buildQuery(startDate, endDate) {
 
 // Performance Max's equivalent of the query above — same shape, but asset_group instead of
 // ad_group (see PERFORMANCE MAX doc note up top). The advertising_channel_type filter is what
-// keeps this from ever overlapping with buildQuery()'s results.
+// keeps this from ever overlapping with buildQuery()'s results. No search-impression-share fields
+// here — that metric family is Search-network-specific and doesn't apply to PMax's asset_group
+// resource (see WIDENED FIELD SET note up top).
 function buildAssetGroupQuery(startDate, endDate) {
   return `
     SELECT
-      campaign.id, campaign.name,
-      asset_group.id, asset_group.name,
+      campaign.id, campaign.name, campaign.status, campaign.bidding_strategy_type,
+      asset_group.id, asset_group.name, asset_group.status,
       segments.date,
-      metrics.cost_micros, metrics.impressions, metrics.clicks
+      metrics.cost_micros, metrics.impressions, metrics.clicks,
+      metrics.conversions, metrics.conversions_value, metrics.all_conversions,
+      metrics.all_conversions_value, metrics.average_cpc, metrics.ctr
     FROM asset_group
     WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
       AND campaign.advertising_channel_type = 'PERFORMANCE_MAX'
   `.trim();
+}
+
+// Builds the extra_metrics bag from a GAQL row's metrics/campaign/child fields — only includes a
+// key when the API actually returned something for it, same "drop rather than fabricate" rule
+// roundPipelineMetrics (src/lib/askAI.js) already uses, so a field Google didn't return (e.g. an
+// impression-share metric with no eligible auctions that day) doesn't show up as a misleading 0.
+// Micros fields (average_cpc) get the same /1e6 treatment as cost_micros in mapRow below; ratio
+// fields (ctr, conversions counts/values, impression-share fractions) are used as-is.
+export function buildExtraMetrics(r, child) {
+  const m = r.metrics || {};
+  const out = {};
+  const put = (key, raw, transform = (x) => x) => {
+    if (raw === undefined || raw === null) return;
+    const n = transform(Number(raw));
+    if (Number.isFinite(n)) out[key] = Math.round(n * 10000) / 10000;
+  };
+  put("conversions", m.conversions);
+  put("conversions_value", m.conversionsValue);
+  put("all_conversions", m.allConversions);
+  put("all_conversions_value", m.allConversionsValue);
+  put("average_cpc", m.averageCpc, (x) => x / 1e6);
+  put("ctr", m.ctr);
+  put("search_impression_share", m.searchImpressionShare);
+  put("search_top_impression_share", m.searchTopImpressionShare);
+  put("search_absolute_top_impression_share", m.searchAbsoluteTopImpressionShare);
+  put("search_rank_lost_impression_share", m.searchRankLostImpressionShare);
+  put("search_rank_lost_top_impression_share", m.searchRankLostTopImpressionShare);
+  put("search_rank_lost_absolute_top_impression_share", m.searchRankLostAbsoluteTopImpressionShare);
+  if (r.campaign?.status) out.campaign_status = r.campaign.status;
+  if (r.campaign?.advertisingChannelType) out.advertising_channel_type = r.campaign.advertisingChannelType;
+  if (r.campaign?.biddingStrategyType) out.bidding_strategy_type = r.campaign.biddingStrategyType;
+  if (child?.status) out.ad_group_status = child.status;
+  return out;
 }
 
 // costMicros comes back as a string (Google's REST JSON encodes int64 fields as strings to avoid
@@ -88,6 +156,7 @@ function mapRow(r, child) {
     spend,
     impressions: parseInt(r.metrics?.impressions || "0", 10) || 0,
     clicks: parseInt(r.metrics?.clicks || "0", 10) || 0,
+    extra_metrics: buildExtraMetrics(r, child),
   };
 }
 

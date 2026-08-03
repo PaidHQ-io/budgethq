@@ -27,11 +27,12 @@ export async function replaceWindow(workspaceId, platform, startDate, endDate, r
       ? [tx`
           insert into core.spend_rows
             (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
-             date, as_of_date, spend, impressions, clicks, source)
+             date, as_of_date, spend, impressions, clicks, source, extra_metrics)
           select ${workspaceId}, * from unnest(
             ${c.campaign_group_name}::text[], ${c.campaign_name}::text[], ${c.campaign_id}::text[],
             ${c.platform}::text[], ${c.campaign_type}::text[], ${c.date}::date[], ${c.as_of_date}::date[],
-            ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[]
+            ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[],
+            ${c.extra_metrics}::jsonb[]
           )
         `]
       : []),
