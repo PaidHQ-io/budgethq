@@ -1325,6 +1325,25 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
   const barGap = 3;
   const barW = Math.max(3, (groupW - barGap * (seriesCount - 1)) / seriesCount);
 
+  // Default the scroll position to the MOST RECENT periods, not the earliest (2026-08-17, per Mo —
+  // "the graph isn't working when anything is in the filter now"): a browser's own default scroll
+  // position for an overflowing element is scrollLeft=0, i.e. the chart opened showing the OLDEST
+  // periods first. That's fine for an unfiltered view where data is spread across the whole range,
+  // but a narrow filter (e.g. one campaign that only started running a year into a multi-year
+  // range) can leave every bar in that oldest-first slice at zero, making the chart look empty/
+  // broken even though it's rendering correctly — the real data was just scrolled out of view to the
+  // right. Scrolls to the far right whenever the actual period RANGE changes (new filter, new date
+  // range, new grain) — deliberately NOT keyed on `series` too, so toggling a chart metric on/off
+  // doesn't yank the view away from wherever the user has manually scrolled to.
+  const periodsKey = periods.join("|");
+  useEffect(() => {
+    if (!needsScroll) return;
+    const el = containerRef.current;
+    if (!el) return;
+    el.scrollLeft = el.scrollWidth;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- containerRef is a stable ref object (see useElementWidth), not reactive state
+  }, [periodsKey, needsScroll]);
+
   const valuesFor = (arr) => arr.flatMap((s) => (hasForecast ? [...s.values, s.projectedValue || 0] : s.values));
   const leftMax = Math.max(1, ...valuesFor(axisLeft));
   const rightMax = Math.max(1, ...(hasRightAxis ? valuesFor(axisRight) : [0]));
