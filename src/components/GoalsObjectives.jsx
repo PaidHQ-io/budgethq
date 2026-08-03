@@ -3,7 +3,7 @@ import { SectionLabel } from "./shared.jsx";
 import ReportingFactsTagger from "./ReportingFactsTagger.jsx";
 import PipelineColumnMapper from "./PipelineColumnMapper.jsx";
 import { upsertReportingFacts } from "../lib/reportingApi.js";
-import { isGoalsSource } from "../lib/pipelineColumnMapping.js";
+import { isGoalsSource, GOAL_METRIC_MAP_OPTIONS } from "../lib/pipelineColumnMapping.js";
 
 // Goals & Objectives tab (REBUILT 2026-08-19, per Mo — "let's build the goals & objectives import
 // like we've done with the campaign spend and pipeline import. we'll need to save and be able to
@@ -25,6 +25,13 @@ import { isGoalsSource } from "../lib/pipelineColumnMapping.js";
 //
 // STORAGE: goals data still lives in the exact same core.reporting_facts table pipeline performance
 // data does (see isGoalsSource's own doc note in pipelineColumnMapping.js) — no new table/migration.
+//
+// METRIC VOCABULARY (2026-08-19, per Mo — after a real import showed the mapper offering "MQLs"/
+// "Pipeline Value"/etc., the same metric names real pipeline PERFORMANCE data uses): passes
+// GOAL_METRIC_MAP_OPTIONS/metricKeySuffix="_goal" to PipelineColumnMapper instead of letting it
+// default to PIPELINE_METRIC_MAP_OPTIONS, so every goal number lands under a distinctly-suffixed key
+// (mqls_goal, pipeline_value_goal, ...) that can never collide with — or get silently summed into —
+// the real performance metric it's a target FOR. See GOAL_METRIC_MAP_OPTIONS' own doc note.
 //
 // NOT carried over from this file's prior version: PDF goals imports still route through
 // ReportingAnalyzer's own AI-extraction review flow (PaidHQ.jsx's confirmUnifiedUpload — out of
@@ -98,6 +105,8 @@ export default function GoalsObjectives({
             initialMonth={rawGoalsImport.initialMonth}
             initialQuarter={rawGoalsImport.initialQuarter}
             initialHardcodedChannel={rawGoalsImport.initialHardcodedChannel}
+            metricOptions={GOAL_METRIC_MAP_OPTIONS}
+            metricKeySuffix="_goal"
           />
         )}
         {mappingImporting && (

@@ -5,6 +5,7 @@ import {
   findDuplicateMappingTargets,
   buildNormalizedPipelineRows,
   detectImportPeriod,
+  detectMonthColumn,
   PIPELINE_METRIC_MAP_OPTIONS,
   PIPELINE_STRUCTURAL_FIELD_OPTIONS,
 } from "../lib/pipelineColumnMapping.js";
@@ -24,14 +25,14 @@ import { usePersistentState } from "../lib/persist.js";
 // API itself.
 const PREVIEW_ROWS = 6;
 
-function targetLabel(target) {
+function targetLabel(target, metricOptions) {
   if (!target || target === "ignore") return "Ignore";
   const structural = PIPELINE_STRUCTURAL_FIELD_OPTIONS.find((f) => f.value === target);
   if (structural) return structural.label;
   if (target.startsWith("tag::")) return target.slice(5);
   if (target.startsWith("metric::")) {
     const key = target.slice(8);
-    return PIPELINE_METRIC_MAP_OPTIONS.find((m) => m.key === key)?.label || key;
+    return metricOptions.find((m) => m.key === key)?.label || key;
   }
   return target;
 }
@@ -59,11 +60,17 @@ const selStyle = { padding: "5px 8px", fontSize: 12 };
 // review screen, pre-filled" over a fully silent replay), it just starts from the prior answer
 // instead of a fresh guess. All are simply undefined for every live/first-time import, in which case
 // this component behaves exactly as it did before this feature existed.
-export default function PipelineColumnMapper({ T, headers, rows, tagDims, sourceLabel, onConfirm, onDiscard, initialMapping, initialPeriodMode, initialYear, initialMonth, initialQuarter, initialHardcodedChannel }) {
+// metricOptions/metricKeySuffix (2026-08-19, per Mo's goals-import metric-vocabulary fix — see
+// pipelineColumnMapping.js's GOAL_METRIC_MAP_OPTIONS doc note): which metric list this mapping step
+// offers as targets. Defaults to PIPELINE_METRIC_MAP_OPTIONS/"" — unchanged behavior for every
+// existing (pipeline) call site. GoalsObjectives.jsx passes GOAL_METRIC_MAP_OPTIONS/"_goal" so a
+// goal number always lands under a distinctly-suffixed key, never the same key real pipeline
+// performance data uses for the same underlying concept.
+export default function PipelineColumnMapper({ T, headers, rows, tagDims, sourceLabel, onConfirm, onDiscard, initialMapping, initialPeriodMode, initialYear, initialMonth, initialQuarter, initialHardcodedChannel, metricOptions = PIPELINE_METRIC_MAP_OPTIONS, metricKeySuffix = "" }) {
   // Lazy init so re-renders (e.g. from the parent's other state changing) don't re-run the guess and
   // clobber anything the user already overrode.
   const [mapping, setMapping] = useState(() =>
-    initialMapping || Object.fromEntries(guessColumnMapping(headers, tagDims).map((t, i) => [i, t]))
+    initialMapping || Object.fromEntries(guessColumnMapping(headers, tagDims, metricKeySuffix).map((t, i) => [i, t]))
   );
 
   const setColumnTarget = (i, target) => setMapping((prev) => ({ ...prev, [i]: target }));
@@ -84,8 +91,8 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
     [mapping]
   );
   const unmappedMetrics = useMemo(
-    () => PIPELINE_METRIC_MAP_OPTIONS.filter((m) => !mappedMetricKeys.has(m.key)),
-    [mappedMetricKeys]
+    () => metricOptions.filter((m) => !mappedMetricKeys.has(m.key)),
+    [mappedMetricKeys, metricOptions]
   );
 
   // LAST-USED PERIOD/CHANNEL (2026-08-08, per Mo — "let's keep the same reporting period and the
@@ -141,6 +148,29 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
     return null;
   }, [periodMode, detected, year, month, quarter]);
 
+  // WIDE/MONTH-COLUMN FILES (2026-08-19, per Mo — a goals file with one row per Product and 12
+  // separate month columns per metric, e.g. "January"/"February"/... twice over for two different
+  // goal metrics, plus Q1-Q4/grand-total columns that must NOT also be treated as periods — see
+  // detectMonthColumn's own doc comment for why only bare month names match). Any header that
+  // resolves to a month number gets its own {periodType:"month",periodStart} entry here, keyed by
+  // header index, using `year` from the Reporting period section below as the year to pair every
+  // detected month with (the single most sensible reuse of that control — the file itself never
+  // states a year on the month columns, so someone has to pick one, and periodMode's own year field
+  // is already exactly that "which year is this file for" input). buildNormalizedPipelineRows uses
+  // this to fan a single source row out into one row per distinct month for any metric column mapped
+  // under a month header, while every metric column NOT in a detected-month header still falls back
+  // to the single resolvedPeriod, unaffected — so a normal (non-wide) file produces columnPeriods={}
+  // and behaves exactly as before this feature existed.
+  const columnPeriods = useMemo(() => {
+    const out = {};
+    (headers || []).forEach((h, i) => {
+      const m = detectMonthColumn(h);
+      if (m) out[i] = { periodType: "month", periodStart: normalizePeriodStart("month", `${year}-${String(m).padStart(2, "0")}-01`) };
+    });
+    return out;
+  }, [headers, year]);
+  const hasWideColumns = Object.keys(columnPeriods).length > 0;
+
   // CHANNEL AT IMPORT (2026-08-05, per Mo — "I'm going to start bringing the data in channel by
   // channel ... there are many cases where the channel is Bing but the campaign starts with SEA-
   // ... I would like a hard coded channel field that is hard coded when the data is imported"):
@@ -167,7 +197,7 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
   // additive.
   const handleConfirm = () => {
     if (!canConfirm) return;
-    const normalized = buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod, hardcodedChannel);
+    const normalized = buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod, hardcodedChannel, columnPeriods);
     onConfirm(normalized, { mapping, periodMode, year, month, quarter, hardcodedChannel });
   };
 
@@ -192,7 +222,7 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
 
       {dupeTargets.length > 0 && (
         <div style={{ marginBottom: 12, padding: "9px 12px", background: T.dangerBg, border: `1px solid ${T.dangerBorder}`, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), color: T.danger }}>
-          More than one column is mapped to {dupeTargets.map((t) => `"${targetLabel(t)}"`).join(", ")} — each
+          More than one column is mapped to {dupeTargets.map((t) => `"${targetLabel(t, metricOptions)}"`).join(", ")} — each
           target can only be used once. Change one of them to continue.
         </div>
       )}
@@ -211,9 +241,14 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
             <tr style={{ borderBottom: `1px solid ${T.border}` }}>
               {headers.map((h, i) => (
                 <th key={i} style={{ padding: "8px 10px", minWidth: 150, verticalAlign: "top", background: T.surfaceEl }}>
-                  <div style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 6, maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={h}>
+                  <div style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: columnPeriods[i] ? 2 : 6, maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={h}>
                     {h}
                   </div>
+                  {columnPeriods[i] && (
+                    <div style={{ fontSize: 10 * (T.fsScale || 1), color: T.accent, marginBottom: 6 }}>
+                      → {labelForPeriod(columnPeriods[i].periodType, columnPeriods[i].periodStart)}
+                    </div>
+                  )}
                   <Sel T={T} value={mapping[i] || "ignore"} onChange={(v) => setColumnTarget(i, v)} style={{ fontSize: 12 * (T.fsScale || 1), padding: "4px 6px" }}>
                     <option value="ignore">Ignore</option>
                     {PIPELINE_STRUCTURAL_FIELD_OPTIONS.map((f) => (
@@ -227,7 +262,7 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
                       </optgroup>
                     )}
                     <optgroup label="Metric">
-                      {PIPELINE_METRIC_MAP_OPTIONS.map((m) => (
+                      {metricOptions.map((m) => (
                         <option key={m.key} value={`metric::${m.key}`}>{m.label}</option>
                       ))}
                     </optgroup>
@@ -259,6 +294,13 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
         <div style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
           Reporting period
         </div>
+        {hasWideColumns && (
+          <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.5, marginBottom: 8 }}>
+            {Object.keys(columnPeriods).length} column{Object.keys(columnPeriods).length === 1 ? "" : "s"} above were recognized as
+            individual months (marked with <span style={{ color: T.accent }}>→</span>) — each becomes its own dated row using the year
+            picked below. The period below only applies to any OTHER mapped metric column that isn't one of those month columns.
+          </div>
+        )}
         {periodMode === "detected" && detected ? (
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13 * (T.fsScale || 1), color: T.text }}>

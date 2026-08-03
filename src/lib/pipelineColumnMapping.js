@@ -76,6 +76,20 @@ export const PIPELINE_METRIC_MAP_OPTIONS = [
   { key: "revenue", label: "Revenue" },
 ];
 
+// Goal-flavored mirror of the list above (2026-08-19, per Mo — a goals import that reused
+// PipelineColumnMapper's PIPELINE_METRIC_MAP_OPTIONS unchanged let a "goal" number get mapped under
+// the exact same key ("mqls", "pipeline_value", ...) real pipeline PERFORMANCE data uses — meaning a
+// goal and an actual could silently sum together anywhere downstream that isn't careful to filter by
+// source. Every key here gets a "_goal" suffix (mqls -> mqls_goal, pipeline_value ->
+// pipeline_value_goal, etc.) so a goal number can never collide with — or accidentally get summed
+// into — the real performance metric it's a target FOR. isMoneyMetric (reportingMetrics.js) already
+// generalizes to these via a substring regex (matches "pipeline"/"spend"/"revenue" wherever they
+// appear in a key), so $ formatting for e.g. pipeline_value_goal works with no changes there.
+export const GOAL_METRIC_MAP_OPTIONS = PIPELINE_METRIC_MAP_OPTIONS.map(({ key, label }) => ({
+  key: `${key}_goal`,
+  label: `${label} Goal`,
+}));
+
 // Reserved tags keys for the two structural (non-metric, non-user-dimension) fields Campaign Tagger
 // has that reporting_facts doesn't have real columns for — see this file's top doc comment.
 export const AD_GROUP_TAG_KEY = "__pipeline_ad_group";
@@ -153,7 +167,7 @@ const METRIC_ALIASES = {
 // version this backs. Structural fields are checked before tag dimensions so a workspace that
 // happens to have created a tag dimension literally named "Channel" still gets the dedicated
 // structural handling (with its own platform dropdown) rather than being treated as a generic tag.
-function guessOneColumn(header, tagDims) {
+function guessOneColumn(header, tagDims, metricKeySuffix) {
   const n = normalizeHeader(header);
   if (CAMPAIGN_ALIASES.includes(n)) return "campaign";
   if (ADGROUP_ALIASES.includes(n)) return "adgroup";
@@ -162,7 +176,7 @@ function guessOneColumn(header, tagDims) {
     if (normalizeHeader(dim) === n) return `tag::${dim}`;
   }
   for (const [key, aliases] of Object.entries(METRIC_ALIASES)) {
-    if (aliases.includes(n)) return `metric::${key}`;
+    if (aliases.includes(n)) return `metric::${key}${metricKeySuffix || ""}`;
   }
   return "ignore";
 }
@@ -219,14 +233,43 @@ export function detectImportPeriod(headers, rows) {
   return null;
 }
 
+// Bare month name/abbreviation -> 1-12 (2026-08-19, per Mo's goals-file-shape follow-up — a real
+// file had one row per Product with 12 separate MONTH COLUMNS per metric, e.g. "January".."December",
+// rather than one row per period). Deliberately narrow: matches ONLY a bare month name/abbreviation,
+// nothing combined with a year ("Jan-26", "January 2026") and nothing quarter/grand-total shaped
+// ("Q1 Total", "Total") — see detectMonthColumn's own doc comment for why those stay unmapped/manual
+// rather than auto-detected.
+const MONTH_NAME_TO_NUM = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  jan: 1, feb: 2, mar: 3, apr: 4, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
+};
+
+// Recognizes a column header that IS a bare month name/abbreviation — used by PipelineColumnMapper.jsx
+// to unpivot "wide" files (one column per month) into one dated row per month instead of folding
+// every mapped metric column into the single whole-file period from the Reporting Period section.
+// Returns 1-12 or null. Deliberately does NOT match "Q1 Total"/"Total"/"Jan-26"-style headers — a
+// quarter-total or grand-total column sitting alongside its own underlying month columns would
+// double-count if BOTH got auto-mapped to the same metric; keeping those un-auto-detected means a
+// user has to consciously choose to map one or the other, not both, rather than the tool silently
+// deciding for them.
+export function detectMonthColumn(header) {
+  const n = normalizeHeader(header);
+  return MONTH_NAME_TO_NUM[n] || null;
+}
+
 // headers: raw header strings in column order. tagDims: this workspace's current tag dimension
 // names (Product, Region, etc. — same vocabulary as Campaign Tagger, see dimension-values.js),
 // offered as mapping targets so e.g. a Salesforce "Product Line" column can map straight to the
 // "Product" tag dimension instead of tagging every row by hand afterward in Pipeline Tagger.
+// metricKeySuffix (2026-08-19, per the goals-import metric-vocabulary fix — see
+// GOAL_METRIC_MAP_OPTIONS's own doc note): appended to every guessed metric:: key, e.g. "_goal" when
+// guessing against GoalsObjectives' own metric list instead of pipeline's, so an alias match still
+// resolves to a real option in whichever list the caller is actually offering. Defaults to "" —
+// unchanged behavior for every existing (pipeline) call site.
 // Returns an array aligned to `headers` (index, not header text, is the identity — see the doc
 // comment on why below in parsePipelineFileRaw).
-export function guessColumnMapping(headers, tagDims = []) {
-  return (headers || []).map((h) => guessOneColumn(h, tagDims));
+export function guessColumnMapping(headers, tagDims = [], metricKeySuffix = "") {
+  return (headers || []).map((h) => guessOneColumn(h, tagDims, metricKeySuffix));
 }
 
 // A header row candidate is the first row with at least 2 non-blank cells — cheap enough to
@@ -327,18 +370,40 @@ export function findDuplicateMappingTargets(mapping) {
 // importing one channel's file at a time can just say so directly). Left undefined/"" this behaves
 // exactly as before (whatever the "channel" column mapping produces, if any).
 //
+// columnPeriods (2026-08-19, per Mo's goals-file-shape follow-up — see detectMonthColumn's doc
+// comment): { [headerIndex]: {periodType,periodStart} } for any column whose header PipelineColumnMapper
+// detected as a bare month name — computed there (it's the one place that knows the user's chosen
+// year to pair with each column's own month). A metric:: column with an entry here contributes its
+// value to a row dated by THAT column's own period instead of the file's single resolvedPeriod; every
+// other metric:: column (and every file with no wide columns at all — the historical case) still
+// falls into one shared "default" bucket dated by resolvedPeriod, exactly as before. Structural
+// fields (campaign/adgroup/channel/tag::) don't vary by period, so they're copied onto every output
+// row this source row produces, however many buckets it ends up fanning out into.
+//
 // Returns the same per-row shape ReportingAnalyzer's AI-extraction path already normalizes into
-// (source, periodType, periodStart, campaignName, tags, metrics). A column mapped to a metric only
-// sets that key when parseMoney succeeds — a blank/non-numeric cell just leaves the key absent for
-// that row rather than writing a false 0, consistent with how a missing field is already handled
-// elsewhere (deriveMetricColumns/fmtMetric render an absent key as "—", not 0).
-export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod, hardcodedChannel) {
-  const periodType = resolvedPeriod?.periodType || "unknown";
-  const periodStart = resolvedPeriod?.periodStart;
-  return (rows || []).map((row) => {
+// (source, periodType, periodStart, campaignName, tags, metrics) — now possibly SEVERAL rows per
+// input row (one per distinct period bucket that got at least one metric value) instead of always
+// exactly one. A column mapped to a metric only sets that key when parseMoney succeeds — a blank/
+// non-numeric cell just leaves the key absent rather than writing a false 0, consistent with how a
+// missing field is already handled elsewhere (deriveMetricColumns/fmtMetric render an absent key as
+// "—", not 0). A source row with no metric value at all (every mapped metric column blank, or every
+// column "Ignore") still produces exactly one output row under the default period, preserving the
+// existing "every row in the file comes in" guarantee.
+export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLabel, resolvedPeriod, hardcodedChannel, columnPeriods) {
+  const defaultPeriodType = resolvedPeriod?.periodType || "unknown";
+  const defaultPeriodStart = resolvedPeriod?.periodStart;
+  return (rows || []).flatMap((row) => {
     let campaignName = "";
     const tags = {};
-    const metrics = {};
+    // Keyed by periodStart (or a sentinel for the no-period-detected default bucket) -> that
+    // bucket's own {periodType, periodStart, metrics}.
+    const buckets = new Map();
+    const bucketFor = (periodType, periodStart) => {
+      const key = periodStart || "__default__";
+      if (!buckets.has(key)) buckets.set(key, { periodType, periodStart, metrics: {} });
+      return buckets.get(key);
+    };
+
     (headers || []).forEach((_, i) => {
       const target = mapping[i];
       if (!target || target === "ignore") return;
@@ -366,10 +431,19 @@ export function buildNormalizedPipelineRows({ headers, rows }, mapping, sourceLa
       if (target.startsWith("metric::")) {
         const key = target.slice(8);
         const n = parseMoney(raw);
-        if (n !== null) metrics[key] = n;
+        if (n === null) return;
+        const colPeriod = columnPeriods?.[i];
+        const bucket = colPeriod ? bucketFor(colPeriod.periodType, colPeriod.periodStart) : bucketFor(defaultPeriodType, defaultPeriodStart);
+        bucket.metrics[key] = n;
       }
     });
     if (hardcodedChannel) tags[CHANNEL_TAG_KEY] = hardcodedChannel;
-    return { source: sourceLabel, periodType, periodStart, campaignName, tags, metrics };
+
+    if (buckets.size === 0) {
+      return [{ source: sourceLabel, periodType: defaultPeriodType, periodStart: defaultPeriodStart, campaignName, tags, metrics: {} }];
+    }
+    return Array.from(buckets.values()).map((b) => ({
+      source: sourceLabel, periodType: b.periodType, periodStart: b.periodStart, campaignName, tags: { ...tags }, metrics: b.metrics,
+    }));
   });
 }
