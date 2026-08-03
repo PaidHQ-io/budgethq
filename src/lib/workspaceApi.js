@@ -199,6 +199,23 @@ export function putAskAIData(session, workspaceId, { chats, projects }) {
   });
 }
 
+// Reporting Intelligence's per-table column customization (2026-08-17, per Mo — "save column
+// views at the user level"). Same per-(workspace, user) scoping as Ask AI chat history above — see
+// api/workspaces/[id]/reporting-column-views.js's doc comment for the exact `data` shape (one entry
+// per table: activeColumns/views/activeViewId) and the paidhq-core migration this route depends on.
+export function getReportingColumnViews(session, workspaceId) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/reporting-column-views`).then(
+    (d) => d.data || {}
+  );
+}
+
+export function putReportingColumnViews(session, workspaceId, data) {
+  return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/reporting-column-views`, {
+    method: "PUT",
+    body: JSON.stringify({ data }),
+  });
+}
+
 // Version History — scoped per workspace (see api/workspaces/[id]/versions.js). Replaces the old
 // IndexedDB-based store, which used one fixed database name shared across every workspace opened
 // in this browser.

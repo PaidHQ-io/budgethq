@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PixelPanel, SectionLabel, Sel, Icon, Pill, IconField, MatchModeToggle, Divider } from "./shared.jsx";
 import { listReportingFacts } from "../lib/reportingApi.js";
+import { getReportingColumnViews, putReportingColumnViews } from "../lib/workspaceApi.js";
 import {
   fmtMetric, isRateMetric, isMoneyMetric, labelForMetricKey,
   computeDerivedPipelineMetrics, DERIVED_PIPELINE_METRICS,
@@ -289,8 +290,97 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   const [sliceBy, setSliceBy] = usePersistentState("paidhq_reporting_intel_sliceBy", "campaignName");
   const [fSearch, setFSearch] = usePersistentState("paidhq_reporting_intel_fSearch", "");
   // Metrics — like Pipeline Tagger's own "Columns:" toggle pills (2026-08-04, per Mo — "select the
-  // metrics we want to compare and review and analyze, just like the pipeline tagger").
+  // metrics we want to compare and review and analyze, just like the pipeline tagger"). Drives the
+  // sidebar's own Summary stat tiles ONLY — see PER-TABLE COLUMNS below for the three tables' own,
+  // independent column sets (2026-08-17 rework).
   const [metrics, setMetrics] = usePersistentState("paidhq_reporting_intel_metrics", DEFAULT_METRICS);
+
+  // PER-TABLE COLUMNS (2026-08-17, per Mo — "I need to be able to adjust the columns in these
+  // tables so I can move metrics/fields, add new ones..., and remove existing ones. I also need to
+  // be able to save column views at the user level... Each table and the graph should be
+  // independent"). Trend by period / Breakdown / By Campaign each get their OWN ordered column list
+  // plus their own named saved presets — replacing the single shared `metrics` selection those three
+  // tables used to all read from together. The Trend chart stays on its own separate, pre-existing
+  // chartMetrics selection above (already independent of the tables, per Mo's own framing) — this
+  // rework only touches the three tables' column sets, not the chart's.
+  //
+  // Stored server-side per (workspace, user) — see api/workspaces/[id]/reporting-column-views.js —
+  // rather than usePersistentState's localStorage, since "at the user level" specifically means
+  // following the user across devices/browsers, not just this one machine. Starts from DEFAULT_
+  // METRICS locally so the tables render sensibly before the server round-trip resolves, then gets
+  // overwritten once loadedColumnViews below actually returns this user's saved state (or confirms
+  // there isn't one yet, in which case the default stands).
+  const defaultColState = () => ({ activeColumns: DEFAULT_METRICS, views: [], activeViewId: null });
+  const [periodColState, setPeriodColState] = useState(defaultColState);
+  const [breakdownColState, setBreakdownColState] = useState(defaultColState);
+  const [campaignColState, setCampaignColState] = useState(defaultColState);
+  const [columnViewsLoaded, setColumnViewsLoaded] = useState(false);
+  const columnViewsSaveTimer = useRef(null);
+
+  // Normalizes whatever this user last saved (or an absent/malformed entry) into the full shape
+  // every column-state consumer below expects, so a partially-written or pre-this-feature record
+  // can't throw off rendering.
+  const normalizeColState = (raw) => ({
+    activeColumns: Array.isArray(raw?.activeColumns) && raw.activeColumns.length ? raw.activeColumns : DEFAULT_METRICS,
+    views: Array.isArray(raw?.views) ? raw.views : [],
+    activeViewId: raw?.activeViewId ?? null,
+  });
+
+  useEffect(() => {
+    if (!workspace?.id || !session) return;
+    getReportingColumnViews(session, workspace.id)
+      .then((data) => {
+        setPeriodColState(normalizeColState(data.periodTable));
+        setBreakdownColState(normalizeColState(data.breakdownTable));
+        setCampaignColState(normalizeColState(data.campaignTable));
+      })
+      .catch((err) => console.error("[reporting column views load]", err))
+      .finally(() => setColumnViewsLoaded(true));
+  }, [session, workspace?.id]);
+
+  // Debounced save, same shape as PaidHQ.jsx's own workspace-config save — guarded on
+  // columnViewsLoaded so the initial mount (still holding the DEFAULT_METRICS placeholder in all
+  // three, before the fetch above resolves) can never race ahead and overwrite this user's actual
+  // saved state with the placeholder default.
+  useEffect(() => {
+    if (!workspace?.id || !session || !columnViewsLoaded) return;
+    clearTimeout(columnViewsSaveTimer.current);
+    columnViewsSaveTimer.current = setTimeout(() => {
+      putReportingColumnViews(session, workspace.id, {
+        periodTable: periodColState, breakdownTable: breakdownColState, campaignTable: campaignColState,
+      }).catch((err) => console.error("[reporting column views save]", err));
+    }, 700);
+    return () => clearTimeout(columnViewsSaveTimer.current);
+  }, [periodColState, breakdownColState, campaignColState, workspace?.id, session, columnViewsLoaded]);
+
+  // One set of handlers per table, all sharing the same shape — toggling/reordering/saving/applying/
+  // deleting a column or a saved preset. Plain factory (not useCallback) since these just close over
+  // whichever state/setState pair they're built from and are cheap to recreate each render, same
+  // convention as this file's other non-memoized per-render helpers (e.g. campaignsForGroup).
+  const makeColumnHandlers = (state, setState) => ({
+    toggleColumn: (key) => setState({
+      ...state,
+      activeColumns: state.activeColumns.includes(key) ? state.activeColumns.filter((k) => k !== key) : [...state.activeColumns, key],
+    }),
+    reorderColumns: (fromIndex, toIndex) => {
+      if (fromIndex === toIndex) return;
+      const next = state.activeColumns.slice();
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      setState({ ...state, activeColumns: next });
+    },
+    saveView: (name) => {
+      const trimmed = (name || "").trim();
+      if (!trimmed) return;
+      const view = { id: `col_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name: trimmed, columns: state.activeColumns, createdAt: new Date().toISOString() };
+      setState({ ...state, views: [...state.views, view], activeViewId: view.id });
+    },
+    applyView: (view) => setState({ ...state, activeColumns: view.columns.slice(), activeViewId: view.id }),
+    deleteView: (id) => setState({ ...state, views: state.views.filter((v) => v.id !== id), activeViewId: state.activeViewId === id ? null : state.activeViewId }),
+  });
+  const periodColHandlers = makeColumnHandlers(periodColState, setPeriodColState);
+  const breakdownColHandlers = makeColumnHandlers(breakdownColState, setBreakdownColState);
+  const campaignColHandlers = makeColumnHandlers(campaignColState, setCampaignColState);
   // Trend chart metrics (2026-08-09, per Mo — "allow users to select up to three metrics to view
   // month by month or quarter by quarter"). Was a single-metric dropdown; now a small multi-select
   // (still capped at 3 — any more than that on one grouped-bar chart stops being readable,
@@ -321,6 +411,10 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   const [periodTableOpen, setPeriodTableOpen] = usePersistentState("paidhq_reporting_intel_periodTableOpen", true);
   const [breakdownTableOpen, setBreakdownTableOpen] = usePersistentState("paidhq_reporting_intel_breakdownTableOpen", true);
   const [campaignTableOpen, setCampaignTableOpen] = usePersistentState("paidhq_reporting_intel_campaignTableOpen", true);
+  // Which table's "Columns" modal is open, if any — null | "period" | "breakdown" | "campaign".
+  // Transient (plain useState), not persisted — same tier as every other open/closed dropdown/modal
+  // flag in this file.
+  const [openColumnsModal, setOpenColumnsModal] = useState(null);
   // Nested Product -> Campaign breakdown (2026-08-11, per Mo — "I need to understand performance
   // trends at the campaign level for each product... it needs to be easy for me to surface"). Only
   // meaningful when Slice by is a TAG dimension (Product, Channel, etc.) — when Slice by is already
@@ -337,14 +431,16 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   // Computed on demand (only for rows actually expanded) rather than eagerly for every group —
   // reuses the exact same aggregateByDimension + derived/custom metric merge every other table
   // here uses, just scoped to one group's own rows instead of all searchedRows. Also respects the
-  // "hide empty rows" toggle below (hasNoSelectedMetricData/hideEmptyRows are defined further down
-  // this component, but this function is only ever CALLED from the JSX further below still, by
-  // which point both are already initialized — same closure-over-later-const pattern is safe here).
+  // "hide empty rows" toggle, against the Breakdown table's OWN active columns (2026-08-17 rework —
+  // these nested rows show the same columns as their parent Breakdown table) — hasNoSelectedMetric
+  // Data/hideEmptyRows/activeBreakdownColumns are defined further down this component, but this
+  // function is only ever CALLED from the JSX further below still, by which point all three are
+  // already initialized — same closure-over-later-const pattern is safe here.
   const campaignsForGroup = (g) => {
     const list = aggregateByDimension(g.rows, "campaignName")
       .map((c) => ({ ...c, metrics: { ...c.metrics, ...computeDerivedPipelineMetrics(c.metrics), ...computeCustomMetrics(c.metrics, customMetrics) } }))
       .sort((a, b) => b.rows.length - a.rows.length || a.key.localeCompare(b.key));
-    return hideEmptyRows ? list.filter((c) => !hasNoSelectedMetricData(c.metrics)) : list;
+    return hideEmptyRows ? list.filter((c) => !hasNoSelectedMetricData(c.metrics, activeBreakdownColumns)) : list;
   };
 
   useEffect(() => {
@@ -617,20 +713,28 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   const activeMetricColumns = useMemo(() => ALL_METRIC_OPTIONS.filter((m) => metrics.includes(m.key)), [metrics, ALL_METRIC_OPTIONS]);
   const toggleMetric = (key) => setMetrics((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
 
+  // Per-table column objects (2026-08-17 rework — see PER-TABLE COLUMNS above) — each table's own
+  // ordered activeColumns (a plain array of metric KEYS) resolved into the actual option objects
+  // (label/money/pct) the table cells below need, in that same saved order. Order comes from the
+  // state itself now, not from ALL_METRIC_OPTIONS' fixed master order — a user-reordered column set
+  // renders in the order they put it in.
+  const activePeriodColumns = periodColState.activeColumns.map((k) => METRIC_OPTION_BY_KEY[k]).filter(Boolean);
+  const activeBreakdownColumns = breakdownColState.activeColumns.map((k) => METRIC_OPTION_BY_KEY[k]).filter(Boolean);
+  const activeCampaignColumns = campaignColState.activeColumns.map((k) => METRIC_OPTION_BY_KEY[k]).filter(Boolean);
+
   // Hide empty rows (2026-08-12, per Mo — "give me a way to hide rows with 0 data anywhere (ignore
   // the first column for the number of rows)"): a row can have real underlying reporting_facts rows
   // (a non-zero Rows count) but still show nothing useful in any of the currently SELECTED metric
   // columns — e.g. a mis-tagged/variant campaign name that only ever carried metrics other than the
   // ones on screen right now. "No data" means every active metric column is blank/undefined OR
   // literally 0 — deliberately excludes the Rows column itself per Mo's own parenthetical, since
-  // that count being non-zero is exactly the confusing case this exists to surface/hide. Applies to
-  // all three tables (Trend by period, Breakdown, By Campaign) plus the nested Product→Campaign
-  // expand rows — one shared toggle rather than one per table, since "0 data" means the same thing
-  // everywhere metric columns are shown. A pure display declutter, not a data filter — Totals rows
-  // stay computed from the full unfiltered set (grandTotals/searchedRows), same as sorting a table
-  // never changes its own Total row either.
+  // that count being non-zero is exactly the confusing case this exists to surface/hide. Parameterized
+  // by columns (2026-08-17 rework) since each of the three tables now has its own independent column
+  // set, so "no data" means something different per table rather than one shared definition. A pure
+  // display declutter, not a data filter — Totals rows stay computed from the full unfiltered set
+  // (grandTotals/searchedRows), same as sorting a table never changes its own Total row either.
   const [hideEmptyRows, setHideEmptyRows] = usePersistentState("paidhq_reporting_intel_hideEmptyRows", false);
-  const hasNoSelectedMetricData = (metricsObj) => activeMetricColumns.length > 0 && activeMetricColumns.every((c) => {
+  const hasNoSelectedMetricData = (metricsObj, columns) => columns.length > 0 && columns.every((c) => {
     const v = metricsObj[c.key];
     return v === undefined || v === null || (typeof v === "number" && (isNaN(v) || v === 0));
   });
@@ -638,9 +742,9 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   // computed list, and wrapping a locally-defined (non-hook) function in a dependency array here
   // trips this repo's react-compiler lint rule over the function reference's own stability, for no
   // real perf benefit at this scale.
-  const visiblePeriodBuckets = hideEmptyRows ? sortedPeriodBuckets.filter((b) => !hasNoSelectedMetricData(b.metrics)) : sortedPeriodBuckets;
-  const visibleSliceGroups = hideEmptyRows ? filteredSliceGroups.filter((g) => !hasNoSelectedMetricData(g.metrics)) : filteredSliceGroups;
-  const visibleCampaignGroups = hideEmptyRows ? sortedCampaignGroups.filter((g) => !hasNoSelectedMetricData(g.metrics)) : sortedCampaignGroups;
+  const visiblePeriodBuckets = hideEmptyRows ? sortedPeriodBuckets.filter((b) => !hasNoSelectedMetricData(b.metrics, activePeriodColumns)) : sortedPeriodBuckets;
+  const visibleSliceGroups = hideEmptyRows ? filteredSliceGroups.filter((g) => !hasNoSelectedMetricData(g.metrics, activeBreakdownColumns)) : filteredSliceGroups;
+  const visibleCampaignGroups = hideEmptyRows ? sortedCampaignGroups.filter((g) => !hasNoSelectedMetricData(g.metrics, activeCampaignColumns)) : sortedCampaignGroups;
   // One series per selected chart metric, each carrying its own color (assigned by selection
   // order, stable as long as the selection itself doesn't change) — see TrendMiniChart below for
   // how these get drawn as grouped bars.
@@ -986,10 +1090,15 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
             <div style={{ background: T.surface, marginBottom: 16 }}>
               <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: periodTableOpen ? `1px solid ${T.border}` : "none" }}>
                 <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Trend by period</div>
-                <button onClick={() => setPeriodTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
-                  {periodTableOpen ? "Hide" : "Show"}
-                  <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: periodTableOpen ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <button onClick={() => setOpenColumnsModal("period")} title="Add, remove, or reorder this table's columns" style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${T.border}`, borderRadius: T.r6, padding: "3px 8px", color: T.textSub, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font }}>
+                    <Icon name="gear" size={11} color={T.textSub} /> Columns ({activePeriodColumns.length})
+                  </button>
+                  <button onClick={() => setPeriodTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
+                    {periodTableOpen ? "Hide" : "Show"}
+                    <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: periodTableOpen ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+                  </button>
+                </div>
               </div>
               {periodTableOpen && (
                 <div style={{ overflowX: "auto" }}>
@@ -998,14 +1107,14 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                         <SortTh label="Period" sortKey="__label__" sort={periodSort} onSort={(k) => toggleSort(setPeriodSort, k)} align="left" T={T} />
                         <SortTh label="Rows" sortKey="__rows__" sort={periodSort} onSort={(k) => toggleSort(setPeriodSort, k)} align="right" T={T} />
-                        {activeMetricColumns.map((c) => (
+                        {activePeriodColumns.map((c) => (
                           <SortTh key={c.key} label={c.label} sortKey={c.key} sort={periodSort} onSort={(k) => toggleSort(setPeriodSort, k)} align="right" T={T} />
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {visiblePeriodBuckets.length === 0 && (
-                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedPeriodBuckets.length > 0 ? "Every period is hidden by \"Hide empty rows.\"" : "No periods match your filters."}</td></tr>
+                        <tr><td colSpan={2 + activePeriodColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedPeriodBuckets.length > 0 ? "Every period is hidden by \"Hide empty rows.\"" : "No periods match your filters."}</td></tr>
                       )}
                       {visiblePeriodBuckets.map((b) => {
                         // Matched by KEY, not array position — sorting the table can reorder rows,
@@ -1020,7 +1129,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                               {isForecastRow && <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{ marginLeft: 8, fontSize: 10 * (T.fsScale || 1) }}>in progress</Pill>}
                             </td>
                             <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{b.rows.length}</td>
-                            {activeMetricColumns.map((c) => (
+                            {activePeriodColumns.map((c) => (
                               <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>
                                 {fmtMetric(b.metrics[c.key], c.money, c.pct)}
                                 {isForecastRow && forecast.projected[c.key] !== undefined && (
@@ -1037,7 +1146,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                         <tr style={{ borderTop: `2px solid ${T.border}` }}>
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{searchedRows.length}</td>
-                          {activeMetricColumns.map((c) => (
+                          {activePeriodColumns.map((c) => (
                             <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
                           ))}
                         </tr>
@@ -1055,10 +1164,15 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
             <div style={{ background: T.surface, marginBottom: 16 }}>
               <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: breakdownTableOpen ? `1px solid ${T.border}` : "none" }}>
                 <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Breakdown by {sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice"}</div>
-                <button onClick={() => setBreakdownTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
-                  {breakdownTableOpen ? "Hide" : "Show"}
-                  <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: breakdownTableOpen ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <button onClick={() => setOpenColumnsModal("breakdown")} title="Add, remove, or reorder this table's columns" style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${T.border}`, borderRadius: T.r6, padding: "3px 8px", color: T.textSub, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font }}>
+                    <Icon name="gear" size={11} color={T.textSub} /> Columns ({activeBreakdownColumns.length})
+                  </button>
+                  <button onClick={() => setBreakdownTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
+                    {breakdownTableOpen ? "Hide" : "Show"}
+                    <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: breakdownTableOpen ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+                  </button>
+                </div>
               </div>
               {breakdownTableOpen && (
                 <div style={{ overflowX: "auto" }}>
@@ -1067,14 +1181,14 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                         <SortTh label={sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice"} sortKey="__label__" sort={breakdownSort} onSort={(k) => toggleSort(setBreakdownSort, k)} align="left" T={T} />
                         <SortTh label="Rows" sortKey="__rows__" sort={breakdownSort} onSort={(k) => toggleSort(setBreakdownSort, k)} align="right" T={T} />
-                        {activeMetricColumns.map((c) => (
+                        {activeBreakdownColumns.map((c) => (
                           <SortTh key={c.key} label={c.label} sortKey={c.key} sort={breakdownSort} onSort={(k) => toggleSort(setBreakdownSort, k)} align="right" T={T} />
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {visibleSliceGroups.length === 0 && (
-                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && filteredSliceGroups.length > 0 ? "Every group is hidden by \"Hide empty rows.\"" : "No groups match your filters."}</td></tr>
+                        <tr><td colSpan={2 + activeBreakdownColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && filteredSliceGroups.length > 0 ? "Every group is hidden by \"Hide empty rows.\"" : "No groups match your filters."}</td></tr>
                       )}
                       {visibleSliceGroups.map((g) => {
                         // Nested campaign expand (2026-08-11, per Mo — "performance trends at the
@@ -1092,19 +1206,19 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                                 {g.key}
                               </td>
                               <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{g.rows.length}</td>
-                              {activeMetricColumns.map((c) => (
+                              {activeBreakdownColumns.map((c) => (
                                 <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>{fmtMetric(g.metrics[c.key], c.money, c.pct)}</td>
                               ))}
                             </tr>
                             {expanded && (
                               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                                <td colSpan={2 + activeMetricColumns.length} style={{ padding: "0 10px 12px 28px", background: T.surfaceEl }}>
+                                <td colSpan={2 + activeBreakdownColumns.length} style={{ padding: "0 10px 12px 28px", background: T.surfaceEl }}>
                                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 * (T.fsScale || 1) }}>
                                     <thead>
                                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                                         <th style={{ padding: "6px 8px", fontSize: 9 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "left" }}>Campaign</th>
                                         <th style={{ padding: "6px 8px", fontSize: 9 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "right" }}>Rows</th>
-                                        {activeMetricColumns.map((c) => (
+                                        {activeBreakdownColumns.map((c) => (
                                           <th key={c.key} style={{ padding: "6px 8px", fontSize: 9 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "right" }}>{c.label}</th>
                                         ))}
                                       </tr>
@@ -1114,7 +1228,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                                         <tr key={c.key} className="bhq-row">
                                           <td style={{ padding: "6px 8px", color: T.textSub, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.key}>{c.key}</td>
                                           <td style={{ padding: "6px 8px", color: T.textMuted, fontSize: 11 * (T.fsScale || 1), textAlign: "right" }}>{c.rows.length}</td>
-                                          {activeMetricColumns.map((col) => (
+                                          {activeBreakdownColumns.map((col) => (
                                             <td key={col.key} style={{ padding: "6px 8px", color: T.textSub, textAlign: "right" }}>{fmtMetric(c.metrics[col.key], col.money, col.pct)}</td>
                                           ))}
                                         </tr>
@@ -1133,7 +1247,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                         <tr style={{ borderTop: `2px solid ${T.border}` }}>
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{searchedRows.length}</td>
-                          {activeMetricColumns.map((c) => (
+                          {activeBreakdownColumns.map((c) => (
                             <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
                           ))}
                         </tr>
@@ -1152,10 +1266,15 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
             <div style={{ background: T.surface }}>
               <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: campaignTableOpen ? `1px solid ${T.border}` : "none" }}>
                 <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>By Campaign</div>
-                <button onClick={() => setCampaignTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
-                  {campaignTableOpen ? "Hide" : "Show"}
-                  <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: campaignTableOpen ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <button onClick={() => setOpenColumnsModal("campaign")} title="Add, remove, or reorder this table's columns" style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${T.border}`, borderRadius: T.r6, padding: "3px 8px", color: T.textSub, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font }}>
+                    <Icon name="gear" size={11} color={T.textSub} /> Columns ({activeCampaignColumns.length})
+                  </button>
+                  <button onClick={() => setCampaignTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
+                    {campaignTableOpen ? "Hide" : "Show"}
+                    <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: campaignTableOpen ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+                  </button>
+                </div>
               </div>
               {campaignTableOpen && (
                 <div style={{ overflowX: "auto" }}>
@@ -1164,20 +1283,20 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                         <SortTh label="Campaign" sortKey="__label__" sort={campaignSort} onSort={(k) => toggleSort(setCampaignSort, k)} align="left" T={T} />
                         <SortTh label="Rows" sortKey="__rows__" sort={campaignSort} onSort={(k) => toggleSort(setCampaignSort, k)} align="right" T={T} />
-                        {activeMetricColumns.map((c) => (
+                        {activeCampaignColumns.map((c) => (
                           <SortTh key={c.key} label={c.label} sortKey={c.key} sort={campaignSort} onSort={(k) => toggleSort(setCampaignSort, k)} align="right" T={T} />
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {visibleCampaignGroups.length === 0 && (
-                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedCampaignGroups.length > 0 ? "Every campaign is hidden by \"Hide empty rows.\"" : "No campaigns match your filters."}</td></tr>
+                        <tr><td colSpan={2 + activeCampaignColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedCampaignGroups.length > 0 ? "Every campaign is hidden by \"Hide empty rows.\"" : "No campaigns match your filters."}</td></tr>
                       )}
                       {visibleCampaignGroups.map((g) => (
                         <tr key={g.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
                           <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={g.key}>{g.key}</td>
                           <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{g.rows.length}</td>
-                          {activeMetricColumns.map((c) => (
+                          {activeCampaignColumns.map((c) => (
                             <td key={c.key} style={{ padding: "8px 10px", color: T.text, textAlign: "right" }}>{fmtMetric(g.metrics[c.key], c.money, c.pct)}</td>
                           ))}
                         </tr>
@@ -1188,7 +1307,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                         <tr style={{ borderTop: `2px solid ${T.border}` }}>
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{searchedRows.length}</td>
-                          {activeMetricColumns.map((c) => (
+                          {activeCampaignColumns.map((c) => (
                             <td key={c.key} style={{ padding: "8px 10px", fontWeight: 700, color: T.text, textAlign: "right" }}>{fmtMetric(grandTotals[c.key], c.money, c.pct)}</td>
                           ))}
                         </tr>
@@ -1201,6 +1320,16 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
           </>
         )}
       </div>
+
+      {openColumnsModal === "period" && (
+        <ColumnsModal T={T} title="Trend by period" allOptions={ALL_METRIC_OPTIONS} state={periodColState} handlers={periodColHandlers} onClose={() => setOpenColumnsModal(null)} />
+      )}
+      {openColumnsModal === "breakdown" && (
+        <ColumnsModal T={T} title={`Breakdown by ${sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice"}`} allOptions={ALL_METRIC_OPTIONS} state={breakdownColState} handlers={breakdownColHandlers} onClose={() => setOpenColumnsModal(null)} />
+      )}
+      {openColumnsModal === "campaign" && (
+        <ColumnsModal T={T} title="By Campaign" allOptions={ALL_METRIC_OPTIONS} state={campaignColState} handlers={campaignColHandlers} onClose={() => setOpenColumnsModal(null)} />
+      )}
 
       {dimensionModalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setDimensionModalOpen(false)}>
@@ -1240,6 +1369,101 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
 
       {notif && <div style={{ position: "fixed", bottom: 20, right: 20, background: T.success, color: "#fff", padding: "10px 16px", borderRadius: T.r8, fontSize: 13 * (T.fsScale || 1), fontWeight: 600, zIndex: 300, boxShadow: T.shadowMd, fontFamily: T.font }}>{notif}</div>}
     </>
+  );
+}
+
+// Per-table "Columns" editor (2026-08-17, per Mo — "I need to be able to adjust the columns in
+// these tables so I can move metrics/fields, add new ones..., and remove existing ones. I also need
+// to be able to save column views at the user level"). One shared modal, rendered once per table
+// with that table's own {activeColumns,views,activeViewId} state + handlers (see PipelineTagger's
+// PER-TABLE COLUMNS section) — not a single instance shared across tables, so each table's "which
+// columns, in what order, under what saved presets" stays fully independent, matching Mo's own
+// framing ("Each table... should be independent so users can look at the kpis they want to").
+//
+// Reordering is native HTML5 drag-and-drop (draggable + onDragStart/onDragOver/onDrop) rather than a
+// library — this codebase has no drag-and-drop dependency installed, and a plain index-swap on drop
+// is all a single flat "Shown" list needs; no nested/multi-list dragging to justify pulling one in.
+function ColumnsModal({ T, title, allOptions, state, handlers, onClose }) {
+  const [dragIndex, setDragIndex] = useState(null);
+  const [presetName, setPresetName] = useState("");
+
+  const activeSet = new Set(state.activeColumns);
+  const shown = state.activeColumns.map((k) => allOptions.find((o) => o.key === k)).filter(Boolean);
+  const groups = [
+    { label: "Funnel metrics", options: allOptions.filter((o) => o.kind === "absolute" && !activeSet.has(o.key)) },
+    { label: "Cost & conversion", options: allOptions.filter((o) => o.kind === "derived" && !activeSet.has(o.key)) },
+    { label: "Custom", options: allOptions.filter((o) => o.kind === "custom" && !activeSet.has(o.key)) },
+  ].filter((g) => g.options.length > 0);
+
+  const commitSave = () => {
+    const name = presetName.trim();
+    if (!name) return;
+    handlers.saveView(name);
+    setPresetName("");
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, maxHeight: "85vh", overflow: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r10, padding: 20, boxShadow: T.shadowMd }}>
+        <div style={{ fontSize: 14 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 4 }}>{title} — columns</div>
+        <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, marginBottom: 14 }}>Drag to reorder. Click a metric below to add it, or the × on a shown column to remove it.</div>
+
+        <SectionLabel T={T} style={{ marginBottom: 6 }}>Shown</SectionLabel>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 16 }}>
+          {shown.length === 0 && <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted }}>No columns selected — add one below.</div>}
+          {shown.map((opt, i) => (
+            <div key={opt.key}
+              draggable
+              onDragStart={() => setDragIndex(i)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); if (dragIndex !== null) handlers.reorderColumns(dragIndex, i); setDragIndex(null); }}
+              onDragEnd={() => setDragIndex(null)}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 9px", borderRadius: T.r6, border: `1px solid ${T.border}`, background: dragIndex === i ? T.surfaceHover : T.surface, cursor: "grab", opacity: dragIndex === i ? 0.5 : 1 }}>
+              <Icon name="dots" size={13} color={T.textMuted} />
+              <span style={{ flex: 1, fontSize: 13 * (T.fsScale || 1), color: T.text, fontFamily: T.font }}>{opt.label}</span>
+              <button onClick={() => handlers.toggleColumn(opt.key)} title="Remove column" style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 13 * (T.fsScale || 1), fontFamily: T.font }}>✕</button>
+            </div>
+          ))}
+        </div>
+
+        {groups.map((g) => (
+          <div key={g.label} style={{ marginBottom: 12 }}>
+            <SectionLabel T={T} style={{ marginBottom: 6 }}>{g.label}</SectionLabel>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {g.options.map((opt) => (
+                <button key={opt.key} onClick={() => handlers.toggleColumn(opt.key)}
+                  style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 * (T.fsScale || 1), background: "transparent", border: `1px solid ${T.border}`, color: T.textSub, borderRadius: T.r14, padding: "3px 9px", cursor: "pointer", fontFamily: T.font }}>
+                  <Icon name="plus" size={10} color={T.textMuted} />{opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <Divider T={T} style={{ margin: "14px 0" }} />
+        <SectionLabel T={T} style={{ marginBottom: 6 }}>Saved presets</SectionLabel>
+        {state.views.length === 0 && <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, marginBottom: 10 }}>No saved presets yet — set up your columns above, then save them as a named preset below.</div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 10 }}>
+          {state.views.map((v) => (
+            <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+              <button onClick={() => handlers.applyView(v)} className="bhq-row" style={{ flex: 1, textAlign: "left", padding: "6px 8px", borderRadius: T.r6, background: state.activeViewId === v.id ? T.accentBg : "transparent", border: "none", color: T.text, fontSize: 12 * (T.fsScale || 1), cursor: "pointer", fontFamily: T.font }}>{v.name}</button>
+              <button onClick={() => handlers.deleteView(v.id)} title="Delete preset" style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 13 * (T.fsScale || 1), fontFamily: T.font }}>✕</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+          <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="Preset name…"
+            onKeyDown={(e) => { if (e.key === "Enter") commitSave(); }}
+            style={{ flex: 1, background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "6px 9px", fontSize: 12 * (T.fsScale || 1), outline: "none", fontFamily: T.font }} />
+          <button onClick={commitSave} disabled={!presetName.trim()}
+            style={{ background: presetName.trim() ? T.accent : T.surfaceHover, border: "none", color: presetName.trim() ? "#fff" : T.textMuted, borderRadius: T.r6, padding: "6px 14px", cursor: presetName.trim() ? "pointer" : "default", fontSize: 12 * (T.fsScale || 1), fontWeight: 600, fontFamily: T.font }}>Save as new preset</button>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+          <button onClick={onClose} style={{ background: T.accent, border: "none", color: "#fff", borderRadius: T.r6, padding: "7px 16px", cursor: "pointer", fontSize: 12 * (T.fsScale || 1), fontWeight: 600, fontFamily: T.font }}>Done</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
