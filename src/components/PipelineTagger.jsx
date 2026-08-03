@@ -8,7 +8,7 @@ import {
   computeCustomMetrics,
 } from "../lib/reportingMetrics.js";
 import { PIPELINE_METRIC_MAP_OPTIONS, AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY } from "../lib/pipelineColumnMapping.js";
-import { stepPeriodStart, labelForPeriod } from "../lib/reportingPeriods.js";
+import { stepPeriodStart, labelForPeriod, normalizePeriodStart } from "../lib/reportingPeriods.js";
 import { splitFilterTerms, matchesTerms } from "../lib/core.js";
 import { usePersistentState } from "../lib/persist.js";
 
@@ -128,18 +128,25 @@ function SortTh({ label, sortKey, sort, onSort, align, T }) {
 // rather than guessed at). This is a legitimate, lossless aggregation: every absolute metric these
 // rows carry is safe to sum (see this file's top METRIC ROLLUP CORRECTNESS comment) regardless of
 // which finer periods it's being re-summed across.
+// BUGFIX (2026-08-14, per Mo — "the quarterly aggregate isn't working properly, its just adding
+// everything together and saying its for Q1, 2001"): this used to hand-roll its own Date parsing —
+// `new Date(`${periodStart}T00:00:00Z`)` — which assumes periodStart is a bare "YYYY-MM-DD" string.
+// It isn't always: reporting_facts' period_start comes back from the API as whatever the Postgres
+// driver serializes a `date` column to, which can already carry a full timestamp (e.g.
+// "2024-01-01T00:00:00.000Z"). Appending another "T00:00:00Z" onto THAT produced a doubly-stamped,
+// malformed string — V8's lenient Date parser didn't reject it outright, it just misparsed it into
+// some other (wrong, but valid-looking) date, and since every row's periodStart has that same
+// mangled SUFFIX shape, every row landed on the exact same misparsed result — hence "every row
+// collapses into one bucket" instead of five different quarters. reportingPeriods.js already has a
+// robust parser for exactly this ambiguity (parseDateUTC, used by normalizePeriodStart below) — a
+// regex that matches a YYYY-MM-DD prefix and ignores whatever follows it, so it doesn't matter if
+// periodStart is a bare date or a full timestamp. Reusing that instead of a second, fragile parser.
 const GRAIN_RANK = { month: 0, quarter: 1, year: 2 };
 function periodStartAtGrain(periodType, periodStart, targetGrain) {
   if (GRAIN_RANK[periodType] === undefined || GRAIN_RANK[targetGrain] === undefined) return null;
   if (GRAIN_RANK[periodType] > GRAIN_RANK[targetGrain]) return null; // too coarse to express at a finer/equal target
   if (periodType === targetGrain) return periodStart;
-  const d = new Date(`${periodStart}T00:00:00Z`);
-  if (targetGrain === "quarter") {
-    const qStartMonth = Math.floor(d.getUTCMonth() / 3) * 3;
-    return `${d.getUTCFullYear()}-${String(qStartMonth + 1).padStart(2, "0")}-01`;
-  }
-  if (targetGrain === "year") return `${d.getUTCFullYear()}-01-01`;
-  return null;
+  return normalizePeriodStart(targetGrain, periodStart);
 }
 
 // One bucket per exact (periodType, periodStart) pair actually present in the filtered rows when NO
@@ -173,8 +180,16 @@ function bucketByPeriod(rows, targetGrain) {
 
 // [start, end) as real Date objects for a period bucket, using stepPeriodStart to find the NEXT
 // period's start rather than hand-rolling month/quarter/year-length math again here.
+// safeStart re-normalizes the raw periodStart through normalizePeriodStart before building a Date
+// from it (2026-08-14 — same bugfix as periodStartAtGrain above: the raw value from the API isn't
+// guaranteed to be a bare "YYYY-MM-DD" string, and blindly appending "T00:00:00Z" onto something
+// that already has its own time/zone suffix produces a malformed string a lenient Date parser can
+// silently misparse). stepPeriodStart already goes through the same robust parser internally and
+// always returns a clean toISO() string, so nextStart never needed this — only the raw `periodStart`
+// input did.
 function periodBounds(periodType, periodStart) {
-  const start = new Date(`${periodStart}T00:00:00Z`);
+  const safeStart = normalizePeriodStart(periodType, periodStart) || periodStart;
+  const start = new Date(`${safeStart}T00:00:00Z`);
   const nextStart = stepPeriodStart(periodType, periodStart);
   const end = nextStart ? new Date(`${nextStart}T00:00:00Z`) : null;
   return { start, end };
