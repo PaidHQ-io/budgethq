@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PixelPanel, SectionLabel, Sel, Icon, Pill, IconField, MatchModeToggle, Divider } from "./shared.jsx";
 import { listReportingFacts } from "../lib/reportingApi.js";
@@ -244,11 +244,16 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   });
   // Computed on demand (only for rows actually expanded) rather than eagerly for every group —
   // reuses the exact same aggregateByDimension + derived/custom metric merge every other table
-  // here uses, just scoped to one group's own rows instead of all searchedRows.
-  const campaignsForGroup = (g) =>
-    aggregateByDimension(g.rows, "campaignName")
+  // here uses, just scoped to one group's own rows instead of all searchedRows. Also respects the
+  // "hide empty rows" toggle below (hasNoSelectedMetricData/hideEmptyRows are defined further down
+  // this component, but this function is only ever CALLED from the JSX further below still, by
+  // which point both are already initialized — same closure-over-later-const pattern is safe here).
+  const campaignsForGroup = (g) => {
+    const list = aggregateByDimension(g.rows, "campaignName")
       .map((c) => ({ ...c, metrics: { ...c.metrics, ...computeDerivedPipelineMetrics(c.metrics), ...computeCustomMetrics(c.metrics, customMetrics) } }))
       .sort((a, b) => b.rows.length - a.rows.length || a.key.localeCompare(b.key));
+    return hideEmptyRows ? list.filter((c) => !hasNoSelectedMetricData(c.metrics)) : list;
+  };
 
   useEffect(() => {
     listReportingFacts(session, workspace.id)
@@ -418,6 +423,31 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
 
   const activeMetricColumns = useMemo(() => ALL_METRIC_OPTIONS.filter((m) => metrics.includes(m.key)), [metrics, ALL_METRIC_OPTIONS]);
   const toggleMetric = (key) => setMetrics((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+
+  // Hide empty rows (2026-08-12, per Mo — "give me a way to hide rows with 0 data anywhere (ignore
+  // the first column for the number of rows)"): a row can have real underlying reporting_facts rows
+  // (a non-zero Rows count) but still show nothing useful in any of the currently SELECTED metric
+  // columns — e.g. a mis-tagged/variant campaign name that only ever carried metrics other than the
+  // ones on screen right now. "No data" means every active metric column is blank/undefined OR
+  // literally 0 — deliberately excludes the Rows column itself per Mo's own parenthetical, since
+  // that count being non-zero is exactly the confusing case this exists to surface/hide. Applies to
+  // all three tables (Trend by period, Breakdown, By Campaign) plus the nested Product→Campaign
+  // expand rows — one shared toggle rather than one per table, since "0 data" means the same thing
+  // everywhere metric columns are shown. A pure display declutter, not a data filter — Totals rows
+  // stay computed from the full unfiltered set (grandTotals/searchedRows), same as sorting a table
+  // never changes its own Total row either.
+  const [hideEmptyRows, setHideEmptyRows] = usePersistentState("paidhq_reporting_intel_hideEmptyRows", false);
+  const hasNoSelectedMetricData = (metricsObj) => activeMetricColumns.length > 0 && activeMetricColumns.every((c) => {
+    const v = metricsObj[c.key];
+    return v === undefined || v === null || (typeof v === "number" && (isNaN(v) || v === 0));
+  });
+  // Plain consts, deliberately not useMemo — each is just one cheap array filter over an already-
+  // computed list, and wrapping a locally-defined (non-hook) function in a dependency array here
+  // trips this repo's react-compiler lint rule over the function reference's own stability, for no
+  // real perf benefit at this scale.
+  const visiblePeriodBuckets = hideEmptyRows ? sortedPeriodBuckets.filter((b) => !hasNoSelectedMetricData(b.metrics)) : sortedPeriodBuckets;
+  const visibleSliceGroups = hideEmptyRows ? filteredSliceGroups.filter((g) => !hasNoSelectedMetricData(g.metrics)) : filteredSliceGroups;
+  const visibleCampaignGroups = hideEmptyRows ? sortedCampaignGroups.filter((g) => !hasNoSelectedMetricData(g.metrics)) : sortedCampaignGroups;
   // One series per selected chart metric, each carrying its own color (assigned by selection
   // order, stable as long as the selection itself doesn't change) — see TrendMiniChart below for
   // how these get drawn as grouped bars.
@@ -583,8 +613,13 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                   placeholder={`Search ${sliceOptions.find((o) => o.value === sliceBy)?.label.toLowerCase() || "value"}…`}
                   style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "6px 10px", fontSize: 12 * (T.fsScale || 1), outline: "none", fontFamily: T.font, width: 190 }}
                 />
-                <span style={{ marginLeft: "auto", fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>
-                  {filteredSliceGroups.length} group{filteredSliceGroups.length === 1 ? "" : "s"} · {searchedRows.length} row{searchedRows.length === 1 ? "" : "s"}
+                <button onClick={() => setHideEmptyRows((v) => !v)} title="Hide rows where every selected metric is blank or zero (row count itself doesn't count)"
+                  style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, background: hideEmptyRows ? T.accentBg : "transparent", border: `1px solid ${hideEmptyRows ? T.accentBorder : T.border}`, borderRadius: T.r6, padding: "3px 8px", cursor: "pointer", fontFamily: T.font, fontSize: 11 * (T.fsScale || 1), fontWeight: 600, color: hideEmptyRows ? T.text : T.textMuted, outline: "none" }}>
+                  <input type="checkbox" checked={hideEmptyRows} readOnly style={{ pointerEvents: "none", cursor: "pointer", accentColor: T.accent, width: 12, height: 12 }} />
+                  Hide empty rows
+                </button>
+                <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>
+                  {visibleSliceGroups.length} group{visibleSliceGroups.length === 1 ? "" : "s"} · {searchedRows.length} row{searchedRows.length === 1 ? "" : "s"}
                 </span>
               </div>
 
@@ -702,10 +737,10 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedPeriodBuckets.length === 0 && (
-                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No periods match your filters.</td></tr>
+                      {visiblePeriodBuckets.length === 0 && (
+                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedPeriodBuckets.length > 0 ? "Every period is hidden by \"Hide empty rows.\"" : "No periods match your filters."}</td></tr>
                       )}
-                      {sortedPeriodBuckets.map((b) => {
+                      {visiblePeriodBuckets.map((b) => {
                         // Matched by KEY, not array position — sorting the table can reorder rows,
                         // but the forecast is always for one specific real bucket (the most recent
                         // one chronologically), so "is this the forecast row" must stay tied to
@@ -770,10 +805,10 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredSliceGroups.length === 0 && (
-                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No groups match your filters.</td></tr>
+                      {visibleSliceGroups.length === 0 && (
+                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && filteredSliceGroups.length > 0 ? "Every group is hidden by \"Hide empty rows.\"" : "No groups match your filters."}</td></tr>
                       )}
-                      {filteredSliceGroups.map((g) => {
+                      {visibleSliceGroups.map((g) => {
                         // Nested campaign expand (2026-08-11, per Mo — "performance trends at the
                         // campaign level for each product"). Hidden when Slice by is already
                         // Campaign — expanding a campaign row into its own campaign breakdown would
@@ -866,10 +901,10 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedCampaignGroups.length === 0 && (
-                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>No campaigns match your filters.</td></tr>
+                      {visibleCampaignGroups.length === 0 && (
+                        <tr><td colSpan={2 + activeMetricColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedCampaignGroups.length > 0 ? "Every campaign is hidden by \"Hide empty rows.\"" : "No campaigns match your filters."}</td></tr>
                       )}
-                      {sortedCampaignGroups.map((g) => (
+                      {visibleCampaignGroups.map((g) => (
                         <tr key={g.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
                           <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={g.key}>{g.key}</td>
                           <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{g.rows.length}</td>
@@ -921,6 +956,31 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
 // axes plot against the SAME 0/25/50/75/100% height fractions (each bar's height is value/its OWN
 // axis's max), so one shared gridline legitimately labels both axes at once — this is what makes a
 // dual-axis chart honest rather than two unrelated charts stacked on top of each other.
+// SVG UNIT SCALING (2026-08-12, per Mo — "reduce the text size of the x and y axis, they're both
+// much too large"): this chart used to hardcode viewBox width to 720 while its CSS width was
+// "100%" — on this tab's actual (quite wide) layout, the rendered width ends up 2-3x the viewBox's
+// 720 units, and since an SVG scales EVERYTHING inside it (including fontSize, which is just
+// another number in viewBox units) uniformly with that stretch, a "9px" axis label was actually
+// rendering at 20+ real pixels. useElementWidth measures the wrapper div's actual rendered width via
+// ResizeObserver and feeds that back in as the viewBox width, with the CSS height pinned to the
+// same fixed pixel value as the viewBox height — so viewBox units map 1:1 to real CSS pixels no
+// matter how wide the container is, and every fontSize below means what it says.
+function useElementWidth(fallback) {
+  const ref = useRef(null);
+  const [width, setWidth] = useState(fallback);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width;
+      if (w) setWidth(Math.round(w));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width];
+}
+
 function TrendMiniChart({ T, periods, series, hasForecast }) {
   let axisLeft = series.filter((s) => !s.money);
   let axisRight = series.filter((s) => s.money);
@@ -928,9 +988,13 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
   const hasRightAxis = axisRight.length > 0;
   const rightKeys = new Set(axisRight.map((s) => s.key));
 
-  const H = 200, padT = 12, padB = 30, padL = 56, padR = hasRightAxis ? 56 : 16;
+  const [containerRef, measuredWidth] = useElementWidth(720);
+  // padT widened from 12 to 24 (2026-08-12) to leave headroom above the tallest bar for its own
+  // value label (see the per-bar <text> below) — without this, a bar reaching 100% of its axis
+  // would have nowhere on-canvas to put a label above it.
+  const H = 200, padT = 24, padB = 30, padL = 56, padR = hasRightAxis ? 56 : 16;
   const n = periods.length + (hasForecast ? 1 : 0);
-  const W = 720;
+  const W = Math.max(320, measuredWidth);
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   const seriesCount = Math.max(1, series.length);
@@ -947,10 +1011,17 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
 
   const fracs = [0, 0.25, 0.5, 0.75, 1];
   const fmtTick = (v, money) => { const prefix = money ? "$" : ""; return v >= 1000 ? `${prefix}${Math.round(v / 1000)}k` : `${prefix}${Math.round(v)}`; };
+  // Per-bar value label (2026-08-12, per Mo — "give me data value on the columns in the graph (make
+  // sure its small enough not to overlap other text or columns)"). Reuses fmtTick's own compact
+  // "$157k"/"160" formatting rather than a raw toLocaleString() — a full "157,000" would overflow a
+  // single bar's width almost everywhere this chart is used. Zero-value bars skip their label
+  // entirely (there's no bar to point it at, and it's one less thing crowding a dense chart) — the
+  // full exact number is always still available via each bar's own <title> hover regardless.
+  const barLabel = (v, money) => (v > 0 ? fmtTick(v, money) : null);
 
   return (
-    <div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+    <div ref={containerRef}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
         {fracs.map((f, i) => {
           const y = padT + plotH - f * plotH;
           return (
@@ -971,10 +1042,17 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
                 const v = s.values[i] || 0;
                 const h = (v / maxFor(s.key)) * plotH;
                 const x = groupX + si * (barW + barGap);
+                const barTop = padT + plotH - h;
+                const label = barLabel(v, s.money);
                 return (
-                  <rect key={s.key} x={x} y={padT + plotH - h} width={barW} height={h} fill={s.color} rx={2}>
-                    <title>{s.label}{rightKeys.has(s.key) ? " (right axis)" : hasRightAxis ? " (left axis)" : ""}: {v.toLocaleString()}</title>
-                  </rect>
+                  <g key={s.key}>
+                    <rect x={x} y={barTop} width={barW} height={h} fill={s.color} rx={2}>
+                      <title>{s.label}{rightKeys.has(s.key) ? " (right axis)" : hasRightAxis ? " (left axis)" : ""}: {v.toLocaleString()}</title>
+                    </rect>
+                    {label && (
+                      <text x={x + barW / 2} y={barTop - 3} textAnchor="middle" fontSize={7.5} fontFamily="'DM Sans',sans-serif" fill={T.textSub}>{label}</text>
+                    )}
+                  </g>
                 );
               })}
               <text x={groupX + groupW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{p}</text>
@@ -991,10 +1069,17 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
                     const v = s.projectedValue || 0;
                     const h = (v / maxFor(s.key)) * plotH;
                     const x = groupX + si * (barW + barGap);
+                    const barTop = padT + plotH - h;
+                    const label = barLabel(v, s.money);
                     return (
-                      <rect key={s.key} x={x} y={padT + plotH - h} width={barW} height={h} fill={s.color} opacity={0.35} rx={2}>
-                        <title>{s.label} (proj.): {v.toLocaleString()}</title>
-                      </rect>
+                      <g key={s.key}>
+                        <rect x={x} y={barTop} width={barW} height={h} fill={s.color} opacity={0.35} rx={2}>
+                          <title>{s.label} (proj.): {v.toLocaleString()}</title>
+                        </rect>
+                        {label && (
+                          <text x={x + barW / 2} y={barTop - 3} textAnchor="middle" fontSize={7.5} fontFamily="'DM Sans',sans-serif" fill={T.textSub}>{label}</text>
+                        )}
+                      </g>
                     );
                   })}
                   <text x={groupX + groupW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>proj.</text>
