@@ -115,17 +115,50 @@ function SortTh({ label, sortKey, sort, onSort, align, T }) {
   );
 }
 
-// One bucket per exact (periodType, periodStart) pair actually present in the filtered rows — never
-// re-grained (a quarter-imported row never gets split into 3 months, a run of monthly rows never
-// gets merged up into a quarter) so a bucket's own total is always exactly what was imported for it,
-// summed only when more than one row shares that literal period (e.g. two campaigns both dated the
-// same month). Sorted chronologically by periodStart for the trend chart/table.
-function bucketByPeriod(rows) {
+// GRAIN ROLL-UP (2026-08-14, per Mo — "when I select QTR or YR in the filter, everything
+// disappears. Are we not aggregating across months to get to quarter and across months to get to
+// year?"): reporting_facts rows can be imported at month, quarter, OR year grain (whatever the
+// source file actually reported), and most real imports are monthly. The Period sidebar's grain
+// picker used to mean "show ONLY rows literally tagged at this exact periodType" — selecting Qtr on
+// an all-monthly dataset filtered every row out, since none of them were natively "quarter" rows.
+// GRAIN_RANK gives month/quarter/year a coarseness order; periodStartAtGrain rolls a row's own
+// native period UP to a coarser target grain (month -> its containing quarter/year, quarter -> its
+// containing year) by truncating to that grain's own start date — returns null if the row is
+// ALREADY coarser than the target (a year row can't be expressed as one quarter, so it's excluded
+// rather than guessed at). This is a legitimate, lossless aggregation: every absolute metric these
+// rows carry is safe to sum (see this file's top METRIC ROLLUP CORRECTNESS comment) regardless of
+// which finer periods it's being re-summed across.
+const GRAIN_RANK = { month: 0, quarter: 1, year: 2 };
+function periodStartAtGrain(periodType, periodStart, targetGrain) {
+  if (GRAIN_RANK[periodType] === undefined || GRAIN_RANK[targetGrain] === undefined) return null;
+  if (GRAIN_RANK[periodType] > GRAIN_RANK[targetGrain]) return null; // too coarse to express at a finer/equal target
+  if (periodType === targetGrain) return periodStart;
+  const d = new Date(`${periodStart}T00:00:00Z`);
+  if (targetGrain === "quarter") {
+    const qStartMonth = Math.floor(d.getUTCMonth() / 3) * 3;
+    return `${d.getUTCFullYear()}-${String(qStartMonth + 1).padStart(2, "0")}-01`;
+  }
+  if (targetGrain === "year") return `${d.getUTCFullYear()}-01-01`;
+  return null;
+}
+
+// One bucket per exact (periodType, periodStart) pair actually present in the filtered rows when NO
+// target grain is given ("All" — a quarter-imported row is never split into 3 months, a run of
+// monthly rows is never merged up into a quarter, so a bucket's own total is exactly what was
+// imported for it). When a targetGrain IS given (Qtr/Yr picked in the sidebar — see the GRAIN
+// ROLL-UP comment above), every row's own periodStart is first rolled up to that grain via
+// periodStartAtGrain before bucketing, so e.g. 3 monthly rows in the same quarter correctly become
+// ONE summed quarter bucket instead of 3 separate (and, before this fix, entirely hidden) ones.
+// Sorted chronologically by periodStart for the trend chart/table either way.
+function bucketByPeriod(rows, targetGrain) {
   const map = new Map();
   (rows || []).forEach((r) => {
     if (!r.periodStart) return;
-    const key = `${r.periodType}|${r.periodStart}`;
-    if (!map.has(key)) map.set(key, { key, periodType: r.periodType, periodStart: r.periodStart, rows: [], metrics: {} });
+    const periodType = targetGrain && targetGrain !== "all" ? targetGrain : r.periodType;
+    const periodStart = targetGrain && targetGrain !== "all" ? periodStartAtGrain(r.periodType, r.periodStart, targetGrain) : r.periodStart;
+    if (!periodStart) return; // upstream row filter already excludes these; guarded here too
+    const key = `${periodType}|${periodStart}`;
+    if (!map.has(key)) map.set(key, { key, periodType, periodStart, rows: [], metrics: {} });
     const b = map.get(key);
     b.rows.push(r);
     Object.entries(r.metrics || {}).forEach(([k, v]) => {
@@ -304,7 +337,12 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
         if (fStatus === "tagged" && !tagged) return false;
         if (fStatus === "untagged" && tagged) return false;
       }
-      if (periodGrain !== "all" && r.periodType !== periodGrain) return false;
+      // Grain filter (2026-08-14, per Mo — see the GRAIN ROLL-UP comment on bucketByPeriod above):
+      // a row survives if its OWN native grain is the same as or FINER than the selected grain —
+      // month/quarter rows both count toward a Qtr/Yr view (they get rolled up), a year row is
+      // simply too coarse to express within a Qtr view so it's excluded there, same as it always
+      // was for the exact-match "month" case.
+      if (periodGrain !== "all" && (GRAIN_RANK[r.periodType] === undefined || GRAIN_RANK[r.periodType] > GRAIN_RANK[periodGrain])) return false;
       const rowMonth = (r.periodStart || "").slice(0, 7);
       if (rangeStart && rowMonth < rangeStart) return false;
       if (rangeEnd && rowMonth > rangeEnd) return false;
@@ -352,8 +390,8 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   }, [searchedRows, customMetrics]);
 
   const periodBuckets = useMemo(
-    () => bucketByPeriod(searchedRows).map((b) => ({ ...b, metrics: { ...b.metrics, ...computeDerivedPipelineMetrics(b.metrics), ...computeCustomMetrics(b.metrics, customMetrics) } })),
-    [searchedRows, customMetrics]
+    () => bucketByPeriod(searchedRows, periodGrain).map((b) => ({ ...b, metrics: { ...b.metrics, ...computeDerivedPipelineMetrics(b.metrics), ...computeCustomMetrics(b.metrics, customMetrics) } })),
+    [searchedRows, periodGrain, customMetrics]
   );
 
   const sliceGroups = useMemo(
