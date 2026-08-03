@@ -679,8 +679,12 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
 
             {/* Trend chart — single metric at a time (mixed count/$/% scales don't chart together
                 legibly), switchable via the Sel below; rates/cost-per stay table-only (see
-                CHARTABLE_METRICS above). */}
-            <PixelPanel T={T} contentStyle={{ padding: 16, marginBottom: 16 }}>
+                CHARTABLE_METRICS above). Full-width flat section, not a PixelPanel "bubble" card
+                (2026-08-13, per Mo — "make the tables and the chart section full width so they're
+                not bubbles") — same background tint as before for section separation, just without
+                the rounded border/shadow that made every section read as a floating, width-capped
+                card instead of a full-bleed part of the page. */}
+            <div style={{ background: T.surface, padding: 16, marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                 <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Trend</div>
                 <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>Compare up to {MAX_CHART_METRICS}</div>
@@ -712,11 +716,12 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
               ) : (
                 <TrendMiniChart T={T} periods={periodBuckets.map((b) => labelForPeriod(b.periodType, b.periodStart))} series={chartSeries} hasForecast={!!forecast} />
               )}
-            </PixelPanel>
+            </div>
 
             {/* Trend by period — every selected metric as a column, one row per period bucket.
-                Sortable (click any header) + collapsible (2026-08-10, per Mo). */}
-            <PixelPanel T={T} contentStyle={{ padding: 0, marginBottom: 16 }}>
+                Sortable (click any header) + collapsible (2026-08-10, per Mo). Full-width flat
+                section, not a PixelPanel "bubble" card — see the Trend chart's own comment above. */}
+            <div style={{ background: T.surface, marginBottom: 16 }}>
               <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: periodTableOpen ? `1px solid ${T.border}` : "none" }}>
                 <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Trend by period</div>
                 <button onClick={() => setPeriodTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
@@ -779,12 +784,13 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                   </table>
                 </div>
               )}
-            </PixelPanel>
+            </div>
 
             {/* Breakdown by dimension — unchanged shape from v1, now driven by the same selected
                 metric columns as the trend table above instead of a derived/capped column list.
-                Sortable + collapsible, same as the other two tables (2026-08-10, per Mo). */}
-            <PixelPanel T={T} contentStyle={{ padding: 0, marginBottom: 16 }}>
+                Sortable + collapsible, same as the other two tables (2026-08-10, per Mo). Full-width
+                flat section, not a PixelPanel "bubble" card — see the Trend chart's own comment above. */}
+            <div style={{ background: T.surface, marginBottom: 16 }}>
               <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: breakdownTableOpen ? `1px solid ${T.border}` : "none" }}>
                 <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Breakdown by {sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice"}</div>
                 <button onClick={() => setBreakdownTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
@@ -874,13 +880,14 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                   </table>
                 </div>
               )}
-            </PixelPanel>
+            </div>
 
             {/* By Campaign (2026-08-10, per Mo — "I need a campaign level table at the bottom that
                 lists performance by campaign"). Always grouped by campaignName regardless of the
                 "Slice by" dropdown above — see campaignGroups' own doc comment. Sortable +
-                collapsible, same as the other two tables. */}
-            <PixelPanel T={T} contentStyle={{ padding: 0 }}>
+                collapsible, same as the other two tables. Full-width flat section, not a PixelPanel
+                "bubble" card — see the Trend chart's own comment above. */}
+            <div style={{ background: T.surface }}>
               <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: campaignTableOpen ? `1px solid ${T.border}` : "none" }}>
                 <div style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>By Campaign</div>
                 <button onClick={() => setCampaignTableOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, padding: 0 }}>
@@ -928,7 +935,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                   </table>
                 </div>
               )}
-            </PixelPanel>
+            </div>
           </>
         )}
       </div>
@@ -989,10 +996,10 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
   const rightKeys = new Set(axisRight.map((s) => s.key));
 
   const [containerRef, measuredWidth] = useElementWidth(720);
-  // padT widened from 12 to 24 (2026-08-12) to leave headroom above the tallest bar for its own
-  // value label (see the per-bar <text> below) — without this, a bar reaching 100% of its axis
-  // would have nowhere on-canvas to put a label above it.
-  const H = 200, padT = 24, padB = 30, padL = 56, padR = hasRightAxis ? 56 : 16;
+  // padT/padB widened (2026-08-12) — padT for headroom above the tallest bar's own value label (see
+  // the per-bar <text> below), padB for the larger period-label font (see AXIS_FS/LABEL_FS below,
+  // 2026-08-13, per Mo — the previous sizes were "too small" once the earlier scaling bug was fixed).
+  const H = 220, padT = 30, padB = 34, padL = 60, padR = hasRightAxis ? 60 : 16;
   const n = periods.length + (hasForecast ? 1 : 0);
   const W = Math.max(320, measuredWidth);
   const plotW = W - padL - padR;
@@ -1011,6 +1018,10 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
 
   const fracs = [0, 0.25, 0.5, 0.75, 1];
   const fmtTick = (v, money) => { const prefix = money ? "$" : ""; return v >= 1000 ? `${prefix}${Math.round(v / 1000)}k` : `${prefix}${Math.round(v)}`; };
+  // Axis tick/period-label and per-bar value-label sizes (2026-08-13, per Mo — "the x/y axis labels
+  // are too small, as is the value label"). Bumped up from the original 9/7.5 now that the viewBox-
+  // scaling fix above means these numbers actually render at face value instead of getting stretched.
+  const AXIS_FS = 12, VALUE_FS = 11;
   // Per-bar value label (2026-08-12, per Mo — "give me data value on the columns in the graph (make
   // sure its small enough not to overlap other text or columns)"). Reuses fmtTick's own compact
   // "$157k"/"160" formatting rather than a raw toLocaleString() — a full "157,000" would overflow a
@@ -1027,9 +1038,9 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
           return (
             <g key={i}>
               <line x1={padL} y1={y} x2={W - padR} y2={y} stroke={T.border} strokeWidth={1} />
-              <text x={padL - 8} y={y + 3} textAnchor="end" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(leftMax * f, leftMoney)}</text>
+              <text x={padL - 8} y={y + 4} textAnchor="end" fontSize={AXIS_FS} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(leftMax * f, leftMoney)}</text>
               {hasRightAxis && (
-                <text x={W - padR + 8} y={y + 3} textAnchor="start" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(rightMax * f, true)}</text>
+                <text x={W - padR + 8} y={y + 4} textAnchor="start" fontSize={AXIS_FS} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{fmtTick(rightMax * f, true)}</text>
               )}
             </g>
           );
@@ -1050,12 +1061,12 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
                       <title>{s.label}{rightKeys.has(s.key) ? " (right axis)" : hasRightAxis ? " (left axis)" : ""}: {v.toLocaleString()}</title>
                     </rect>
                     {label && (
-                      <text x={x + barW / 2} y={barTop - 3} textAnchor="middle" fontSize={7.5} fontFamily="'DM Sans',sans-serif" fill={T.textSub}>{label}</text>
+                      <text x={x + barW / 2} y={barTop - 4} textAnchor="middle" fontSize={VALUE_FS} fontWeight={600} fontFamily="'DM Sans',sans-serif" fill={T.textSub}>{label}</text>
                     )}
                   </g>
                 );
               })}
-              <text x={groupX + groupW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{p}</text>
+              <text x={groupX + groupW / 2} y={H - padB + 18} textAnchor="middle" fontSize={AXIS_FS} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>{p}</text>
             </g>
           );
         })}
@@ -1077,12 +1088,12 @@ function TrendMiniChart({ T, periods, series, hasForecast }) {
                           <title>{s.label} (proj.): {v.toLocaleString()}</title>
                         </rect>
                         {label && (
-                          <text x={x + barW / 2} y={barTop - 3} textAnchor="middle" fontSize={7.5} fontFamily="'DM Sans',sans-serif" fill={T.textSub}>{label}</text>
+                          <text x={x + barW / 2} y={barTop - 4} textAnchor="middle" fontSize={VALUE_FS} fontWeight={600} fontFamily="'DM Sans',sans-serif" fill={T.textSub}>{label}</text>
                         )}
                       </g>
                     );
                   })}
-                  <text x={groupX + groupW / 2} y={H - padB + 14} textAnchor="middle" fontSize={9} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>proj.</text>
+                  <text x={groupX + groupW / 2} y={H - padB + 18} textAnchor="middle" fontSize={AXIS_FS} fontFamily="'DM Sans',sans-serif" fill={T.textMuted}>proj.</text>
                 </>
               );
             })()}
