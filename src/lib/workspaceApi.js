@@ -60,7 +60,11 @@ async function apiFetch(session, path, options = {}) {
   return body;
 }
 
-// { tags, tagDims, budgets, budgetDims, budgetRowMeta, budgetMetaDims, budgetImportMeta, savedViews, defaultForecastModel, updatedAt }
+// { tags, tagDims, budgets, budgetDims, budgetRowMeta, budgetMetaDims, budgetImportMeta, savedViews,
+//   pipelineDimensions, pipelineViews, defaultForecastModel, updatedAt }
+// pipelineDimensions/pipelineViews (2026-08-17) — Pipeline Tagger / Reporting Intelligence's own
+// Custom Dimensions (named saved filter rules) + Saved Views (report snapshots referencing a
+// dimension by id plus metric/grain/chart config); see PipelineTagger.jsx's top doc comment.
 export function getWorkspaceConfig(session, workspaceId) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/data`);
 }

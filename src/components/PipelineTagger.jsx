@@ -41,6 +41,36 @@ import { usePersistentState } from "../lib/persist.js";
 // pipeline metrics (leads, mqls, spend, ...) are cumulative counts that only grow through a period —
 // unlike ad spend's own day-of-week noise, there's no seasonality correction to make here, just a
 // straight-line extrapolation of what's landed so far.
+// CUSTOM DIMENSIONS + SAVED VIEWS (2026-08-17, per Mo — "rather than try to merge rows [when ad
+// platform campaign names and CRM UTM-based campaign names don't match the same campaign], we
+// should build reports based on filtering and then custom dimensions... look at performance trends
+// regardless of whether or not UTM parameters or campaign names changed... an easy way to view
+// those reports/trends as well as save a whole bunch of views for easy access").
+//
+// Two-tier design (confirmed with Mo before building):
+//   - A CUSTOM DIMENSION (pipelineDimensions, workspace-persisted) is just a NAMED, SAVED snapshot
+//     of this toolbar's own filter fields — Campaign contains/excludes+mode, Ad Group
+//     contains/excludes+mode, Channel, Tag contains/excludes+mode. It's a live rule re-evaluated
+//     against whatever rows exist at view time (via the exact same filteredRows predicate every
+//     other filter already runs through), NOT a static per-campaign tag lookup — so it keeps
+//     matching a segment like "SPS NA, non-brand, non-competitor" even after next month's import
+//     shows up under a slightly different literal campaign/UTM string, as long as it still matches
+//     the same contains/excludes terms. Dimensions can overlap (a row may satisfy more than one) —
+//     deliberately NOT mutually-exclusive buckets like the existing Tag Dimensions/tagDims system
+//     (that's a different, older feature: a manual per-campaign categorical tag, e.g. Product ∈
+//     {A,B,C}, still used for Slice By/Breakdown below and untouched by this feature).
+//   - A SAVED VIEW (pipelineViews, workspace-persisted) is a full report snapshot: which Custom
+//     Dimension to scope down to (dimensionId, nullable = "all campaigns"), plus this tab's own
+//     display config (Slice by, selected funnel/cost metrics, chart metrics, period grain/range,
+//     hide-empty-rows). Views REFERENCE a dimension by id rather than embedding a frozen copy of its
+//     filter fields, so refining a dimension's rule later (e.g. adding an excluded term) improves
+//     every view built on it automatically. If a view's referenced dimension is later deleted,
+//     applying that view falls back to "all campaigns" (see applyPipelineView) rather than erroring.
+// activeDimensionId below is a plain "last applied" hint (not a live equality check against the
+// current filter fields) — same simplification this file already documents elsewhere for cheap,
+// good-enough UX (e.g. hasNoSelectedMetricData) rather than perfect state tracking.
+const DIMENSION_FIELD_KEYS = ["fCampaignName", "fCampaignNameExclude", "fCampaignNameInclMode", "fCampaignNameExclMode", "fAdGroup", "fAdGroupExclude", "fAdGroupInclMode", "fAdGroupExclMode", "fChannel", "fTag", "fTagExclude", "fTagInclMode", "fTagExclMode"];
+
 const RESERVED_TAG_KEYS = new Set([AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY]);
 
 const ABSOLUTE_METRIC_OPTIONS = PIPELINE_METRIC_MAP_OPTIONS.map((m) => ({ key: m.key, label: m.label, money: isMoneyMetric(m.key), pct: false, kind: "absolute" }));
@@ -197,7 +227,7 @@ function periodBounds(periodType, periodStart) {
 
 const fIn = { background: "transparent", border: "none", outline: "none", width: "100%" };
 
-export default function PipelineTagger({ T, session, workspace, tagDims, customMetrics, sidebarEl }) {
+export default function PipelineTagger({ T, session, workspace, tagDims, customMetrics, sidebarEl, pipelineDimensions, setPipelineDimensions, pipelineViews, setPipelineViews, canEdit = true }) {
   const [rows, setRows] = useState(null); // null = loading
   const [loadError, setLoadError] = useState("");
 
@@ -228,6 +258,20 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   const [fTagInclMode, setFTagInclMode] = usePersistentState("paidhq_reporting_intel_fTagInclMode", "or");
   const [fTagExclMode, setFTagExclMode] = usePersistentState("paidhq_reporting_intel_fTagExclMode", "or");
   const [fStatus, setFStatus] = usePersistentState("paidhq_reporting_intel_fStatus", "all");
+
+  // Custom Dimensions + Saved Views — see this file's top doc comment for the full design. All UI
+  // state here is transient (plain useState) — only the dimensions/views lists themselves
+  // (pipelineDimensions/pipelineViews, passed down from PaidHQ.jsx) are workspace-persisted.
+  const [activeDimensionId, setActiveDimensionId] = useState(null);
+  const [dimensionsMenuOpen, setDimensionsMenuOpen] = useState(false);
+  const [dimensionModalOpen, setDimensionModalOpen] = useState(false);
+  const [dimensionNameDraft, setDimensionNameDraft] = useState("");
+  const [viewsMenuOpen, setViewsMenuOpen] = useState(false);
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [viewNameDraft, setViewNameDraft] = useState("");
+  const [notif, setNotif] = useState(null);
+  const showNotif = (msg) => { setNotif(msg); setTimeout(() => setNotif(null), 3000); };
+  const activeDimension = (pipelineDimensions || []).find((d) => d.id === activeDimensionId) || null;
 
   // Period filter — grain + range, modeled on Budget Pacing's own sidebar Period block (2026-08-04,
   // per Mo — "include the period filter, just like with the budget pacer"). "Grain" narrows to rows
@@ -372,6 +416,102 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
     setFChannel("");
     setFTag(""); setFTagExclude("");
     setFStatus("all");
+    setActiveDimensionId(null);
+  };
+
+  // Custom Dimensions — see this file's top doc comment. Reads/writes exactly the
+  // DIMENSION_FIELD_KEYS fields (Campaign/Ad Group contains+excludes+mode, Channel, Tag
+  // contains+excludes+mode) — everything else in the toolbar (period, status, search) is left alone
+  // when a dimension is applied, since those are "how am I looking at it" prefs, not "which
+  // campaigns" prefs.
+  const currentDimensionFields = () => ({
+    fCampaignName, fCampaignNameExclude, fCampaignNameInclMode, fCampaignNameExclMode,
+    fAdGroup, fAdGroupExclude, fAdGroupInclMode, fAdGroupExclMode,
+    fChannel, fTag, fTagExclude, fTagInclMode, fTagExclMode,
+  });
+  const DIMENSION_FIELD_SETTERS = {
+    fCampaignName: setFCampaignName, fCampaignNameExclude: setFCampaignNameExclude,
+    fCampaignNameInclMode: setFCampaignNameInclMode, fCampaignNameExclMode: setFCampaignNameExclMode,
+    fAdGroup: setFAdGroup, fAdGroupExclude: setFAdGroupExclude,
+    fAdGroupInclMode: setFAdGroupInclMode, fAdGroupExclMode: setFAdGroupExclMode,
+    fChannel: setFChannel, fTag: setFTag, fTagExclude: setFTagExclude,
+    fTagInclMode: setFTagInclMode, fTagExclMode: setFTagExclMode,
+  };
+  const applyDimensionFields = (dim) => {
+    DIMENSION_FIELD_KEYS.forEach((k) => {
+      const isMode = k.endsWith("InclMode") || k.endsWith("ExclMode");
+      DIMENSION_FIELD_SETTERS[k](dim ? (dim[k] ?? (isMode ? "or" : "")) : (isMode ? "or" : ""));
+    });
+  };
+  const openSaveDimensionModal = () => { setDimensionNameDraft(""); setDimensionModalOpen(true); };
+  const saveCurrentDimension = () => {
+    const name = dimensionNameDraft.trim();
+    if (!name) return;
+    const dim = { id: `dim_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name, createdAt: new Date().toISOString(), ...currentDimensionFields() };
+    setPipelineDimensions?.((prev) => [...(prev || []), dim]);
+    setActiveDimensionId(dim.id);
+    setDimensionModalOpen(false); setDimensionNameDraft("");
+    showNotif(`Saved dimension "${name}"`);
+  };
+  const applyPipelineDimension = (dim) => {
+    applyDimensionFields(dim);
+    setActiveDimensionId(dim.id);
+    setDimensionsMenuOpen(false);
+    showNotif(`Applied "${dim.name}"`);
+  };
+  const deletePipelineDimension = (id, name) => {
+    if (!window.confirm(`Delete the "${name}" dimension?\n\nAny saved views built on it will fall back to "All campaigns" when applied.`)) return;
+    setPipelineDimensions?.((prev) => (prev || []).filter((d) => d.id !== id));
+    if (activeDimensionId === id) setActiveDimensionId(null);
+    showNotif("Dimension deleted");
+  };
+
+  // Saved Views — a full report snapshot (which dimension to scope to, plus this tab's own display
+  // config). References a dimension by id rather than embedding a frozen copy of its filter fields,
+  // so refining a dimension later improves every view built on it (see this file's top doc comment).
+  const currentViewConfig = () => ({
+    dimensionId: activeDimensionId || null,
+    sliceBy, metrics, chartMetrics, periodGrain, rangeStart, rangeEnd, hideEmptyRows,
+  });
+  const openSaveViewModal = () => { setViewNameDraft(""); setViewModalOpen(true); };
+  const saveCurrentView = () => {
+    const name = viewNameDraft.trim();
+    if (!name) return;
+    // id-stamping only ever runs from a user click/Enter handler, never during render, exactly like
+    // PacingDashboard's own saveCurrentView (same Date.now()/Math.random() pattern there isn't
+    // flagged) — the compiler's reachability heuristic just happens to catch this occurrence.
+    // eslint-disable-next-line react-hooks/purity
+    const view = { id: `pv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name, createdAt: new Date().toISOString(), ...currentViewConfig() };
+    setPipelineViews?.((prev) => [...(prev || []), view]);
+    setViewModalOpen(false); setViewNameDraft("");
+    showNotif(`Saved view "${name}"`);
+  };
+  const applyPipelineView = (view) => {
+    const dim = view.dimensionId ? (pipelineDimensions || []).find((d) => d.id === view.dimensionId) : null;
+    if (view.dimensionId && !dim) {
+      applyDimensionFields(null);
+      setActiveDimensionId(null);
+    } else if (dim) {
+      applyDimensionFields(dim);
+      setActiveDimensionId(dim.id);
+    } else {
+      applyDimensionFields(null);
+      setActiveDimensionId(null);
+    }
+    setSliceBy(view.sliceBy || "campaignName");
+    setMetrics(view.metrics || DEFAULT_METRICS);
+    setChartMetrics(view.chartMetrics || ["pipeline_value"]);
+    setPeriodGrain(view.periodGrain || "all");
+    setRangeStart(view.rangeStart || defaultRangeStart);
+    setRangeEnd(view.rangeEnd || nowMonthStr);
+    setHideEmptyRows(!!view.hideEmptyRows);
+    setViewsMenuOpen(false);
+    showNotif(view.dimensionId && !dim ? `Applied "${view.name}" — its dimension was deleted, showing all campaigns` : `Applied "${view.name}"`);
+  };
+  const deletePipelineView = (id, name) => {
+    if (!window.confirm(`Delete the "${name}" view?`)) return;
+    setPipelineViews?.((prev) => (prev || []).filter((v) => v.id !== id));
+    showNotif("View deleted");
   };
 
   // Search-by-group fix (2026-08-09, per Mo — "it also needs to filter properly by whatever the
@@ -656,6 +796,75 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                 </button>
                 {!filtersOpen && hasF && <button onClick={clearF} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 11 * (T.fsScale || 1), fontFamily: T.font, textDecoration: "underline", padding: 0, outline: "none" }}>Clear filters</button>}
                 <div style={{ width: 1, height: 16, background: T.border }} />
+
+                {/* Custom Dimensions — see this file's top doc comment. A named, saved snapshot of
+                    the filter fields above (Campaign/Ad Group contains+excludes, Channel, Tag
+                    contains+excludes) that keeps matching a segment as literal campaign/UTM names
+                    drift, instead of a one-time manual bulk-tag pass. */}
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setDimensionsMenuOpen((o) => !o)} title="Custom dimensions — saved filter rules for segments like &quot;SPS NA, non-brand, non-competitor&quot; that keep matching regardless of naming changes"
+                    style={{ display: "flex", alignItems: "center", gap: 5, background: activeDimension ? T.accentBg : "transparent", border: `1px solid ${activeDimension ? T.accentBorder : T.border}`, borderRadius: T.r6, padding: "3px 8px", cursor: "pointer", fontFamily: T.font, fontSize: 11 * (T.fsScale || 1), fontWeight: 600, color: activeDimension ? T.text : T.textMuted, outline: "none", maxWidth: 200 }}>
+                    <Icon name="target" size={12} color={activeDimension ? T.text : T.textMuted} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeDimension ? activeDimension.name : "Dimensions"}</span>
+                    <Icon name="chevronDown" size={11} color={T.textMuted} />
+                  </button>
+                  {dimensionsMenuOpen && (
+                    <>
+                      <div onClick={() => setDimensionsMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 99 }} />
+                      <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 100, minWidth: 260, maxHeight: 320, overflow: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r8, boxShadow: T.shadowMd, padding: 6 }}>
+                        {!(pipelineDimensions || []).length && <div style={{ padding: "10px 8px", fontSize: 12 * (T.fsScale || 1), color: T.textMuted }}>No custom dimensions yet.</div>}
+                        {(pipelineDimensions || []).map((d) => (
+                          <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                            <button onClick={() => applyPipelineDimension(d)} className="bhq-row" style={{ flex: 1, display: "block", textAlign: "left", padding: "7px 8px", borderRadius: T.r6, background: activeDimensionId === d.id ? T.accentBg : "transparent", border: "none", color: T.text, fontSize: 12 * (T.fsScale || 1), cursor: "pointer", fontFamily: T.font, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</button>
+                            {canEdit && <button onClick={() => deletePipelineDimension(d.id, d.name)} title="Delete dimension" style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", borderRadius: T.r5, color: T.textMuted, cursor: "pointer", fontSize: 13 * (T.fsScale || 1), flexShrink: 0, fontFamily: T.font }}>✕</button>}
+                          </div>
+                        ))}
+                        {activeDimension && (
+                          <button onClick={() => { applyDimensionFields(null); setActiveDimensionId(null); setDimensionsMenuOpen(false); }} className="bhq-row" style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 8px", borderRadius: T.r6, background: "transparent", border: "none", color: T.textMuted, fontSize: 12 * (T.fsScale || 1), cursor: "pointer", fontFamily: T.font }}>Clear active dimension</button>
+                        )}
+                        {canEdit && (
+                          <>
+                            <div style={{ height: 1, background: T.border, margin: "4px 2px" }} />
+                            <button onClick={() => { setDimensionsMenuOpen(false); openSaveDimensionModal(); }} className="bhq-row" style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "7px 8px", borderRadius: T.r6, background: "transparent", border: "none", color: T.accentText, fontSize: 12 * (T.fsScale || 1), fontWeight: 600, cursor: "pointer", fontFamily: T.font }}><Icon name="plus" size={12} color={T.accentText} /> Save current filters as dimension</button>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Saved Views — full report snapshots (dimension + Slice by/metrics/grain/hide-
+                    empty), same interaction shape as Reporting & Pacing's own Views menu. */}
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setViewsMenuOpen((o) => !o)}
+                    style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: `1px solid ${T.border}`, borderRadius: T.r6, padding: "3px 8px", cursor: "pointer", fontFamily: T.font, fontSize: 11 * (T.fsScale || 1), fontWeight: 600, color: T.textMuted, outline: "none" }}>
+                    <Icon name="save" size={12} color={T.textSub} />
+                    Views{pipelineViews?.length ? ` (${pipelineViews.length})` : ""}
+                    <Icon name="chevronDown" size={11} color={T.textMuted} />
+                  </button>
+                  {viewsMenuOpen && (
+                    <>
+                      <div onClick={() => setViewsMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 99 }} />
+                      <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 100, minWidth: 240, maxHeight: 320, overflow: "auto", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r8, boxShadow: T.shadowMd, padding: 6 }}>
+                        {!(pipelineViews || []).length && <div style={{ padding: "10px 8px", fontSize: 12 * (T.fsScale || 1), color: T.textMuted }}>No saved views yet.</div>}
+                        {(pipelineViews || []).map((v) => (
+                          <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                            <button onClick={() => applyPipelineView(v)} className="bhq-row" style={{ flex: 1, display: "block", textAlign: "left", padding: "7px 8px", borderRadius: T.r6, background: "transparent", border: "none", color: T.text, fontSize: 12 * (T.fsScale || 1), cursor: "pointer", fontFamily: T.font, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</button>
+                            {canEdit && <button onClick={() => deletePipelineView(v.id, v.name)} title="Delete saved view" style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", borderRadius: T.r5, color: T.textMuted, cursor: "pointer", fontSize: 13 * (T.fsScale || 1), flexShrink: 0, fontFamily: T.font }}>✕</button>}
+                          </div>
+                        ))}
+                        {canEdit && (
+                          <>
+                            <div style={{ height: 1, background: T.border, margin: "4px 2px" }} />
+                            <button onClick={() => { setViewsMenuOpen(false); openSaveViewModal(); }} className="bhq-row" style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "7px 8px", borderRadius: T.r6, background: "transparent", border: "none", color: T.accentText, fontSize: 12 * (T.fsScale || 1), fontWeight: 600, cursor: "pointer", fontFamily: T.font }}><Icon name="plus" size={12} color={T.accentText} /> Save current view</button>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div style={{ width: 1, height: 16, background: T.border }} />
+
                 <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>Slice by</span>
                 <Sel value={sliceBy} onChange={setSliceBy} T={T} style={{ width: 160 }}>
                   {sliceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -992,6 +1201,44 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
           </>
         )}
       </div>
+
+      {dimensionModalOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setDimensionModalOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 380, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r10, padding: 20, boxShadow: T.shadowMd }}>
+            <div style={{ fontSize: 14 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 4 }}>Save as custom dimension</div>
+            <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, marginBottom: 12 }}>Saves the Campaign/Ad Group/Channel/Tag filters currently set above as a named, reusable rule — e.g. "SPS NA, non-brand, non-competitor". It'll keep matching this segment later even if campaign or UTM names change, as long as they still fit these terms.</div>
+            <input autoFocus value={dimensionNameDraft} onChange={(e) => setDimensionNameDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveCurrentDimension(); if (e.key === "Escape") setDimensionModalOpen(false); }}
+              placeholder="e.g. SPS NA, non-brand, non-competitor"
+              style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "8px 10px", fontSize: 13 * (T.fsScale || 1), outline: "none", fontFamily: T.font, marginBottom: 14 }} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setDimensionModalOpen(false)} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.textSub, borderRadius: T.r6, padding: "6px 12px", cursor: "pointer", fontFamily: T.font, fontSize: 12 * (T.fsScale || 1) }}>Cancel</button>
+              <button onClick={saveCurrentDimension} disabled={!dimensionNameDraft.trim()} style={{ background: dimensionNameDraft.trim() ? T.accent : T.surfaceHover, border: "none", color: dimensionNameDraft.trim() ? "#fff" : T.textMuted, borderRadius: T.r6, padding: "6px 14px", cursor: dimensionNameDraft.trim() ? "pointer" : "default", fontFamily: T.font, fontSize: 12 * (T.fsScale || 1), fontWeight: 600 }}>Save dimension</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewModalOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setViewModalOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 380, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r10, padding: 20, boxShadow: T.shadowMd }}>
+            <div style={{ fontSize: 14 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 4 }}>Save this view</div>
+            <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, marginBottom: 12 }}>
+              Saves {activeDimension ? `"${activeDimension.name}"` : "All campaigns"}, Slice by, selected metrics, chart metrics, period grain/range, and Hide empty rows for one-click recall. If the dimension's rule changes later, this view picks up the change automatically.
+            </div>
+            <input autoFocus value={viewNameDraft} onChange={(e) => setViewNameDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveCurrentView(); if (e.key === "Escape") setViewModalOpen(false); }}
+              placeholder="e.g. SPS NA trends"
+              style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "8px 10px", fontSize: 13 * (T.fsScale || 1), outline: "none", fontFamily: T.font, marginBottom: 14 }} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setViewModalOpen(false)} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.textSub, borderRadius: T.r6, padding: "6px 12px", cursor: "pointer", fontFamily: T.font, fontSize: 12 * (T.fsScale || 1) }}>Cancel</button>
+              <button onClick={saveCurrentView} disabled={!viewNameDraft.trim()} style={{ background: viewNameDraft.trim() ? T.accent : T.surfaceHover, border: "none", color: viewNameDraft.trim() ? "#fff" : T.textMuted, borderRadius: T.r6, padding: "6px 14px", cursor: viewNameDraft.trim() ? "pointer" : "default", fontFamily: T.font, fontSize: 12 * (T.fsScale || 1), fontWeight: 600 }}>Save view</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notif && <div style={{ position: "fixed", bottom: 20, right: 20, background: T.success, color: "#fff", padding: "10px 16px", borderRadius: T.r8, fontSize: 13 * (T.fsScale || 1), fontWeight: 600, zIndex: 300, boxShadow: T.shadowMd, fontFamily: T.font }}>{notif}</div>}
     </>
   );
 }

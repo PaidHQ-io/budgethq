@@ -317,6 +317,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // top level only because it rides the same debounced workspace-config save/load as
   // budgetRowMeta etc. below, not because anything outside the Reporting & Pacing tab reads it.
   const[savedViews,setSavedViews]=useState([]);
+  // Pipeline Tagger / Reporting Intelligence's own Custom Dimensions + Saved Views (2026-08-17, per
+  // Mo — "build reports based on filtering and then custom dimensions... save a whole bunch of
+  // views for easy access"). Same "lives at this top level only to ride the shared debounced
+  // config save" reasoning as savedViews right above — see PipelineTagger.jsx's own top doc comment
+  // for the full two-tier design (dimensions = named saved filter rules; views = full report
+  // snapshots that reference a dimension by id plus this tab's own metric/grain/chart config).
+  const[pipelineDimensions,setPipelineDimensions]=useState([]);
+  const[pipelineViews,setPipelineViews]=useState([]);
   // Global default forecast model (item 45, 2026-07-25) — the workspace-wide fallback used by
   // computePacing whenever a segment has no per-row override (budgetRowMeta[sk]._forecastModel).
   // Lives at this same top level, rides the same debounced save, for the same reason savedViews
@@ -965,6 +973,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         setBudgetMetaDims(config.budgetMetaDims||[]);
         setBudgetImportMeta(config.budgetImportMeta||{});
         setSavedViews(config.savedViews||[]);
+        setPipelineDimensions(config.pipelineDimensions||[]);
+        setPipelineViews(config.pipelineViews||[]);
         setDefaultForecastModel(config.defaultForecastModel||"auto");
         // Migrates a legacy boolean (the old all-or-nothing toggle) to the new per-channel object
         // shape, or fills in any channel added to GOOGLE_SUBCHANNELS since this workspace last
@@ -1030,7 +1040,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const rowsDirtyRef=useRef(false);
   const latestConfigRef=useRef(null);
   const latestRowsRef=useRef(null);
-  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};});
+  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};});
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
   // ── Second, independent safety net (2026-07-20) ─────────────────────────────────────────────
@@ -1058,7 +1068,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};
+      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};
       if(isEmptyConfig(payload)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current){
         console.error("[workspace config save] BLOCKED — refusing to overwrite known real data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's data, use Settings → Clear data instead of whatever just triggered this.");
         return; // stays dirty — retries on the next change, or once real data is back
@@ -1069,7 +1079,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
-  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
   // replace-all (not incremental) is the sync model here.
@@ -4367,7 +4377,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} workspace={workspace} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} customMetrics={customMetrics} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl} archiveImportConfig={archiveImportConfig}/></Suspense>}
-      {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} customMetrics={customMetrics} sidebarEl={pipelineTaggerSidebarEl}/></Suspense>}
+      {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} customMetrics={customMetrics} sidebarEl={pipelineTaggerSidebarEl} pipelineDimensions={pipelineDimensions} setPipelineDimensions={setPipelineDimensions} pipelineViews={pipelineViews} setPipelineViews={setPipelineViews} canEdit={canEdit}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
