@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Btn, Icon, Pill, Sel, IconField, SectionLabel, Divider, StatRow, PixelPanel } from "./shared.jsx";
 import {
-  listChangeEvents, logManualChangeEvent, deleteChangeEvent,
+  listChangeEvents, logManualChangeEvent, deleteChangeEvent, syncChangeEventsNow,
   CHANGE_TYPE_OPTIONS, CHANGE_TYPE_LABELS, ENTITY_TYPE_OPTIONS, ENTITY_TYPE_LABELS,
 } from "../lib/changeEventsApi.js";
 import { PLATFORM_OPTIONS, PLATFORM_COLORS, splitFilterTerms, matchesTerms } from "../lib/core.js";
@@ -19,11 +19,16 @@ import { usePersistentState } from "../lib/persist.js";
 // the type change."
 //
 // Reads/writes core.change_events via api/workspaces/[id]/change-events.js — see that file's doc
-// comment for the full schema/upsert/idempotency reasoning. This tab itself is a plain filterable
-// feed + a manual-entry form; it does NOT know how to pull anything from a platform's API — that's
-// api/connectors/google.js's job (writes entrySource:"api" rows here on its own sync cadence). This
-// UI only ever creates entrySource:"manual" rows and can only delete manual ones (API-sourced rows
-// stay in sync with the platform automatically; deleting one here would just have the next sync
+// comment for the full schema/upsert/idempotency reasoning. This tab is a filterable feed + a
+// manual-entry form + (2026-08-19, per Mo — "I don't see anything logged from Google. How do we get
+// it into PaidHQ?") a "Sync Google now" button. The automated cron pull (api/cron/sync-connectors.js)
+// only runs once a day AND only for connections opted into rolling sync, so a workspace's first-ever
+// look at this tab would otherwise show nothing until both of those line up — Sync Google now calls
+// the same pull immediately and surfaces whatever error actually blocked it (not connected yet,
+// developer token not live, etc.) instead of a silent, confusing wait. This UI only ever creates
+// entrySource:"manual" rows directly — API-sourced rows come from syncChangeEventsNow/the cron
+// calling api/connectors/google.js's getChangeEvents server-side — and can only delete manual ones
+// (API-sourced rows stay in sync via upsert; deleting one here would just have the next sync/click
 // recreate it — see change-events.js's DELETE doc comment).
 //
 // Deliberately simpler than ReportingFactsTagger.jsx (no grouping/aggregation/undo/bulk-tag apply —
@@ -59,10 +64,37 @@ export default function ChangeHistory({ T, session, workspace, canEdit, sidebarE
   const [addOpen, setAddOpen] = useState(false);
   const [entry, setEntry] = useState(emptyEntry);
   const [saving, setSaving] = useState(false);
+  const [syncingGoogle, setSyncingGoogle] = useState(false);
 
   const showNotif = (msg, type = "success") => {
     setNotif({ msg, type });
-    setTimeout(() => setNotif(null), type === "error" ? 6000 : 3000);
+    // Errors get more time on screen than a plain success toast — sync errors in particular (see
+    // syncGoogleNow below) can be a real, sometimes-longish diagnostic message ("This workspace
+    // hasn't connected google yet" / a raw GAQL fault) that's worth actually reading, not glancing at.
+    setTimeout(() => setNotif(null), type === "error" ? 9000 : 3000);
+  };
+
+  // "Sync Google now" (2026-08-19, per Mo — "I don't see anything logged from Google. How do we get
+  // it into PaidHQ?"). See this file's top doc comment for why the automated cron pull alone isn't
+  // enough to explain "nothing showed up yet" — this hits the same pull immediately and surfaces
+  // whichever real error blocked it (not connected, stale/invalid credential, developer token not
+  // live, a GAQL fault, etc.) directly in the notif banner rather than a generic failure.
+  const syncGoogleNow = async () => {
+    if (!canEdit || syncingGoogle) return;
+    setSyncingGoogle(true);
+    try {
+      const result = await syncChangeEventsNow(session, workspace.id, "google");
+      showNotif(
+        result.pulled === 0
+          ? "Synced Google — no changes found in the last 30 days (or none that passed the automated/bulk-edit filter)."
+          : `Synced Google — pulled ${result.pulled}, ${result.inserted} new/updated${result.skipped?.length ? `, ${result.skipped.length} skipped` : ""}.`
+      );
+      refresh();
+    } catch (err) {
+      showNotif(err.message || "Google sync failed", "error");
+    } finally {
+      setSyncingGoogle(false);
+    }
   };
 
   // Date-range filters run server-side (see listChangeEvents) since they can meaningfully cut down
@@ -184,7 +216,14 @@ export default function ChangeHistory({ T, session, workspace, canEdit, sidebarE
         <SectionLabel T={T}>Reporting</SectionLabel>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <div style={{ fontSize: 16 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Change History</div>
-          {canEdit && <Btn onClick={openAdd} variant="primary" size="sm" T={T}><Icon name="plus" size={13} color={T.onAccent} />Log a change</Btn>}
+          {canEdit && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn onClick={syncGoogleNow} disabled={syncingGoogle} variant="ghost" size="sm" T={T} title="Pull the last 30 days of Google Ads changes right now, instead of waiting for tomorrow's automated sync">
+                <Icon name="refresh" size={13} color={T.text} />{syncingGoogle ? "Syncing Google…" : "Sync Google now"}
+              </Btn>
+              <Btn onClick={openAdd} variant="primary" size="sm" T={T}><Icon name="plus" size={13} color={T.onAccent} />Log a change</Btn>
+            </div>
+          )}
         </div>
         <div style={{ fontSize: 13 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.6, marginBottom: 16, maxWidth: 720 }}>
           A running log of campaign/ad-group/budget changes across every channel — automatically pulled in where a

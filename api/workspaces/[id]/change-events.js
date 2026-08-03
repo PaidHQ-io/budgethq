@@ -41,6 +41,17 @@
  *        (workspace_id, platform, external_change_id); everything else (manual entries, or any "api"
  *        row missing an externalChangeId) is a plain insert. A manual "+ Log a change" form submits
  *        one row via this same endpoint (rows: [theOneRow]) — no separate manual-entry route.
+ * POST   ?sync=<provider> — on-demand pull (2026-08-19, per Mo — "I don't see anything logged from
+ *        Google. How do we get it into PaidHQ?"). The automated path (api/cron/sync-connectors.js)
+ *        only runs once a day AND only for connections opted into sync_mode='rolling' — this gives
+ *        an immediate, error-surfacing way to pull right now regardless of that connection's mode,
+ *        same "manual sync now" convention as the Data Sources tab's per-platform sync button (see
+ *        src/PaidHQ.jsx's syncPlatform), just persisting server-side here instead of merging client-
+ *        side (this route already owns core.change_events directly). Only "google" is wired up today
+ *        (400 for anything else — no other platform has an automated pull, see the doc comment
+ *        above). Pulls the last 30 days (Google's own change_event retention ceiling — see
+ *        google.js's clampChangeEventWindow) and upserts via the same changeEventsStore the cron
+ *        uses. No request body. Returns { pulled, inserted, skipped }.
  * DELETE ?id=<uuid> — removes ONE event, manual entries only (entry_source = 'manual'). API-sourced
  *        rows aren't deletable here by design — they're expected to stay in sync with the platform's
  *        own history via the idempotent upsert; deleting one would just have the next sync recreate
@@ -86,6 +97,19 @@ import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
 import { withApi, readJsonBody } from "../../lib/http.js";
 import { upsertChangeEvents } from "../../lib/changeEventsStore.js";
+import { refreshCredentialIfStale } from "../../lib/connectorSync.js";
+import { getChangeEvents } from "../../connectors/google.js";
+
+// provider -> its getChangeEvents-shaped puller. Only Google has one today (see this route's own
+// doc comment) — deliberately a lookup map, not an if/else on "google" specifically, so wiring up a
+// second platform later (if one of Bing/LinkedIn/Meta ever ships a real change-history API) is a
+// one-line addition here rather than a new branch.
+const CHANGE_EVENT_PULLERS = { google: getChangeEvents };
+// Matches google.js's own CHANGE_EVENT_MAX_LOOKBACK_DAYS — duplicated here as a plain constant
+// (rather than importing that private value) since it's just how far back this endpoint's manual
+// pull requests data for, not a hard cap enforced by google.js's own clampChangeEventWindow (which
+// would silently clamp a wider request anyway either way).
+const SYNC_LOOKBACK_DAYS = 30;
 
 // Manual body parsing, same convention as reporting-facts.js/spend-rows.js for every bulk-write route.
 export const config = { api: { bodyParser: false } };
@@ -148,6 +172,39 @@ export default withApi(async (req, res) => {
     const last = rows.length === pageLimit ? rows[rows.length - 1] : null;
     const nextCursor = last ? { afterChangedAt: last.changed_at, afterId: last.id } : null;
     return res.status(200).json({ rows: rows.map(toCamel), nextCursor });
+  }
+
+  if (req.method === "POST" && req.query.sync) {
+    requireEditAccess(myRole);
+    const provider = String(req.query.sync).toLowerCase();
+    const puller = CHANGE_EVENT_PULLERS[provider];
+    if (!puller) {
+      return res.status(400).json({
+        error: `No automated change-history pull is wired up for "${provider}" yet — only Google Ads has one so far. Log changes for other platforms with "+ Log a change" instead.`,
+      });
+    }
+    const credRows = await sql`
+      select credential from core.connector_credentials where workspace_id = ${workspaceId} and provider = ${provider}
+    `;
+    if (!credRows.length) {
+      return res.status(400).json({
+        error: `This workspace hasn't connected ${provider} yet — connect it from Data Sources first.`,
+        code: "not_connected",
+      });
+    }
+    const credential = await refreshCredentialIfStale(workspaceId, provider, credRows[0].credential);
+    const end = new Date();
+    const endDate = end.toISOString().slice(0, 10);
+    const start = new Date(end);
+    start.setDate(start.getDate() - (SYNC_LOOKBACK_DAYS - 1));
+    const startDate = start.toISOString().slice(0, 10);
+    // Let a getChangeEvents failure (missing accessToken/accountId, an unapproved developer token,
+    // a GAQL fault, etc.) propagate up to withApi's catch — surfacing the REAL error message here is
+    // the whole point of this endpoint (see doc comment: Mo asked "how do we get it into PaidHQ" when
+    // nothing showed up, and the honest first answer is often "here's exactly why it's failing").
+    const rows = await puller({ startDate, endDate, credential });
+    const result = await upsertChangeEvents(workspaceId, rows);
+    return res.status(200).json({ pulled: rows.length, inserted: result.inserted, skipped: result.skipped });
   }
 
   if (req.method === "POST") {

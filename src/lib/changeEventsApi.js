@@ -74,6 +74,17 @@ export function deleteChangeEvent(session, workspaceId, id) {
   return api(session, workspaceId, `?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
+// On-demand pull for a platform's automated change-history source (2026-08-19, per Mo — "I don't
+// see anything logged from Google. How do we get it into PaidHQ?"). The cron-driven automated pull
+// only runs once/day and only for connections opted into rolling sync — this hits the same
+// ?sync=<provider> branch directly so a "Sync now" click gets an immediate result AND the real error
+// (not connected / developer token not live / etc.) instead of waiting on tomorrow's cron. Only
+// "google" is wired up server-side today — see change-events.js's own doc comment. Returns
+// { pulled, inserted, skipped }.
+export function syncChangeEventsNow(session, workspaceId, provider = "google") {
+  return api(session, workspaceId, `?sync=${encodeURIComponent(provider)}`, { method: "POST" });
+}
+
 // UI-facing vocabulary for the change-type dropdown/filter — not server-validated (same looseness
 // as tags), just the suggested/default set so entries stay consistent across users.
 export const CHANGE_TYPE_OPTIONS = [
