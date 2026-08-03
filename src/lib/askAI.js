@@ -693,7 +693,16 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
     // round's content had EITHER no text block yet (still mid tool_use when cut off) or only a
     // partial one — the "no text block at all" case is exactly what produced "(no response)": a
     // real, if truncated, model turn silently presented as an empty one.
-    const data=await streamAnalyze({messages,system,tools,maxTokens:4096,model,signal,onTextDelta,token});
+    // Raised from 4096 to 8192 (2026-08-19, per Mo — a "log these changes" request over a screenshot
+    // with ~14 rows was hitting max_tokens mid-generation of log_change_event's entries array before
+    // ever finishing it, so the tool call never actually executed and nothing got logged (Anthropic
+    // reports stop_reason "max_tokens", not "tool_use", when this happens — see the early-return
+    // branch right below). Structured JSON (many fields per entry, plus key names/quotes/braces) eats
+    // more tokens per unit of real content than prose does, so the 2026-08-16 bump to 4096 (sized for
+    // a detailed comparative PROSE answer) wasn't enough headroom for a bulk structured tool call.
+    // 8192 needs no extra API beta header (checked against api/analyze.js's request shape) and covers
+    // a page of ~30-40 logged rows comfortably, not just Mo's original 14.
+    const data=await streamAnalyze({messages,system,tools,maxTokens:8192,model,signal,onTextDelta,token});
     usage.inputTokens+=data.usage.input_tokens||0;
     usage.outputTokens+=data.usage.output_tokens||0;
     if(data.stop_reason!=="tool_use"){
@@ -702,7 +711,14 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
       // response — the former is a real answer that just ran out of room, worth telling the user
       // to retry/narrow their question rather than implying nothing happened at all.
       const answer=text||(data.stop_reason==="max_tokens"?"(response cut off before finishing — try asking a more specific or narrower question)":"(no response)");
-      return{answer,messages,steps,usage};
+      // failed (2026-08-19, per Mo — "Ask AI hasn't been working for a while", tracked down to this:
+      // a turn that produced no real text was STILL saved into permanent chat history (messages,
+      // which by this point can already contain several rounds' worth of tool_use/tool_result
+      // exchanges from the failed attempt), so every LATER question in the same chat inherited that
+      // bloat too — explaining the climbing token counts (9K -> 34K -> 49K -> 162K) across unrelated
+      // questions in one thread. AskAI.jsx's runTurn uses this flag to skip saving that wreckage into
+      // history on a failed turn instead of compounding it forward.
+      return{answer,messages,steps,usage,failed:true};
     }
     // Strip empty text blocks before this assistant turn joins the conversation history (2026-08-16,
     // per Mo — reported "messages: text content blocks must be non-empty" from the API after a few

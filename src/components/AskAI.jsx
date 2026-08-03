@@ -334,8 +334,18 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
       // log_change_event is the only ASK_AI_TOOLS entry that makes a real network write, and needs
       // these three to do it (and to know whether it's even allowed to). Every other tool in ctx
       // ignores them entirely, same as they already ignore fields they don't use.
-      const{answer,messages:newHistory,steps,usage}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,reportingFacts,customMetrics,session,workspaceId:workspace?.id,canEdit},model,signal:controller.signal,onTextDelta:setStreamingText,token:session?.access_token});
-      const finalHistory=[...newHistory,{role:"assistant",content:answer}];
+      const{answer,messages:newHistory,steps,usage,failed}=await askAIRun({question:questionContent,history:priorHistory,ctx:{mergedNormRows,tags,tagDims,budgetDims,budgets,budgetRowMeta,defaultForecastModel,combineGoogleChannels,reportingFacts,customMetrics,session,workspaceId:workspace?.id,canEdit},model,signal:controller.signal,onTextDelta:setStreamingText,token:session?.access_token});
+      // On a failed turn (2026-08-19, per Mo — "Ask AI hasn't been working for a while"), `newHistory`
+      // can already contain several rounds of tool_use/tool_result exchanges the failed attempt
+      // racked up before giving up — saving that into permanent history compounds forward into every
+      // LATER question in this same chat (bigger, slower, more likely to fail too — this is what
+      // produced the climbing 9K -> 34K -> 49K -> 162K token counts across unrelated questions in one
+      // thread). Falling back to just priorHistory + this turn's plain question/answer keeps the
+      // chat's real conversational continuity (the model still knows what was asked and that it
+      // failed) without carrying the failed attempt's internal tool-call wreckage forward.
+      const finalHistory=failed
+        ?[...priorHistory,{role:"user",content:questionContent},{role:"assistant",content:answer}]
+        :[...newHistory,{role:"assistant",content:answer}];
       const finalMessages=[...newMessages,{role:"assistant",text:answer,steps,usage,historyMark:finalHistory.length}];
       setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:finalMessages,history:finalHistory,updatedAt:Date.now()}:c));
     }catch(err){
