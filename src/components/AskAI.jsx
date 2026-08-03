@@ -198,6 +198,16 @@ export default function AskAI({T,session,workspace,mergedNormRows,tags,tagDims,b
   const fileInputRef=useRef(null);
   const recognitionRef=useRef(null);
   const abortRef=useRef(null);
+  // Double-send guard (2026-08-15, per Mo — reported the same question landing as two separate user
+  // bubbles with no reply under either). `loading` alone isn't enough to prevent this: it's only set
+  // to true INSIDE runTurn (after an `await` boundary), and React batches/schedules state updates
+  // rather than applying them synchronously — two send() calls fired back-to-back in the same tick
+  // (an accidental double-click, or a held Enter key's OS-level key-repeat firing two keydown events
+  // faster than a render commits) can both still read the stale `loading===false` from the render
+  // that was current when each event started. A ref updates immediately and outside React's render
+  // cycle, so the SECOND call sees sendingRef.current===true synchronously and bails before ever
+  // touching state, no matter how close together the two calls land.
+  const sendingRef=useRef(false);
 
   const activeChat=askChats.find(c=>c.id===activeAskChatId)||null;
   const messages=activeChat?.messages||[];
@@ -339,22 +349,27 @@ export default function AskAI({T,session,workspace,mergedNormRows,tags,tagDims,b
     const q=(question||input).trim();
     const imgs=attachedImages;
     const docs=attachedDocs;
-    if((!q&&!imgs.length)||loading)return;
-    setInput("");setError("");setAttachedImages([]);setAttachedDocs([]);setAttachError("");
-    let chatId=activeAskChatId;
-    let priorMessages=[];
-    let priorHistory=[];
-    if(chatId){
-      const existing=askChats.find(c=>c.id===chatId);
-      priorMessages=existing?.messages||[];
-      priorHistory=existing?.history||[];
-    }else{
-      chatId=`chat_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-      const title=q?(q.length>60?q.slice(0,57)+"…":q):"(image)";
-      setAskChats(prev=>[{id:chatId,title,messages:[],history:[],updatedAt:Date.now(),pinned:false,projectId:null,labels:[]},...prev]);
-      setActiveAskChatId(chatId);
+    if((!q&&!imgs.length)||loading||sendingRef.current)return;
+    sendingRef.current=true;
+    try{
+      setInput("");setError("");setAttachedImages([]);setAttachedDocs([]);setAttachError("");
+      let chatId=activeAskChatId;
+      let priorMessages=[];
+      let priorHistory=[];
+      if(chatId){
+        const existing=askChats.find(c=>c.id===chatId);
+        priorMessages=existing?.messages||[];
+        priorHistory=existing?.history||[];
+      }else{
+        chatId=`chat_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+        const title=q?(q.length>60?q.slice(0,57)+"…":q):"(image)";
+        setAskChats(prev=>[{id:chatId,title,messages:[],history:[],updatedAt:Date.now(),pinned:false,projectId:null,labels:[]},...prev]);
+        setActiveAskChatId(chatId);
+      }
+      await runTurn({chatId,priorMessages,priorHistory,questionText:q,imgs,docs});
+    }finally{
+      sendingRef.current=false;
     }
-    await runTurn({chatId,priorMessages,priorHistory,questionText:q,imgs,docs});
   },[input,attachedImages,attachedDocs,loading,activeAskChatId,askChats,setAskChats,setActiveAskChatId,runTurn]);
 
   // Regenerate (same question, fresh answer) and edit-and-resend (changed question, fresh answer)
@@ -364,18 +379,25 @@ export default function AskAI({T,session,workspace,mergedNormRows,tags,tagDims,b
   // images/docs unchanged"). Slices both the visible messages array and the Anthropic-format
   // history array back to userMsg's own historyMark (recorded when that turn originally ran — see
   // runTurn), so the resend is indistinguishable from that turn never having happened.
-  const resendFrom=useCallback((userIdx,newText)=>{
-    if(loading)return;
+  const resendFrom=useCallback(async(userIdx,newText)=>{
+    // Same double-fire guard as send() above — a fast double-click on Edit/Regenerate could
+    // otherwise replay the same turn twice before `loading` state catches up.
+    if(loading||sendingRef.current)return;
     const chatId=activeAskChatId;
     if(!chatId)return;
     const existing=askChats.find(c=>c.id===chatId);
     if(!existing)return;
     const userMsg=existing.messages[userIdx];
     if(!userMsg||userMsg.role!=="user")return;
-    const priorMessages=existing.messages.slice(0,userIdx);
-    const priorHistory=(existing.history||[]).slice(0,userMsg.historyMark||0);
-    const questionText=newText!=null?newText:(userMsg.text||"");
-    runTurn({chatId,priorMessages,priorHistory,questionText,imgs:userMsg.images,docs:userMsg.docs});
+    sendingRef.current=true;
+    try{
+      const priorMessages=existing.messages.slice(0,userIdx);
+      const priorHistory=(existing.history||[]).slice(0,userMsg.historyMark||0);
+      const questionText=newText!=null?newText:(userMsg.text||"");
+      await runTurn({chatId,priorMessages,priorHistory,questionText,imgs:userMsg.images,docs:userMsg.docs});
+    }finally{
+      sendingRef.current=false;
+    }
   },[loading,activeAskChatId,askChats,runTurn]);
 
   // "Save as view" (2026-07-29, per Mo — reuses the exact askAIBuildView/aiConfigToViewConfig
