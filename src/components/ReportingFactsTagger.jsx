@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Btn, Icon, Pill, Sel, TagAutocompleteInput, MatchModeToggle, IconField, SectionLabel, Divider, StatRow } from "./shared.jsx";
+import { Btn, Icon, Pill, Sel, TagAutocompleteInput, MatchModeToggle, IconField, SectionLabel, Divider, StatRow, PixelPanel } from "./shared.jsx";
 import { listReportingFacts, patchReportingFactsTags, deleteReportingFacts, getDimensionValues } from "../lib/reportingApi.js";
 import { TAG_DIM_COLORS, PLATFORM_OPTIONS, PLATFORM_COLORS, campaignKey, splitFilterTerms, matchesTerms } from "../lib/core.js";
 import { usePersistentState } from "../lib/persist.js";
@@ -107,6 +107,84 @@ function buildGroups(rows) {
   });
 }
 
+// --- Merge Campaign Names: fuzzy-matching helpers ------------------------------------------------
+// (2026-08-05, per Mo — Google/Bing import the same real campaign under two different naming
+// conventions: ad-platform-native rows ("BIN-...") carry spend/leads, UTM-based rows ("SEA-...")
+// carry MQLs/SQLs/pipeline, so they never land on the same aggregated campaign_name and cost-per-
+// lead / pipeline-per-dollar can't be computed. There's no stable campaign ID anywhere in this
+// schema (see this file's top doc comment) — campaign_name is plain text, so the only fix is
+// renaming one side's campaign_name to match the other. Per Mo, confirmed via direct question: the
+// remainder after stripping each name's own prefix is "mostly [identical], with some variation", so
+// suggestions need fuzzy/approximate matching rather than an exact-string match — and per the
+// codebase's standing rule ("a false positive is worse than asking"), suggestions are NEVER
+// auto-applied; every group requires an explicit human "keep this name" choice before Apply does
+// anything (see the modal below).
+
+// Classic iterative Levenshtein edit distance (single-row DP, O(min(len)) memory footprint).
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j - 1], prev[j], cur[j - 1]);
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// 0..1 similarity (1 = identical, 0 = completely different), normalized by the longer string's
+// length so e.g. "brand-search" vs "brand-search-2026" doesn't get unfairly punished for length.
+function nameSimilarity(a, b) {
+  const maxLen = Math.max(a.length, b.length);
+  if (!maxLen) return 1;
+  return 1 - levenshtein(a, b) / maxLen;
+}
+
+// Strips a leading "PREFIX-" / "PREFIX_" / "PREFIX " token (the ad-platform-vs-UTM naming-convention
+// prefix, e.g. "BIN-" / "SEA-") so two names that only differ by that prefix compare as near-
+// identical. Falls back to the full (lowercased, trimmed) name if there's no separator to split on.
+function splitCampaignName(name) {
+  const s = (name || "").trim();
+  const m = s.match(/^([^-_\s]+)[-_\s]+(.+)$/);
+  return { prefix: m ? m[1] : "", remainder: (m ? m[2] : s).toLowerCase().trim() };
+}
+
+// Similarity floor for auto-suggesting two names as "probably the same real campaign" — high enough
+// to avoid false positives (see this section's doc comment) while tolerating the "some variation"
+// Mo confirmed exists between the two naming conventions in practice.
+const MERGE_SIMILARITY_THRESHOLD = 0.72;
+
+// Clusters distinct campaign names whose PREFIX differs but whose REMAINDER (everything after the
+// first prefix separator) is a close match — the auto-suggestion engine behind the Merge Campaign
+// Names modal. Only compares names with DIFFERENT prefixes (two names sharing one prefix already
+// aggregate together fine via buildGroups above) and clusters against a single anchor name per group
+// — deliberately simple (no real clustering library), which is plenty at the scale of one
+// workspace's distinct campaign-name list, and every cluster is still just a SUGGESTION the user
+// reviews/edits before anything is renamed.
+function suggestCampaignNameGroups(distinctNames) {
+  const parsed = distinctNames.map((name) => ({ name, ...splitCampaignName(name) }));
+  const used = new Set();
+  const groups = [];
+  for (let i = 0; i < parsed.length; i++) {
+    if (used.has(parsed[i].name)) continue;
+    const cluster = [parsed[i]];
+    for (let j = i + 1; j < parsed.length; j++) {
+      if (used.has(parsed[j].name)) continue;
+      if (parsed[i].prefix && parsed[i].prefix === parsed[j].prefix) continue; // already aggregates together
+      if (nameSimilarity(parsed[i].remainder, parsed[j].remainder) >= MERGE_SIMILARITY_THRESHOLD) cluster.push(parsed[j]);
+    }
+    if (cluster.length > 1) {
+      cluster.forEach((c) => used.add(c.name));
+      groups.push(cluster.map((c) => c.name));
+    }
+  }
+  return groups;
+}
+
 // Sortable column header — same visual treatment as PaidHQ.jsx's own SH (Campaign Tagger's sortable
 // headers): active column underlined, ▾/▴/⇅ indicator, no color change on active (per Mo's 2026-07-24
 // note in that file — headers stay T.text regardless of sort state, the underline alone shows it).
@@ -185,6 +263,14 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
   const [editVal, setEditVal] = useState("");
   const [editingChannel, setEditingChannel] = useState(null); // group key
 
+  // Merge Campaign Names modal state (2026-08-05, per Mo — see the fuzzy-matching helpers above).
+  // mergeGroups: [{ id, names: [campaignName,...], canonical: "" | campaignName }] — canonical starts
+  // BLANK even for auto-suggested groups (no auto-default — every group needs an explicit human
+  // "keep this name" choice, per the "false positive is worse than asking" rule).
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [mergeGroups, setMergeGroups] = useState([]);
+  const [mergeAddSel, setMergeAddSel] = useState({}); // {[groupId]: pending value of that group's "+ add name" select}
+
   const showNotif = (msg, type = "success") => {
     setNotif({ msg, type });
     setTimeout(() => setNotif(null), type === "error" ? 6000 : 3000);
@@ -219,6 +305,61 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
   const distinctChannels = useMemo(() => Array.from(new Set(groups.map((g) => g.channel).filter(Boolean))).sort(), [groups]);
   const taggedCount = useMemo(() => groups.filter((g) => Object.keys(g.tags).length > 0).length, [groups]);
   const untaggedCount = groups.length - taggedCount;
+
+  // Every distinct campaign_name in the raw (ungrouped) dataset, with its row count — the universe
+  // Merge Campaign Names' suggestion engine and manual group builder both draw from. Deliberately
+  // built from `rows` rather than `groups` (which are keyed by Campaign+Ad Group) since a rename here
+  // targets campaign_name alone, regardless of how many distinct ad groups ride under it.
+  const distinctCampaignNames = useMemo(() => {
+    const counts = new Map();
+    (rows || []).forEach((r) => {
+      const name = (r.campaignName || "").trim();
+      if (!name) return;
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([name, rowCount]) => ({ name, rowCount })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [rows]);
+
+  const mergeUsedNames = useMemo(() => new Set(mergeGroups.flatMap((g) => g.names)), [mergeGroups]);
+
+  const openMergeModal = () => {
+    const suggested = suggestCampaignNameGroups(distinctCampaignNames.map((d) => d.name));
+    setMergeGroups(suggested.map((names, i) => ({ id: `sugg-${i}`, names, canonical: "" })));
+    setMergeAddSel({});
+    setMergeModalOpen(true);
+  };
+
+  const addManualMergeGroup = () => setMergeGroups((g) => [...g, { id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, names: [], canonical: "" }]);
+  const removeMergeGroup = (id) => setMergeGroups((g) => g.filter((grp) => grp.id !== id));
+  const addNameToMergeGroup = (id, name) => {
+    if (!name) return;
+    setMergeGroups((g) => g.map((grp) => (grp.id === id && !grp.names.includes(name) ? { ...grp, names: [...grp.names, name] } : grp)));
+    setMergeAddSel((s) => ({ ...s, [id]: "" }));
+  };
+  const removeNameFromMergeGroup = (id, name) => setMergeGroups((g) => g.map((grp) => (grp.id === id ? { ...grp, names: grp.names.filter((n) => n !== name), canonical: grp.canonical === name ? "" : grp.canonical } : grp)));
+  const setMergeGroupCanonical = (id, name) => setMergeGroups((g) => g.map((grp) => (grp.id === id ? { ...grp, canonical: name } : grp)));
+
+  const mergeApplicableGroups = mergeGroups.filter((g) => g.names.length >= 2 && g.canonical && g.names.includes(g.canonical));
+  const mergeIncompleteCount = mergeGroups.filter((g) => g.names.length >= 2 && !g.canonical).length;
+
+  // Applies every completed group (>=2 names AND an explicit canonical choice) — groups still missing
+  // a canonical choice are silently left out of this batch (their note in the modal explains why) so
+  // Apply never renames anything the user hasn't explicitly confirmed. Reuses patchRows so undo,
+  // notification, and local-state sync all get the same treatment as every other mutation in this file.
+  const applyMerge = () => {
+    if (!canEdit || !mergeApplicableGroups.length) return;
+    const updates = [];
+    mergeApplicableGroups.forEach((g) => {
+      const losing = new Set(g.names.filter((n) => n !== g.canonical));
+      (rows || []).forEach((r) => {
+        if (losing.has((r.campaignName || "").trim())) updates.push({ id: r.id, campaignName: g.canonical });
+      });
+    });
+    if (!updates.length) return;
+    const n = mergeApplicableGroups.length;
+    patchRows(updates, (result) => `Merged ${n} campaign name group${n === 1 ? "" : "s"} (${result.updated} row${result.updated === 1 ? "" : "s"} renamed)`);
+    setMergeModalOpen(false);
+  };
 
   const doSort = (col) => {
     setSortDir(sortCol === col && sortDir === "desc" ? "asc" : "desc");
@@ -290,16 +431,30 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
   const toggleColumn = (key) => setColumns((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
 
   // Shared apply path — every mutation (bulk apply, suggestion accept, inline edit, channel edit,
-  // remove) funnels through here so undo/notif/local-state-sync stays in exactly one place.
+  // remove, and now Merge Campaign Names' renames) funnels through here so undo/notif/local-state-
+  // sync stays in exactly one place. Each update may carry `tags` and/or `campaignName` (2026-08-05,
+  // per Mo's "Merge Campaign Names" — see the fuzzy-matching helpers above); undo snapshots and the
+  // local-state merge only touch whichever field(s) a given update actually set, so tag-only and
+  // rename-only updates (and the existing tag-only call sites below) keep working unchanged.
   const patchRows = useCallback(
     async (updates, successMsg) => {
       if (!updates.length) return;
-      const undoBatch = updates.map((u) => ({ id: u.id, tags: rowsById.get(u.id)?.tags || {} }));
+      const undoBatch = updates.map((u) => {
+        const prev = rowsById.get(u.id) || {};
+        const snap = { id: u.id };
+        if (u.tags !== undefined) snap.tags = prev.tags || {};
+        if (u.campaignName !== undefined) snap.campaignName = prev.campaignName || "";
+        return snap;
+      });
       setApplying(true);
       try {
         const result = await patchReportingFactsTags(session, workspace.id, updates);
-        const byId = new Map(updates.map((u) => [u.id, u.tags]));
-        setRows((prev) => prev.map((r) => (byId.has(r.id) ? { ...r, tags: byId.get(r.id) } : r)));
+        const byId = new Map(updates.map((u) => [u.id, u]));
+        setRows((prev) => prev.map((r) => {
+          const u = byId.get(r.id);
+          if (!u) return r;
+          return { ...r, ...(u.tags !== undefined ? { tags: u.tags } : {}), ...(u.campaignName !== undefined ? { campaignName: u.campaignName } : {}) };
+        }));
         setUndoStack((h) => [...h.slice(-19), undoBatch]);
         showNotif(successMsg(result));
       } catch (err) {
@@ -373,8 +528,12 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
     setApplying(true);
     try {
       const result = await patchReportingFactsTags(session, workspace.id, batch);
-      const byId = new Map(batch.map((u) => [u.id, u.tags]));
-      setRows((prev) => prev.map((r) => (byId.has(r.id) ? { ...r, tags: byId.get(r.id) } : r)));
+      const byId = new Map(batch.map((u) => [u.id, u]));
+      setRows((prev) => prev.map((r) => {
+        const u = byId.get(r.id);
+        if (!u) return r;
+        return { ...r, ...(u.tags !== undefined ? { tags: u.tags } : {}), ...(u.campaignName !== undefined ? { campaignName: u.campaignName } : {}) };
+      }));
       setUndoStack((h) => h.slice(0, -1));
       showNotif(`Undone (${result.updated} row${result.updated === 1 ? "" : "s"})`);
     } catch (err) {
@@ -544,6 +703,12 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
               </button>
             );
           })}
+          {canEdit && (
+            <>
+              <div style={{ width: 1, height: 16, background: T.border }} />
+              <Btn onClick={openMergeModal} variant="ghost" size="sm" T={T} title="Reconcile campaign names imported under two different naming conventions (e.g. ad-platform 'BIN-...' vs UTM 'SEA-...') so their metrics land on the same row">⇄ Merge campaign names</Btn>
+            </>
+          )}
           <div style={{ marginLeft: "auto" }}>
             {onBackToDataSources && <Btn onClick={onBackToDataSources} variant="ghost" size="sm" T={T}>← Back to Data Sources</Btn>}
           </div>
@@ -753,6 +918,65 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
         </div>
       </div>
       </div>
+      {mergeModalOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <PixelPanel T={T} style={{ width: "100%", maxWidth: 640, maxHeight: "85vh" }} contentStyle={{ background: T.surface, padding: 0, maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, fontSize: 15 * (T.fsScale || 1), fontWeight: 700, color: T.text }}>Merge campaign names</div>
+            <div style={{ padding: "10px 22px 0", fontSize: 12 * (T.fsScale || 1), color: T.textMuted, lineHeight: 1.5 }}>
+              For campaigns imported under two different naming conventions (e.g. ad-platform "BIN-..." carrying spend/leads vs UTM "SEA-..." carrying MQLs/SQLs/pipeline), pick which names refer to the same real campaign and which name to keep — every matching row gets renamed to it so its metrics land on one row. Nothing is renamed until you choose a name for a group and click Apply.
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+              {mergeGroups.length === 0 && (
+                <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, textAlign: "center", padding: "20px 0" }}>No likely matches auto-detected. Add a group manually below if you know which names belong together.</div>
+              )}
+              {mergeGroups.map((g) => {
+                const availableToAdd = distinctCampaignNames.filter((d) => !mergeUsedNames.has(d.name) || g.names.includes(d.name)).filter((d) => !g.names.includes(d.name));
+                const complete = g.names.length >= 2 && !!g.canonical;
+                return (
+                  <div key={g.id} style={{ border: `1px solid ${complete ? T.accentBorder : T.border}`, borderRadius: T.r7, padding: 12, background: T.surfaceEl }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <span style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted }}>
+                        {g.id.startsWith("sugg-") ? "Suggested match" : "Manual group"}
+                      </span>
+                      <button onClick={() => removeMergeGroup(g.id)} title="Remove this group" style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 13 * (T.fsScale || 1), padding: 0 }}>✕</button>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                      {g.names.length === 0 && <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted }}>No names yet — add at least two below.</div>}
+                      {g.names.map((name) => {
+                        const stat = distinctCampaignNames.find((d) => d.name === name);
+                        return (
+                          <label key={name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 * (T.fsScale || 1), color: T.text, cursor: "pointer" }}>
+                            <input type="radio" name={`merge-canonical-${g.id}`} checked={g.canonical === name} onChange={() => setMergeGroupCanonical(g.id, name)} style={{ cursor: "pointer", accentColor: T.accent }} />
+                            <span style={{ flex: 1 }}>{name}</span>
+                            <Pill color={T.textMuted} bg={T.surface} border={T.border}>{(stat?.rowCount || 0).toLocaleString()} row{stat?.rowCount === 1 ? "" : "s"}</Pill>
+                            <span onClick={() => removeNameFromMergeGroup(g.id, name)} title="Remove from group" style={{ color: T.textMuted, cursor: "pointer", fontSize: 13 * (T.fsScale || 1), padding: "0 2px" }}>×</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {g.names.length >= 1 && !g.canonical && <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.warning, marginBottom: 8 }}>Choose which name to keep — this group won't be applied until you do.</div>}
+                    <Sel value={mergeAddSel[g.id] || ""} onChange={(v) => addNameToMergeGroup(g.id, v)} T={T} style={{ fontSize: 12 * (T.fsScale || 1) }}>
+                      <option value="">+ Add a campaign name to this group…</option>
+                      {availableToAdd.map((d) => <option key={d.name} value={d.name}>{d.name} ({d.rowCount})</option>)}
+                    </Sel>
+                  </div>
+                );
+              })}
+              <Btn onClick={addManualMergeGroup} variant="ghost" size="sm" T={T}>+ Add manual group</Btn>
+            </div>
+            <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted }}>
+                {mergeApplicableGroups.length > 0 ? `${mergeApplicableGroups.length} group${mergeApplicableGroups.length === 1 ? "" : "s"} ready to apply` : "No groups ready yet"}
+                {mergeIncompleteCount > 0 ? ` · ${mergeIncompleteCount} need${mergeIncompleteCount === 1 ? "s" : ""} a name choice` : ""}
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn onClick={() => setMergeModalOpen(false)} variant="ghost" T={T}>Cancel</Btn>
+                <Btn onClick={applyMerge} disabled={!mergeApplicableGroups.length || applying} variant="primary" T={T}>Apply{mergeApplicableGroups.length > 1 ? ` (${mergeApplicableGroups.length})` : ""}</Btn>
+              </div>
+            </div>
+          </PixelPanel>
+        </div>
+      )}
     </>
   );
 }

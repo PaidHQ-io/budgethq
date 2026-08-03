@@ -74,10 +74,13 @@ export function upsertReportingFacts(session, workspaceId, rows) {
   });
 }
 
-// updates: [{ id, tags }] — tags fully REPLACES that row's tags object (send the merged
-// {...oldTags,...newValue}, same convention Campaign Tagger's own tag-apply uses). Returns
-// { updated, skipped: [{id,reason}] } — see reporting-facts.js's PATCH doc comment for why a
-// per-row collision doesn't fail the whole batch.
+// updates: [{ id, tags?, campaignName? }] — tags fully REPLACES that row's tags object (send the
+// merged {...oldTags,...newValue}, same convention Campaign Tagger's own tag-apply uses).
+// campaignName (2026-08-05, per Mo — "Merge Campaign Names") renames that row's campaign_name
+// outright, for reconciling rows imported under two different naming conventions for the same real
+// campaign (e.g. ad-platform-native "BIN-..." vs. UTM-based "SEA-..."). Both fields are optional
+// per-update — at least one must be present. Returns { updated, skipped: [{id,reason}] } — see
+// reporting-facts.js's PATCH doc comment for why a per-row collision doesn't fail the whole batch.
 export function patchReportingFactsTags(session, workspaceId, updates) {
   return api(session, workspaceId, "", {
     method: "PATCH",

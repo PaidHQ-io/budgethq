@@ -51,22 +51,27 @@
  *        filter here was already tag/campaign/period based; source is the one dimension that isn't
  *        stored in `tags` at all, so it needed its own query param rather than reusing the tags
  *        containment filter.
- * PATCH  Body: { updates: [{ id, tags }] } — Pipeline Tagger (2026-08-01, per Mo — a dedicated
- *        tagging tab for reporting_facts, mirroring Campaign Tagger's UX). Retags an ALREADY-STORED
- *        row in place by primary key. Deliberately separate from POST's upsert: `tags` is part of
- *        reporting_facts' own unique key (workspace_id, period_type, period_start, campaign_name,
- *        tags), so changing a row's tags via upsert would just INSERT a second, duplicate-looking
- *        row instead of correcting the existing one — a plain `UPDATE ... WHERE id = ...` is the
- *        only safe way to retag without leaving an orphaned untagged copy behind. Each update fully
- *        REPLACES that row's tags object (the caller is expected to send the merged
- *        {...oldTags,...newValue} object, same convention as Campaign Tagger's own tag-apply
- *        merging) — not a partial patch. If a retag would collide with another existing row's exact
- *        (period_type, period_start, campaign_name, tags) combination, Postgres raises a unique
- *        violation (23505) for that one update; the loop catches it per-row so one collision
- *        doesn't fail the rest of the batch, and the response's `skipped` array reports which ids
- *        failed and why (this is the "two rows for the same period should actually be merged into
- *        one" edge case — not handled automatically in v1, surfaced to the user instead of silently
- *        dropped).
+ * PATCH  Body: { updates: [{ id, tags?, campaignName? }] } — Pipeline Tagger (2026-08-01, per Mo — a
+ *        dedicated tagging tab for reporting_facts, mirroring Campaign Tagger's UX). Retags (and/or
+ *        renames) an ALREADY-STORED row in place by primary key. Deliberately separate from POST's
+ *        upsert: `tags`/`campaign_name` are both part of reporting_facts' own unique key
+ *        (workspace_id, period_type, period_start, campaign_name, tags), so changing either via
+ *        upsert would just INSERT a second, duplicate-looking row instead of correcting the existing
+ *        one — a plain `UPDATE ... WHERE id = ...` is the only safe way to retag/rename without
+ *        leaving an orphaned copy behind. Each `tags` fully REPLACES that row's tags object (the
+ *        caller is expected to send the merged {...oldTags,...newValue} object, same convention as
+ *        Campaign Tagger's own tag-apply merging) — not a partial patch. `campaignName`, when
+ *        present, replaces campaign_name outright (2026-08-05, per Mo — "Merge Campaign Names" in
+ *        Pipeline Tagger, reconciling rows for the same real campaign that were imported under two
+ *        different naming conventions, e.g. ad-platform-native "BIN-..." vs. UTM-based "SEA-...").
+ *        Both fields are optional per-update (COALESCE'd against the existing value) so existing
+ *        tags-only callers are unaffected; at least one of the two must be present. If a retag/rename
+ *        would collide with another existing row's exact (period_type, period_start, campaign_name,
+ *        tags) combination, Postgres raises a unique violation (23505) for that one update; the loop
+ *        catches it per-row so one collision doesn't fail the rest of the batch, and the response's
+ *        `skipped` array reports which ids failed and why (this is the "two rows for the same period
+ *        should actually be merged into one" edge case — not handled automatically in v1, surfaced
+ *        to the user instead of silently dropped).
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
@@ -195,22 +200,26 @@ export default withApi(async (req, res) => {
     let updated = 0;
     const skipped = [];
     for (const u of inputUpdates) {
-      if (!u || !u.id || typeof u.tags !== "object" || u.tags === null) {
+      const hasTags = u && typeof u.tags === "object" && u.tags !== null;
+      const hasName = u && typeof u.campaignName === "string" && u.campaignName.trim();
+      if (!u || !u.id || (!hasTags && !hasName)) {
         skipped.push({ id: u?.id, reason: "invalid" });
         continue;
       }
       try {
         const result = await sql`
           update core.reporting_facts
-          set tags = ${JSON.stringify(u.tags)}::jsonb, updated_at = now()
+          set tags = coalesce(${hasTags ? JSON.stringify(u.tags) : null}::jsonb, tags),
+              campaign_name = coalesce(${hasName ? u.campaignName.trim() : null}::text, campaign_name),
+              updated_at = now()
           where id = ${u.id} and workspace_id = ${workspaceId}
           returning id
         `;
         if (result.length) updated++;
         else skipped.push({ id: u.id, reason: "not found" });
       } catch (err) {
-        // 23505 = unique_violation — this retag would collide with another row sharing the same
-        // (period_type, period_start, campaign_name, tags). See the doc comment above.
+        // 23505 = unique_violation — this retag/rename would collide with another row sharing the
+        // same (period_type, period_start, campaign_name, tags). See the doc comment above.
         skipped.push({ id: u.id, reason: err?.code === "23505" ? "conflict" : (err?.message || "error") });
       }
     }
