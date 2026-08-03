@@ -60,7 +60,21 @@ function sourceLabel(sourceKey){
   return MANUAL_SOURCE_LABELS[sourceKey]||sourceKey;
 }
 function sourceIsLive(sourceKey){return(sourceKey||"").startsWith("sync:");}
-const fmtDate=iso=>iso?new Date(`${iso}T00:00:00`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—";
+// Fixed 2026-08-17 (per Mo — Reporting Analyzer's Date range/By source/By period grain columns were
+// all showing "Invalid Date"): reporting_facts' period_start comes back from the API as whatever
+// the Postgres driver serializes a `date` column to, which is sometimes a full ISO timestamp like
+// "2024-01-01T00:00:00.000Z" rather than a bare "YYYY-MM-DD" — this used to always assume the bare
+// form and append a SECOND "T00:00:00", producing a malformed doubly-stamped string that Date()
+// can't parse. Same root cause (and same fix — extract just the leading YYYY-MM-DD prefix via
+// regex) as the Q1-2001 grain-rollup bug fixed earlier in PipelineTagger.jsx/reportingPeriods.js's
+// parseDateUTC — spend's own day-strings still match this regex fine, so this is safe for both
+// sections that share this formatter.
+const fmtDate=iso=>{
+  if(!iso)return"—";
+  const m=/^(\d{4}-\d{2}-\d{2})/.exec(String(iso));
+  const d=new Date(`${m?m[1]:iso}T00:00:00`);
+  return isNaN(d.getTime())?"—":d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+};
 const fmtRange=(start,end)=>start&&end?(start===end?fmtDate(start):`${fmtDate(start)} → ${fmtDate(end)}`):"—";
 
 // reporting_facts' own source vocabulary (see api/workspaces/[id]/reporting-facts.js's column
