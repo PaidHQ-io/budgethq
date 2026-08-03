@@ -645,9 +645,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[pendingNamedFile,setPendingNamedFile]=useState(null); // {file, defaultName, onConfirm, onCancel}
   const promptAndArchiveFile=useCallback((file,category)=>{
     if(!file)return Promise.resolve(null);
+    // Defaults to the LAST saved name for this SAME category (2026-08-08, per Mo — "save the name
+    // of the last file that was saved so we can just make minor edits to it (e.g. the next month)
+    // instead of rewriting the whole name again") rather than the raw uploaded filename, which is
+    // usually a meaningless browser-generated one like "data (17).xlsx". fileStoreList is already
+    // sorted newest-first (see its own "sorted newest-first" comment above), so the first record
+    // matching this category IS the last one saved for it. Falls back to the raw filename the first
+    // time a given category is ever named (nothing to reuse yet).
+    const lastForCategory=fileStoreList.find(f=>f.category===category);
     return new Promise(resolve=>{
       setPendingNamedFile({
-        file,defaultName:file.name,
+        file,defaultName:lastForCategory?.name||file.name,
         onConfirm:(name)=>{
           setPendingNamedFile(null);
           archiveFile(file,category,name).then(record=>resolve({name,fileId:record?.id||null}));
@@ -655,7 +663,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         onCancel:()=>{setPendingNamedFile(null);resolve(null);},
       });
     });
-  },[archiveFile]);
+  },[archiveFile,fileStoreList]);
   // Previously this failed completely silently on error (console.error only) and gave zero visual
   // feedback even on success -- the list just quietly re-rendered after refreshFileStore resolved.
   // With no loading state and no confirmation, a slow network response or a swallowed error both
