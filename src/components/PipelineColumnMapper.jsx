@@ -10,6 +10,7 @@ import {
 } from "../lib/pipelineColumnMapping.js";
 import { normalizePeriodStart, labelForPeriod } from "../lib/reportingPeriods.js";
 import { PLATFORM_OPTIONS } from "../lib/core.js";
+import { usePersistentState } from "../lib/persist.js";
 
 // Column-mapping + period step for a raw pipeline CSV/XLSX (2026-08-02/03, per Mo — see
 // pipelineColumnMapping.js's top doc comment for the full "why"). Sits between the raw file (every
@@ -87,18 +88,46 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
     [mappedMetricKeys]
   );
 
+  // LAST-USED PERIOD/CHANNEL (2026-08-08, per Mo — "let's keep the same reporting period and the
+  // channel that was previously selected" — a fresh, non-replay import used to always reset the
+  // period to "now" and the channel to "Don't set," forcing a full re-pick on every single-platform
+  // file even though Mo's own workflow, per the CHANNEL AT IMPORT doc comment above, is importing
+  // one platform's file at a time — the same channel and (often) the same reporting month/quarter as
+  // the last file. Device-local (usePersistentState/localStorage, same as every other UI preference
+  // in this app) rather than server-side — this is "what did I pick last time on THIS browser," not
+  // workspace data. Deliberately separate from initialMapping/initialPeriodMode/etc above: those come
+  // from a SPECIFIC file's own saved config (File Store "Apply" replay) and still win outright when
+  // present — this is only the fallback for a genuinely fresh import that has no per-file config of
+  // its own yet.
+  const [lastPeriodMode, setLastPeriodMode] = usePersistentState("paidhq_pipeline_import_last_periodMode", "month");
+  const [lastYear, setLastYear] = usePersistentState("paidhq_pipeline_import_last_year", () => new Date().getFullYear());
+  const [lastMonth, setLastMonth] = usePersistentState("paidhq_pipeline_import_last_month", () => new Date().getMonth() + 1);
+  const [lastQuarter, setLastQuarter] = usePersistentState("paidhq_pipeline_import_last_quarter", () => Math.floor(new Date().getMonth() / 3) + 1);
+  const [lastHardcodedChannel, setLastHardcodedChannel] = usePersistentState("paidhq_pipeline_import_last_channel", "");
+
   // PERIOD: detected once per file (headers/rows never change under this component), then the user
   // can either accept it or switch to picking one manually — see detectImportPeriod's doc comment
   // for exactly what "detected" means (every row's period column collapsing to the same single
   // month or quarter). `periodMode` "detected" is only ever the initial value when detection
   // actually succeeded; once the user switches away from it there's no way back except re-uploading,
-  // which is fine since overriding a real detection should be rare.
+  // which is fine since overriding a real detection should be rare. Priority when nothing's been
+  // manually touched yet: a file-specific replay config, then this file's OWN real detection (a
+  // stronger signal than a remembered preference), then last time's preference, then today.
   const detected = useMemo(() => detectImportPeriod(headers, rows), [headers, rows]);
-  const [periodMode, setPeriodMode] = useState(() => initialPeriodMode || (detected ? "detected" : "month"));
-  const now = new Date();
-  const [year, setYear] = useState(() => initialYear || now.getFullYear());
-  const [month, setMonth] = useState(() => initialMonth || now.getMonth() + 1); // 1-12
-  const [quarter, setQuarter] = useState(() => initialQuarter || Math.floor(now.getMonth() / 3) + 1); // 1-4
+  const [periodModeRaw, setPeriodModeRaw] = useState(() => initialPeriodMode || (detected ? "detected" : lastPeriodMode));
+  const [yearRaw, setYearRaw] = useState(() => initialYear || lastYear);
+  const [monthRaw, setMonthRaw] = useState(() => initialMonth || lastMonth); // 1-12
+  const [quarterRaw, setQuarterRaw] = useState(() => initialQuarter || lastQuarter); // 1-4
+  // Wrapped setters also remember the choice for next time — "detected" itself is never persisted
+  // (it's meaningless without THIS file's own detection result), every other value is.
+  const periodMode = periodModeRaw;
+  const setPeriodMode = (v) => { setPeriodModeRaw(v); if (v !== "detected") setLastPeriodMode(v); };
+  const year = yearRaw;
+  const setYear = (v) => { setYearRaw(v); setLastYear(v); };
+  const month = monthRaw;
+  const setMonth = (v) => { setMonthRaw(v); setLastMonth(v); };
+  const quarter = quarterRaw;
+  const setQuarter = (v) => { setQuarterRaw(v); setLastQuarter(v); };
 
   const resolvedPeriod = useMemo(() => {
     if (periodMode === "detected") return detected;
@@ -122,7 +151,12 @@ export default function PipelineColumnMapper({ T, headers, rows, tagDims, source
   // produced (see buildNormalizedPipelineRows's own doc comment) — left on "Don't set" this behaves
   // exactly as it did before this feature existed.
   const channelColumnMapped = useMemo(() => Object.values(mapping).includes("channel"), [mapping]);
-  const [hardcodedChannel, setHardcodedChannel] = useState(() => initialHardcodedChannel || "");
+  // initialHardcodedChannel !== undefined (not ||) — a replay config that explicitly saved "Don't
+  // set" (empty string) must stay empty, not fall through to whatever channel was last picked for a
+  // DIFFERENT file.
+  const [hardcodedChannelRaw, setHardcodedChannelRaw] = useState(() => (initialHardcodedChannel !== undefined ? initialHardcodedChannel : lastHardcodedChannel));
+  const hardcodedChannel = hardcodedChannelRaw;
+  const setHardcodedChannel = (v) => { setHardcodedChannelRaw(v); setLastHardcodedChannel(v); };
 
   const canConfirm = dupeTargets.length === 0 && Boolean(resolvedPeriod?.periodStart);
 
