@@ -306,11 +306,13 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // and screenshots still go straight to pendingReportingRows since reportingAI.js already derives
   // its own metric keys per column during extraction. See pipelineColumnMapping.js's top doc comment.
   const[pendingReportingRawImport,setPendingReportingRawImport]=useState(null);
-  // Same one-shot raw-import handoff as pendingReportingRawImport above, for goals CSV/XLSX instead
-  // of pipeline (2026-08-19, per Mo's goals-import build) — kept as its own state rather than reusing
-  // pendingReportingRawImport, since GoalsObjectives.jsx and ReportingAnalyzer.jsx are two separately-
-  // mounted tabs that each need their own handoff without racing each other.
-  const[pendingGoalsRawImport,setPendingGoalsRawImport]=useState(null);
+  // Goals import handoff (2026-08-19, REBUILT per Mo — "duplicate the process of importing a budget
+  // file... same popup and UX"): now mirrors pendingBudgetImportFile exactly — a raw, un-parsed File —
+  // instead of pre-parsed {headers,rows}. GoalsImportWizard.jsx (modeled on BudgetManager's own Import
+  // modal) does its own header-row detection/picking internally, the same way BudgetManager does for
+  // pendingBudgetImportFile, rather than PaidHQ.jsx parsing it up front the way the old
+  // PipelineColumnMapper-based flow used to.
+  const[pendingGoalsImportFile,setPendingGoalsImportFile]=useState(null);
 
   const[budgets,setBudgets]=useState({});
   const[budgetDims,setBudgetDims]=useState([]);
@@ -1855,23 +1857,15 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       return;
     }
     if(type==="goals"&&ext!=="pdf"){
+      // Mirrors the "budget" branch above exactly (2026-08-19, REBUILT per Mo — "duplicate the
+      // process of importing a budget file"): archive, hand off the raw File, switch tabs.
+      // GoalsImportWizard (inside GoalsObjectives) does its own parsing/header-row-picking from
+      // here, the same way BudgetManager does for pendingBudgetImportFile.
       const named=await promptAndArchiveFile(file,"Goals import");
       if(!named)return;
       setPendingClassification(null);
-      setUnifiedRouteError("");
-      setUnifiedRouting(true);
-      try{
-        const raw=await parsePipelineFileRaw(file);
-        // sourceLabel MUST start with "goals" (isGoalsSource's prefix, pipelineColumnMapping.js) —
-        // GoalsObjectives.jsx's own ReportingFactsTagger instance filters on exactly this, so getting
-        // this wrong would silently make every row from this import invisible there.
-        setPendingGoalsRawImport({...raw,sourceLabel:"goals_csv_mapped",archivedFileId:named.fileId});
-        setView("goalsObjectives");
-      }catch(err){
-        setUnifiedRouteError(err.message||"Couldn't read that file.");
-      }finally{
-        setUnifiedRouting(false);
-      }
+      setPendingGoalsImportFile(file);
+      setView("goalsObjectives");
       return;
     }
     setPendingClassification(null);
@@ -2378,7 +2372,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       // fileStoreList is already sorted newest-first (files.js's GET orders by created_at desc), so
       // re-Applying after tweaking the mapping keeps using the latest tweak, not the original guess.
       let config=null;
-      if(rec.category==="Spend import"||rec.category==="Pipeline import"||rec.category==="Goals import"){
+      if(rec.category==="Spend import"||rec.category==="Pipeline import"){
         const sidecar=fileStoreList.find(f=>f.category===IMPORT_CONFIG_CATEGORY&&f.name===importConfigFileName(rec.id));
         if(sidecar){
           try{
@@ -2408,19 +2402,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         });
         setView("reportingAnalyzer");
       }else if(rec.category==="Goals import"){
-        const raw=await parsePipelineFileRaw(file);
-        // sourceLabel is deliberately "goals_csv_mapped" here, NOT rec.name the way Pipeline import
-        // above uses — GoalsObjectives.jsx's browse grid filters on isGoalsSource (a "goals" prefix
-        // check), so replaying under an arbitrary saved file name (e.g. "Q3 Targets") would silently
-        // make these rows invisible there. Pipeline's own use of rec.name here doesn't have the same
-        // risk since ReportingAnalyzer's filter is the inverse (isPipelineSource) and rec.name is
-        // vanishingly unlikely to itself start with "goals".
-        setPendingGoalsRawImport({
-          ...raw,sourceLabel:"goals_csv_mapped",archivedFileId:rec.id,
-          initialMapping:config?.mapping,initialPeriodMode:config?.periodMode,
-          initialYear:config?.year,initialMonth:config?.month,initialQuarter:config?.quarter,
-          initialHardcodedChannel:config?.hardcodedChannel,
-        });
+        // Mirrors "Budget import" above exactly — no saved-mapping replay (GoalsImportWizard has no
+        // equivalent to Pipeline import's config sidecar, matching Budget's own simpler "Apply just
+        // reopens the wizard fresh" behavior).
+        setPendingGoalsImportFile(file);
         setView("goalsObjectives");
       }
     }catch(err){
@@ -4426,7 +4411,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="ask"&&<Suspense fallback={<TabLoadingFallback/>}><AskAI T={T} session={session} workspace={workspace} mergedNormRows={visibleNormRows} tags={tags} tagDims={tagDims} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} customMetrics={customMetrics} hasData={visibleNormRows.length>0} askChats={askChats} setAskChats={setAskChats} askProjects={askProjects} setAskProjects={setAskProjects} activeAskChatId={activeAskChatId} setActiveAskChatId={setActiveAskChatId} sidebarEl={askSidebarEl} initialQuestion={pendingAskQuestion} onConsumeInitialQuestion={()=>setPendingAskQuestion(null)} onSaveAsView={cfg=>{setPendingViewConfig(cfg);setView("pacing");}} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl} archiveImportConfig={archiveImportConfig}/></Suspense>}
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} customMetrics={customMetrics} sidebarEl={pipelineTaggerSidebarEl} pipelineDimensions={pipelineDimensions} setPipelineDimensions={setPipelineDimensions} pipelineViews={pipelineViews} setPipelineViews={setPipelineViews} canEdit={canEdit}/></Suspense>}
-      {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace} tagDims={tagDims} canEdit={canEdit} sidebarEl={goalsObjectivesSidebarEl} archiveImportConfig={archiveImportConfig} initialRawGoalsImport={pendingGoalsRawImport} onConsumeInitialRawGoalsImport={()=>setPendingGoalsRawImport(null)}/></Suspense>}
+      {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace} tagDims={tagDims} canEdit={canEdit} sidebarEl={goalsObjectivesSidebarEl} promptAndArchiveFile={promptAndArchiveFile} initialImportFile={pendingGoalsImportFile} onConsumeInitialImportFile={()=>setPendingGoalsImportFile(null)}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
           been imported, including anything a user has since hidden from the dashboards. */}

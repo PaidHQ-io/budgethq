@@ -1,93 +1,52 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { SectionLabel } from "./shared.jsx";
 import ReportingFactsTagger from "./ReportingFactsTagger.jsx";
-import PipelineColumnMapper from "./PipelineColumnMapper.jsx";
-import { upsertReportingFacts } from "../lib/reportingApi.js";
-import { isGoalsSource, GOAL_METRIC_MAP_OPTIONS, GOALS_STRUCTURAL_FIELD_OPTIONS } from "../lib/pipelineColumnMapping.js";
+import GoalsImportWizard from "./GoalsImportWizard.jsx";
+import { isGoalsSource } from "../lib/pipelineColumnMapping.js";
 
-// Goals & Objectives tab (REBUILT 2026-08-19, per Mo — "let's build the goals & objectives import
-// like we've done with the campaign spend and pipeline import. we'll need to save and be able to
-// rename the files and also be able to tag them with similar dimensions and tags"). This used to be
-// a deliberately minimal, read-only list ("minimal capture now, full tab later" — see this file's
-// prior version's own doc comment) with no tagging UI at all; this IS that deferred follow-up.
+// Goals & Objectives tab (REBUILT AGAIN 2026-08-19, per Mo — "no this is not working at all. there's
+// no need to choose the channel or the month. I want you to complete start fresh and duplicate the
+// process of importing a budget file. Take the same popup and UX and just change it slightly for
+// goals.") The PREVIOUS version of this file embedded PipelineColumnMapper.jsx directly (reused
+// unchanged from pipeline import, just with different metric options) — Mo's real file kept hitting
+// that flow's assumptions (a forced Channel section, a forced fallback Month/Quarter picker even when
+// the file's own headers already stated the period) and he asked for a genuinely different process
+// modeled on Budget import instead, not another patch on top of the pipeline one.
 //
-// ARCHITECTURE: rather than fork a second copy of ReportingAnalyzer.jsx/ReportingFactsTagger.jsx's
-// ~700+ lines of column-mapping + grid/tagging logic, this reuses BOTH components directly, scoped
-// to goals data via two things:
-//   - sourceLabel="goals_csv_mapped" on the raw-import handoff (set by PaidHQ.jsx's
-//     confirmUnifiedUpload/applyStoredFile — see those for the live-import and File-Store-"Apply"-
-//     replay paths respectively) — PipelineColumnMapper writes this straight through as every
-//     normalized row's `source` field (see buildNormalizedPipelineRows), so it MUST start with
-//     "goals" (isGoalsSource's prefix) or rows would silently vanish from this tab's own filter.
-//   - sourceFilter={isGoalsSource} on the embedded ReportingFactsTagger, so this tab's browse/tag
-//     grid only ever shows goals-prefixed rows — the mirror image of ReportingAnalyzer.jsx's own
-//     sourceFilter={isPipelineSource}, so switching between the two tabs never shows the other's data.
+// ARCHITECTURE: all of the import UX now lives in GoalsImportWizard.jsx, a direct port of
+// BudgetManager.jsx's own Import modal (upload -> click-to-pick header row -> map -> preview) — see
+// that file's own top doc comment for exactly what's reused vs. what had to differ (multiple named
+// metrics per row instead of Budget's single $ amount; writes to core.reporting_facts via
+// upsertReportingFacts instead of the local budgets state; position-indexed column handling so two
+// identically-named header blocks, e.g. "January" appearing twice for two different metrics, don't
+// collide). This file is now just the tab shell: intro copy, the import wizard (which owns its own
+// modal + a sidebar-portaled "↑ Import CSV / Excel" trigger, exactly like Budget's), and the
+// goals-scoped browse/tag grid.
 //
-// STORAGE: goals data still lives in the exact same core.reporting_facts table pipeline performance
-// data does (see isGoalsSource's own doc note in pipelineColumnMapping.js) — no new table/migration.
+// sourceLabel="goals_csv_mapped" (written by GoalsImportWizard on every normalized row) +
+// sourceFilter={isGoalsSource} on the embedded ReportingFactsTagger together scope this tab to
+// goals-prefixed reporting_facts rows only — the mirror image of ReportingAnalyzer.jsx's own
+// sourceFilter={isPipelineSource} — so switching between the two tabs never shows the other's data.
+// Goals and pipeline still share the exact same core.reporting_facts table; no new table/migration.
 //
-// METRIC VOCABULARY (2026-08-19, per Mo — after a real import showed the mapper offering "MQLs"/
-// "Pipeline Value"/etc., the same metric names real pipeline PERFORMANCE data uses): passes
-// GOAL_METRIC_MAP_OPTIONS/metricKeySuffix="_goal" to PipelineColumnMapper instead of letting it
-// default to PIPELINE_METRIC_MAP_OPTIONS, so every goal number lands under a distinctly-suffixed key
-// (mqls_goal, pipeline_value_goal, ...) that can never collide with — or get silently summed into —
-// the real performance metric it's a target FOR. See GOAL_METRIC_MAP_OPTIONS' own doc note.
-//
-// A VISIBLY DIFFERENT IMPORT SCREEN (2026-08-19, per Mo — "once the user selects 'goals' as the
-// import type, it should be a different import UX and process than the pipeline performance import"):
-// beyond the metric vocabulary, this now also passes structuralFieldOptions={GOALS_STRUCTURAL_FIELD_
-// OPTIONS} (drops Ad Group/Channel as mapping targets — goals data has neither — and relabels the
-// primary identifier "Product / Item Name" instead of "Campaign Name"; also adds "period" as a target
-// for vertical/one-row-per-period files), showChannelSection={false} (the whole Channel block simply
-// doesn't render), and goals-flavored title/description copy. The underlying component is still
-// shared (see ARCHITECTURE above for why), but everything the user actually SEES now differs from a
-// pipeline import.
-//
-// NOT carried over from this file's prior version: PDF goals imports still route through
-// ReportingAnalyzer's own AI-extraction review flow (PaidHQ.jsx's confirmUnifiedUpload — out of
-// scope for this pass, which per Mo's own choice only switched the CSV/XLSX path to open mapping,
-// matching exactly how pipeline CSV/XLSX vs. PDF are already split there). A PDF goals import still
-// succeeds and lands in reporting_facts correctly; it just won't show up in ReportingAnalyzer's own
-// grid afterward (that grid is now pipeline-only) — the user needs to switch to this tab to see it.
+// DROPPED from the previous version, deliberately, matching Budget import's own (simpler) pattern:
+// File Store "Apply" replay no longer pre-fills a saved column mapping — re-running an import via
+// Apply just reopens this same wizard fresh, same as Budget's own applyStoredFile branch. PDF goals
+// imports still route through ReportingAnalyzer's own AI-extraction flow (unchanged, out of scope
+// here) — a PDF goals import still lands correctly in reporting_facts, it just needs this tab opened
+// afterward to see it (this grid is goals-only; ReportingAnalyzer's is pipeline-only).
 export default function GoalsObjectives({
-  T, session, workspace, tagDims, canEdit, sidebarEl, archiveImportConfig,
-  initialRawGoalsImport, onConsumeInitialRawGoalsImport,
+  T, session, workspace, tagDims, canEdit, sidebarEl, promptAndArchiveFile,
+  initialImportFile, onConsumeInitialImportFile,
 }) {
-  // Same one-shot relay pattern as ReportingAnalyzer.jsx's initialRawPipelineImport — this tab is
-  // conditionally mounted (unmounts on every tab switch away), so a lazy initializer is correct here,
-  // not just convenient: PaidHQ.jsx never sets pendingGoalsRawImport and switches to this view except
-  // together (see confirmUnifiedUpload/applyStoredFile), so this always freshly mounts at exactly the
-  // moment of handoff.
-  const [rawGoalsImport, setRawGoalsImport] = useState(() => initialRawGoalsImport || null);
-  const [mappingImporting, setMappingImporting] = useState(false);
-  const [importResult, setImportResult] = useState(null);
   // Bumped after a successful import to tell the embedded ReportingFactsTagger to re-fetch — it owns
   // its own `rows` state fetched internally, same reasoning as ReportingAnalyzer's identical signal.
   const [taggerRefreshSignal, setTaggerRefreshSignal] = useState(0);
+  const [importResult, setImportResult] = useState(null);
 
-  useEffect(() => {
-    if (initialRawGoalsImport) onConsumeInitialRawGoalsImport?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Mirrors ReportingAnalyzer.jsx's handleMappedImport — see that function's own doc comment for why
-  // the archivedFileId capture happens before clearing rawGoalsImport, and why the sidecar write is
-  // fire-and-forget.
-  const handleMappedImport = async (normalizedRows, mappingMeta) => {
-    const archivedFileId = rawGoalsImport?.archivedFileId;
-    setRawGoalsImport(null);
-    setMappingImporting(true);
-    setImportResult(null);
-    try {
-      const result = await upsertReportingFacts(session, workspace.id, normalizedRows);
-      if (archivedFileId && mappingMeta) archiveImportConfig?.(archivedFileId, { kind: "goals", ...mappingMeta });
-      setImportResult(result);
-      setTaggerRefreshSignal((n) => n + 1);
-    } catch (err) {
-      setImportResult({ error: err.message || "Import failed." });
-    } finally {
-      setMappingImporting(false);
-    }
+  const handleImported = (result) => {
+    setImportResult(result);
+    setTaggerRefreshSignal((n) => n + 1);
   };
 
   return (
@@ -96,39 +55,10 @@ export default function GoalsObjectives({
         <SectionLabel T={T}>Reporting</SectionLabel>
         <div style={{ fontSize: 16 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 6 }}>Goals & Objectives</div>
         <div style={{ fontSize: 13 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.6, marginBottom: 16, maxWidth: 720 }}>
-          Targets, budget goals, and attainment/forecast data — imported and tagged the same way as Pipeline Performance,
-          kept separate from it here. Upload a goals/targets file from Data Sources; files classified as "Goals" land here.
+          Targets, budget goals, and attainment/forecast data — imported and tagged separately from Pipeline Performance.
+          Use "↑ Import CSV / Excel" in the sidebar, or upload a goals/targets file from Data Sources.
         </div>
 
-        {rawGoalsImport && (
-          <PipelineColumnMapper
-            T={T}
-            headers={rawGoalsImport.headers}
-            rows={rawGoalsImport.rows}
-            tagDims={tagDims}
-            sourceLabel={rawGoalsImport.sourceLabel}
-            onConfirm={handleMappedImport}
-            onDiscard={() => setRawGoalsImport(null)}
-            initialMapping={rawGoalsImport.initialMapping}
-            initialPeriodMode={rawGoalsImport.initialPeriodMode}
-            initialYear={rawGoalsImport.initialYear}
-            initialMonth={rawGoalsImport.initialMonth}
-            initialQuarter={rawGoalsImport.initialQuarter}
-            initialHardcodedChannel={rawGoalsImport.initialHardcodedChannel}
-            metricOptions={GOAL_METRIC_MAP_OPTIONS}
-            metricKeySuffix="_goal"
-            structuralFieldOptions={GOALS_STRUCTURAL_FIELD_OPTIONS}
-            showChannelSection={false}
-            title="Map your goals columns"
-            description={"Every column from your file is listed below with a best guess at what it is — change any of them, or leave a column on \"Ignore\" if it doesn't matter. Map your dimension(s) (Product, Region, Module, Brand, BU, etc.) to a tag below, and map each goal number (MQL Goal, Pipeline Goal, SQL Goal, etc.) to its matching Metric. Total/summary rows and columns are detected and skipped automatically. Every other row in the file comes in regardless of what's mapped."}
-          />
-        )}
-        {mappingImporting && (
-          <div style={{ marginBottom: 20, padding: "9px 12px", background: T.accentBg, border: `1px solid ${T.accentBorder}`, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), color: T.text, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 12, height: 12, border: `2px solid ${T.accentBorder}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.7s linear infinite", display: "inline-block" }} />
-            Importing rows…
-          </div>
-        )}
         {importResult && (
           <div
             style={{
@@ -147,6 +77,19 @@ export default function GoalsObjectives({
           </div>
         )}
       </div>
+
+      <GoalsImportWizard
+        T={T}
+        session={session}
+        workspace={workspace}
+        tagDims={tagDims}
+        canEdit={canEdit}
+        sidebarEl={sidebarEl}
+        promptAndArchiveFile={promptAndArchiveFile}
+        initialImportFile={initialImportFile}
+        onConsumeInitialImportFile={onConsumeInitialImportFile}
+        onImported={handleImported}
+      />
 
       <ReportingFactsTagger
         T={T}

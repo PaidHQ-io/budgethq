@@ -117,29 +117,6 @@ export const PIPELINE_STRUCTURAL_FIELD_OPTIONS = [
   { value: "channel", label: "Channel" },
 ];
 
-// GOALS_STRUCTURAL_FIELD_OPTIONS (2026-08-19, per Mo — "once the user selects 'goals' as the import
-// type, it should be a different import UX and process than the pipeline performance import"):
-// pipeline's structural targets assume ad-platform concepts (Ad Group/Ad Set, Channel) that don't
-// apply to a goals/targets file — Mo's actual file is one row per PRODUCT, not per campaign/ad group,
-// and has no per-row channel at all. Reuses the same "campaign" mapping-target VALUE (buildNormalized
-// PipelineRows already just stores whatever's mapped to it as campaignName, regardless of what the
-// dropdown option is labeled) so no data-model change is needed — only the label users see differs,
-// plus Ad Group/Channel are dropped from the dropdown entirely for goals imports.
-//
-// "period" (2026-08-19, per Mo — "month and/or quarter headers (could be horizontal or vertical)"):
-// a VERTICAL goals file has one row per (dimension, period) pair with a single column whose value
-// (e.g. "January", "Q1 2026", "2026-03") varies row to row, rather than one column per month/quarter
-// (the horizontal/wide shape detectMonthColumn/detectQuarterColumn already unpivot). Mapping a column
-// to "period" tells buildNormalizedPipelineRows to date each row from THAT row's own cell instead of
-// the single whole-file Reporting Period fallback — see buildNormalizedPipelineRows' own doc comment
-// for exactly how a row's own period wins over the fallback. Pipeline import never offers this target
-// (PIPELINE_STRUCTURAL_FIELD_OPTIONS doesn't include it) since pipeline files are deliberately still
-// one-period-per-file, per this file's top doc comment.
-export const GOALS_STRUCTURAL_FIELD_OPTIONS = [
-  { value: "campaign", label: "Product / Item Name" },
-  { value: "period", label: "Month / Quarter (varies per row)" },
-];
-
 // Strips common unit/currency NOISE punctuation before collapsing whitespace (2026-08-05, per Mo —
 // "pipeline value still isn't coming in ... blank everywhere"): a real-world export header like
 // "Pipeline ($)" or "Total Pipeline Value:" used to normalize to "pipeline ($)" / "total pipeline
@@ -536,7 +513,11 @@ export function isTotalRow(headers, row, mapping) {
 // with fallbackYear (the same year picker PipelineColumnMapper.jsx already uses for wide/horizontal
 // month columns) since a vertical file's period column occasionally omits the year when the whole
 // file is implicitly "this year."
-function parsePeriodCell(v, fallbackYear) {
+//
+// Exported (2026-08-19) so GoalsImportWizard.jsx's own "long format" period-column parsing reuses
+// this exact logic rather than re-deriving it — see that component's own doc comment for why goals
+// import moved off this file's PipelineColumnMapper-based flow entirely.
+export function parsePeriodCell(v, fallbackYear) {
   const s = String(v ?? "").trim();
   if (!s) return null;
   const q = parseQuarterLabel(s);
