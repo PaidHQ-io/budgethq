@@ -2122,12 +2122,85 @@ export function computeReportingAudit({reportingFacts,tagDims=[]}){
     missingPct:rows.length?Math.round(((tagMissingCounts[d]||0)/rows.length)*100):0,
   }));
 
+  // DUPLICATE-IMPORT DETECTION (2026-08-17, per Mo — "I just added all Bing PowerBI pipeline
+  // reports from Jan 2024 to July 2026. I'd like a way to audit the data to make sure I didn't
+  // import the same report twice or other potential mistakes"). core.reporting_facts' own unique
+  // key is (workspace_id, period_type, period_start, campaign_name, tags) — see
+  // api/workspaces/[id]/reporting-facts.js's POST doc comment — so re-importing the EXACT same
+  // campaign_name for a period-that-already-exists safely MERGES into the same row rather than
+  // creating a literal duplicate. The two ways a duplicate import actually slips through instead:
+  //
+  //   1. POSSIBLE DUPLICATES — the re-import (or a second file covering overlapping months) used a
+  //      campaign_name string that differs only in whitespace/case from one already stored for the
+  //      exact same period+grain (a trailing space, a capitalization difference in a PowerBI
+  //      re-export, etc.) — that's enough to dodge the unique key and land as a SECOND row, silently
+  //      double-counting that period's totals every time they're summed. Detected by grouping rows
+  //      within the same (periodType, periodStart) by a normalized (trim+lowercase+collapsed-
+  //      whitespace) campaign name and flagging any group backed by more than one distinct RAW name.
+  //   2. MIXED-GRAIN OVERLAP — the same campaign has rows at two different period grains (e.g. a
+  //      monthly row for March 2024 AND a quarterly row for Q1 2024) whose calendar spans intersect.
+  //      Each grain's own row is legitimate on its own, but Reporting Intelligence's "All" grain view
+  //      (see PipelineTagger.jsx) sums every row regardless of periodType, so this combination
+  //      double- (or triple-) counts that overlapping stretch — the Qtr/Yr grain-rollup logic added
+  //      earlier only DEDUPES this correctly once a specific grain is selected, "All" has no such
+  //      guard. Detected by converting every row's periodStart to a [start,end) calendar range (via
+  //      stepPeriodStart) and checking, per normalized campaign name, every pair of rows on
+  //      DIFFERENT grains for range intersection. Same-grain overlap can't happen (the unique key
+  //      already prevents two rows for one campaign at one exact period+grain).
+  //
+  // Both are O(rows) / O(rows-per-campaign²) respectively — reporting_facts is one row per
+  // campaign per PERIOD (not per day), so even a multi-year, many-campaign workspace stays small
+  // enough for the per-campaign pairwise check to be cheap.
+  const normCampaign=name=>(name||"").trim().toLowerCase().replace(/\s+/g," ");
+  const dupGroups={};
+  rows.forEach(r=>{
+    if(!r.periodStart||!r.periodType)return;
+    const key=`${r.periodType}|${r.periodStart}|${normCampaign(r.campaignName)}`;
+    if(!dupGroups[key])dupGroups[key]={periodType:r.periodType,periodStart:r.periodStart,names:new Map()};
+    const g=dupGroups[key];
+    const raw=r.campaignName||"(none)";
+    if(!g.names.has(raw))g.names.set(raw,{campaignName:raw,rows:0});
+    g.names.get(raw).rows++;
+  });
+  const possibleDuplicates=Object.values(dupGroups)
+    .filter(g=>g.names.size>1)
+    .map(g=>({periodType:g.periodType,periodStart:g.periodStart,variants:Array.from(g.names.values()).sort((a,b)=>b.rows-a.rows)}))
+    .sort((a,b)=>(a.periodStart<b.periodStart?-1:a.periodStart>b.periodStart?1:0));
+
+  const byCampaignForOverlap={};
+  rows.forEach(r=>{
+    if(!r.periodStart||!r.periodType)return;
+    const norm=normCampaign(r.campaignName)||"(none)";
+    if(!byCampaignForOverlap[norm])byCampaignForOverlap[norm]=[];
+    byCampaignForOverlap[norm].push(r);
+  });
+  const mixedGrainOverlaps=[];
+  Object.values(byCampaignForOverlap).forEach(campRows=>{
+    if(new Set(campRows.map(r=>r.periodType)).size<2)return; // single grain — nothing to cross-check
+    const ranged=campRows
+      .map(r=>({periodType:r.periodType,periodStart:r.periodStart,campaignName:r.campaignName,rangeEnd:stepPeriodStart(r.periodType,r.periodStart)}))
+      .filter(r=>r.rangeEnd);
+    for(let i=0;i<ranged.length;i++){
+      for(let j=i+1;j<ranged.length;j++){
+        const a=ranged[i],b=ranged[j];
+        if(a.periodType===b.periodType)continue; // same-grain dupes can't exist — see doc comment above
+        if(a.periodStart<b.rangeEnd&&b.periodStart<a.rangeEnd){
+          mixedGrainOverlaps.push({
+            campaignName:a.campaignName||b.campaignName||"(none)",
+            a:{periodType:a.periodType,periodStart:a.periodStart},
+            b:{periodType:b.periodType,periodStart:b.periodStart},
+          });
+        }
+      }
+    }
+  });
+
   return{
     overview:{
       totalRows:rows.length,sourceCount:bySource.length,periodTypeCount:byPeriodType.length,
       campaignCount:allCampaigns.size,earliest,latest,lastImportedAt,
     },
-    bySource,byPeriodType,tagCompleteness,
+    bySource,byPeriodType,tagCompleteness,possibleDuplicates,mixedGrainOverlaps,
   };
 }
 

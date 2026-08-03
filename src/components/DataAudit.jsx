@@ -20,8 +20,11 @@ import { Icon, PixelPanel, DashStatTile, Pill, SectionLabel, Breadcrumb } from "
 // central workspace-data load the way spend is, so this tab loads it independently, same pattern
 // ReportingAnalyzer.jsx's own refreshHistory already uses). See computeReportingAudit's own doc
 // comment (lib/core.js) for why its shape differs from computeDataAudit's — mixed period grains
-// instead of daily rows, no platform dimension, and no overlap concept (reporting_facts can't
-// silently conflict the way spend can; its upsert path merges instead of overwriting).
+// instead of daily rows, no platform dimension, and a different overlap concept: reporting_facts
+// can't silently VALUE-conflict the way spend can (its upsert path merges instead of overwriting),
+// but it CAN silently double-count via a near-duplicate campaign_name string or a campaign covered
+// at two different period grains for the same calendar span — see possibleDuplicates/
+// mixedGrainOverlaps below (2026-08-17, per Mo — "make sure I didn't import the same report twice").
 //
 // Deliberately reads the RAW mergedNormRows, not the excludedFromData-filtered visibleNormRows —
 // same reasoning as Data Sources' own Import start/end columns (see PaidHQ.jsx's
@@ -102,7 +105,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
   },[session,workspace?.id]);
   const reportingLoading=reportingFacts===null;
   const reportingAudit=useMemo(()=>computeReportingAudit({reportingFacts:reportingFacts||[],tagDims}),[reportingFacts,tagDims]);
-  const{overview:rOverview,bySource:rBySource,byPeriodType,tagCompleteness}=reportingAudit;
+  const{overview:rOverview,bySource:rBySource,byPeriodType,tagCompleteness,possibleDuplicates,mixedGrainOverlaps}=reportingAudit;
   const periodTypesWithGaps=byPeriodType.filter(p=>p.gapPeriodCount>0);
   const incompleteTagDims=tagCompleteness.filter(t=>t.missing>0);
   const[reportingExpanded,setReportingExpanded]=useState(()=>new Set());
@@ -305,8 +308,20 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
         </div>
 
         {/* Triage banner */}
-        {(periodTypesWithGaps.length>0||incompleteTagDims.length>0)&&(
+        {(periodTypesWithGaps.length>0||incompleteTagDims.length>0||possibleDuplicates.length>0||mixedGrainOverlaps.length>0)&&(
           <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18}}>
+            {possibleDuplicates.length>0&&(
+              <Pill color={T.danger} bg={T.dangerBg} border={T.dangerBorder}>
+                <Icon name="alert" size={11} color={T.danger} style={{marginRight:4}}/>
+                {possibleDuplicates.length} possible duplicate import{possibleDuplicates.length===1?"":"s"}
+              </Pill>
+            )}
+            {mixedGrainOverlaps.length>0&&(
+              <Pill color={T.danger} bg={T.dangerBg} border={T.dangerBorder}>
+                <Icon name="alert" size={11} color={T.danger} style={{marginRight:4}}/>
+                {mixedGrainOverlaps.length} mixed-grain overlap{mixedGrainOverlaps.length===1?"":"s"}
+              </Pill>
+            )}
             {periodTypesWithGaps.length>0&&(
               <Pill color={T.danger} bg={T.dangerBg} border={T.dangerBorder}>
                 <Icon name="alert" size={11} color={T.danger} style={{marginRight:4}}/>
@@ -321,11 +336,56 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
             )}
           </div>
         )}
-        {periodTypesWithGaps.length===0&&incompleteTagDims.length===0&&(
+        {periodTypesWithGaps.length===0&&incompleteTagDims.length===0&&possibleDuplicates.length===0&&mixedGrainOverlaps.length===0&&(
           <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:18,fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font}}>
             <Icon name="check" size={13} color={T.success}/>
-            No period gaps or incomplete tagging detected.
+            No period gaps, possible duplicate imports, mixed-grain overlaps, or incomplete tagging detected.
           </div>
+        )}
+
+        {/* Possible duplicate imports (2026-08-17, per Mo — "make sure I didn't import the same
+            report twice"). core.reporting_facts' unique key is (period_type, period_start,
+            campaign_name, tags) — an exact re-import safely MERGES into the same row, so this can
+            only ever be flagging campaign_name strings that differ by whitespace/case for the
+            SAME period+grain (see computeReportingAudit's own doc comment for the full mechanics). */}
+        {possibleDuplicates.length>0&&(
+          <>
+            <SectionLabel T={T} style={{marginBottom:8}}>Possible duplicate imports</SectionLabel>
+            <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:10,lineHeight:1.6,fontFamily:T.font}}>These campaign names differ only by capitalization or whitespace, but landed as separate rows for the SAME period and grain — very likely the same real campaign double-counted. Use Pipeline Tagger's "Merge Campaign Names" to combine them.</div>
+            <PixelPanel T={T} style={{marginBottom:24,overflow:"hidden"}} contentStyle={{background:T.surface}}>
+              {possibleDuplicates.map((d,i)=>(
+                <div key={i} style={{padding:"10px 14px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
+                  <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,marginBottom:4}}>{labelForPeriod(d.periodType,d.periodStart)} <span style={{color:T.textMuted,fontWeight:400}}>({PERIOD_TYPE_LABELS[d.periodType]||d.periodType})</span></div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                    {d.variants.map((v,vi)=>(
+                      <Pill key={vi} color={T.danger} bg={T.dangerBg} border={T.dangerBorder} style={{fontSize:11*(T.fsScale||1)}}>
+                        "{v.campaignName}" ({v.rows} row{v.rows===1?"":"s"})
+                      </Pill>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </PixelPanel>
+          </>
+        )}
+
+        {/* Mixed-grain overlap (2026-08-17, per Mo — same duplicate-import audit request). Each
+            grain's own row is legitimate, but Reporting Intelligence's "All" grain view sums every
+            row regardless of periodType — so a campaign covered at two grains for the same calendar
+            span double-counts there. */}
+        {mixedGrainOverlaps.length>0&&(
+          <>
+            <SectionLabel T={T} style={{marginBottom:8}}>Mixed-grain overlap</SectionLabel>
+            <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:10,lineHeight:1.6,fontFamily:T.font}}>These campaigns have data at two different period grains covering the same calendar time (e.g. a monthly row AND a quarterly row for the same months) — legitimate on their own, but double-counted if Reporting Intelligence's period filter is set to "All" instead of one specific grain.</div>
+            <PixelPanel T={T} style={{marginBottom:24,overflow:"hidden"}} contentStyle={{background:T.surface}}>
+              {mixedGrainOverlaps.map((o,i)=>(
+                <div key={i} style={{padding:"10px 14px",borderTop:i>0?`1px solid ${T.border}`:"none",fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font}}>
+                  <strong>{o.campaignName}</strong>
+                  <span style={{color:T.textSub}}> · {labelForPeriod(o.a.periodType,o.a.periodStart)} ({PERIOD_TYPE_LABELS[o.a.periodType]||o.a.periodType}) ↔ {labelForPeriod(o.b.periodType,o.b.periodStart)} ({PERIOD_TYPE_LABELS[o.b.periodType]||o.b.periodType})</span>
+                </div>
+              ))}
+            </PixelPanel>
+          </>
         )}
 
         {tagDims.length>0&&(
