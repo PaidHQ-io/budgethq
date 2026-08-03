@@ -59,6 +59,10 @@ const PipelineTagger = lazy(() => import("./components/PipelineTagger.jsx"));
 // rows the unified Data Sources uploader classified as "goals". See the component's own doc
 // comment for why this doesn't have its own storage yet.
 const GoalsObjectives = lazy(() => import("./components/GoalsObjectives.jsx"));
+// Change History (2026-08-19, per Mo — a filterable log of campaign/ad-group/budget changes across
+// every channel, automated where a platform's API supports it, manually logged everywhere else. See
+// the component's own doc comment for the full scope/reasoning.
+const ChangeHistory = lazy(() => import("./components/ChangeHistory.jsx"));
 // Data Audit tab (2026-07-31, per Mo — "I need a new tab where I can review in detail what data
 // has been brought into PaidHQ and from where"). Read-only view over mergedNormRows; no data of
 // its own to fetch, so lazy-loading it costs nothing beyond the chunk itself.
@@ -150,6 +154,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[reportingAnalyzerSidebarEl,setReportingAnalyzerSidebarEl]=useState(null); // portal target inside <aside> for Pipeline Tagger's own tagged/filtered overview (2026-08-03, per Mo — same reasoning as askSidebarEl above, the generic ad-spend stat tiles never applied to reporting_facts data)
   const[pipelineTaggerSidebarEl,setPipelineTaggerSidebarEl]=useState(null); // portal target inside <aside> for Reporting Intelligence's Period/Metrics/Summary controls (2026-08-04, per Mo — "works like the budget pacing tab", same portal pattern as pacingSidebarEl above)
   const[goalsObjectivesSidebarEl,setGoalsObjectivesSidebarEl]=useState(null); // portal target inside <aside> for Goals & Objectives' own tagged/filtered overview (2026-08-19) — same reasoning as reportingAnalyzerSidebarEl above, just for the goals-scoped ReportingFactsTagger instance instead of the pipeline one
+  const[changeHistorySidebarEl,setChangeHistorySidebarEl]=useState(null); // portal target inside <aside> for Change History's own overview (2026-08-19) — same reasoning as goalsObjectivesSidebarEl above
   useEffect(()=>{
     const onMove=e=>{
       if(!statsResizing.current)return;
@@ -3080,6 +3085,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             <div ref={setReportingAnalyzerSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="goalsObjectives"?(
             <div ref={setGoalsObjectivesSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="changeHistory"?(
+            <div ref={setChangeHistorySidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="pipelineTagger"?(
             <div ref={setPipelineTaggerSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="data"?(
@@ -4412,6 +4419,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl} archiveImportConfig={archiveImportConfig}/></Suspense>}
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} customMetrics={customMetrics} sidebarEl={pipelineTaggerSidebarEl} pipelineDimensions={pipelineDimensions} setPipelineDimensions={setPipelineDimensions} pipelineViews={pipelineViews} setPipelineViews={setPipelineViews} canEdit={canEdit}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace} tagDims={tagDims} canEdit={canEdit} sidebarEl={goalsObjectivesSidebarEl} promptAndArchiveFile={promptAndArchiveFile} initialImportFile={pendingGoalsImportFile} onConsumeInitialImportFile={()=>setPendingGoalsImportFile(null)}/></Suspense>}
+      {view==="changeHistory"&&<Suspense fallback={<TabLoadingFallback/>}><ChangeHistory T={T} session={session} workspace={workspace} canEdit={canEdit} sidebarEl={changeHistorySidebarEl}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
           been imported, including anything a user has since hidden from the dashboards. */}

@@ -251,6 +251,175 @@ export async function getSpend({ startDate, endDate, credential }) {
   ].filter(Boolean);
 }
 
+// ── CHANGE HISTORY (2026-08-19, per Mo — "automatically pulls in non automated and non bulk edit
+// changes from Google, Bing, Meta and LinkedIn and Capterra"). Google Ads is the only one of those
+// five with a documented public change-history API (the change_event resource) — Bing/LinkedIn have
+// no equivalent public endpoint (hence Change History's manual-entry path, see ChangeHistory.jsx),
+// and Capterra isn't an ad-buying platform at all (pay-per-click listing/lead-gen billing, no
+// campaigns/budgets to change in the first place).
+//
+// IMPLEMENTATION CONFIDENCE NOTE (same caveat as the rest of this file — see top doc comment): built
+// from Google's published change_event reference (developers.google.com/google-ads/api/fields/
+// latest/change_event), NOT yet live-tested against a real account. Specific unverified assumptions,
+// flagged individually below: change_date_time's exact string format/timezone, whether campaign.name/
+// ad_group.name are actually selectable alongside change_event fields (attributed-resource joins are
+// well-documented elsewhere in this file for ad_group/asset_group, but not confirmed specifically for
+// change_event), and changed_fields' exact JSON shape (FieldMask — assumed to arrive as either an
+// array of path strings or a single comma-joined string; handled defensively either way below).
+//
+// RETENTION: Google only keeps change_event data for the last 30 days, and a single query's
+// change_date_time range can't exceed 30 days — clampChangeEventWindow below enforces both by
+// clamping the caller's requested startDate forward to at most 30 days before endDate, rather than
+// erroring (a sync job asking for a wider window just silently gets the freshest 30 days instead of
+// failing outright).
+const CHANGE_EVENT_MAX_LOOKBACK_DAYS = 30;
+
+export function clampChangeEventWindow(startDate, endDate) {
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const maxStart = new Date(end);
+  maxStart.setUTCDate(maxStart.getUTCDate() - (CHANGE_EVENT_MAX_LOOKBACK_DAYS - 1));
+  const requestedStart = new Date(`${startDate}T00:00:00Z`);
+  const clamped = requestedStart < maxStart ? maxStart : requestedStart;
+  return clamped.toISOString().slice(0, 10);
+}
+
+// client_type values that represent automated/bulk/programmatic activity rather than a genuine
+// one-off human edit — excluded per Mo's own framing ("non automated and non bulk edit changes").
+// GOOGLE_ADS_EDITOR is deliberately KEPT (a human using the Editor desktop tool is still a human
+// decision, just made in a different client) — same for SEARCH_ADS_360/INTERNAL_TOOL/OTHER/UNKNOWN,
+// kept rather than silently dropped so an unrecognized future client_type still surfaces instead of
+// vanishing (better to show something filterable than hide data — client_type is stored on every row
+// regardless, see buildExtraMetrics-style "store the raw value, filter in the UI" pattern used
+// elsewhere in this file).
+const CHANGE_EVENT_EXCLUDE_CLIENT_TYPES = new Set([
+  "GOOGLE_ADS_AUTOMATED_RULE", "GOOGLE_ADS_BULK_UPLOAD", "GOOGLE_ADS_API",
+  "GOOGLE_ADS_SCRIPTS", "GOOGLE_ADS_RECOMMENDATIONS",
+]);
+
+// change_resource_type (Google's enum) -> this app's ENTITY_TYPE_OPTIONS vocabulary
+// (src/lib/changeEventsApi.js). Falls back to "other" for anything not explicitly mapped so a
+// resource type Google adds later doesn't throw, it just shows up as a generic entry. The CRITERION
+// check MUST run before the generic CAMPAIGN_/AD_GROUP_ prefix checks below — CAMPAIGN_CRITERION
+// would otherwise always match the broader t.startsWith("CAMPAIGN_") branch first and the criterion
+// branch would be unreachable dead code.
+// Exported (alongside mapChangeType/normalizeChangedFields/mapChangeEventRow below) purely so a
+// plain Node sanity script can exercise this file's change_event mapping logic directly against
+// fake API response shapes, the same way buildDdmqlLookup/buildExtraMetrics already are above —
+// none of these are meant to be called from outside this connector in real app code.
+export function mapEntityType(changeResourceType) {
+  const t = changeResourceType || "";
+  if (t === "AD_GROUP_CRITERION" || t === "CAMPAIGN_CRITERION") return "keyword"; // covers keywords, audiences, and placements alike — GAQL's change_event doesn't expose the criterion's specific sub-type, see doc note above
+  if (t === "CAMPAIGN" || t === "CAMPAIGN_BUDGET" || t.startsWith("CAMPAIGN_")) return "campaign";
+  if (t === "AD_GROUP" || t.startsWith("AD_GROUP_BID")) return "ad_group";
+  if (t === "AD" || t === "AD_GROUP_AD") return "ad";
+  return "other";
+}
+
+// Best-effort change_type (this app's CHANGE_TYPE_OPTIONS vocabulary) inferred from resource type +
+// changed field names — heuristic, not authoritative (Google doesn't classify changes into these
+// buckets itself). Order matters: budget/status checks run before the coarser resource-type fallback
+// so e.g. a CAMPAIGN_BUDGET resource change is always "budget" even though CAMPAIGN* alone would
+// otherwise map to "other".
+export function mapChangeType(changeResourceType, changedFields) {
+  const t = changeResourceType || "";
+  const fields = (changedFields || []).map((f) => String(f).toLowerCase());
+  if (t === "CAMPAIGN_BUDGET" || fields.some((f) => f.includes("budget") || f.includes("amount_micros"))) return "budget";
+  if (fields.some((f) => f.includes("status"))) return "status";
+  if (fields.some((f) => f.includes("bidding") || f.includes("bid_"))) return "bid_strategy";
+  if (t === "AD_GROUP_CRITERION" || t === "CAMPAIGN_CRITERION") return "targeting";
+  if (t === "AD" || t === "AD_GROUP_AD") return "creative";
+  return "other";
+}
+
+// changed_fields (a FieldMask) — handled defensively since its exact REST JSON shape isn't confirmed
+// (see IMPLEMENTATION CONFIDENCE NOTE above): could arrive as an array of path strings, or a single
+// comma-joined string (proto3 FieldMask's standard JSON encoding).
+export function normalizeChangedFields(raw) {
+  if (Array.isArray(raw)) return raw.map(String);
+  if (typeof raw === "string" && raw) return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return [];
+}
+
+function buildChangeEventQuery(startDate, endDate) {
+  return `
+    SELECT
+      change_event.resource_name, change_event.change_date_time,
+      change_event.change_resource_type, change_event.change_resource_name,
+      change_event.client_type, change_event.user_email,
+      change_event.resource_change_operation, change_event.changed_fields,
+      change_event.old_resource, change_event.new_resource,
+      campaign.id, campaign.name, ad_group.id, ad_group.name
+    FROM change_event
+    WHERE change_event.change_date_time BETWEEN '${startDate}T00:00:00' AND '${endDate}T23:59:59'
+    ORDER BY change_event.change_date_time DESC
+    LIMIT 10000
+  `.trim();
+}
+
+// Truncated JSON snapshot of a change_event's old/new sub-resource — genuinely type-specific
+// (a CAMPAIGN_BUDGET change's relevant field lives at a different path than an AD_GROUP status
+// change's), so rather than guess field paths this file's author can't verify without a live
+// account, this stores the raw (truncated) object as-is. Better than a guaranteed-wrong guess;
+// worth revisiting with real sync output once this has run against Mo's account at least once.
+function snapshotResource(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  try {
+    const s = JSON.stringify(obj);
+    return s.length > 500 ? `${s.slice(0, 500)}…` : s;
+  } catch {
+    return null;
+  }
+}
+
+export function mapChangeEventRow(r) {
+  const ce = r.changeEvent || {};
+  if (!ce.resourceName || !ce.changeDateTime) return null;
+  if (CHANGE_EVENT_EXCLUDE_CLIENT_TYPES.has(ce.clientType)) return null;
+
+  const changedFields = normalizeChangedFields(ce.changedFields);
+  const entityType = mapEntityType(ce.changeResourceType);
+  const changeType = mapChangeType(ce.changeResourceType, changedFields);
+  const entityName = r.adGroup?.name || r.campaign?.name || null;
+  const operation = (ce.resourceChangeOperation || "").replace(/_/g, " ").toLowerCase() || "changed";
+  const resourceLabel = (ce.changeResourceType || "resource").replace(/_/g, " ").toLowerCase();
+  const summary = `${operation.charAt(0).toUpperCase()}${operation.slice(1)} ${resourceLabel}${entityName ? ` — ${entityName}` : ""}`
+    + (changedFields.length ? ` (${changedFields.slice(0, 5).join(", ")}${changedFields.length > 5 ? ", …" : ""})` : "");
+
+  return {
+    platform: "Google",
+    entityType,
+    entityName,
+    changeType,
+    summary,
+    details: changedFields.length ? `Changed fields: ${changedFields.join(", ")}` : null,
+    oldValue: snapshotResource(ce.oldResource),
+    newValue: snapshotResource(ce.newResource),
+    changedBy: ce.userEmail || null,
+    // UNVERIFIED (see IMPLEMENTATION CONFIDENCE NOTE): change_date_time's documented format is
+    // "yyyy-MM-dd HH:mm:ss.ffffff" in the ACCOUNT's own timezone, not UTC — the naive `T`-swap below
+    // is treated as UTC, which will be off by the account's UTC offset until this is checked against
+    // a real sync. Worth fixing once Mo's account's actual timezone offset is known.
+    changedAt: new Date(ce.changeDateTime.replace(" ", "T") + "Z").toISOString(),
+    clientType: ce.clientType || null,
+    externalChangeId: ce.resourceName,
+  };
+}
+
+// startDate/endDate: caller's requested window (same shape as getSpend) — clamped to Google's own
+// 30-day change_event retention/range limit before querying (see clampChangeEventWindow above).
+export async function getChangeEvents({ startDate, endDate, credential }) {
+  if (!credential?.accessToken) throw new Error("This workspace hasn't connected Google Ads yet.");
+  if (!credential?.accountId) throw new Error("No Google Ads account selected yet for this workspace — pick one to finish connecting.");
+
+  const auth = {
+    accessToken: credential.accessToken,
+    loginCustomerId: credential.loginCustomerId || undefined,
+  };
+  const clampedStart = clampChangeEventWindow(startDate, endDate);
+  const rows = await adsApiSearchAll(credential.accountId, buildChangeEventQuery(clampedStart, endDate), auth);
+  return rows.map(mapChangeEventRow).filter(Boolean);
+}
+
 export const meta = {
   platform: "Google",
   label: "Google Ads",

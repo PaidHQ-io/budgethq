@@ -30,10 +30,17 @@
  * configured window, not silently lost.
  */
 import { sql } from "../lib/db.js";
-import { runConnectorSync } from "../lib/connectorSync.js";
+import { runConnectorSync, refreshCredentialIfStale } from "../lib/connectorSync.js";
 import { replaceWindow } from "../lib/spendRowsStore.js";
+import { upsertChangeEvents } from "../lib/changeEventsStore.js";
+import { getChangeEvents } from "../connectors/google.js";
 
 const DEFAULT_WINDOW_DAYS = 14;
+// Google's change_event resource only retains 30 days of history regardless of what window a
+// connection's spend sync is configured for (see google.js's clampChangeEventWindow) — capped
+// separately here so a workspace with e.g. rolling_window_days=90 for spend doesn't request a wider
+// range than Google can ever answer.
+const CHANGE_EVENT_WINDOW_DAYS = 30;
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization || req.headers.Authorization || "";
@@ -88,6 +95,37 @@ export default async function handler(req, res) {
         where workspace_id = ${workspaceId} and provider = ${provider}
       `;
       results.push({ workspaceId, provider, status: "error", error: err?.message || String(err) });
+    }
+  }
+
+  // Google Ads change_event automated pull (2026-08-19, per Mo — Change History's automated side;
+  // see google.js's getChangeEvents doc comment for why Google is the only one of the five platforms
+  // Mo named with a documented public change-history API). A second pass over the SAME `due` rows,
+  // scoped to provider==='google' — deliberately separate from the spend loop above rather than
+  // folded into runConnectorSync, since this writes to a different table (core.change_events, not
+  // core.spend_rows) via a completely different upsert (upsertChangeEvents, not replaceWindow) and
+  // doesn't share getSpend's row shape at all. refreshCredentialIfStale is called again here rather
+  // than reusing whatever the spend loop refreshed — cheap (a no-op unless the token's actually
+  // stale) and keeps this pass independently correct even if the spend loop's due-list filtering
+  // ever diverges from this one's.
+  for (const row of due) {
+    if (row.provider !== "google") continue;
+    const workspaceId = row.workspace_id;
+    try {
+      const cred = await refreshCredentialIfStale(workspaceId, "google", row.credential);
+      const days = Math.min(
+        row.rolling_window_days && row.rolling_window_days > 0 ? row.rolling_window_days : DEFAULT_WINDOW_DAYS,
+        CHANGE_EVENT_WINDOW_DAYS
+      );
+      const start = new Date();
+      start.setDate(start.getDate() - (days - 1));
+      const startDate = start.toISOString().slice(0, 10);
+      const changeRows = await getChangeEvents({ startDate, endDate: todayStr, credential: cred });
+      const { inserted, skipped } = await upsertChangeEvents(workspaceId, changeRows);
+      results.push({ workspaceId, provider: "google-change-events", status: "success", pulled: changeRows.length, inserted, skipped: skipped.length });
+    } catch (err) {
+      console.error(`[cron/sync-connectors] google change-events failed for workspace ${workspaceId}:`, err);
+      results.push({ workspaceId, provider: "google-change-events", status: "error", error: err?.message || String(err) });
     }
   }
 

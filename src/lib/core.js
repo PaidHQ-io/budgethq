@@ -446,7 +446,11 @@ export const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","
 // so this is a display-only rename, not a URL/state-shape change.
 // Relabeled again 2026-08-06, per Mo: "pipelineTagger"'s "Reporting Intelligence" label becomes
 // "Performance Intelligence" — same route key, same component (PipelineTagger.jsx), display-only.
-export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Pipeline Tagger",icon:"tag"},{key:"pipelineTagger",label:"Performance Intelligence",icon:"search"},{key:"goalsObjectives",label:"Goals & Objectives",icon:"target"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
+// "changeHistory" (2026-08-19, per Mo — "create a change history section that automatically pulls
+// in non automated and non bulk edit changes from Google, Bing, Meta and LinkedIn and Capterra" —
+// confirmed via AskUserQuestion as its own dedicated tab rather than folded into an existing one)
+// added at the end, right before Ask AI — see ChangeHistory.jsx.
+export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Pipeline Tagger",icon:"tag"},{key:"pipelineTagger",label:"Performance Intelligence",icon:"search"},{key:"goalsObjectives",label:"Goals & Objectives",icon:"target"},{key:"changeHistory",label:"Change History",icon:"history"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 export function autoDetect(h){
