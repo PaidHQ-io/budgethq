@@ -72,6 +72,10 @@ const DataAudit = lazy(() => import("./components/DataAudit.jsx"));
 // path from Campaigns mode's own mergedNormRows/campaigns useMemo below — see the component's own
 // doc comment for the full reasoning (independent adKey identity, own aggregate-endpoint fetch).
 const AdTagger = lazy(() => import("./components/AdTagger.jsx"));
+// Vault (2026-08-19, per Mo — folding VaultHQ's document/resource storage into PaidHQ as its own
+// tab; Phase 1 of 2 confirmed via AskUserQuestion — storage/resources now, Ask AI grounding later).
+// See Vault.jsx's own doc comment for what's in/out of scope this phase.
+const Vault = lazy(() => import("./components/Vault.jsx"));
 
 // Minimal, theme-matched fallback while a lazily-loaded tab chunk is still fetching — deliberately
 // plain (no logo/branding) since this only ever shows for a moment on a cold chunk load.
@@ -160,6 +164,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[pipelineTaggerSidebarEl,setPipelineTaggerSidebarEl]=useState(null); // portal target inside <aside> for Reporting Intelligence's Period/Metrics/Summary controls (2026-08-04, per Mo — "works like the budget pacing tab", same portal pattern as pacingSidebarEl above)
   const[goalsObjectivesSidebarEl,setGoalsObjectivesSidebarEl]=useState(null); // portal target inside <aside> for Goals & Objectives' own tagged/filtered overview (2026-08-19) — same reasoning as reportingAnalyzerSidebarEl above, just for the goals-scoped ReportingFactsTagger instance instead of the pipeline one
   const[changeHistorySidebarEl,setChangeHistorySidebarEl]=useState(null); // portal target inside <aside> for Change History's own overview (2026-08-19) — same reasoning as goalsObjectivesSidebarEl above
+  const[vaultSidebarEl,setVaultSidebarEl]=useState(null); // portal target inside <aside> for Vault's own overview (2026-08-19) — same reasoning as changeHistorySidebarEl above
   useEffect(()=>{
     const onMove=e=>{
       if(!statsResizing.current)return;
@@ -3099,6 +3104,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             <div ref={setGoalsObjectivesSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="changeHistory"?(
             <div ref={setChangeHistorySidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="vault"?(
+            <div ref={setVaultSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="pipelineTagger"?(
             <div ref={setPipelineTaggerSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="data"?(
@@ -4460,6 +4467,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} customMetrics={customMetrics} sidebarEl={pipelineTaggerSidebarEl} pipelineDimensions={pipelineDimensions} setPipelineDimensions={setPipelineDimensions} pipelineViews={pipelineViews} setPipelineViews={setPipelineViews} canEdit={canEdit}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace} tagDims={tagDims} canEdit={canEdit} sidebarEl={goalsObjectivesSidebarEl} promptAndArchiveFile={promptAndArchiveFile} initialImportFile={pendingGoalsImportFile} onConsumeInitialImportFile={()=>setPendingGoalsImportFile(null)}/></Suspense>}
       {view==="changeHistory"&&<Suspense fallback={<TabLoadingFallback/>}><ChangeHistory T={T} session={session} workspace={workspace} canEdit={canEdit} sidebarEl={changeHistorySidebarEl}/></Suspense>}
+      {view==="vault"&&<Suspense fallback={<TabLoadingFallback/>}><Vault T={T} session={session} workspace={workspace} canEdit={canEdit} sidebarEl={vaultSidebarEl}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
           exclusion-filtered visibleNormRows), so gap/overlap detection sees every row that's ever
           been imported, including anything a user has since hidden from the dashboards. */}
