@@ -16,6 +16,17 @@
  * that never needs another schema migration, only a code change in the connector that populates it.
  * SCHEMA (paidhq-core, not in this checkout): alter table core.spend_rows add column if not exists
  * extra_metrics jsonb not null default '{}'::jsonb;
+ *
+ * ad_name / ad_id (2026-08-19, per Mo — bringing ad-level granularity into paid social channels
+ * (LinkedIn/Meta/Reddit/6sense) so ads can be tagged by dimension, not just campaigns/ad groups):
+ * both nullable text columns — null for every row that isn't ad-level (the overwhelming majority
+ * today), populated once a connector/import actually reports at the ad/creative level. See
+ * core.js's spendRowKey doc comment for why ad_name also had to be folded into that dedup key.
+ * SCHEMA (paidhq-core, not in this checkout):
+ *   alter table core.spend_rows add column if not exists ad_name text;
+ *   alter table core.spend_rows add column if not exists ad_id text;
+ *   create index if not exists idx_spend_rows_identity
+ *     on core.spend_rows (workspace_id, platform, campaign_group_name, campaign_name, ad_name);
  */
 
 // Row dates aren't always real per-day dates by the time they reach this API — CSV imports (esp.
@@ -72,6 +83,8 @@ export function toColumns(rows) {
     campaign_group_name: valid.map((r) => r.campaign_group_name || ""),
     campaign_name: valid.map((r) => r.campaign_name || ""),
     campaign_id: valid.map((r) => r.campaign_id || null),
+    ad_name: valid.map((r) => r.ad_name || null),
+    ad_id: valid.map((r) => r.ad_id || null),
     platform: valid.map((r) => r.platform || null),
     campaign_type: valid.map((r) => r.campaign_type || null),
     date: valid.map((r) => r._date),

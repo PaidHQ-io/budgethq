@@ -61,10 +61,14 @@ async function apiFetch(session, path, options = {}) {
 }
 
 // { tags, tagDims, budgets, budgetDims, budgetRowMeta, budgetMetaDims, budgetImportMeta, savedViews,
-//   pipelineDimensions, pipelineViews, defaultForecastModel, updatedAt }
+//   pipelineDimensions, pipelineViews, adTags, defaultForecastModel, updatedAt }
 // pipelineDimensions/pipelineViews (2026-08-17) — Pipeline Tagger / Reporting Intelligence's own
 // Custom Dimensions (named saved filter rules) + Saved Views (report snapshots referencing a
 // dimension by id plus metric/grain/chart config); see PipelineTagger.jsx's top doc comment.
+// adTags (2026-08-19) — Campaign Tagger's Ads mode (AdTagger.jsx): { [adKey]: { [dimName]: value } },
+// same shape/vocabulary (tagDims) as the existing `tags` object but keyed by adKey (core.js) instead
+// of campaignKey — a deliberately SEPARATE, independently-tagged dataset, not a third level folded
+// into `tags`. See core.js's adKey doc comment for why.
 export function getWorkspaceConfig(session, workspaceId) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/data`);
 }
@@ -113,6 +117,22 @@ export async function getSpendRows(session, workspaceId) {
     cursor = d.nextCursor;
   }
   return rows;
+}
+
+// Campaign Tagger's Ads mode (AdTagger.jsx) — see spend-rows.js's GET ?aggregate=identity doc
+// comment for why this hits a dedicated server-side GROUP BY endpoint instead of reusing
+// getSpendRows' raw-row loop above and reducing client-side. No pagination loop needed here (see
+// that same doc comment for why the result set stays small).
+export async function getSpendRowsAggregate(session, workspaceId, { platform, start, end } = {}) {
+  const params = new URLSearchParams({ aggregate: "identity" });
+  if (platform) params.set("platform", platform);
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  const d = await apiFetch(
+    session,
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/spend-rows?${params.toString()}`
+  );
+  return d.rows || [];
 }
 
 // Leaves real headroom below Vercel's hard 4.5MB Serverless Function request body limit — not

@@ -67,6 +67,11 @@ const ChangeHistory = lazy(() => import("./components/ChangeHistory.jsx"));
 // has been brought into PaidHQ and from where"). Read-only view over mergedNormRows; no data of
 // its own to fetch, so lazy-loading it costs nothing beyond the chunk itself.
 const DataAudit = lazy(() => import("./components/DataAudit.jsx"));
+// Ads mode for Campaign Tagger (2026-08-19, per Mo — ad-level tagging for paid social channels).
+// A separate component rather than more inline code in this already-huge file, and a separate data
+// path from Campaigns mode's own mergedNormRows/campaigns useMemo below — see the component's own
+// doc comment for the full reasoning (independent adKey identity, own aggregate-endpoint fetch).
+const AdTagger = lazy(() => import("./components/AdTagger.jsx"));
 
 // Minimal, theme-matched fallback while a lazily-loaded tab chunk is still fetching — deliberately
 // plain (no logo/branding) since this only ever shows for a moment on a cold chunk load.
@@ -195,6 +200,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[mergedNormRows,setMergedNormRows]=useState([]); // normalized rows across ALL platform uploads
   const[tagDims,setTagDims]=useState(DEFAULT_DIMS);
   const[tags,setTags]=useState({});
+  // Campaign Tagger's Ads mode (2026-08-19) — own tag storage, own identity (adKey, not
+  // campaignKey), saved as a parallel key in the same workspace_config blob as `tags` (see
+  // workspaceApi.js's config-shape doc comment). taggerMode is deliberately NOT persisted
+  // (session-only, defaults back to Campaigns on reload) — it's a view toggle, not data.
+  const[adTags,setAdTags]=useState({});
+  const[taggerMode,setTaggerMode]=useState("campaigns");
   const[selected,setSelected]=useState(new Set());
   const[newDim,setNewDim]=useState("");
   const[tagsHistory,setTagsHistory]=useState([]); // undo stack, max 50
@@ -765,8 +776,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[emailSending,setEmailSending]=useState(false);
   const[emailError,setEmailError]=useState("");
 
-  const buildSnapshot=useCallback(()=>({tags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta}),
-    [tags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta]);
+  const buildSnapshot=useCallback(()=>({tags,adTags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta}),
+    [tags,adTags,tagDims,mergedNormRows,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta]);
   const persistVersion=useCallback((label,trigger,snapshot)=>{
     if(!workspace?.id||!session)return;
     saveVersion(session,workspace.id,{label,trigger,snapshot}).catch(e=>console.error("[version save]",e));
@@ -807,7 +818,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     // existed) — that's a deliberate user choice via this confirm dialog, same authorization
     // pattern as the Settings clear-* actions use for the debounced-save empty-write guard.
     allowEmptyConfigWriteRef.current=true;allowEmptyRowsWriteRef.current=true;
-    setTags(s.tags||{});setTagDims(s.tagDims||DEFAULT_DIMS);setMergedNormRows(s.mergedNormRows||[]);
+    setTags(s.tags||{});setAdTags(s.adTags||{});setTagDims(s.tagDims||DEFAULT_DIMS);setMergedNormRows(s.mergedNormRows||[]);
     setBudgets(s.budgets||{});setBudgetDims(s.budgetDims||[]);setBudgetRowMeta(s.budgetRowMeta||{});setBudgetMetaDims(s.budgetMetaDims||[]);setBudgetImportMeta(s.budgetImportMeta||{});
     setStep((s.mergedNormRows||[]).length?"tag":"upload");
     setVersionHistoryOpen(false);
@@ -975,6 +986,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     Promise.all([getWorkspaceConfig(sessionRef.current,workspace.id),getSpendRows(sessionRef.current,workspace.id)])
       .then(([config,rows])=>{
         setTags(config.tags||{});
+        setAdTags(config.adTags||{});
         setTagDims((config.tagDims||[]).length?config.tagDims:DEFAULT_DIMS);
         // Both passes below self-heal any duplication already sitting in this workspace's stored
         // data (from before the 2026-07-21 dedup fix) every time it loads, not just going forward —
@@ -1053,7 +1065,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const rowsDirtyRef=useRef(false);
   const latestConfigRef=useRef(null);
   const latestRowsRef=useRef(null);
-  useEffect(()=>{latestConfigRef.current={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};});
+  useEffect(()=>{latestConfigRef.current={tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};});
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
   // ── Second, independent safety net (2026-07-20) ─────────────────────────────────────────────
@@ -1081,7 +1093,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      const payload={tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};
+      const payload={tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};
       if(isEmptyConfig(payload)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current){
         console.error("[workspace config save] BLOCKED — refusing to overwrite known real data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's data, use Settings → Clear data instead of whatever just triggered this.");
         return; // stays dirty — retries on the next change, or once real data is back
@@ -1092,7 +1104,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
-  },[tags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
   // replace-all (not incremental) is the sync model here.
@@ -2580,10 +2592,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // user-initiated clear, not the kind of accidental empty save the guard exists to catch.
   const clearTaggerData=()=>{
     if(!canEdit)return;
-    if(!window.confirm("Clear all Tagger data?\n\nThis removes every imported spend row, every campaign tag, and your custom tag dimensions. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
+    if(!window.confirm("Clear all Tagger data?\n\nThis removes every imported spend row, every campaign tag (including Ads-mode tags), and your custom tag dimensions. Budget allocations are not affected.\n\nA version of your current data is saved first — you can restore it from File → Version History.\n\nThis cannot be undone from here."))return;
     snapshotNow("Before clearing Tagger data","pre_clear");
     allowEmptyConfigWriteRef.current=true;allowEmptyRowsWriteRef.current=true;
-    setMergedNormRows([]);setTags({});setTagDims(DEFAULT_DIMS);setColMap({});setStep("upload");setLastSyncRange(null);setTagsHistory([]);
+    setMergedNormRows([]);setTags({});setAdTags({});setTagDims(DEFAULT_DIMS);setColMap({});setStep("upload");setLastSyncRange(null);setTagsHistory([]);
     try{["paidhq_rows","paidhq_tags","paidhq_dims","paidhq_sync_range"].forEach(k=>localStorage.removeItem(k));}catch(e){}
     showNotif("Tagger data cleared");
   };
@@ -2605,7 +2617,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   };
   function clearTaggerDataSilent(){
     allowEmptyConfigWriteRef.current=true;allowEmptyRowsWriteRef.current=true;
-    setMergedNormRows([]);setTags({});setTagDims(DEFAULT_DIMS);setColMap({});setStep("upload");setLastSyncRange(null);setTagsHistory([]);
+    setMergedNormRows([]);setTags({});setAdTags({});setTagDims(DEFAULT_DIMS);setColMap({});setStep("upload");setLastSyncRange(null);setTagsHistory([]);
     try{["paidhq_rows","paidhq_tags","paidhq_dims","paidhq_sync_range"].forEach(k=>localStorage.removeItem(k));}catch(e){}
   }
   function clearBudgetDataSilent(){
@@ -4202,6 +4214,32 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
 
       {/* ── TAGGER ── */}
       {step==="tag"&&view==="tagger"&&(
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minHeight:0}}>
+          {/* Campaigns/Ads mode toggle (2026-08-19, per Mo — "tag Ads by tags and dimension" for
+              paid social channels: LinkedIn/Meta/Reddit/6sense). Ads mode is a SEPARATE component
+              (AdTagger.jsx) built on its own identity (campaign+ad group+ad name, see adKey in
+              core.js) and its own tag storage (adTags, a parallel key in workspace_config) rather
+              than extending campaignKey/tags to a third level — campaignKey is used in ~15 places
+              across this file/core.js (Budget Panel, Pacing, exports, Ask AI, Data Audit...) that
+              have no reason to know about ads, so keeping Ads additive avoids regression risk
+              across all of that surface. AdTagger loads via the new GET ?aggregate=identity
+              endpoint (spend-rows.js) rather than reducing every raw row client-side the way
+              Campaigns mode's own `campaigns` useMemo below does, so it stays fast once ad-level
+              data multiplies row counts. */}
+          <div style={{display:"flex",gap:6,padding:"10px 16px 0",flexShrink:0}}>
+            {[{key:"campaigns",label:"Campaigns"},{key:"ads",label:"Ads"}].map(m=>(
+              <button key={m.key} onClick={()=>setTaggerMode(m.key)}
+                style={{padding:"5px 12px",borderRadius:T.r7,border:`1px solid ${taggerMode===m.key?T.accentHover:T.border}`,background:taggerMode===m.key?T.accent:T.surface,color:T.text,cursor:"pointer",fontFamily:T.font,fontSize:12*(T.fsScale||1),fontWeight:600}}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          {taggerMode==="ads"?(
+            <Suspense fallback={<TabLoadingFallback/>}>
+              <AdTagger T={T} session={session} workspace={workspace} canEdit={canEdit} tagDims={tagDims}
+                adTags={adTags} setAdTags={setAdTags} combineGoogleChannels={combineGoogleChannels}/>
+            </Suspense>
+          ):(
         <div style={{flex:1,display:"flex",overflow:"hidden",minHeight:0}}>
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
             {suggestions.length>0&&(
@@ -4387,6 +4425,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
               </div>}
             </div>
           </div>
+        </div>
+          )}
         </div>
       )}
 

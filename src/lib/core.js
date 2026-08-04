@@ -365,6 +365,15 @@ export const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
 // combine both levels, not just the leaf name alone.
 export const campaignKey=(groupName,name)=>`${groupName||name||""}||${name||groupName||""}`;
+// Ad-level identity (2026-08-19, per Mo — "tag Ads by tags and dimension" for paid social
+// channels: LinkedIn/Meta/Reddit/6sense). Deliberately a SEPARATE key builder rather than adding a
+// third parameter to campaignKey itself — campaignKey is used in ~15 places across this file and
+// PaidHQ.jsx (Budget Panel, Pacing, exports, Ask AI, Data Audit, budget-dim resolution...) that
+// have no reason to know about ads, so extending it in place would mean touching all of that
+// surface area for no benefit to it. adKey just layers ad_name on top of the existing two-level
+// identity, so Ads-mode tagging (AdTagger.jsx) is additive/independent — its own tags storage
+// (workspace_config.adTags), never mixed with the existing campaign-level `tags` object.
+export const adKey=(groupName,name,adName)=>`${campaignKey(groupName,name)}||${(adName||"").trim()}`;
 // Splits a campaignKey string back into its two source values — powers the "Campaign"/"Ad Group"
 // pseudo-dimensions (added 2026-07-28, per Mo: native campaign/ad-group-level reporting and
 // budgeting with zero manual tagging, same idea as "Platform" below but simpler — Platform has to
@@ -381,7 +390,10 @@ export const DERIVED_DIMS=["Platform","Campaign","Ad Group"];
 // main PaidHQ component) — "empty" means nothing worth protecting, i.e. no tags, no budgets, and
 // no budget dimension setup either (tagDims/budgetRowMeta/budgetImportMeta are metadata that only
 // matter alongside actual tags/budgets, so they're deliberately not checked here).
-export const isEmptyConfig=c=>!Object.keys(c?.tags||{}).length&&!Object.keys(c?.budgets||{}).length;
+// adTags included (2026-08-19) — otherwise a workspace whose only config data is Ads-mode tagging
+// (no campaign tags, no budgets yet) would have every save rejected by the empty-payload backstop
+// in PaidHQ.jsx's save effect as a false "this looks like data loss."
+export const isEmptyConfig=c=>!Object.keys(c?.tags||{}).length&&!Object.keys(c?.budgets||{}).length&&!Object.keys(c?.adTags||{}).length;
 // Comma-separated multi-term filter matching, used by the Tagger's Group/Campaign/Tag filters —
 // both the "contains" and "excludes" side of each. Terms are OR'd together: "google,bing" as an
 // include filter matches anything containing EITHER term; as an exclude filter, it drops anything
@@ -687,10 +699,18 @@ export function normalizeRows(rows,colMap){
 // so re-pulling/re-uploading the same data now always overwrites. Campaign identity is trimmed for
 // the same reason -- stray leading/trailing whitespace from a spreadsheet shouldn't be enough to
 // make "Retargeting" and "Retargeting " look like two different ad sets.
+// ad_name suffix (2026-08-19, per Mo's ad-level tagging request): without this, two different ads
+// running under the same ad group on the same day would collide onto the SAME spendRowKey once
+// ad-level data starts flowing in (from a future LinkedIn pivot=CREATIVE / Meta level=ad pull, or
+// a CSV import with an Ad column) — mergeRows below is last-write-wins per key, so that collision
+// would silently DROP every ad but the last one merged for that ad group/day, not just fail loudly.
+// Appending ad_name (trimmed, empty string when absent) fixes this while staying 100% backward
+// compatible: every row that predates ad-level data has no ad_name, so its key is byte-identical
+// to before this change — only rows that actually carry an ad_name get a new, more specific key.
 export function spendRowKey(r){
   const d=parseSpendDate(r.date);
   const dateKey=d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`:String(r.date||"").trim();
-  return `${campaignKey((r.campaign_group_name||"").trim(),(r.campaign_name||"").trim())}||${dateKey}`;
+  return `${campaignKey((r.campaign_group_name||"").trim(),(r.campaign_name||"").trim())}||${dateKey}||${(r.ad_name||"").trim()}`;
 }
 export function mergeRows(existing,incoming){
   const map=new Map(existing.map(r=>[spendRowKey(r),r]));

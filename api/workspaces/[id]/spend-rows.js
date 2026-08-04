@@ -44,6 +44,23 @@
  * specific bag of conversions/bidding-strategy/impression-share/etc. fields described in
  * connectors/google.js and connectors/bing.js's own doc comments. Passed through as-is on GET/POST/
  * PUT, same "opaque bucket, not validated here" treatment spendRowsColumns.js's toColumns gives it.
+ *
+ * ad_name / ad_id (2026-08-19, per Mo — ad-level tagging for paid social channels): nullable text
+ * columns, see spendRowsColumns.js's own doc comment for the paidhq-core migration. Passed through
+ * as-is on GET/POST/PUT same as every other identity column.
+ *
+ * GET ?aggregate=identity[&platform=...&start=...&end=...] — Campaign Tagger's Ads mode
+ * (AdTagger.jsx) needs a table of unique (campaign group, campaign, ad) identities with summed
+ * totals, NOT the raw per-day rows the plain GET above returns — reducing every raw row down to
+ * that identity table client-side (the way Campaigns mode's own `campaigns` useMemo in PaidHQ.jsx
+ * already works) means downloading and JSON-parsing every raw row just to throw most of it away,
+ * which gets slow once ad-level data pushes row counts to 3-8x today's campaign-level volume (see
+ * the chat thread this shipped from for the actual estimate). Running the GROUP BY in Postgres
+ * instead keeps the response small (one row per unique identity, not per identity-per-day) and
+ * keeps load time roughly flat as history accumulates — the raw row count Postgres has to scan
+ * barely matters with the right index (see spendRowsColumns.js's idx_spend_rows_identity). No
+ * pagination here: the number of unique ad identities in a workspace is inherently small (low
+ * thousands at most) even when the underlying raw row count is huge, unlike the plain GET above.
  */
 import { sql } from "../../lib/db.js";
 import { requireAuth, requireWorkspaceMember, requireEntitlement, requireEditAccess } from "../../lib/auth.js";
@@ -69,6 +86,8 @@ const toCamel = (r) => ({
   campaign_group_name: r.campaign_group_name,
   campaign_name: r.campaign_name,
   campaign_id: r.campaign_id,
+  ad_name: r.ad_name,
+  ad_id: r.ad_id,
   platform: r.platform,
   campaign_type: r.campaign_type,
   date: r.date,
@@ -90,6 +109,39 @@ export default withApi(async (req, res) => {
   const { userId } = await requireAuth(req);
   const myRole = await requireWorkspaceMember(sql, workspaceId, userId);
   await requireEntitlement(sql, workspaceId);
+
+  if (req.method === "GET" && req.query.aggregate === "identity") {
+    // See this file's top-of-file doc comment for why this is a separate branch rather than a
+    // client-side reduction of the plain GET's paginated rows. No cursor/limit here on purpose —
+    // see that same doc comment for why the result set stays small regardless of raw row count.
+    const { start, end, platform } = req.query;
+    const rows = await sql`
+      select
+        campaign_group_name, campaign_name, ad_name, platform,
+        sum(spend) as spend, sum(impressions) as impressions, sum(clicks) as clicks,
+        count(*) as rows, min(date) as first_date, max(date) as last_date
+      from core.spend_rows
+      where workspace_id = ${workspaceId}
+        and (${start || null}::date is null or date >= ${start || null}::date)
+        and (${end || null}::date is null or date <= ${end || null}::date)
+        and (${platform || null}::text is null or platform = ${platform || null})
+      group by campaign_group_name, campaign_name, ad_name, platform
+    `;
+    return res.status(200).json({
+      rows: rows.map((r) => ({
+        campaignGroupName: r.campaign_group_name,
+        campaignName: r.campaign_name,
+        adName: r.ad_name,
+        platform: r.platform,
+        spend: Number(r.spend),
+        impressions: Number(r.impressions),
+        clicks: Number(r.clicks),
+        rows: Number(r.rows),
+        firstDate: r.first_date,
+        lastDate: r.last_date,
+      })),
+    });
+  }
 
   if (req.method === "GET") {
     const { start, end, platform, afterDate, afterId } = req.query;
@@ -137,10 +189,11 @@ export default withApi(async (req, res) => {
     if (insertedCount > 0) {
       await sql`
         insert into core.spend_rows
-          (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
-           date, as_of_date, spend, impressions, clicks, source, is_monthly, extra_metrics)
+          (workspace_id, campaign_group_name, campaign_name, campaign_id, ad_name, ad_id, platform,
+           campaign_type, date, as_of_date, spend, impressions, clicks, source, is_monthly, extra_metrics)
         select ${workspaceId}, * from unnest(
           ${c.campaign_group_name}::text[], ${c.campaign_name}::text[], ${c.campaign_id}::text[],
+          ${c.ad_name}::text[], ${c.ad_id}::text[],
           ${c.platform}::text[], ${c.campaign_type}::text[], ${c.date}::date[], ${c.as_of_date}::date[],
           ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[],
           ${c.is_monthly}::boolean[], ${c.extra_metrics}::jsonb[]
@@ -180,10 +233,11 @@ export default withApi(async (req, res) => {
       ...(replacedCount > 0
         ? [tx`
             insert into core.spend_rows
-              (workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
-               date, as_of_date, spend, impressions, clicks, source, is_monthly, extra_metrics)
+              (workspace_id, campaign_group_name, campaign_name, campaign_id, ad_name, ad_id, platform,
+               campaign_type, date, as_of_date, spend, impressions, clicks, source, is_monthly, extra_metrics)
             select ${workspaceId}, * from unnest(
               ${c.campaign_group_name}::text[], ${c.campaign_name}::text[], ${c.campaign_id}::text[],
+              ${c.ad_name}::text[], ${c.ad_id}::text[],
               ${c.platform}::text[], ${c.campaign_type}::text[], ${c.date}::date[], ${c.as_of_date}::date[],
               ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[],
               ${c.is_monthly}::boolean[], ${c.extra_metrics}::jsonb[]
