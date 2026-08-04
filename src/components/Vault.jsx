@@ -5,6 +5,7 @@ import { listVaultEntries, getVaultEntry, createVaultEntry, updateVaultEntry, de
 import { uploadFile, downloadFile, deleteFile, fileToBase64 } from "../lib/workspaceApi.js";
 import { splitFilterTerms, matchesTerms } from "../lib/core.js";
 import { usePersistentState } from "../lib/persist.js";
+import { exportEntryAsPdf, exportEntryAsPptx, exportEntryAsXlsx, copyEntryForNotion } from "../lib/vaultExport.js";
 
 /**
  * Vault (Phase 2: UI, per Mo — folding VaultHQ's document/resource storage into PaidHQ). Phase 1
@@ -190,6 +191,24 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
     }
   };
 
+  // Asset export (Phase 3) — operates on whatever's currently in the modal, including an unsaved
+  // draft's title/content (unlike attachments, which genuinely need a persisted entryId, there's no
+  // reason to block a read-only export of a draft that hasn't been saved yet).
+  const [exportingPptx, setExportingPptx] = useState(false);
+  const doExportPdf = () => {
+    try { exportEntryAsPdf(entry); } catch (err) { showNotif(err.message || "PDF export failed", "error"); }
+  };
+  const doExportPptx = async () => {
+    setExportingPptx(true);
+    try { await exportEntryAsPptx(entry); } catch (err) { showNotif(err.message || "PPTX export failed", "error"); } finally { setExportingPptx(false); }
+  };
+  const doExportXlsx = () => {
+    try { exportEntryAsXlsx(entry); } catch (err) { showNotif(err.message || "XLSX export failed", "error"); }
+  };
+  const doCopyNotion = async () => {
+    try { await copyEntryForNotion(entry); showNotif("Copied — paste into Notion or Docs"); } catch (err) { showNotif(err.message || "Copy failed", "error"); }
+  };
+
   const sidebarPortal = sidebarEl && createPortal(
     <div className="bhq-scroll" style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
       <SectionLabel T={T} style={{ marginBottom: 8, fontSize: 11 * (T.fsScale || 1) }}>Vault</SectionLabel>
@@ -326,6 +345,12 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
                     <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, marginBottom: 4, fontWeight: 600 }}>Content</div>
                     <textarea value={entry.content} onChange={(e) => setEntry((s) => ({ ...s, content: e.target.value }))} rows={12} placeholder="Markdown — ## headings, pipe tables, - bullets, **bold**…"
                       style={{ width: "100%", boxSizing: "border-box", background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text, padding: "10px", fontSize: 12.5 * (T.fsScale || 1), outline: "none", fontFamily: "ui-monospace,monospace", resize: "vertical", lineHeight: 1.6 }} />
+                    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                      <Btn onClick={doExportPdf} disabled={!entry.content.trim()} variant="ghost" size="sm" T={T}>Export PDF</Btn>
+                      <Btn onClick={doExportPptx} disabled={!entry.content.trim() || exportingPptx} variant="ghost" size="sm" T={T}>{exportingPptx ? "Exporting…" : "Export PPTX"}</Btn>
+                      <Btn onClick={doExportXlsx} disabled={!entry.content.trim()} variant="ghost" size="sm" T={T}>Export XLSX</Btn>
+                      <Btn onClick={doCopyNotion} disabled={!entry.content.trim()} variant="ghost" size="sm" T={T}>Copy for Notion/Docs</Btn>
+                    </div>
                   </div>
 
                   {entry.id ? (
