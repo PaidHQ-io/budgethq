@@ -9,7 +9,11 @@
  *                                cheap even with many/large files.
  * GET  /files?download=<id>   — streams the raw file back with a Content-Disposition header, for
  *                                an actual download rather than a base64 JSON blob.
- * POST /files                 — upload. Body: { name, category, mimeType, dataBase64 }.
+ * POST /files                 — upload. Body: { name, category, mimeType, dataBase64, vaultEntryId? }.
+ *                                vaultEntryId (2026-08-19, Vault Phase 1) links this file as a Vault
+ *                                entry's attachment rather than a general File Store upload — see
+ *                                vault-entries.js's own doc comment. Omitted/null for every existing
+ *                                caller, unaffected.
  * PATCH /files                — rename one file. Body: { fileId, name }. Deliberately a body field
  *                                (not a query param) — no [id]-collision risk there either way (see
  *                                DELETE's own doc comment below for why query params need care on
@@ -44,9 +48,14 @@ export default withApi(async (req, res) => {
   }
 
   if (req.method === "GET") {
+    // vault_entry_id is null (2026-08-19, Vault Phase 1) — a file attached to a Vault entry is
+    // "owned" by that entry now and shown via vault-entries.js's own GET ?entryId= attachment list
+    // instead, so it doesn't ALSO clutter this general File Store listing as a duplicate-looking
+    // entry. Downloading a specific known id (the `download` branch above) is unrestricted either
+    // way — Vault's own UI reuses that same download endpoint for its attachments.
     const rows = await sql`
       select id, name, category, mime_type, size_bytes, created_at from core.files
-      where workspace_id = ${workspaceId}
+      where workspace_id = ${workspaceId} and vault_entry_id is null
       order by created_at desc
     `;
     return res.status(200).json({
@@ -59,14 +68,14 @@ export default withApi(async (req, res) => {
 
   if (req.method === "POST") {
     requireEditAccess(myRole);
-    const { name, category, mimeType, dataBase64 } = req.body || {};
+    const { name, category, mimeType, dataBase64, vaultEntryId } = req.body || {};
     if (!name || !dataBase64) {
       return res.status(400).json({ error: "name and dataBase64 are required" });
     }
     const buf = Buffer.from(dataBase64, "base64");
     const [row] = await sql`
-      insert into core.files (workspace_id, name, category, mime_type, size_bytes, data)
-      values (${workspaceId}, ${name}, ${category || "Manual upload"}, ${mimeType || null}, ${buf.length}, ${buf})
+      insert into core.files (workspace_id, name, category, mime_type, size_bytes, data, vault_entry_id)
+      values (${workspaceId}, ${name}, ${category || "Manual upload"}, ${mimeType || null}, ${buf.length}, ${buf}, ${vaultEntryId || null})
       returning id, name, category, mime_type, size_bytes, created_at
     `;
     return res.status(201).json({

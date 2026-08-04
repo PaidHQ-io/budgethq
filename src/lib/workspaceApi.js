@@ -266,10 +266,12 @@ export function listFiles(session, workspaceId) {
   );
 }
 
-export function uploadFile(session, workspaceId, { name, category, mimeType, dataBase64 }) {
+// vaultEntryId (2026-08-19, Vault Phase 1) — optional, links this upload as a Vault entry's
+// attachment instead of a general File Store upload. Omitted by every pre-existing caller.
+export function uploadFile(session, workspaceId, { name, category, mimeType, dataBase64, vaultEntryId }) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/files`, {
     method: "POST",
-    body: JSON.stringify({ name, category, mimeType, dataBase64 }),
+    body: JSON.stringify({ name, category, mimeType, dataBase64, vaultEntryId }),
   });
 }
 
