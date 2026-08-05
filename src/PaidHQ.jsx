@@ -1189,6 +1189,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   },[flushPendingSaves]);
 
   // ── Platform sync ──────────────────────────────────────────────────────────
+  // 7 days — the widest window empirically confirmed (2026-08-05, live test against
+  // paidhq-core's /api/spend) to reliably avoid the "Failed to fetch" oversized-response failure
+  // on ad-level LinkedIn/Meta pulls. See syncPlatform's doc comment below for the full story.
+  const SYNC_CHUNK_DAYS=7;
   const[syncState,setSyncState]=useState({}); // {platform: "idle"|"loading"|"done"|"error"}
   // perWorkspaceAuth: true marks a platform whose credential is connected per-workspace (stored
   // in core.connector_credentials, see connections.js) rather than the single shared
@@ -1614,6 +1618,36 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     }
   },[workspace?.id,session?.access_token,connectValues,connectPairs,sheetColumnMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Splits [start,end] into consecutive <=chunkDays windows (e.g. 2026-01-01..2026-01-20 with
+  // chunkDays=7 -> [01-01..01-07, 01-08..01-14, 01-15..01-20]). Used by syncPlatform below — see
+  // its doc comment for why.
+  const splitDateRangeIntoChunks=(start,end,chunkDays)=>{
+    const chunks=[];
+    let cursor=new Date(`${start}T00:00:00Z`);
+    const endD=new Date(`${end}T00:00:00Z`);
+    while(cursor<=endD){
+      const chunkStart=cursor.toISOString().slice(0,10);
+      const chunkEndCandidate=new Date(cursor);
+      chunkEndCandidate.setUTCDate(chunkEndCandidate.getUTCDate()+chunkDays-1);
+      const chunkEndD=chunkEndCandidate>endD?endD:chunkEndCandidate;
+      chunks.push({start:chunkStart,end:chunkEndD.toISOString().slice(0,10)});
+      cursor=new Date(chunkEndD);
+      cursor.setUTCDate(cursor.getUTCDate()+1);
+    }
+    return chunks;
+  };
+  // 2026-08-05, per Mo — a wide-date-range ad-level LinkedIn/Meta sync ("Sync now" over months of
+  // data, e.g. to backfill ad_name onto rows pulled before the pivot=CREATIVE/level=ad connector
+  // change) was coming back as a browser-side "Failed to fetch" even though paidhq-core's own
+  // runtime logs showed /api/spend completing and returning 200. Root cause: /api/spend returns
+  // the FULL pulled row set as one JSON response (no pagination/streaming) — a wide ad-level range
+  // is thousands of rows, large enough that the response gets cut off in transit, which the
+  // browser can't distinguish from a network failure. Confirmed live: the exact same sync
+  // succeeded every time when narrowed to a 7-day range. Rather than make every user manually
+  // chop their own date range into weekly pieces, syncPlatform now does that automatically —
+  // /api/spend itself is untouched (still returns rows for review before the debounced whole-
+  // dataset PUT persists them, same as always), this just calls it once per SYNC_CHUNK_DAYS-day
+  // window instead of once for the whole range, merging each chunk's rows in as they arrive.
   const syncPlatform=useCallback(async(platformKey)=>{
     if(!canEdit)return;
     // Belt-and-suspenders alongside the sync bar disabling a paused connector's button (see
@@ -1622,23 +1656,33 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     const pausedConn=connectionDetails.find(c=>c.provider===platformKey);
     if(pausedConn?.paused){showNotif(`${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} is paused — resume it in Data Sources before syncing.`);return;}
     setSyncState(p=>({...p,[platformKey]:"loading"}));
+    const chunks=splitDateRangeIntoChunks(syncDateRange.start,syncDateRange.end,SYNC_CHUNK_DAYS);
+    let totalRows=0;
+    let lastEffectiveEndDate=null;
     try{
-      // Moved to paidhq-core 2026-07-30 — syncSpend (lib/coreApi.js) calls the shared
-      // /api/spend there instead of this app's own local route, so any product's Sync button
-      // hits the same endpoint. workspaceId is harmless to always send: paidhq-core's route only
-      // actually reads it for perWorkspaceAuth connectors (every live one today), same as before.
-      const{rows,endDate:effectiveEndDate}=await syncSpend(session,{platform:platformKey,startDate:syncDateRange.start,endDate:syncDateRange.end,workspaceId:workspace?.id});
-      if(rows.length===0) throw new Error("No spend data returned for this date range");
-      // Tag each row with which connector pulled it — `sync:${provider}` matches the convention
-      // api/lib/spendRowsStore.js already uses for the cron rolling-sync path, so a manual Sync
-      // click and an automated one are equally traceable back to their connector. This is what
-      // lets "Don't use data in PaidHQ" (excludedFromData) and the Import start/end date columns
-      // in the connector table find exactly this provider's rows without touching CSV-uploaded or
-      // screenshot-imported data for the same platform. Rows pulled before this shipped (2026-07-24)
-      // won't have this tag until their connector syncs again.
-      const taggedRows=rows.map(r=>({...r,source:`sync:${platformKey}`}));
-      // Merge with existing data — don't replace
-      setMergedNormRows(prev=>mergeRows(prev,taggedRows));
+      for(const chunk of chunks){
+        // Moved to paidhq-core 2026-07-30 — syncSpend (lib/coreApi.js) calls the shared
+        // /api/spend there instead of this app's own local route, so any product's Sync button
+        // hits the same endpoint. workspaceId is harmless to always send: paidhq-core's route only
+        // actually reads it for perWorkspaceAuth connectors (every live one today), same as before.
+        const{rows,endDate:effectiveEndDate}=await syncSpend(session,{platform:platformKey,startDate:chunk.start,endDate:chunk.end,workspaceId:workspace?.id});
+        lastEffectiveEndDate=effectiveEndDate;
+        if(rows.length===0)continue; // a quiet week within a wider range isn't an error on its own
+        // Tag each row with which connector pulled it — `sync:${provider}` matches the convention
+        // api/lib/spendRowsStore.js already uses for the cron rolling-sync path, so a manual Sync
+        // click and an automated one are equally traceable back to their connector. This is what
+        // lets "Don't use data in PaidHQ" (excludedFromData) and the Import start/end date columns
+        // in the connector table find exactly this provider's rows without touching CSV-uploaded or
+        // screenshot-imported data for the same platform. Rows pulled before this shipped (2026-07-24)
+        // won't have this tag until their connector syncs again.
+        const taggedRows=rows.map(r=>({...r,source:`sync:${platformKey}`}));
+        // Merge with existing data — don't replace. Merged per-chunk (not once at the end) so a
+        // very wide range's early weeks are already live in mergedNormRows even if a later chunk
+        // fails partway through.
+        setMergedNormRows(prev=>mergeRows(prev,taggedRows));
+        totalRows+=rows.length;
+      }
+      if(totalRows===0) throw new Error("No spend data returned for this date range");
       // Deliberately does NOT touch step/view — a manual "Sync now" click happens from the
       // Connections table on the Data Sources tab, and per Mo (2026-07-24) there's no reason that
       // should yank the user over to Campaign Tagger; the merged rows are already live wherever
@@ -1650,15 +1694,15 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       setSyncState(p=>({...p,[platformKey]:"done"}));
       setLastSyncRange({start:syncDateRange.start,end:syncDateRange.end});
       try{localStorage.setItem("paidhq_sync_range",JSON.stringify({start:syncDateRange.start,end:syncDateRange.end}));}catch(e){}
-      checkpoint(`Synced ${platformKey} spend data (${rows.length} rows)`,"tagger_sync");
+      checkpoint(`Synced ${platformKey} spend data (${totalRows} rows)`,"tagger_sync");
       // /api/spend silently clamps a requested end date past today (see its doc comment — there's
       // no such thing as spend data for a day that hasn't happened yet). Surfacing that here means
       // a quarter/half-year range doesn't quietly look "fully synced" when only the portion through
       // today actually has data.
-      const adjustedNote=effectiveEndDate&&effectiveEndDate!==syncDateRange.end
-        ?` — synced through ${effectiveEndDate} (no data yet for ${effectiveEndDate} to ${syncDateRange.end})`
+      const adjustedNote=lastEffectiveEndDate&&lastEffectiveEndDate!==syncDateRange.end
+        ?` — synced through ${lastEffectiveEndDate} (no data yet for ${lastEffectiveEndDate} to ${syncDateRange.end})`
         :"";
-      showNotif(`Loaded ${rows.length} ${platformKey} campaigns — merged with existing data${adjustedNote}`);
+      showNotif(`Loaded ${totalRows} ${platformKey} campaigns — merged with existing data${adjustedNote}`);
     }catch(e){
       setSyncState(p=>({...p,[platformKey]:"error:"+e.message}));
       // 2026-07-31, per Mo — a failed sync used to only leave a small red line above the
