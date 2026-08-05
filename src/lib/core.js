@@ -75,6 +75,19 @@ const TYPE_CLASSIC = {fsCardTitle:15,fsCardTitleWeight:700,fsPageTitle:20,fsPage
 // construction: N*1===N for every call site).
 const TYPE_AIDA = {fsCardTitle:18,fsCardTitleWeight:500,fsPageTitle:24,fsPageTitleWeight:700,fsScale:1.15};
 
+// Notion theme radius/type (2026-08-19, per Mo's BudgetHQ-Notion-Redesign-Prompt.md — matching
+// VaultHQ's own Notion-inspired look, added as a switchable 4th theme rather than replacing
+// Classic outright; see THEME_NOTION's own doc comment below for the full reasoning). The doc's
+// radius asks (buttons/inputs 6px, cards 8px, pills 20px) land exactly on Classic's existing
+// r6/r8/r20 scale, so this reuses RADIUS_CLASSIC wholesale except rCard, which the doc pins to
+// cards' own 8px rather than Classic's 10px. The doc didn't specify a type scale (its component
+// rules are about button/input font-size, not the fsCardTitle/fsPageTitle/fsScale knobs Aida
+// introduced), so TYPE_NOTION is a straight copy of TYPE_CLASSIC — a deliberate "no opinion yet"
+// default, adjustable once Phase 2's layout pass is underway and there's something live to compare
+// against a real Notion page.
+const RADIUS_NOTION = {...RADIUS_CLASSIC, rCard:8};
+const TYPE_NOTION = {...TYPE_CLASSIC};
+
 export const THEME_CLASSIC = {
   font:"'DM Sans',sans-serif",
   ...RADIUS_CLASSIC,
@@ -265,6 +278,68 @@ export const THEME_MIDNIGHT = {
   // 2026-08-01 card-shadow fix Aida-only.
   shadowCard:"none",
   shadowLg:"0 20px 40px rgba(0,0,0,0.6)",
+};
+
+// Notion theme (2026-08-19, per Mo's BudgetHQ-Notion-Redesign-Prompt.md — matching the light,
+// Notion-inspired look built for VaultHQ, added as a switchable 4th theme same as Aida/Midnight
+// were, NOT a replacement of Classic. The prompt doc itself assumed BudgetHQ was still on an old
+// dark "Obsidian" theme with a binary light/dark toggle to be torn out and asked for a full
+// rip-and-replace — stale by the time this was actually built: the app already has this
+// Classic/Aida/Midnight switcher, and Classic is already light/flat/blue-accented itself. Adding
+// Notion as a peer option instead gets the same practical result (pick it in Settings, the whole
+// app reskins, since every component already reads its colors off T.*) without deleting anything
+// or risking the other three themes. Flagged to Mo rather than silently deciding either way.
+//
+// PHASE 1 SCOPE (this commit): color/radius/font tokens only, straight from the doc's own `T`
+// object. The doc's "component rules" section also asks for actual LAYOUT changes beyond
+// recoloring — tabs underlining the active one instead of a filled pill, detail/document views
+// losing their card wrapper entirely ("page"-style, not "dashboard widget"-style), exact 48px
+// topbar/220px sidebar sizing — none of that happens automatically just by swapping this token
+// object in, the same way Aida's own `wideLayout` breadcrumb/header treatment needed its own
+// explicit `T.wideLayout?...:...` branches at each call site, not just a palette. That's Phase 2,
+// deliberately deferred until Phase 1 is live and there's a real page to compare against the
+// actual Notion doc/app reference rather than guessing every layout nuance blind up front — same
+// reasoning Aida's rCard/cardPad/wideLayout fixes above were each added only after a concrete
+// "per Mo's screenshot comparison," not preemptively.
+//
+// Tokens the doc didn't specify, filled in as judgment calls (flag if any read wrong once live):
+// - onAccent: "#FFFFFF" — doc's own primary-button rule says `color: "#FFFFFF"` on the accent fill.
+// - accentSoft: a lighter tint of accent, same relationship Classic's accentSoft (#4D94FF) has to
+//   its own accent (#006CFF) — used for the Settings theme-swatch preview dot and any lighter-fill
+//   accent moments other themes have one for.
+// - borderCard: same as border (doc's own card rule is just "1px solid T.border", no separate
+//   card-specific hairline the way Aida's borderCard diverges from its general border).
+// - tagDimColors: left undefined — falls back to the shared TAG_DIM_COLORS constant below, same as
+//   Aida/Midnight do ("no tagDimColors of their own yet, not reported as a problem").
+// - hatchBg: generated with the same formula every other theme uses (borderStrong's own color, low
+//   opacity, repeating 45deg stripes) rather than inventing a new formula.
+// - shadowCard: "none" — doc is explicit ("Cards ... no box-shadow"), matches Classic/Midnight.
+// - shadowLg: not specified; scaled up from shadowMd using the same ratio Classic/Midnight use
+//   between their own shadowMd/shadowLg pairs.
+// - wideLayout/cardBgFeatured/cardBgAccent2/pillHighlight/cardPad: Aida-only decorative extras the
+//   doc never asked for — left undefined (no-op), same as they already are on Classic/Midnight.
+export const THEME_NOTION = {
+  font:"'Inter',sans-serif",
+  ...RADIUS_NOTION,
+  ...TYPE_NOTION,
+  bg:"#FFFFFF",surface:"#FFFFFF",surfaceEl:"#F7F7F5",surfaceHover:"#EFEFED",
+  border:"#E9E9E7",borderStrong:"#D8D8D5",borderCard:"#E9E9E7",
+  text:"#37352F",textSub:"#787774",textMuted:"#9B9A97",textDim:"#E3E2E0",
+  accent:"#2383E2",accentHover:"#1A73CE",onAccent:"#FFFFFF",
+  accentBg:"rgba(35,131,226,0.1)",accentBorder:"rgba(35,131,226,0.3)",accentText:"#0B6BC2",
+  accentSoft:"#5CA6EC",
+  success:"#2F9E44",successBg:"rgba(47,158,68,0.1)",successBorder:"rgba(47,158,68,0.25)",
+  warning:"#D9730D",warningBg:"rgba(217,115,13,0.1)",warningBorder:"rgba(217,115,13,0.25)",
+  danger:"#E03E3E",dangerBg:"rgba(224,62,62,0.1)",dangerBorder:"rgba(224,62,62,0.25)",
+  rowHover:"#F1F1EF",rowSelected:"rgba(35,131,226,0.08)",
+  inputBg:"#FFFFFF",headerBg:"#FFFFFF",sidebarBg:"#FBFBFA",topbarBg:"#FFFFFF",
+  pill:"#F1F1EF",pillBorder:"#EDEDEB",
+  hatchBg:"repeating-linear-gradient(45deg, rgba(216,216,213,0.5) 0px, rgba(216,216,213,0.5) 1.5px, transparent 1.5px, transparent 9px)",
+  badgeColors:["#E03E3E","#9065B0","#2383E2","#2F9E44","#D9730D","#787774","#0F7B6C"],
+  shadow:"none",
+  shadowMd:"0 9px 24px rgba(15,15,15,0.12),0 2px 6px rgba(15,15,15,0.06)",
+  shadowCard:"none",
+  shadowLg:"0 22px 48px rgba(15,15,15,0.16),0 6px 14px rgba(15,15,15,0.08)",
 };
 
 // Kept as a plain alias (not a live binding) so any existing `import { THEME }` call site — and

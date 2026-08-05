@@ -17,6 +17,13 @@
          h1), which without this weight file the browser was faux-bolding from 700 instead of
          rendering Poppins's real ExtraBold glyphs. -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <!-- Inter (2026-08-19): the Notion appearance theme's font (see core.js THEME_NOTION/Settings'
+         Appearance card) — matches VaultHQ's own font per Mo's BudgetHQ-Notion-Redesign-Prompt.md.
+         Loaded unconditionally alongside DM Sans/Poppins, same reasoning as those two: no
+         flash-of-unstyled-font on first render after switching themes. Weights cover the same
+         300-800 range as Poppins in case a later Phase 2 layout pass wants a heavier page-title
+         weight the way Aida's h1 does. -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>
