@@ -184,6 +184,14 @@ export default withApi(async (req, res) => {
     }
     // Bulk insert via unnest() — one round trip for the whole batch instead of one INSERT
     // statement per row. See the PUT handler below for why this matters.
+    //
+    // ON CONFLICT DO UPDATE (2026-08-05, per Mo — "we're going to have multiple users in the same
+    // workspace in the future"): paidhq-core/db/schema.sql's idx_spend_rows_identity_unique makes
+    // a duplicate identity a constraint violation instead of a silent second row — see that index's
+    // doc comment for the full concurrent-save-duplication story this closes off structurally,
+    // independent of how many tabs/users are writing at once. toColumns() (spendRowsColumns.js)
+    // dedupes the incoming batch to one row per identity first, since Postgres won't let one
+    // INSERT touch the same conflict target twice.
     const c = toColumns(inputRows);
     const insertedCount = c.date.length;
     if (insertedCount > 0) {
@@ -198,6 +206,15 @@ export default withApi(async (req, res) => {
           ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[],
           ${c.is_monthly}::boolean[], ${c.extra_metrics}::jsonb[]
         )
+        on conflict (workspace_id, coalesce(platform,''), campaign_group_name, campaign_name,
+          coalesce(campaign_id,''), coalesce(ad_name,''), coalesce(ad_id,''), coalesce(campaign_type,''),
+          date, coalesce(source,''), is_monthly)
+        do update set
+          as_of_date = excluded.as_of_date,
+          spend = excluded.spend,
+          impressions = excluded.impressions,
+          clicks = excluded.clicks,
+          extra_metrics = excluded.extra_metrics
       `;
     }
     return res.status(201).json({ inserted: insertedCount, skipped: c.skipped });
@@ -230,6 +247,12 @@ export default withApi(async (req, res) => {
     }
     await sql.transaction((tx) => [
       ...(append ? [] : [tx`delete from core.spend_rows where workspace_id = ${workspaceId}`]),
+      // ON CONFLICT DO UPDATE — see the POST handler above for the full doc comment on why this is
+      // here (paidhq-core/db/schema.sql's idx_spend_rows_identity_unique). Matters even more for
+      // PUT than POST: PUT's own chunk1-deletes/chunk2..N-append protocol is exactly what could
+      // duplicate rows when two of these multi-request sequences overlap — this makes that
+      // structurally impossible regardless of the client-side savingRowsRef guard (PaidHQ.jsx),
+      // which only ever protected against overlap from a single browser tab.
       ...(replacedCount > 0
         ? [tx`
             insert into core.spend_rows
@@ -242,6 +265,15 @@ export default withApi(async (req, res) => {
               ${c.spend}::numeric[], ${c.impressions}::numeric[], ${c.clicks}::numeric[], ${c.source}::text[],
               ${c.is_monthly}::boolean[], ${c.extra_metrics}::jsonb[]
             )
+            on conflict (workspace_id, coalesce(platform,''), campaign_group_name, campaign_name,
+              coalesce(campaign_id,''), coalesce(ad_name,''), coalesce(ad_id,''), coalesce(campaign_type,''),
+              date, coalesce(source,''), is_monthly)
+            do update set
+              as_of_date = excluded.as_of_date,
+              spend = excluded.spend,
+              impressions = excluded.impressions,
+              clicks = excluded.clicks,
+              extra_metrics = excluded.extra_metrics
           `]
         : []),
     ]);

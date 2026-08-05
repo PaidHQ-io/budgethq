@@ -61,14 +61,49 @@ export function normalizeDate(v) {
   return isNaN(d.getTime()) ? null : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Collapses a batch down to one row per natural identity — the exact same key
+// paidhq-core/db/schema.sql's idx_spend_rows_identity_unique enforces at the database level (see
+// that index's doc comment for the full "why a unique index" story, 2026-08-05). Needed here
+// because the insert statements below now use `on conflict (...) do update`, and Postgres flatly
+// refuses to let a single INSERT touch the same conflict target twice ("ON CONFLICT DO UPDATE
+// command cannot affect row a second time") — without this, a batch that happened to contain two
+// rows for the same identity (e.g. leftover duplicate rows still sitting in a browser tab's
+// mergedNormRows from before the concurrent-save fix shipped) would fail the WHOLE chunk instead of
+// just resolving to one row. Later entries win ties, same "most recent wins" behavior ON CONFLICT
+// DO UPDATE gives every other duplicate.
+function dedupeByIdentity(rows) {
+  const seen = new Map();
+  for (const r of rows) {
+    const key = [
+      r.platform || "",
+      r.campaign_group_name || "",
+      r.campaign_name || "",
+      r.campaign_id || "",
+      r.ad_name || "",
+      r.ad_id || "",
+      r.campaign_type || "",
+      normalizeDate(r.date) || "",
+      r.source || "",
+      !!r.is_monthly,
+    ].join("");
+    seen.set(key, r);
+  }
+  return [...seen.values()];
+}
+
 // Transposes an array of row objects into parallel column arrays for a single unnest()-based bulk
 // insert — one round trip for the whole batch instead of one INSERT per row. Rows whose date can't
 // be normalized to a real date are dropped (spend_rows.date is NOT NULL) rather than allowed to fail
 // the whole batch.
 export function toColumns(rows) {
-  const withDates = rows.map((r) => ({ ...r, _date: normalizeDate(r.date) }));
+  // Dedup first, then measure "skipped" against the DEDUPED count, not the original — otherwise a
+  // batch containing legitimate duplicate identities (now silently collapsed, not a problem) would
+  // get misreported to the caller as rows "dropped with an unparseable date," which is a completely
+  // different, unrelated reason for a row to disappear.
+  const deduped = dedupeByIdentity(rows);
+  const withDates = deduped.map((r) => ({ ...r, _date: normalizeDate(r.date) }));
   const valid = withDates.filter((r) => r._date);
-  const skipped = rows.length - valid.length;
+  const skipped = deduped.length - valid.length;
   if (skipped > 0) {
     console.error(
       `[spend-rows] Dropped ${skipped} row(s) with an unparseable date (examples: ${withDates
