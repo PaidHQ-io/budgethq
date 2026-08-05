@@ -271,6 +271,19 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
     e.preventDefault();
     addFiles(imageItems.map(it=>it.getAsFile()).filter(Boolean));
   },[addFiles]);
+  // Drag-and-drop attach (2026-08-19, ported from VaultHQ's chat — that app's handleChatDrop, same
+  // "drop it on the composer" shape). Reuses addFiles, same as the file-picker input and paste
+  // handler above, so drag-drop gets the exact same image/CSV/XLSX routing and cap-enforcement for
+  // free rather than needing its own copy of that logic.
+  const [dragActive,setDragActive]=useState(false);
+  const handleDragOver=useCallback(e=>{e.preventDefault();if(!loading)setDragActive(true);},[loading]);
+  const handleDragLeave=useCallback(e=>{e.preventDefault();setDragActive(false);},[]);
+  const handleDrop=useCallback(e=>{
+    e.preventDefault();
+    setDragActive(false);
+    if(loading)return;
+    if(e.dataTransfer?.files?.length)addFiles(e.dataTransfer.files);
+  },[addFiles,loading]);
 
   // Voice input (2026-07-28, per Mo). Browser-native Web Speech API — no backend involved, so
   // support is whatever the browser ships: solid in Chrome/Edge, absent in Firefox and most of
@@ -725,7 +738,8 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
   // two meanings depending on state, rather than two separate buttons fighting for that spot.
   const canSend=(input.trim()||attachedImages.length>0)&&!loading;
   const composer=(
-    <div style={{display:"flex",flexDirection:"column",gap:0,background:T.surface,border:`1px solid ${T.borderStrong}`,borderRadius:T.r22,padding:"8px 8px 8px 12px",boxShadow:T.shadowMd}}>
+    <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+      style={{display:"flex",flexDirection:"column",gap:0,background:T.surface,border:`1px solid ${dragActive?T.accent:T.borderStrong}`,borderRadius:T.r22,padding:"8px 8px 8px 12px",boxShadow:T.shadowMd,transition:"border-color 0.1s"}}>
       {(attachedImages.length>0||attachedDocs.length>0)&&(
         <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"4px 8px 8px"}}>
           {attachedImages.map((img,i)=>(
