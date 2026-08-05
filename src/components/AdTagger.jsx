@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Btn, Icon, Pill, Sel, TagAutocompleteInput, MatchModeToggle, IconField } from "./shared.jsx";
 import { getSpendRowsAggregate } from "../lib/workspaceApi.js";
-import { adKey, splitFilterTerms, matchesTerms, downloadCSV, fmt$ } from "../lib/core.js";
+import { adKey, campaignKey, splitFilterTerms, matchesTerms, downloadCSV, fmt$ } from "../lib/core.js";
 import { usePersistentState } from "../lib/persist.js";
 
 /**
@@ -32,6 +32,21 @@ import { usePersistentState } from "../lib/persist.js";
  * export CSV, undo. Deliberately NOT included yet (Campaigns mode has these, Ads mode doesn't):
  * per-row delete-from-dataset, screenshot/CSV tag import, cross-match suggestions, merge-names. Can
  * be added later the same way Campaigns mode's own toolbar grew over time.
+ *
+ * TAG INHERITANCE (2026-08-05, per Mo — tagging every ad from scratch with no visibility into what
+ * its parent campaign already carries was pure duplicate work for dimensions like Product/Region
+ * that don't vary within a campaign): an ad's EFFECTIVE tag for a dimension is its own explicit
+ * adTags entry if it has one, else falls back to its parent campaign's tags entry (looked up via
+ * campaignKey(groupName, name) — the same identity Campaigns mode itself tags against). This is
+ * computed fresh in the `ads`/`filtered` memos below (effectiveTagsFor), NOT written back into
+ * adTags — a campaign's tag changing later still flows through to every ad that hasn't been
+ * explicitly overridden. Tagged/untagged stats, the tag filter, and CSV export all use the
+ * effective set; bulk-apply/remove/the per-tag × button still only ever touch adTags (the explicit
+ * ad-level override) — they never write to or delete from the campaign's own tags. An inherited tag
+ * renders visually distinct (dashed border, no × — there's nothing at the ad level to remove) from
+ * an explicit one; bulk-removing an explicit override just reveals the inherited value again
+ * underneath, which is deliberate. NOT supported yet: explicitly overriding an inherited tag to
+ * "blank" (opting one ad out of a campaign-wide tag) — no UI for that edge case in this pass.
  */
 
 function SH({ T, col, label, sortCol, sortDir, onSort, align }) {
@@ -48,7 +63,7 @@ const fIn = { background: "transparent", border: "none", outline: "none", width:
 const colBox = { campaign: { width: 200, flexShrink: 0 }, group: { width: 180, flexShrink: 0 }, ad: { width: 220, flexShrink: 0 }, spend: { width: 110, flexShrink: 0 }, platform: { width: 110, flexShrink: 0 } };
 const TAGS_BOX_STYLE = { flex: "1 0 220px", minWidth: 220 };
 
-export default function AdTagger({ T, session, workspace, canEdit, tagDims, adTags, setAdTags }) {
+export default function AdTagger({ T, session, workspace, canEdit, tagDims, tags, adTags, setAdTags }) {
   const [rows, setRows] = useState(null); // raw aggregate rows from the server, null = loading
   const [loadError, setLoadError] = useState("");
   const [notif, setNotif] = useState(null);
@@ -103,10 +118,14 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, adTa
 
   // Only rows that actually carry an ad_name belong in an ads table — a non-ad-level aggregate row
   // (adName null, everything else about that ad group with no ad breakdown) isn't an ad.
+  // campKey (2026-08-05): the same campaignKey identity Campaigns mode tags against — this is what
+  // lets each ad look up its parent campaign's existing tags for inheritance (see this file's top
+  // doc comment).
   const ads = useMemo(() => (rows || [])
     .filter((r) => r.adName)
     .map((r) => ({
       key: adKey(r.campaignGroupName, r.campaignName, r.adName),
+      campKey: campaignKey(r.campaignGroupName, r.campaignName),
       groupName: r.campaignGroupName || r.campaignName || "",
       name: r.campaignName || "",
       adName: r.adName,
@@ -115,6 +134,12 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, adTa
       impressions: r.impressions || 0,
       clicks: r.clicks || 0,
     })), [rows]);
+
+  // Effective tags for an ad = its own explicit adTags entry, falling back to its parent campaign's
+  // tags entry per-dimension — see this file's top doc comment. Deliberately a plain function (not
+  // memoized per-key) since it's cheap object-spread work called from within memos that already
+  // iterate every ad once.
+  const effectiveTagsFor = (a) => ({ ...(tags?.[a.campKey] || {}), ...(adTags[a.key] || {}) });
 
   const allPlats = useMemo(() => [...new Set(ads.map((a) => a.platform))].sort(), [ads]);
   const hasF = !!(fCamp || fCampExclude || fGroup || fGroupExclude || fAd || fAdExclude || fPlat || fTag || fTagExclude || fStatus !== "all");
@@ -129,12 +154,16 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, adTa
       if (fAd) { const terms = splitFilterTerms(fAd); if (terms.length && !matchesTerms(a.adName.toLowerCase(), terms, fAdInclMode)) return false; }
       if (fAdExclude) { const terms = splitFilterTerms(fAdExclude); if (terms.length && matchesTerms(a.adName.toLowerCase(), terms, fAdExclMode)) return false; }
       if (fPlat && a.platform !== fPlat) return false;
-      if (fTag) { const ts = adTags[a.key] || {}; const s = Object.entries(ts).map(([d, v]) => `${d}:${v}`).join(" ").toLowerCase(); const terms = splitFilterTerms(fTag); if (terms.length && !matchesTerms(s, terms, fTagInclMode)) return false; }
-      if (fTagExclude) { const ts = adTags[a.key] || {}; const s = Object.entries(ts).map(([d, v]) => `${d}:${v}`).join(" ").toLowerCase(); const terms = splitFilterTerms(fTagExclude); if (terms.length && matchesTerms(s, terms, fTagExclMode)) return false; }
+      // fTag/fTagExclude/fStatus all read the EFFECTIVE tag set (own + inherited from the parent
+      // campaign) — see effectiveTagsFor's doc comment. An ad that's never been explicitly tagged
+      // but whose campaign has been should show up under "Tagged" and match a tag-content filter,
+      // same as one tagged directly.
+      if (fTag) { const ts = effectiveTagsFor(a); const s = Object.entries(ts).map(([d, v]) => `${d}:${v}`).join(" ").toLowerCase(); const terms = splitFilterTerms(fTag); if (terms.length && !matchesTerms(s, terms, fTagInclMode)) return false; }
+      if (fTagExclude) { const ts = effectiveTagsFor(a); const s = Object.entries(ts).map(([d, v]) => `${d}:${v}`).join(" ").toLowerCase(); const terms = splitFilterTerms(fTagExclude); if (terms.length && matchesTerms(s, terms, fTagExclMode)) return false; }
       // Selected rows stay visible through a tagged/untagged status flip mid-session, same reasoning
       // as Campaigns mode's own filtered useMemo (bulk-tagging a batch across several dimensions).
       if (!selected.has(a.key)) {
-        const tc = Object.keys(adTags[a.key] || {}).length;
+        const tc = Object.keys(effectiveTagsFor(a)).length;
         if (fStatus === "tagged" && tc === 0) return false;
         if (fStatus === "untagged" && tc > 0) return false;
       }
@@ -147,15 +176,15 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, adTa
       if (sortCol === "group") return dir * x.name.localeCompare(y.name);
       if (sortCol === "campaign") return dir * x.groupName.localeCompare(y.groupName);
       if (sortCol === "platform") return dir * x.platform.localeCompare(y.platform);
-      const at = Object.keys(adTags[x.key] || {}).length, bt = Object.keys(adTags[y.key] || {}).length;
+      const at = Object.keys(effectiveTagsFor(x)).length, bt = Object.keys(effectiveTagsFor(y)).length;
       return dir * (at - bt);
     });
-  }, [ads, fCamp, fCampExclude, fCampInclMode, fCampExclMode, fGroup, fGroupExclude, fGroupInclMode, fGroupExclMode, fAd, fAdExclude, fAdInclMode, fAdExclMode, fPlat, fTag, fTagExclude, fTagInclMode, fTagExclMode, fStatus, sortCol, sortDir, adTags, selected]);
+  }, [ads, fCamp, fCampExclude, fCampInclMode, fCampExclMode, fGroup, fGroupExclude, fGroupInclMode, fGroupExclMode, fAd, fAdExclude, fAdInclMode, fAdExclMode, fPlat, fTag, fTagExclude, fTagInclMode, fTagExclMode, fStatus, sortCol, sortDir, adTags, tags, selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = useMemo(() => {
-    const tagged = ads.filter((a) => Object.keys(adTags[a.key] || {}).length > 0).length;
+    const tagged = ads.filter((a) => Object.keys(effectiveTagsFor(a)).length > 0).length;
     return { total: ads.length, tagged, untagged: ads.length - tagged, totalSpend: ads.reduce((s, a) => s + a.spend, 0) };
-  }, [ads, adTags]);
+  }, [ads, adTags, tags]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleSel = (key) => setSelected((p) => { const nx = new Set(p); nx.has(key) ? nx.delete(key) : nx.add(key); return nx; });
   const selAll = () => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map((a) => a.key)));
@@ -185,7 +214,9 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, adTa
 
   const exportCsv = () => {
     const header = ["Campaign", "Ad Group/Ad Set", "Ad", "Platform", "Spend", ...tagDims];
-    const csvRows = [header, ...filtered.map((a) => [a.groupName, a.name, a.adName, a.platform, a.spend.toFixed(2), ...tagDims.map((d) => (adTags[a.key] || {})[d] || "")])];
+    // Effective values (own tag, else inherited from the campaign) — an export should reflect what
+    // the ad is actually tagged as, not just what was explicitly set at the ad level.
+    const csvRows = [header, ...filtered.map((a) => [a.groupName, a.name, a.adName, a.platform, a.spend.toFixed(2), ...tagDims.map((d) => effectiveTagsFor(a)[d] || "")])];
     downloadCSV(csvRows, "paidhq-ad-tags.csv");
     showNotif("Ad tags exported");
   };
@@ -343,10 +374,12 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, adTa
           </div>
 
           {filtered.map((a) => {
-            const ts = adTags[a.key] || {};
-            const tc = Object.keys(ts).length;
+            const ts = adTags[a.key] || {}; // explicit, ad-level only — drives the × remove control
+            const inherited = tags?.[a.campKey] || {}; // this ad's parent campaign's own tags
+            const eff = { ...inherited, ...ts }; // effective = own value if set, else inherited
+            const tc = Object.keys(eff).length;
             const isSel = selected.has(a.key);
-            const orderedDims = [...(tagDims || []).filter((d) => Object.prototype.hasOwnProperty.call(ts, d)), ...Object.keys(ts).filter((d) => !(tagDims || []).includes(d))];
+            const orderedDims = [...(tagDims || []).filter((d) => Object.prototype.hasOwnProperty.call(eff, d)), ...Object.keys(eff).filter((d) => !(tagDims || []).includes(d))];
             return (
               <div key={a.key} className={isSel ? undefined : "bhq-row"} onClick={() => toggleSel(a.key)}
                 style={{ display: "flex", padding: "11px 16px", borderBottom: `1px solid ${T.border}`, alignItems: "center", cursor: "pointer", background: isSel ? T.rowSelected : T.surface, transition: "background 0.1s", gap: 8 }}>
@@ -362,12 +395,19 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, adTa
                 <div style={{ ...colBox.spend, textAlign: "right", fontSize: 13 * (T.fsScale || 1), fontFamily: T.font, color: T.text, fontVariantNumeric: "tabular-nums" }}>{fmt$(a.spend)}</div>
                 <div style={{ ...colBox.platform, fontSize: 13 * (T.fsScale || 1), fontFamily: T.font, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.platform}</div>
                 <div style={{ ...TAGS_BOX_STYLE, display: "flex", flexWrap: "wrap", gap: 4 }} onClick={(e) => e.stopPropagation()}>
-                  {orderedDims.map((dim) => (
-                    <span key={dim} style={{ display: "inline-flex", alignItems: "center", fontSize: 12 * (T.fsScale || 1), padding: "2px 4px 2px 8px", borderRadius: T.r6, background: T.accentBg, color: T.text, border: `1px solid ${T.accentBorder}`, gap: 2, fontFamily: T.font }}>
-                      <span style={{ opacity: 0.75, marginRight: 1 }}>{dim}:</span>{ts[dim]}
-                      {canEdit && <span onClick={() => removeTag(a.key, dim)} style={{ color: T.textMuted, cursor: "pointer", fontSize: 13 * (T.fsScale || 1), lineHeight: 1, marginLeft: 1, padding: "0 2px" }}>×</span>}
-                    </span>
-                  ))}
+                  {orderedDims.map((dim) => {
+                    // Own explicit value wins; a dim only present via the campaign renders as
+                    // inherited (dashed border, no × — there's nothing at the ad level to remove,
+                    // see this file's top doc comment).
+                    const isOwn = Object.prototype.hasOwnProperty.call(ts, dim);
+                    return (
+                      <span key={dim} title={isOwn ? undefined : `Inherited from campaign "${a.groupName}"`}
+                        style={{ display: "inline-flex", alignItems: "center", fontSize: 12 * (T.fsScale || 1), padding: "2px 4px 2px 8px", borderRadius: T.r6, background: isOwn ? T.accentBg : "transparent", color: isOwn ? T.text : T.textMuted, border: `1px ${isOwn ? "solid" : "dashed"} ${isOwn ? T.accentBorder : T.border}`, gap: 2, fontFamily: T.font }}>
+                        <span style={{ opacity: 0.75, marginRight: 1 }}>{dim}:</span>{eff[dim]}
+                        {canEdit && isOwn && <span onClick={() => removeTag(a.key, dim)} style={{ color: T.textMuted, cursor: "pointer", fontSize: 13 * (T.fsScale || 1), lineHeight: 1, marginLeft: 1, padding: "0 2px" }}>×</span>}
+                      </span>
+                    );
+                  })}
                   {tc === 0 && <span style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted }}>—</span>}
                 </div>
               </div>

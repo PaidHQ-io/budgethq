@@ -4300,7 +4300,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           {taggerMode==="ads"?(
             <Suspense fallback={<TabLoadingFallback/>}>
               <AdTagger T={T} session={session} workspace={workspace} canEdit={canEdit} tagDims={tagDims}
-                adTags={adTags} setAdTags={setAdTags} combineGoogleChannels={combineGoogleChannels}/>
+                tags={tags} adTags={adTags} setAdTags={setAdTags} combineGoogleChannels={combineGoogleChannels}/>
             </Suspense>
           ):(
         <div style={{flex:1,display:"flex",overflow:"hidden",minHeight:0}}>
