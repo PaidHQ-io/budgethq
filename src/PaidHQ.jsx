@@ -1103,6 +1103,64 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const allowEmptyConfigWriteRef=useRef(false);
   const allowEmptyRowsWriteRef=useRef(false);
 
+  // ── Concurrency guard for the spend-rows save (2026-08-05, per Mo — found via a Google Sheets
+  // "why is my data stale" report that turned into discovering core.spend_rows was 67% duplicate
+  // rows across EVERY platform, not just the one being investigated) ─────────────────────────────
+  // putSpendRows (workspaceApi.js) does a whole-dataset "replace" for a small workspace, but once a
+  // workspace's history is too big to fit one request it CHUNKS: the first chunk deletes-then-
+  // inserts, every chunk after that is append-only (see spend-rows.js's PUT doc comment for why —
+  // an append-only continuation can't wipe out the earlier chunks THIS SAME save already wrote).
+  // That's safe for one save running alone, but the debounced effect below had nothing stopping a
+  // SECOND save from starting while a first one's chunk sequence was still mid-flight (any
+  // mergedNormRows change — a sync, a tag edit, even the next chunk of a wide-range sync's own
+  // per-chunk setMergedNormRows calls — resets the 800ms timer and, once it fires, kicks off
+  // another full save independent of whether the previous one finished). Two overlapping saves each
+  // still open with a real delete (harmless — whichever's delete lands last just wins), but their
+  // append-only chunks after that both insert their own copy of the same rows on top of each other.
+  // N overlapping saves means every non-first-chunk row gets duplicated N times — which is exactly
+  // what turned up: content-identity counts clustering at exactly 3x and 5x across Bing, Google,
+  // LinkedIn, Meta, and Capterra alike, not just whatever was being actively synced that day.
+  //
+  // savingRowsRef marks a chunk sequence as in flight; rowsSaveQueuedRef records "something changed
+  // while that was running" instead of firing a second save on top of it — the in-flight save's own
+  // completion handler checks this flag and immediately runs one more save (against latestRowsRef,
+  // i.e. whatever's current BY THEN, not a stale snapshot from when the change happened) rather than
+  // ever letting two chunk sequences run at once. Net effect: saves are now strictly serialized, so
+  // no edit is ever lost, it's just queued instead of parallelized.
+  const savingRowsRef=useRef(false);
+  const rowsSaveQueuedRef=useRef(false);
+
+  // Runs one save cycle against whatever's currently in latestRowsRef. Shared by the debounce timer
+  // below and flushPendingSaves (the beforeunload/tab-hide flush) so there's exactly one code path
+  // that's allowed to call putSpendRows — see the concurrency-guard comment above for why a second
+  // path calling it independently would reintroduce the same overlapping-save bug.
+  const runRowsSave=useCallback(()=>{
+    if(savingRowsRef.current){
+      rowsSaveQueuedRef.current=true;
+      return;
+    }
+    const rows=latestRowsRef.current||[];
+    const rowsEmpty=rows.length===0;
+    if(rowsEmpty&&hadRealRowsRef.current&&!allowEmptyRowsWriteRef.current){
+      console.error("[spend rows save] BLOCKED — refusing to overwrite known real spend data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's spend data, use Settings → Clear data instead of whatever just triggered this.");
+      return;
+    }
+    allowEmptyRowsWriteRef.current=false;
+    savingRowsRef.current=true;
+    putSpendRows(sessionRef.current,workspace.id,rows)
+      .then(()=>{rowsDirtyRef.current=false;if(!rowsEmpty)hadRealRowsRef.current=true;})
+      .catch(e=>console.error("[spend rows save]",e)) // stays flagged dirty — next flush/edit retries it
+      .finally(()=>{
+        savingRowsRef.current=false;
+        // Something changed mid-save — run the queued save now (serialized, not parallel) instead
+        // of waiting for whatever timer would otherwise fire next.
+        if(rowsSaveQueuedRef.current){
+          rowsSaveQueuedRef.current=false;
+          runRowsSave();
+        }
+      });
+  },[workspace?.id]);
+
   // Debounced whole-document save — mirrors the shape api/workspaces/[id]/data.js's PUT expects.
   // Keyed off sessionUserId, not session itself — see the big comment above the load effect.
   useEffect(()=>{
@@ -1124,24 +1182,16 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   },[tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
-  // replace-all (not incremental) is the sync model here.
+  // replace-all (not incremental) is the sync model here. Actual save logic lives in runRowsSave
+  // above (shared with flushPendingSaves) — this effect's only job is debouncing rapid-fire changes
+  // down to one runRowsSave call 800ms after they settle.
   useEffect(()=>{
     if(!workspace?.id||!session||!rowsLoadedRef.current)return;
     rowsDirtyRef.current=true;
     clearTimeout(saveRowsTimer.current);
-    saveRowsTimer.current=setTimeout(()=>{
-      const rowsEmpty=mergedNormRows.length===0;
-      if(rowsEmpty&&hadRealRowsRef.current&&!allowEmptyRowsWriteRef.current){
-        console.error("[spend rows save] BLOCKED — refusing to overwrite known real spend data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's spend data, use Settings → Clear data instead of whatever just triggered this.");
-        return;
-      }
-      allowEmptyRowsWriteRef.current=false;
-      putSpendRows(sessionRef.current,workspace.id,mergedNormRows)
-        .then(()=>{rowsDirtyRef.current=false;if(!rowsEmpty)hadRealRowsRef.current=true;})
-        .catch(e=>console.error("[spend rows save]",e)); // stays flagged dirty — next flush/edit retries it
-    },800);
+    saveRowsTimer.current=setTimeout(runRowsSave,800);
     return()=>clearTimeout(saveRowsTimer.current);
-  },[mergedNormRows,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[mergedNormRows,workspace?.id,sessionUserId,runRowsSave]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fires the pending save(s) immediately instead of waiting out the 800ms debounce — called right
   // before the page actually goes away. Uses `keepalive:true` so the request survives past the
@@ -1165,7 +1215,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         configDirtyRef.current=false;
       }
     }
-    if(rowsDirtyRef.current&&latestRowsRef.current){
+    // savingRowsRef check (2026-08-05, per Mo — see runRowsSave's concurrency-guard doc comment
+    // above): a debounced save could already be mid-chunk-sequence when the tab hides/unloads. This
+    // keepalive flush firing its OWN putSpendRows call on top of that would be exactly the
+    // overlapping-save scenario that caused the 3x/5x duplicate clustering in core.spend_rows in the
+    // first place — skipped here rather than risking that, even though it means an edit inside the
+    // last ~800ms before an in-flight save started could still be lost on a fast unload. rowsDirtyRef
+    // stays true in that case, so the next load's save cycle picks it up instead of it just vanishing.
+    if(rowsDirtyRef.current&&latestRowsRef.current&&!savingRowsRef.current){
       clearTimeout(saveRowsTimer.current);
       const rowsBlocked=latestRowsRef.current.length===0&&hadRealRowsRef.current&&!allowEmptyRowsWriteRef.current;
       if(rowsBlocked){
