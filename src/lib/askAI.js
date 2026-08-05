@@ -2,6 +2,13 @@ import { campaignKey, derivePlatform, parseSpendDate, getPeriodRange, computePac
 import { PIPELINE_METRIC_MAP_OPTIONS, AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY } from "./pipelineColumnMapping.js";
 import { isRateMetric, computeDerivedPipelineMetrics, DERIVED_PIPELINE_METRICS, computeCustomMetrics } from "./reportingMetrics.js";
 import { createChangeEvents, CHANGE_TYPE_OPTIONS, ENTITY_TYPE_OPTIONS } from "./changeEventsApi.js";
+import { createVaultEntry } from "./vaultApi.js";
+import { uploadFileViaBlob } from "./workspaceApi.js";
+// vaultExport.js's PDF/XLSX generators statically pull in jsPDF/jspdf-autotable/xlsx (SheetJS) —
+// sizable libraries that every other Ask AI question never touches. Dynamically imported inside
+// create_asset's handler below (same lazy-load principle vaultExport.js itself already uses for
+// pptxgenjs) instead of statically here, so askAI.js's own bundle — loaded on every single chat
+// turn — doesn't carry that weight for a tool that's the exception, not the rule.
 
 // How many individual segments a having-filtered or small unfiltered result includes in
 // matching_segments (see askAIQueryPacing) before falling back to just the count — keeps a
@@ -221,6 +228,25 @@ export const ASK_AI_TOOLS=[
         },required:["platform","change_type","summary"]},
       },
     },required:["entries"]},
+  },
+  // Vault's write tool (2026-08-19, ported from VaultHQ's chat — see that app's session-handoff
+  // doc: create_asset "saves drafted content as a new entry in the vault and, optionally, generates
+  // a real downloadable file"). Same write-tool treatment as log_change_event above: makes a real
+  // network write (a new core.vault_entries row, plus an uploaded core.files row if format isn't
+  // entry_only), so askAIRun filters it out entirely for a view-only (!canEdit) caller and
+  // askAIExecuteTool re-checks ctx.canEdit as belt-and-suspenders. Use this when Mo explicitly asks
+  // to save/build/export something concrete out of the chat (a report, a deck, a brief) — not for
+  // every long answer, which should just stay in the chat as prose unless he asks for the asset.
+  {
+    name:"create_asset",
+    description:"Saves drafted content as a new Vault entry and, optionally, generates a real downloadable file from it (a PDF, a PowerPoint deck, or an Excel spreadsheet) attached to that entry. Use this when the user explicitly asks to build/save/create/export something concrete — a report, a deck, a spreadsheet, a campaign brief — not just to discuss a draft in chat. If they haven't asked for the asset itself yet, just answer normally instead of calling this. Requires edit access; if the workspace member asking doesn't have it, this tool won't be offered at all.",
+    input_schema:{type:"object",properties:{
+      title:{type:"string",description:"Title for the new Vault entry."},
+      category:{type:"string",description:"Free-text category, e.g. \"Campaign Brief\", \"Strategy\", \"Sales Asset\", \"Audit\", \"Research\", or \"General\" if nothing fits better."},
+      body:{type:"string",description:"Full content written in Vault's markdown: '## Heading' sections, pipe tables ('| a | b |' rows with a '|---|---|' separator), '- ' bullets, and **bold**. This is what gets saved AND exported, so structure it properly."},
+      tags:{type:"array",items:{type:"string"},description:"Optional lowercase tags."},
+      format:{type:"string",enum:["entry_only","pdf","pptx","xlsx"],description:"'entry_only' just saves it as a Vault entry. 'pdf'/'pptx'/'xlsx' also generates and attaches that file to the entry — use pptx for decks, xlsx when the content is primarily tables, pdf for reports/audits/plans."},
+    },required:["title","body"]},
   },
 ];
 
@@ -576,6 +602,39 @@ export async function askAIExecuteTool(toolName,input,ctx){
       return{error:err.message||"Failed to log the change(s)."};
     }
   }
+  if(toolName==="create_asset"){
+    // Same belt-and-suspenders as log_change_event above.
+    if(!ctx.canEdit)return{error:"This workspace member has view-only access, so I can't save a Vault entry here."};
+    if(!ctx.session||!ctx.workspaceId)return{error:"Missing session/workspace context — can't save this right now."};
+    if(!input.title||!input.body)return{error:"title and body are required."};
+    let created;
+    try{
+      created=await createVaultEntry(ctx.session,ctx.workspaceId,{title:input.title,category:input.category||"General",tags:(input.tags||[]).map(t=>String(t).toLowerCase()),content:input.body});
+    }catch(err){
+      return{error:err.message||"Failed to save the Vault entry."};
+    }
+    let note="";
+    const format=input.format&&input.format!=="entry_only"?input.format:null;
+    // The generated file is a genuine best-effort extra — a failure here still leaves the entry
+    // itself saved (same "partial success, don't discard the good half" pattern Vault.jsx's own
+    // submitEntry uses when an attachment upload fails after entry creation succeeds).
+    if(format){
+      try{
+        const{exportEntryAsPdfBlob,exportEntryAsPptxBlob,exportEntryAsXlsxBlob}=await import("./vaultExport.js");
+        const entryForExport={title:input.title,category:input.category||"General",content:input.body};
+        const safeName=input.title.replace(/[\\/:*?"<>|]/g,"-");
+        let blob,filename,contentType;
+        if(format==="pdf"){blob=exportEntryAsPdfBlob(entryForExport);filename=`${safeName}.pdf`;contentType="application/pdf";}
+        else if(format==="pptx"){blob=await exportEntryAsPptxBlob(entryForExport);filename=`${safeName}.pptx`;contentType="application/vnd.openxmlformats-officedocument.presentationml.presentation";}
+        else{blob=exportEntryAsXlsxBlob(entryForExport);filename=`${safeName}.xlsx`;contentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";}
+        const uploaded=await uploadFileViaBlob(ctx.session,ctx.workspaceId,new File([blob],filename,{type:contentType}),{category:"Vault attachment",vaultEntryId:created.id});
+        note=` A ${format.toUpperCase()} was generated and attached (${uploaded.name}).`;
+      }catch(err){
+        note=` (Entry saved, but generating the ${format.toUpperCase()} failed: ${err.message||"unknown error"})`;
+      }
+    }
+    return{created:true,entry_id:created.id,title:created.title,message:`Saved "${created.title}" as a new Vault entry.${note}`};
+  }
   return{error:`Unknown tool: ${toolName}`};
 }
 
@@ -749,10 +808,12 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
   // model at all ONLY when the caller actually has edit access (2026-08-19, per Mo's screenshot-
   // logging request). Filtering it out of the tools list here means a view-only member's model never
   // even considers calling it, rather than calling it and getting back an error every time — belt-
-  // and-suspenders with askAIExecuteTool's own ctx.canEdit check.
+  // and-suspenders with askAIExecuteTool's own ctx.canEdit check. create_asset (2026-08-19, ported
+  // from VaultHQ) is the second write tool and gets the same filtering.
   // WEB_SEARCH_TOOL appended here (not folded into ASK_AI_TOOLS) — see its own doc comment for why
   // this is chat-only, not shared with askAIBuildView/aiSummarizeBudgetPacing.
-  const tools=[...(ctx.canEdit?ASK_AI_TOOLS:ASK_AI_TOOLS.filter(t=>t.name!=="log_change_event")),WEB_SEARCH_TOOL];
+  const WRITE_TOOLS=["log_change_event","create_asset"];
+  const tools=[...(ctx.canEdit?ASK_AI_TOOLS:ASK_AI_TOOLS.filter(t=>!WRITE_TOOLS.includes(t.name))),WEB_SEARCH_TOOL];
   const system=`You are answering questions about the user's paid-media budget, spend, and pipeline/funnel data inside PaidHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name; query_pipeline has its OWN separate "Campaign"/"Ad Group" plus "Channel", from the pipeline dataset — see query_pipeline's own description). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} ${hasPipeline?"Pipeline/funnel data (leads, MQLs, SQLs, pipeline value, revenue, and the workspace's own custom metrics) IS available via query_pipeline.":"No pipeline/funnel data has been imported yet, so query_pipeline has nothing to query — say so rather than guessing if asked about leads/MQLs/SQLs/pipeline value."} Dates for query_spend and query_pipeline must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual ad-platform spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures), query_pipeline for anything about leads, MQLs, SQLs, demos, pipeline value, revenue, funnel conversion rates, or cost-per-X — query_pipeline's own "spend" field belongs to the pipeline dataset, NOT the same number query_spend would return for the same campaign, since the two are imported/tagged independently; never mix a query_pipeline total with a query_spend total as if they were one figure. For "campaign performance for each product" or similar cross-dimension questions, call query_pipeline once with group_by="Product" for the overview, then call it again per product with a Product filter and group_by="Campaign" to drill into that product's campaigns — don't guess at campaign names. For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500", "products with an MQL to SQL rate under 20%"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering — this also resolves values for query_pipeline's filters, including Channel. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image${ctx.canEdit?" — UNLESS it's a screenshot of a platform's own change-history/audit page (e.g. Google Ads' \"Change history\") and the user is asking you to log or save those changes, in which case call log_change_event with one entry per distinct row you can see, using exactly what's shown (never invent a value that isn't visibly there)":""}. If the user attached a CSV/spreadsheet file, its content appears as plain text context below the question, clearly marked — that data is NOT part of the workspace's real budget/spend/pipeline data (it was never imported), so don't call query_spend/query_budget/query_pacing/query_pipeline expecting to find it; just read and reason about the attached text directly, and say so if the question seems to assume it was imported. You also have a web_search tool — use it ONLY for genuinely external information the tools above can't answer (a platform's current policy/documentation, industry benchmarks, news about a named company or competitor), never as a substitute for a real number this workspace's own tools can return; prefer the grounded tools for anything about this workspace's actual spend/budget/pipeline. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
   const messages=[...history,{role:"user",content:question}];
   const steps=[];
