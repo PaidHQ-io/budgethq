@@ -21,7 +21,7 @@ import { exportReportToGoogleSheets, preloadGoogleSheetsApi, preloadGoogleSheets
 import {
   THEME, THEME_CLASSIC, THEME_AIDA, THEME_MIDNIGHT, THEME_NOTION, REQUIRED_COLS, OPTIONAL_COLS, COL_LABELS, campaignKey, isEmptyConfig, splitFilterTerms,
   matchesTerms, getBudgetDimValues, DEFAULT_DIMS, LEGACY_LOCAL_KEYS, PLATFORM_COLORS, PLATFORM_OPTIONS,
-  TAG_DIM_COLORS, NAV, autoDetect, derivePlatform, localISODate, fmt$, downloadCSV,
+  TAG_DIM_COLORS, NAV, autoDetect, derivePlatform, localISODate, fmtCalendarDate, fmt$, downloadCSV,
   groupVersionsByDay, fmtFileSize, normalizeRows, spendRowKey, mergeRows, detectSpendConflicts,
   parseSpendDate, consolidateBudgetSegKeys, computePlatformFreshness,
   renameDimensionValue, GOOGLE_SUBCHANNELS, groupGooglePlatform, migrateGoogleChannelGrouping,
@@ -3353,7 +3353,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       bucket=failed?0:1;
                       sortTime=new Date(c.lastAutoSyncAt).getTime();
                     }else if(importEnd){
-                      text=`Data through ${new Date(importEnd).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`;
+                      text=`Data through ${fmtCalendarDate(importEnd,{month:"short",day:"numeric"})}`;
                       color=T.textMuted;
                       bucket=2;
                       sortTime=new Date(importEnd).getTime();
@@ -4010,7 +4010,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     const syncBorder=syncFailed?T.dangerBorder:syncRolling?T.accentBorder:T.border;
                     const syncTitle=syncRolling?`Rolling sync — ${syncLabel.toLowerCase()}, last ${conn.rollingWindowDays||14} days. Set from the ⋯ menu's Sync schedule.`:"Manual only — data only updates when someone clicks Sync now, or from the ⋯ menu's Sync schedule.";
                     const importRange=importDateRangeByProvider[pl.key];
-                    const fmtShort=d=>d?new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}):"—";
+                    // fmtShort renders both conn.connectedAt (a full ISO timestamp) and
+                    // importRange.start/end (plain "YYYY-MM-DD" strings from importDateRangeByProvider)
+                    // — the two need different parsing, or date-only strings render one day early in
+                    // timezones behind UTC (new Date("YYYY-MM-DD") parses as UTC midnight, then
+                    // toLocaleDateString renders in local time). See fmtCalendarDate in lib/core.js.
+                    const fmtShort=d=>d?(/^\d{4}-\d{2}-\d{2}$/.test(d)?fmtCalendarDate(d,{month:"short",day:"numeric",year:"numeric"}):new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})):"—";
                     const menuOpen=connActionsMenuProvider===pl.key;
                     const syncing=(syncState[pl.key]||"idle")==="loading";
                     const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key||syncing;

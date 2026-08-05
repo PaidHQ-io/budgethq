@@ -641,6 +641,20 @@ export function resolveBudgetDimValue(dim,key,t,platformIndex){
 // d.getFullYear()/getMonth()/getDate() below read the same LOCAL fields the Date was constructed
 // from, so this round-trips exactly instead of drifting across the UTC boundary.
 export const localISODate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+// Inverse of localISODate, for display — takes a plain "YYYY-MM-DD" string (as stored in
+// importDateRangeByProvider, spend_rows.date, etc.) and formats it for on-screen display.
+// `new Date("YYYY-MM-DD").toLocaleDateString()` is a trap: the bare string is parsed as UTC
+// midnight, then toLocaleDateString renders in the browser's LOCAL timezone — anyone west of
+// Greenwich sees the date shifted back one day (e.g. an Import End of 2026-08-04 displaying as
+// "Aug 3"). Caught live 2026-08-05 via Google Ads showing a stale Import End despite a "already
+// up to date through 2026-08-04" sync toast proving the underlying data was correct all along.
+// Parsing y/m/d components and constructing via the local-time Date(y,m,d) constructor (same
+// fix pattern as localISODate above) avoids the UTC round-trip entirely.
+export const fmtCalendarDate=(s,opts)=>{
+  if(!s)return null;
+  const[y,m,d]=s.split("-").map(Number);
+  return new Date(y,m-1,d).toLocaleDateString(undefined,opts);
+};
 // Global, in-memory mirror of the "Number formatting" Settings choice (2026-08-06, per Mo —
 // "give users the ability to increase or decrease the decimal of any numbered/dollar value
 // field"). Every shared formatter that displays a $ or plain number (fmt$/fmtFull here,
