@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Cache-busted (2026-08-19) — browsers cache favicons very aggressively and often keep
+         showing the OLD icon at the same URL even after the underlying file changes (this is why
+         the blue circle "P" mark wasn't showing for Mo even though the deployed file itself was
+         already correct — confirmed by diffing public/favicon.svg against the built dist output).
+         Bumping this query param any time the favicon's actual artwork changes forces browsers to
+         treat it as a new resource instead of serving a stale cached copy. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PaidHQ</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
