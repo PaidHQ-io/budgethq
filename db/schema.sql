@@ -270,18 +270,25 @@ select
 from budgethq.workspace_config
 on conflict (workspace_id) do nothing;
 
--- WHERE NOT EXISTS (2026-08-05, per Mo — added the same day as core.spend_rows'
--- idx_spend_rows_identity_unique): `on conflict (id) do nothing` below only protects against a
--- collision on the PRIMARY KEY (id) — it does nothing for a collision against a DIFFERENT unique
--- index on the table, which is exactly what idx_spend_rows_identity_unique is. This one-time copy
--- finished completing back on 2026-07-27 (every id from budgethq.spend_rows has been in
--- core.spend_rows for weeks), so on every deploy since then it's been silently re-attempting to
--- insert rows that already exist — harmless when the only guard that mattered was `id`, but the
--- INSERT throws now if any of those already-migrated rows happen to share an identity with
--- something ELSE already in core.spend_rows (a live-synced row for the same campaign+date+source,
--- say), which broke this build outright the first time it ran after that index was added. The
--- WHERE NOT EXISTS makes this a true no-op for anything already copied — which today is
--- everything — so it never even attempts a row that could hit either constraint.
+-- TWO GUARDS, not one (2026-08-05, per Mo — added the same day as core.spend_rows'
+-- idx_spend_rows_identity_unique). This needs protection against BOTH of the table's unique
+-- constraints at once, which a single ON CONFLICT clause can't provide (Postgres only lets one
+-- INSERT target one constraint/index):
+--   1. WHERE NOT EXISTS(id) — the vast majority of budgethq.spend_rows has already been copied by
+--      id over the many deploys since 2026-07-27 (this statement silently no-op'd via `on conflict
+--      (id) do nothing` the whole time), so this filters those straight out before they can even
+--      reach the identity check below. Without this, re-inserting an already-copied row would hit
+--      the PRIMARY KEY (id) instead — a different violation, not caught by an ON CONFLICT clause
+--      aimed at the identity index.
+--   2. ON CONFLICT (identity columns) DO NOTHING — covers whatever's left after #1 (a row whose id
+--      genuinely isn't in core yet). budgethq.spend_rows is old, pre-migration data, so a
+--      still-uncopied row can still collide on IDENTITY with something core.spend_rows already has
+--      (a live-synced row for the same campaign+date+source) or with an EARLIER row in this same
+--      batch (budgethq.spend_rows can hold its own legacy duplicate identities). `do nothing` (not
+--      `do update`) is safe against the same conflict target appearing more than once within one
+--      statement — unlike `do update`, Postgres allows repeated `do nothing` no-ops there, so this
+--      needs no upfront dedup of budgethq.spend_rows the way the ON CONFLICT DO UPDATE writers
+--      elsewhere in this codebase do.
 insert into core.spend_rows
   (id, workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
    date, as_of_date, spend, impressions, clicks, source, created_at)
@@ -291,7 +298,10 @@ select
   bsr.created_at
 from budgethq.spend_rows bsr
 where not exists (select 1 from core.spend_rows csr where csr.id = bsr.id)
-on conflict (id) do nothing;
+on conflict (workspace_id, coalesce(platform,''), campaign_group_name, campaign_name,
+  coalesce(campaign_id,''), coalesce(ad_name,''), coalesce(ad_id,''), coalesce(campaign_type,''),
+  date, coalesce(source,''), is_monthly)
+do nothing;
 
 insert into core.ai_chats (workspace_id, user_id, chats, updated_at)
 select workspace_id, user_id, chats, updated_at
