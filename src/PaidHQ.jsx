@@ -1305,11 +1305,18 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[lastSyncRange,setLastSyncRange]=useState(()=>{
     try{const s=localStorage.getItem("paidhq_sync_range");return s?JSON.parse(s):null;}catch(e){return null;}
   });
-  // Defaults to Jan 1 of the current year through today — matches the "This year" preset below
-  // (2026-07-24, per Mo: quarter-to-date was too narrow a default for a first sync).
+  // Defaults to Jan 1 of the current year through YESTERDAY — matches the "This year" preset below
+  // (2026-07-24, per Mo: quarter-to-date was too narrow a default for a first sync; 2026-08-05, per
+  // Mo: end date moved from today to yesterday — today's data is always a partial day mid-sync, and
+  // a partial day's spend skews the pacing/forecast math the same way a half-loaded platform does.
+  // Every platform connector already reports real, complete days — this just stops the DEFAULT
+  // range from asking for one that hasn't finished yet. Someone who genuinely wants today's
+  // (partial) numbers can still pick it via the Custom tab below; this only changes what "Sync now"
+  // asks for out of the box).
+  const yesterday=(now)=>{const d=new Date(now);d.setDate(d.getDate()-1);return localISODate(d);};
   const[syncDateRange,setSyncDateRange]=useState(()=>{
     const now=new Date();
-    return{start:localISODate(new Date(now.getFullYear(),0,1)),end:localISODate(now)};
+    return{start:localISODate(new Date(now.getFullYear(),0,1)),end:yesterday(now)};
   });
   // Recommended/Custom date-range picker for the manual "Pull live spend data" bar (2026-07-23) —
   // replaces two bare date inputs with Funnel.io-style presets, since typing exact dates every sync
@@ -1324,7 +1331,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   ];
   const applySyncRangePreset=(preset)=>{
     const now=new Date();
-    const end=localISODate(now);
+    // Same "stop at yesterday, not today" reasoning as the default range above — applies to every
+    // preset, not just "This year", since a partial today skews forecasting the same way regardless
+    // of how far back the range starts.
+    const end=yesterday(now);
     let start;
     if(preset.thisYear){start=localISODate(new Date(now.getFullYear(),0,1));}
     else if(preset.months){const s=new Date(now);s.setMonth(s.getMonth()-preset.months);start=localISODate(s);}
