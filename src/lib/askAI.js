@@ -224,6 +224,22 @@ export const ASK_AI_TOOLS=[
   },
 ];
 
+// Anthropic's native web search server tool (2026-08-19, ported from VaultHQ's chat — see that
+// app's session-handoff doc: "added Anthropic's native web_search_20250305 server tool (capped
+// max_uses: 5)... used only when the vault genuinely can't answer"). Distinct from every entry in
+// ASK_AI_TOOLS above: this is a SERVER tool — Anthropic runs the actual search itself and resolves
+// it within the same turn, askAIExecuteTool never sees it and askAIRun's tool-execution loop below
+// already skips it correctly (that loop only processes blocks where type==="tool_use"; a search
+// produces "server_tool_use"/"web_search_tool_result" blocks instead, see streamAnalyze's
+// content_block_start handling for how those get reconstructed from the SSE stream without being
+// misparsed as plain text). Kept as its own export (not folded into ASK_AI_TOOLS) since it's only
+// appended for askAIRun's chat loop — askAIBuildView (view-builder) and aiSummarizeBudgetPacing
+// (single-turn dashboard summary) have no use for open-web lookups and shouldn't pay for the extra
+// tool-schema tokens or risk an unrelated search derailing either of those narrower tasks.
+// max_uses:5 matches VaultHQ's own cap (a per-request ceiling, not per-conversation) — high enough
+// for a multi-source comparison question, low enough to bound cost if a turn goes sideways.
+export const WEB_SEARCH_TOOL={type:"web_search_20250305",name:"web_search",max_uses:5};
+
 // Resolves one dimension's value for a reporting_facts row (2026-08-11, per Mo — "train the AI on
 // all of the spend, budget and pipeline performance data"). "Campaign", "Ad Group", "Channel" are
 // synthetic/reserved for THIS dataset specifically — Ad Group and Channel live inside the row's own
@@ -628,9 +644,31 @@ async function streamAnalyze({messages,system,tools,maxTokens,model,signal,onTex
       usage.input_tokens=evt.message?.usage?.input_tokens||0;
     }else if(evt.type==="content_block_start"){
       const cb=evt.content_block||{};
-      blocks[evt.index]=cb.type==="tool_use"
-        ?{type:"tool_use",id:cb.id,name:cb.name,input:{},_partialJson:""}
-        :{type:"text",text:""};
+      // web_search (2026-08-19): a search round introduces two block types beyond plain text/
+      // tool_use, per Anthropic's web-search-tool docs' streaming example —
+      //   - server_tool_use: Claude's own decision to search, same id/name/input(-streamed-as-json)
+      //     shape as a client tool_use block, just a different `type` string. MUST keep that exact
+      //     type when this block is later replayed back into `messages` history — askAIRun's
+      //     tool-execution loop deliberately only executes type==="tool_use" blocks, so a
+      //     server_tool_use block correctly passes through untouched (Anthropic already resolved
+      //     it server-side within this same turn).
+      //   - web_search_tool_result: arrives ALREADY FULLY FORMED on content_block_start itself
+      //     (content/tool_use_id populated inline, no deltas follow) — captured verbatim below
+      //     rather than built up incrementally. Its content items carry `encrypted_content`, which
+      //     Anthropic requires byte-identical on any later turn that replays this block back
+      //     (a modified/missing value 400s) — copying `cb` as-is (not re-deriving a new object)
+      //     is what guarantees that.
+      // Before this fix, anything that wasn't cb.type==="tool_use" fell into the plain-text branch,
+      // silently corrupting both of these into an empty {type:"text",text:""} — dropping the actual
+      // search query/results and, worse, breaking multi-turn replay once any assistant turn
+      // containing a real search was sent back as history.
+      if(cb.type==="tool_use"||cb.type==="server_tool_use"){
+        blocks[evt.index]={type:cb.type,id:cb.id,name:cb.name,input:{},_partialJson:""};
+      }else if(cb.type==="web_search_tool_result"){
+        blocks[evt.index]={...cb};
+      }else{
+        blocks[evt.index]={type:"text",text:""};
+      }
     }else if(evt.type==="content_block_delta"){
       const block=blocks[evt.index];
       if(!block)return;
@@ -641,9 +679,16 @@ async function streamAnalyze({messages,system,tools,maxTokens,model,signal,onTex
       }else if(evt.delta?.type==="input_json_delta"){
         block._partialJson=(block._partialJson||"")+(evt.delta.partial_json||"");
       }
+      // citations_delta (streamed alongside a cited text block's own text_delta events) is
+      // deliberately NOT captured here — dropping it only means the UI doesn't render inline
+      // source markers for a web-search-grounded answer, not a functional break: the cited text
+      // itself still streams in normally via text_delta above, and omitting a `citations` array
+      // entirely from a text block is valid to send back on the next turn (unlike
+      // web_search_tool_result's encrypted_content, nothing here is required-if-present). Revisit
+      // if/when citation display in the UI is actually built.
     }else if(evt.type==="content_block_stop"){
       const block=blocks[evt.index];
-      if(block?.type==="tool_use"){
+      if(block?.type==="tool_use"||block?.type==="server_tool_use"){
         try{block.input=block._partialJson?JSON.parse(block._partialJson):{};}
         catch{block.input={};}
         delete block._partialJson;
@@ -705,8 +750,10 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
   // logging request). Filtering it out of the tools list here means a view-only member's model never
   // even considers calling it, rather than calling it and getting back an error every time — belt-
   // and-suspenders with askAIExecuteTool's own ctx.canEdit check.
-  const tools=ctx.canEdit?ASK_AI_TOOLS:ASK_AI_TOOLS.filter(t=>t.name!=="log_change_event");
-  const system=`You are answering questions about the user's paid-media budget, spend, and pipeline/funnel data inside PaidHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name; query_pipeline has its OWN separate "Campaign"/"Ad Group" plus "Channel", from the pipeline dataset — see query_pipeline's own description). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} ${hasPipeline?"Pipeline/funnel data (leads, MQLs, SQLs, pipeline value, revenue, and the workspace's own custom metrics) IS available via query_pipeline.":"No pipeline/funnel data has been imported yet, so query_pipeline has nothing to query — say so rather than guessing if asked about leads/MQLs/SQLs/pipeline value."} Dates for query_spend and query_pipeline must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual ad-platform spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures), query_pipeline for anything about leads, MQLs, SQLs, demos, pipeline value, revenue, funnel conversion rates, or cost-per-X — query_pipeline's own "spend" field belongs to the pipeline dataset, NOT the same number query_spend would return for the same campaign, since the two are imported/tagged independently; never mix a query_pipeline total with a query_spend total as if they were one figure. For "campaign performance for each product" or similar cross-dimension questions, call query_pipeline once with group_by="Product" for the overview, then call it again per product with a Product filter and group_by="Campaign" to drill into that product's campaigns — don't guess at campaign names. For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500", "products with an MQL to SQL rate under 20%"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering — this also resolves values for query_pipeline's filters, including Channel. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image${ctx.canEdit?" — UNLESS it's a screenshot of a platform's own change-history/audit page (e.g. Google Ads' \"Change history\") and the user is asking you to log or save those changes, in which case call log_change_event with one entry per distinct row you can see, using exactly what's shown (never invent a value that isn't visibly there)":""}. If the user attached a CSV/spreadsheet file, its content appears as plain text context below the question, clearly marked — that data is NOT part of the workspace's real budget/spend/pipeline data (it was never imported), so don't call query_spend/query_budget/query_pacing/query_pipeline expecting to find it; just read and reason about the attached text directly, and say so if the question seems to assume it was imported. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
+  // WEB_SEARCH_TOOL appended here (not folded into ASK_AI_TOOLS) — see its own doc comment for why
+  // this is chat-only, not shared with askAIBuildView/aiSummarizeBudgetPacing.
+  const tools=[...(ctx.canEdit?ASK_AI_TOOLS:ASK_AI_TOOLS.filter(t=>t.name!=="log_change_event")),WEB_SEARCH_TOOL];
+  const system=`You are answering questions about the user's paid-media budget, spend, and pipeline/funnel data inside PaidHQ. Today's date is ${today}. Tag dimensions in use: ${ctx.tagDims.join(", ")} (plus "Platform", "Campaign", and "Ad Group" are always available for query_spend too — these three are derived automatically from spend data, not stored as tags: Platform from platform/traffic-source, Campaign from the campaign/campaign-group name, Ad Group from the ad set/ad group name; query_pipeline has its OWN separate "Campaign"/"Ad Group" plus "Channel", from the pipeline dataset — see query_pipeline's own description). ${hasBudgets?`Budget By dimensions (the only ones valid for query_budget/query_pacing): ${ctx.budgetDims.join(", ")}.`:"No Budget By dimensions are set up yet, so budget/pacing questions have nothing to query — say so rather than guessing."} ${hasPipeline?"Pipeline/funnel data (leads, MQLs, SQLs, pipeline value, revenue, and the workspace's own custom metrics) IS available via query_pipeline.":"No pipeline/funnel data has been imported yet, so query_pipeline has nothing to query — say so rather than guessing if asked about leads/MQLs/SQLs/pipeline value."} Dates for query_spend and query_pipeline must be YYYY-MM-DD; year/period for query_budget and query_pacing use separate year/period_type/month/quarter fields, not date strings. Always use the tools to get real numbers — never state a figure you didn't get from a tool call. Pick the right tool for what's actually being asked: query_spend for actual ad-platform spend only (including tagged vs. untagged via tagged_status), query_budget for allocated/planned amounts only, query_pacing when a question compares the two, asks about pace/over-under-budget, or asks about daily burn rate or projected spend (query_pacing is the ONLY tool with those two figures), query_pipeline for anything about leads, MQLs, SQLs, demos, pipeline value, revenue, funnel conversion rates, or cost-per-X — query_pipeline's own "spend" field belongs to the pipeline dataset, NOT the same number query_spend would return for the same campaign, since the two are imported/tagged independently; never mix a query_pipeline total with a query_spend total as if they were one figure. For "campaign performance for each product" or similar cross-dimension questions, call query_pipeline once with group_by="Product" for the overview, then call it again per product with a Product filter and group_by="Campaign" to drill into that product's campaigns — don't guess at campaign names. For a numeric-threshold question ("which segments spent more than $10,000", "campaigns pacing over 100%", "anything projected to blow past budget", "daily burn above $500", "products with an MQL to SQL rate under 20%"), use the tool's \`having\` param rather than trying to express it in \`filters\` (which only does exact string equality) — see each tool's having description for its exact field names and, for query_pacing, its \`matching_segments\` list of individual matches. When a user names a value casually (e.g. "emea"), call list_dimension_values first to find the exact stored spelling before filtering — this also resolves values for query_pipeline's filters, including Channel. If the user attached an image (a dashboard screenshot, a chart, a spend report), look at it directly and factor what you see into your answer, but still use the tools for any actual number you cite rather than reading it off the image${ctx.canEdit?" — UNLESS it's a screenshot of a platform's own change-history/audit page (e.g. Google Ads' \"Change history\") and the user is asking you to log or save those changes, in which case call log_change_event with one entry per distinct row you can see, using exactly what's shown (never invent a value that isn't visibly there)":""}. If the user attached a CSV/spreadsheet file, its content appears as plain text context below the question, clearly marked — that data is NOT part of the workspace's real budget/spend/pipeline data (it was never imported), so don't call query_spend/query_budget/query_pacing/query_pipeline expecting to find it; just read and reason about the attached text directly, and say so if the question seems to assume it was imported. You also have a web_search tool — use it ONLY for genuinely external information the tools above can't answer (a platform's current policy/documentation, industry benchmarks, news about a named company or competitor), never as a substitute for a real number this workspace's own tools can return; prefer the grounded tools for anything about this workspace's actual spend/budget/pipeline. Answer conversationally and concisely, citing the actual numbers returned. If asked to format as a list or table, plain markdown (bullets, numbered lists, pipe tables, **bold**) is fine — it renders correctly in this chat.`;
   const messages=[...history,{role:"user",content:question}];
   const steps=[];
   const usage={inputTokens:0,outputTokens:0};
@@ -732,8 +779,25 @@ export async function askAIRun({question,history,ctx,model,signal,onTextDelta,to
     const data=await streamAnalyze({messages,system,tools,maxTokens:8192,model,signal,onTextDelta,token});
     usage.inputTokens+=data.usage.input_tokens||0;
     usage.outputTokens+=data.usage.output_tokens||0;
+    // pause_turn (2026-08-19, alongside web_search): Anthropic can pause a long-running search turn
+    // mid-way and ask the caller to resubmit the SAME assistant content unchanged so it can keep
+    // going server-side — not a final answer, and not something requiring a tool_result either
+    // (there's no pending tool_use block waiting on this app to execute anything). Treated as its
+    // own case rather than falling into the "final answer" branch below (which would have surfaced
+    // whatever partial/empty text existed at the pause point as if the model were actually done) or
+    // the "tool_use" branch (which would incorrectly try to execute tools and append an empty
+    // tool_result user turn that pause_turn's continuation contract doesn't call for).
+    if(data.stop_reason==="pause_turn"){
+      messages.push({role:"assistant",content:data.content});
+      continue;
+    }
     if(data.stop_reason!=="tool_use"){
-      const text=data.content.find(b=>b.type==="text")?.text||"";
+      // Joins ALL text blocks, not just the first (2026-08-19, web_search — same fix as
+      // api/analyze.js's non-streaming text extraction, needed here too since this branch reads
+      // straight off streamAnalyze's client-reconstructed `content` array rather than through that
+      // file's `text` field). See api/analyze.js's matching comment for why a web-search turn can
+      // legitimately produce multiple separate text blocks in one response.
+      const text=data.content.filter(b=>b.type==="text").map(b=>b.text).join("");
       // Distinguishes "the model was cut off before producing any text" from a genuine empty
       // response — the former is a real answer that just ran out of room, worth telling the user
       // to retry/narrow their question rather than implying nothing happened at all.

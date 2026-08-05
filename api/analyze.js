@@ -160,7 +160,14 @@ export default async function handler(req, res) {
 
     const data = await r.json();
     const content = data.content || [];
-    const text = content.find((b) => b.type === "text")?.text || "";
+    // Joins ALL text blocks, not just the first (2026-08-19, web_search — ported from VaultHQ's
+    // identical fix in its own api/analyze.js): a web-search-augmented answer routinely comes back
+    // as multiple separate text blocks around the server_tool_use/web_search_tool_result pair (a
+    // preamble like "I'll search for..." before the search, then the real cited answer after) —
+    // every prior caller here only ever produced at most one text block per turn, so grabbing just
+    // the first one was harmless until now; with web search it silently returned the throwaway
+    // preamble instead of the actual answer.
+    const text = content.filter((b) => b.type === "text").map((b) => b.text).join("");
     return res.status(200).json({ text, content, stop_reason: data.stop_reason, usage: data.usage });
   } catch (err) {
     console.error("[analyze]", err);
