@@ -270,13 +270,27 @@ select
 from budgethq.workspace_config
 on conflict (workspace_id) do nothing;
 
+-- WHERE NOT EXISTS (2026-08-05, per Mo — added the same day as core.spend_rows'
+-- idx_spend_rows_identity_unique): `on conflict (id) do nothing` below only protects against a
+-- collision on the PRIMARY KEY (id) — it does nothing for a collision against a DIFFERENT unique
+-- index on the table, which is exactly what idx_spend_rows_identity_unique is. This one-time copy
+-- finished completing back on 2026-07-27 (every id from budgethq.spend_rows has been in
+-- core.spend_rows for weeks), so on every deploy since then it's been silently re-attempting to
+-- insert rows that already exist — harmless when the only guard that mattered was `id`, but the
+-- INSERT throws now if any of those already-migrated rows happen to share an identity with
+-- something ELSE already in core.spend_rows (a live-synced row for the same campaign+date+source,
+-- say), which broke this build outright the first time it ran after that index was added. The
+-- WHERE NOT EXISTS makes this a true no-op for anything already copied — which today is
+-- everything — so it never even attempts a row that could hit either constraint.
 insert into core.spend_rows
   (id, workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
    date, as_of_date, spend, impressions, clicks, source, created_at)
 select
-  id, workspace_id, campaign_group_name, campaign_name, campaign_id, platform, campaign_type,
-  date, as_of_date, spend, impressions, clicks, source, created_at
-from budgethq.spend_rows
+  bsr.id, bsr.workspace_id, bsr.campaign_group_name, bsr.campaign_name, bsr.campaign_id, bsr.platform,
+  bsr.campaign_type, bsr.date, bsr.as_of_date, bsr.spend, bsr.impressions, bsr.clicks, bsr.source,
+  bsr.created_at
+from budgethq.spend_rows bsr
+where not exists (select 1 from core.spend_rows csr where csr.id = bsr.id)
 on conflict (id) do nothing;
 
 insert into core.ai_chats (workspace_id, user_id, chats, updated_at)
