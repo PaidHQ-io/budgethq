@@ -230,7 +230,12 @@ export async function adsApiSearch(customerId, query, { accessToken, loginCustom
   // accessible customer — see listAccessibleAccounts' KNOWN LIMITATION note below for why this
   // isn't populated by anything in this file yet.
   if (loginCustomerId) headers["login-customer-id"] = loginCustomerId;
-  const body = { query, pageSize: 10000 };
+  // pageSize REMOVED (2026-08-05, mirrored from paidhq-core's identical fix — see that file's
+  // fuller doc comment): googleAds:search now returns INVALID_ARGUMENT for ANY request that
+  // includes pageSize at all, even the same 10000 this used to send explicitly — Google Ads API
+  // v25 fixed the search endpoint's page size server-side and no longer accepts the caller
+  // specifying one, whether or not it matches.
+  const body = { query };
   if (pageToken) body.pageToken = pageToken;
   const res = await fetch(`${API_BASE}/customers/${customerId}/googleAds:search`, {
     method: "POST",
