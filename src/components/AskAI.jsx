@@ -187,6 +187,7 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
   const[attachError,setAttachError]=useState("");
   const[recording,setRecording]=useState(false);
   const[copiedIdx,setCopiedIdx]=useState(null);
+  const[speakingIdx,setSpeakingIdx]=useState(null); // index of the assistant message currently being read aloud, or null
   const[openStepsIdx,setOpenStepsIdx]=useState(null);
   const[streamingText,setStreamingText]=useState(""); // live partial answer text while loading — see runTurn's onTextDelta
   const[editingUserIdx,setEditingUserIdx]=useState(null); // index into messages of the user turn currently being edited, or null
@@ -231,6 +232,12 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
       taRef.current?.focus();
     }
   },[initialQuestion,onConsumeInitialQuestion]);
+
+  // Cancels any in-progress read-aloud on unmount (2026-08-19) — unlike VaultHQ (a standalone
+  // single-page app where this component never went away), Ask AI is one tab among several in
+  // PaidHQ.jsx and gets unmounted on tab switch. Without this, navigating away mid-utterance would
+  // leave SpeechSynthesis talking in the background with no visible Stop button left to cancel it.
+  useEffect(()=>()=>{window.speechSynthesis?.cancel();},[]);
 
   const addFiles=useCallback(async(fileList)=>{
     const files=Array.from(fileList||[]);
@@ -294,11 +301,32 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
     }).catch(()=>{});
   },[]);
 
+  // Read-aloud (2026-08-19, ported from VaultHQ's chat per Mo's "move the voice feature over" —
+  // the OTHER half of voice, this app already had mic/dictation input). Browser-native
+  // SpeechSynthesis, zero backend — same free/no-dependency pattern as speechSupported's
+  // SpeechRecognition above. Clicking the same message again (or a different one, or Stop
+  // Generating, or switching/deleting a chat) cancels playback first — window.speechSynthesis has
+  // exactly one queue for the whole tab, so a stray previous utterance finishing mid-speech while a
+  // new one starts would otherwise overlap audibly.
+  const speechSynthSupported=typeof window!=="undefined"&&!!window.speechSynthesis;
+  const toggleSpeak=useCallback((text,idx)=>{
+    if(!speechSynthSupported)return;
+    window.speechSynthesis.cancel();
+    if(speakingIdx===idx){setSpeakingIdx(null);return;}
+    const utter=new SpeechSynthesisUtterance(text);
+    utter.rate=1.02;
+    utter.onend=()=>setSpeakingIdx(i=>i===idx?null:i);
+    utter.onerror=()=>setSpeakingIdx(i=>i===idx?null:i);
+    window.speechSynthesis.speak(utter);
+    setSpeakingIdx(idx);
+  },[speakingIdx,speechSynthSupported]);
+
   const stopGenerating=useCallback(()=>{abortRef.current?.abort();},[]);
 
-  const startNewChat=useCallback(()=>{setActiveAskChatId(null);setHistoryOpen(false);setExamples(pickAskAIExamples());setError("");setAttachedImages([]);setAttachError("");},[setActiveAskChatId]);
+  const startNewChat=useCallback(()=>{window.speechSynthesis?.cancel();setSpeakingIdx(null);setActiveAskChatId(null);setHistoryOpen(false);setExamples(pickAskAIExamples());setError("");setAttachedImages([]);setAttachError("");},[setActiveAskChatId]);
   const deleteChat=useCallback((id,e)=>{
     e?.stopPropagation();
+    if(activeAskChatId===id){window.speechSynthesis?.cancel();setSpeakingIdx(null);}
     setAskChats(prev=>prev.filter(c=>c.id!==id));
     if(activeAskChatId===id)setActiveAskChatId(null);
   },[activeAskChatId,setAskChats,setActiveAskChatId]);
@@ -868,6 +896,12 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
                         style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:"2px 4px",fontFamily:T.font}}>
                         <Icon name={copiedIdx===i?"check":"copy"} size={12} color={T.textMuted}/> {copiedIdx===i?"Copied":"Copy"}
                       </button>
+                      {speechSynthSupported&&(
+                        <button onClick={()=>toggleSpeak(m.text,i)} title={speakingIdx===i?"Stop":"Read aloud"}
+                          style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:speakingIdx===i?T.accent:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:"2px 4px",fontFamily:T.font}}>
+                          <Icon name={speakingIdx===i?"volume-x":"volume"} size={12} color={speakingIdx===i?T.accent:T.textMuted}/> {speakingIdx===i?"Stop":"Read aloud"}
+                        </button>
+                      )}
                       {!loading&&(
                         <button onClick={()=>resendFrom(i-1)} title="Regenerate response"
                           style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:"2px 4px",fontFamily:T.font}}>

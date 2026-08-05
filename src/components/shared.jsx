@@ -451,6 +451,12 @@ export const Icon=({name,size=18,color="currentColor",style})=>{
     // as everything above.
     case"mic":return<svg {...p}><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M8.5 21h7"/></svg>;
     case"stop":return<svg {...p}><rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill={color} stroke="none"/></svg>;
+    // Read-aloud toggle (2026-08-19, per Mo's "move the voice feature over" from VaultHQ — the
+    // OTHER half of voice: this app already had mic/dictation, VaultHQ's chat additionally offered
+    // SpeechSynthesis playback of an assistant answer). "volume" = idle/available, "volume-x" = the
+    // same button while THIS message is actively playing (click again to stop).
+    case"volume":return<svg {...p}><path d="M5 10v4h3.5L13 17.5v-11L8.5 10Z"/><path d="M16.5 9.5a4 4 0 0 1 0 5"/></svg>;
+    case"volume-x":return<svg {...p}><path d="M5 10v4h3.5L13 17.5v-11L8.5 10Z"/><path d="M16 9.5l4 4"/><path d="M20 9.5l-4 4"/></svg>;
     case"copy":return<svg {...p}><rect x="8.5" y="8.5" width="11.5" height="11.5" rx="1.5"/><path d="M15.5 8.5V5.5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1V15a1 1 0 0 0 1 1h3"/></svg>;
     case"paperclip":return<svg {...p}><path d="M20 11.5 12.5 19a4 4 0 0 1-5.7-5.7L14.6 5.6a2.7 2.7 0 0 1 3.8 3.8l-7.9 7.9a1.4 1.4 0 0 1-2-2l6.9-6.9"/></svg>;
     // Regenerate/edit (2026-07-29, per Mo — "build them all" follow-up: redo an answer, edit a
