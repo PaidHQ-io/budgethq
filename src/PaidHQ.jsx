@@ -1705,15 +1705,66 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // /api/spend itself is untouched (still returns rows for review before the debounced whole-
   // dataset PUT persists them, same as always), this just calls it once per SYNC_CHUNK_DAYS-day
   // window instead of once for the whole range, merging each chunk's rows in as they arrive.
-  const syncPlatform=useCallback(async(platformKey)=>{
+  // Connector table's "Import start date"/"Import end date" columns (2026-07-24) — per Mo, these
+  // are read-only and auto-computed from sync history rather than a separate editable field: the
+  // earliest/latest date among the rows THIS connector actually pulled (source==="sync:<provider>"),
+  // read from the raw mergedNormRows (not visibleNormRows) so the range still shows correctly while
+  // a connector is excluded — excluding shouldn't make its own history disappear from its own row.
+  // Caveat worth knowing: rows synced before this shipped never got a `source` tag, so an
+  // already-connected provider shows "—" here until its next sync backfills the tag. Declared here
+  // (moved 2026-08-05, was originally further down near visibleNormRows) because syncPlatform below
+  // now reads it to compute an incremental sync's start date — useCallback's dependency array is
+  // evaluated during render, so referencing a const declared LATER in this function would throw
+  // "Cannot access before initialization"; this has to come first.
+  const importDateRangeByProvider=useMemo(()=>{
+    const map={};
+    mergedNormRows.forEach(r=>{
+      if(!r.source||!r.date)return;
+      const provider=r.source.replace(/^sync:/,"");
+      if(provider===r.source)return; // wasn't a "sync:" tag at all
+      if(!map[provider])map[provider]={start:r.date,end:r.date};
+      else{
+        if(r.date<map[provider].start)map[provider].start=r.date;
+        if(r.date>map[provider].end)map[provider].end=r.date;
+      }
+    });
+    return map;
+  },[mergedNormRows]);
+
+  const syncPlatform=useCallback(async(platformKey,opts)=>{
     if(!canEdit)return;
     // Belt-and-suspenders alongside the sync bar disabling a paused connector's button (see
     // PLATFORMS.map's clickable/handleClick below) — blocks it here too in case this ever gets
     // called from somewhere else that doesn't check first.
     const pausedConn=connectionDetails.find(c=>c.provider===platformKey);
     if(pausedConn?.paused){showNotif(`${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} is paused — resume it in Data Sources before syncing.`);return;}
+    // Incremental by default (2026-08-05, per Mo — "I don't want to have to download the same data
+    // over and over again... I want to append the data to what's already there"): Sync now used to
+    // always re-walk the ENTIRE syncDateRange (the date picker above the Connections table, e.g.
+    // Jan 1 -> today) in 7-day chunks every single click, no matter how much of that range this
+    // platform already has data for — a platform that's been syncing daily since day one still
+    // redid dozens of redundant chunk requests re-fetching months already sitting in
+    // core.spend_rows untouched. Now the chunk loop's start date clamps forward to the day after
+    // this platform's own latest known date (importDateRangeByProvider — the same value the
+    // Connections table's Import End column reads), so a routine Sync now only pulls what's
+    // actually new. Pass {forceFull:true} (wired to the ⋯ menu's "Full resync" item) to bypass
+    // this and walk the whole picker range anyway — still needed for a genuine backfill/repair
+    // (e.g. after reconnecting an account, or a historical data cleanup).
+    const knownEnd=importDateRangeByProvider[platformKey]?.end;
+    // Parses the y/m/d components directly and builds a local Date from them, rather than
+    // `new Date(isoString)` (which parses a bare "YYYY-MM-DD" as UTC midnight) + setDate (which
+    // reads/writes in LOCAL time) — that mismatch silently shifts the result by a day in any
+    // timezone behind UTC, which would make an already-fully-synced platform (knownEnd === today)
+    // compute effectiveStart === today instead of tomorrow, re-pulling today's data as if it were
+    // still missing on every single Sync now click.
+    const dayAfter=iso=>{const[y,m,d]=iso.split("-").map(Number);return localISODate(new Date(y,m-1,d+1));};
+    const effectiveStart=(!opts?.forceFull&&knownEnd&&dayAfter(knownEnd)>syncDateRange.start)?dayAfter(knownEnd):syncDateRange.start;
+    if(effectiveStart>syncDateRange.end){
+      showNotif(`${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} is already up to date through ${syncDateRange.end} — nothing new to pull.`);
+      return;
+    }
     setSyncState(p=>({...p,[platformKey]:"loading"}));
-    const chunks=splitDateRangeIntoChunks(syncDateRange.start,syncDateRange.end,SYNC_CHUNK_DAYS);
+    const chunks=splitDateRangeIntoChunks(effectiveStart,syncDateRange.end,SYNC_CHUNK_DAYS);
     let totalRows=0;
     let lastEffectiveEndDate=null;
     try{
@@ -1759,7 +1810,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       const adjustedNote=lastEffectiveEndDate&&lastEffectiveEndDate!==syncDateRange.end
         ?` — synced through ${lastEffectiveEndDate} (no data yet for ${lastEffectiveEndDate} to ${syncDateRange.end})`
         :"";
-      showNotif(`Loaded ${totalRows} ${platformKey} campaigns — merged with existing data${adjustedNote}`);
+      // Only worth telling the user this pulled a narrower range than the picker shows when it
+      // actually did (effectiveStart clamped forward past syncDateRange.start) — a forced full
+      // resync or a platform with no prior data still starts exactly where the picker says.
+      const incrementalNote=effectiveStart!==syncDateRange.start?` (resumed from ${effectiveStart}, already had data before that)`:"";
+      showNotif(`Loaded ${totalRows} ${platformKey} campaigns — merged with existing data${adjustedNote}${incrementalNote}`);
     }catch(e){
       setSyncState(p=>({...p,[platformKey]:"error:"+e.message}));
       // 2026-07-31, per Mo — a failed sync used to only leave a small red line above the
@@ -1769,7 +1824,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       // that inline line — just makes the failure impossible to miss in the moment it happens.
       showNotif(`${PLATFORMS.find(p=>p.key===platformKey)?.label||platformKey} sync failed — ${e.message}`,"error");
     }
-  },[syncDateRange,checkpoint,workspace?.id,session?.access_token,connectionDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[syncDateRange,checkpoint,workspace?.id,session?.access_token,connectionDetails,importDateRangeByProvider]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Google Sheets spend pull ────────────────────────────────────────────────────────────────
   // Deliberately NOT the same "stored credential, click Sync" shape as Funnel/Supermetrics above
@@ -2174,28 +2229,6 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     if(excludedProviders.size===0)return mergedNormRows;
     return mergedNormRows.filter(r=>!r.source||!excludedProviders.has(r.source.replace(/^sync:/,"")));
   },[mergedNormRows,excludedProviders]);
-
-  // Connector table's "Import start date"/"Import end date" columns (2026-07-24) — per Mo, these
-  // are read-only and auto-computed from sync history rather than a separate editable field: the
-  // earliest/latest date among the rows THIS connector actually pulled (source==="sync:<provider>"),
-  // read from the raw mergedNormRows (not visibleNormRows) so the range still shows correctly while
-  // a connector is excluded — excluding shouldn't make its own history disappear from its own row.
-  // Caveat worth knowing: rows synced before this shipped never got a `source` tag, so an
-  // already-connected provider shows "—" here until its next sync backfills the tag.
-  const importDateRangeByProvider=useMemo(()=>{
-    const map={};
-    mergedNormRows.forEach(r=>{
-      if(!r.source||!r.date)return;
-      const provider=r.source.replace(/^sync:/,"");
-      if(provider===r.source)return; // wasn't a "sync:" tag at all
-      if(!map[provider])map[provider]={start:r.date,end:r.date};
-      else{
-        if(r.date<map[provider].start)map[provider].start=r.date;
-        if(r.date>map[provider].end)map[provider].end=r.date;
-      }
-    });
-    return map;
-  },[mergedNormRows]);
 
   // "key" is the composite identity (campaign group + campaign) used everywhere tags/selection
   // are looked up — ad set/ad group names often repeat across different campaigns, so the leaf
@@ -3978,6 +4011,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                         <div style={{position:"fixed",top:connActionsMenuAnchorRect.bottom+6,left:Math.max(8,connActionsMenuAnchorRect.right-220),zIndex:1000,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
                           {!conn.paused&&!conn.needsReconnect&&!conn.needsAccountSelection&&(
                             <button onClick={()=>{closeConnActionsMenu();syncPlatform(pl.key);}} disabled={!canEdit||syncing} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit&&!syncing?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!syncing?1:0.5}}>{syncing?"Syncing…":"Sync now"}</button>
+                          )}
+                          {/* Full resync (2026-08-05, per Mo) — bypasses syncPlatform's new default
+                              incremental clamp (see that function's doc comment) and re-walks the
+                              WHOLE picker range from scratch, even days already synced. For a
+                              genuine backfill/repair, not routine use — "Sync now" above covers
+                              every normal case now that it only pulls what's actually new. */}
+                          {!conn.paused&&!conn.needsReconnect&&!conn.needsAccountSelection&&(
+                            <button onClick={()=>{closeConnActionsMenu();syncPlatform(pl.key,{forceFull:true});}} disabled={!canEdit||syncing} className="bhq-row" title="Re-pulls the entire selected date range from scratch, even days already synced — for backfills/repairs, not routine use." style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.textSub,fontSize:13*(T.fsScale||1),cursor:canEdit&&!syncing?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!syncing?1:0.5}}>{syncing?"Syncing…":"Full resync"}</button>
                           )}
                           {conn.needsAccountSelection&&(
                             <button onClick={()=>{closeConnActionsMenu();openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
