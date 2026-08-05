@@ -401,7 +401,11 @@ export const MONTH_MAP={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",ju
 // falls back to it for platforms/exports that don't have a second level of breakdown, so
 // nothing breaks for data that predates this two-level model.
 export const REQUIRED_COLS=["campaign_group_name","spend","date"];
-export const OPTIONAL_COLS=["campaign_name","platform","campaign_type","impressions","clicks","campaign_id","adset_id"];
+// ad_name (2026-08-19, per Mo — Reddit/6sense report ad-level spend only via CSV/manual export,
+// unlike LinkedIn/Meta which now pull it live — see linkedin.js/meta.js): optional, same "leave
+// unmapped if this file doesn't have it" treatment as every other optional column. Column position
+// (last) mirrors OPTIONAL_COLS' existing "least universally present first-class field" ordering.
+export const OPTIONAL_COLS=["campaign_name","platform","campaign_type","impressions","clicks","campaign_id","adset_id","ad_name"];
 // campaign_type: the platform's own authoritative type field (Google Ads' "Campaign type" column
 // — Search/Display/Demand Gen/Performance Max/Video) when the export has one. This is trusted
 // over name-based guessing in derivePlatform() below, since naming conventions are ambiguous —
@@ -434,8 +438,8 @@ export const OPTIONAL_COLS=["campaign_name","platform","campaign_type","impressi
 // /^clicks?$/i never caught it), plus any other "___ clicks" variant (e.g. "Unique clicks"), while
 // still excluding "per"/"rate" so "Cost per link click" and "Click-through rate (CTR)" — a cost
 // metric and a percentage, not a click count — can never win this slot.
-export const COL_PATTERNS={campaign_group_name:/^(?!.*status)campaign.?group/i,campaign_name:/^(?!.*status)(ad.?set|ad.?group)/i,spend:/(?!.*\bper\b)(cost|spend|amount)/i,date:/^date$|^day$|^month$|reporting\s*start/i,platform:/platform|traffic.source|channel|source/i,campaign_type:/campaign.?type/i,impressions:/^impr?\.?$|impression/i,clicks:/(?!.*\bper\b)(?!.*\brate\b)\bclicks?\b/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i};
-export const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campaign Name (Ad Set / Ad Group)",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",campaign_type:"Campaign Type (Search/Display/Demand Gen)",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID"};
+export const COL_PATTERNS={campaign_group_name:/^(?!.*status)campaign.?group/i,campaign_name:/^(?!.*status)(ad.?set|ad.?group)/i,spend:/(?!.*\bper\b)(cost|spend|amount)/i,date:/^date$|^day$|^month$|reporting\s*start/i,platform:/platform|traffic.source|channel|source/i,campaign_type:/campaign.?type/i,impressions:/^impr?\.?$|impression/i,clicks:/(?!.*\bper\b)(?!.*\brate\b)\bclicks?\b/i,campaign_id:/campaign.*id/i,adset_id:/ad.?set.*id|ad.?group.*id/i,ad_name:/ad.?name|creative.?name/i};
+export const COL_LABELS={campaign_group_name:"Campaign Group Name",campaign_name:"Campaign Name (Ad Set / Ad Group)",spend:"Spend / Cost",date:"Date",platform:"Platform / Traffic Source",campaign_type:"Campaign Type (Search/Display/Demand Gen)",impressions:"Impressions",clicks:"Clicks",campaign_id:"Campaign ID",adset_id:"Ad Set ID",ad_name:"Ad Name (Ad / Creative)"};
 // Composite identity key — ad set / ad group names often repeat across different campaigns
 // (e.g. two campaigns both have a "Retargeting" ad set), so tagging and dedup identity must
 // combine both levels, not just the leaf name alone.
@@ -503,7 +507,7 @@ export const PLATFORM_COLORS={LinkedIn:"#0a66c2","Google Search":"#4285f4","Goog
 // Tagger's Channel column editor too. Moved here from a local PaidHQ.jsx const so both surfaces share
 // exactly one list instead of two copies that could drift ("auto" excluded by both callers — it's
 // PaidHQ.jsx's own derivePlatform() sentinel for "not yet resolved," never a real value to pick).
-export const PLATFORM_OPTIONS=["auto","Google","Meta","LinkedIn","Bing","Capterra","Reddit","Pinterest","TikTok","YouTube","Other"];
+export const PLATFORM_OPTIONS=["auto","Google","Meta","LinkedIn","Bing","Capterra","Reddit","6sense","Pinterest","TikTok","YouTube","Other"];
 // Applied-tag pill colors in the Tagger — a plain white/grey pill read as too flat to spot at a
 // glance, so pills use a tinted "selected chip" treatment (light background + colored border/text)
 // instead of a flat outline, with a distinct color PER TAG DIMENSION (Product/Module/Brand/etc. each
@@ -759,6 +763,10 @@ export function normalizeRows(rows,colMap){
       date:String(row[colMap.date]||"").trim(),
       impressions:parseInt(String(row[colMap.impressions]||"0").replace(/,/g,""))||0,
       clicks:parseInt(String(row[colMap.clicks]||"0").replace(/,/g,""))||0,
+      // ad_name (2026-08-19): optional, left "" when this file has no ad-level column — matches
+      // spendRowKey's own "empty string when absent" convention so pre-existing non-ad-level
+      // imports keep byte-identical dedup keys.
+      ad_name:(row[colMap.ad_name]||"").trim(),
     };
   }).filter(r=>r.campaign_group_name&&r.spend>0);
 }

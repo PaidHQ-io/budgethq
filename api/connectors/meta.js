@@ -13,6 +13,15 @@
  * Meta's hierarchy is Campaign > Ad Set > Ad. PaidHQ's two-level model (campaign_group_name /
  * campaign_name) maps Campaign -> campaign_group_name and Ad Set -> campaign_name, the same
  * correspondence LinkedIn's connector uses (LinkedIn Campaign Group -> Campaign).
+ *
+ * AD-LEVEL PULL (2026-08-19, per Mo — bringing ad-level granularity into paid social so ads can be
+ * tagged by dimension, not just campaigns/ad sets): level=ad instead of level=adset, with
+ * ad_name/ad_id added to fields. Unlike LinkedIn, Meta's Insights endpoint returns every requested
+ * breakdown field (campaign, ad set, AND ad) together on the same row per ad per day — no extra
+ * per-ID resolution calls needed, since Meta already resolves names server-side for whatever level
+ * you request. campaign_group_name/campaign_name keep mapping to Campaign/Ad Set exactly as
+ * before; ad_name/ad_id are new, additive fields (see spendRowsColumns.js's doc comment for the
+ * shared core.spend_rows columns both this and linkedin.js now populate).
  */
 
 const GRAPH_VERSION = "v21.0";
@@ -54,19 +63,21 @@ export async function getSpend({ startDate, endDate, credential }) {
   if (!token) throw new Error("This workspace hasn't connected Meta yet — connect this workspace's Meta account.");
   if (!accountId) throw new Error("No Meta ad account selected yet for this workspace — pick one to finish connecting.");
 
-  // level=adset + time_increment=1: one row per ad set per real calendar day, not a range total —
+  // level=ad + time_increment=1: one row per AD per real calendar day, not a range total —
   // PaidHQ's pacing engine (computePlatformFreshness/computePacing in src/PaidHQ.jsx) assumes
   // "live-synced" platforms report true day-by-day data and derives each platform's projection off
   // the most recent date it actually has spend for. A range-total or monthly-grain response here
   // would hit the exact same overstated-projection bug LinkedIn's connector already documents
   // having fixed (see linkedin.js's fetchAnalytics doc comment) — time_increment=1 avoids it from
-  // the start rather than needing the same fix applied twice.
+  // the start rather than needing the same fix applied twice. Was level=adset before the 2026-08-19
+  // ad-level pull — bumping the level (not just adding fields) is what actually returns one row per
+  // ad instead of one row per ad set with ad_name/ad_id blank.
   const params = new URLSearchParams({
     access_token: token,
-    level: "adset",
+    level: "ad",
     time_increment: "1",
     time_range: JSON.stringify({ since: startDate, until: endDate }),
-    fields: "campaign_name,campaign_id,adset_name,adset_id,spend,impressions,clicks,date_start",
+    fields: "campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id,spend,impressions,clicks,date_start",
     limit: "250",
   });
   const firstUrl = `${GRAPH_BASE}/${accountId}/insights?${params.toString()}`;
@@ -78,6 +89,8 @@ export async function getSpend({ startDate, endDate, credential }) {
       campaign_group_name: r.campaign_name || `Campaign ${r.campaign_id}`,
       campaign_name: r.adset_name || `Ad Set ${r.adset_id}`,
       campaign_id: r.adset_id || r.campaign_id,
+      ad_name: r.ad_name || (r.ad_id ? `Ad ${r.ad_id}` : null),
+      ad_id: r.ad_id || null,
       platform: "Meta",
       date: r.date_start || null,
       spend: Math.round(parseFloat(r.spend || "0") * 100) / 100,
