@@ -99,6 +99,70 @@ function parseDataFile(file){
   });
 }
 
+// Native PDF ingestion (2026-08-19, ported from VaultHQ's chat — the one attachment type
+// deliberately NOT text-extracted client-side: Anthropic's Messages API has a native "document"
+// content block for PDFs that reads layout/tables/images directly, far better than scraping text
+// out of it ourselves would. Kept as its own attachedPdfs array (not folded into attachedDocs)
+// since the two attach completely differently — a doc becomes plain text prepended to the
+// question, a PDF becomes its own content block alongside any image blocks (see runTurn).
+//
+// Cap is much tighter than images' 12MB: an image gets client-side resized/JPEG-recompressed
+// before it's ever sent (see resizeImageFile above), typically shrinking to a few hundred KB
+// regardless of the source file's size — a PDF has no equivalent step, its full base64-encoded
+// bytes go straight into the request body. workspaceApi.js's own doc comments already document
+// hitting Vercel's hard 4.5MB serverless function request body limit in practice (see
+// uploadFileViaBlob's doc comment) — /api/analyze doesn't have that route's Blob-upload
+// workaround, so this needs real headroom under 4.5MB even before accounting for the ~33% base64
+// inflation AND every other attachment/history block riding in the same request.
+const ASK_AI_MAX_PDFS=1;
+const ASK_AI_PDF_MAX_SOURCE_BYTES=3*1024*1024;
+function readPdfFile(file){
+  return new Promise((resolve,reject)=>{
+    if(file.size>ASK_AI_PDF_MAX_SOURCE_BYTES){reject(new Error(`${file.name||"PDF"} is too large (max 3MB)`));return;}
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error(`Couldn't read ${file.name||"that PDF"}`));
+    reader.onload=e=>resolve({name:file.name,dataUrl:e.target.result});
+    reader.readAsDataURL(file);
+  });
+}
+
+// DOCX/PPTX text extraction (2026-08-19, ported from VaultHQ's chat) — Anthropic's API has no
+// native docx/pptx content block (only PDF and images, see the PDF note above), so these get
+// folded into the SAME plain-text-context path attachedDocs/parseDataFile already uses for
+// CSV/XLSX rather than getting their own array — from the model's point of view they're just more
+// "[Attached file: name]\n<text>" context, the extraction method (spreadsheet-to-CSV vs.
+// docx/pptx-to-text) is an implementation detail on this side only.
+// mammoth/JSZip are dynamically imported here rather than statically at the top of this file —
+// same lazy-load principle askAI.js's create_asset tool already applies to vaultExport.js: every
+// OTHER Ask AI turn (the overwhelming majority, no docx/pptx ever attached) shouldn't pay for
+// these libraries in its initial bundle.
+async function extractDocxText(file){
+  const{default:mammoth}=await import("mammoth");
+  const buf=await file.arrayBuffer();
+  const result=await mammoth.extractRawText({arrayBuffer:buf});
+  return{name:file.name,text:`Document: ${file.name}\n\n${result.value}`};
+}
+
+// A pptx is a zip of per-slide XML files — good-enough text extraction is unzipping and pulling
+// every <a:t> run out of each slide in order, same approach VaultHQ's own extractPptxText uses,
+// rather than pulling in a full pptx-parsing library just to read text back out.
+async function extractPptxText(file){
+  const{default:JSZip}=await import("jszip");
+  const buf=await file.arrayBuffer();
+  const zip=await JSZip.loadAsync(buf);
+  const slideFiles=Object.keys(zip.files)
+    .filter(n=>/^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a,b)=>(parseInt(a.match(/\d+/)[0],10)-parseInt(b.match(/\d+/)[0],10)));
+  const slides=[];
+  for(const name of slideFiles){
+    const xml=await zip.files[name].async("text");
+    const runs=[...xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map(m=>m[1]).join(" ");
+    slides.push(runs.trim());
+  }
+  const body=slides.map((s,i)=>`Slide ${i+1}: ${s||"(no text)"}`).join("\n");
+  return{name:file.name,text:`Presentation: ${file.name} (${slides.length} slides)\n\n${body}`};
+}
+
 // src/components/AskAI.jsx — Ask AI tab (2026-07-25 split, per Mo). Includes the example-
 // prompt pool and chat-sidebar grouping helper, since both are only ever used here.
 
@@ -183,7 +247,8 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
   const[examples,setExamples]=useState(pickAskAIExamples);
   const[model,setModel]=useState(loadStoredModel);
   const[attachedImages,setAttachedImages]=useState([]); // [{mediaType,dataUrl}] — pending, not yet sent
-  const[attachedDocs,setAttachedDocs]=useState([]); // [{name,text}] — pending CSV/XLSX context, not yet sent
+  const[attachedPdfs,setAttachedPdfs]=useState([]); // [{name,dataUrl}] — pending, sent as native document blocks (see runTurn)
+  const[attachedDocs,setAttachedDocs]=useState([]); // [{name,text}] — pending CSV/XLSX/DOCX/PPTX context, not yet sent
   const[attachError,setAttachError]=useState("");
   const[recording,setRecording]=useState(false);
   const[copiedIdx,setCopiedIdx]=useState(null);
@@ -244,7 +309,13 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
     if(!files.length)return;
     setAttachError("");
     const imageFiles=files.filter(f=>f.type?.startsWith("image/"));
-    const docFiles=files.filter(f=>!f.type?.startsWith("image/")&&/\.(csv|xlsx|xls)$/i.test(f.name||""));
+    const pdfFiles=files.filter(f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name||""));
+    const tabularFiles=files.filter(f=>!f.type?.startsWith("image/")&&/\.(csv|xlsx|xls)$/i.test(f.name||""));
+    const docxFiles=files.filter(f=>/\.docx$/i.test(f.name||""));
+    const pptxFiles=files.filter(f=>/\.pptx$/i.test(f.name||""));
+    // tabular/docx/pptx all fold into the same attachedDocs text-context bucket — see
+    // extractDocxText/extractPptxText's doc comment for why.
+    const docFiles=[...tabularFiles,...docxFiles,...pptxFiles];
     const imgRoom=ASK_AI_MAX_IMAGES-attachedImages.length;
     if(imageFiles.length&&imgRoom<=0)setAttachError(`Up to ${ASK_AI_MAX_IMAGES} images per message`);
     for(const file of imageFiles.slice(0,Math.max(0,imgRoom))){
@@ -253,16 +324,28 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
         setAttachedImages(prev=>[...prev,img]);
       }catch(err){setAttachError(err.message);}
     }
+    const pdfRoom=ASK_AI_MAX_PDFS-attachedPdfs.length;
+    if(pdfFiles.length&&pdfRoom<=0)setAttachError(`Up to ${ASK_AI_MAX_PDFS} PDF${ASK_AI_MAX_PDFS===1?"":"s"} per message`);
+    for(const file of pdfFiles.slice(0,Math.max(0,pdfRoom))){
+      try{
+        const pdf=await readPdfFile(file);
+        setAttachedPdfs(prev=>[...prev,pdf]);
+      }catch(err){setAttachError(err.message);}
+    }
     const docRoom=ASK_AI_MAX_DOCS-attachedDocs.length;
     if(docFiles.length&&docRoom<=0)setAttachError(`Up to ${ASK_AI_MAX_DOCS} files per message`);
     for(const file of docFiles.slice(0,Math.max(0,docRoom))){
       try{
-        const doc=await parseDataFile(file);
+        let doc;
+        if(/\.docx$/i.test(file.name||""))doc=await extractDocxText(file);
+        else if(/\.pptx$/i.test(file.name||""))doc=await extractPptxText(file);
+        else doc=await parseDataFile(file);
         setAttachedDocs(prev=>[...prev,doc]);
       }catch(err){setAttachError(err.message);}
     }
-  },[attachedImages.length,attachedDocs.length]);
+  },[attachedImages.length,attachedPdfs.length,attachedDocs.length]);
   const removeAttachedImage=useCallback(i=>{setAttachedImages(prev=>prev.filter((_,idx)=>idx!==i));},[]);
+  const removeAttachedPdf=useCallback(i=>{setAttachedPdfs(prev=>prev.filter((_,idx)=>idx!==i));},[]);
   const removeAttachedDoc=useCallback(i=>{setAttachedDocs(prev=>prev.filter((_,idx)=>idx!==i));},[]);
   const handlePaste=useCallback(e=>{
     const items=Array.from(e.clipboardData?.items||[]);
@@ -336,7 +419,7 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
 
   const stopGenerating=useCallback(()=>{abortRef.current?.abort();},[]);
 
-  const startNewChat=useCallback(()=>{window.speechSynthesis?.cancel();setSpeakingIdx(null);setActiveAskChatId(null);setHistoryOpen(false);setExamples(pickAskAIExamples());setError("");setAttachedImages([]);setAttachError("");},[setActiveAskChatId]);
+  const startNewChat=useCallback(()=>{window.speechSynthesis?.cancel();setSpeakingIdx(null);setActiveAskChatId(null);setHistoryOpen(false);setExamples(pickAskAIExamples());setError("");setAttachedImages([]);setAttachedPdfs([]);setAttachedDocs([]);setAttachError("");},[setActiveAskChatId]);
   const deleteChat=useCallback((id,e)=>{
     e?.stopPropagation();
     if(activeAskChatId===id){window.speechSynthesis?.cancel();setSpeakingIdx(null);}
@@ -354,18 +437,25 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
   // slices back to). Docs are folded into the question text as clearly-marked extra context per
   // askAIRun's system prompt, rather than becoming their own content blocks like images — there's
   // no "document" block type in the images/text vision shape this already uses.
-  const runTurn=useCallback(async({chatId,priorMessages,priorHistory,questionText,imgs,docs})=>{
+  const runTurn=useCallback(async({chatId,priorMessages,priorHistory,questionText,imgs,pdfs,docs})=>{
     const docsText=(docs||[]).map(d=>`\n\n[Attached file: ${d.name}]\n${d.text}`).join("");
-    const newMessages=[...priorMessages,{role:"user",text:questionText,...(imgs?.length?{images:imgs}:{}),...(docs?.length?{docs}:{}),historyMark:priorHistory.length}];
+    const newMessages=[...priorMessages,{role:"user",text:questionText,...(imgs?.length?{images:imgs}:{}),...(pdfs?.length?{pdfs}:{}),...(docs?.length?{docs}:{}),historyMark:priorHistory.length}];
     setAskChats(prev=>prev.map(c=>c.id===chatId?{...c,messages:newMessages,updatedAt:Date.now()}:c));
     setLoading(true);
     setStreamingText("");
-    // Images attach as their own content blocks ahead of the text block, per Anthropic's vision
-    // message shape — askAIRun passes this straight through to /api/analyze untouched (see its own
-    // doc comment: it stays a dumb pass-through for anything content-block-shaped) rather than
-    // needing to know anything about File objects or canvas resizing itself.
-    const questionContent=imgs?.length
-      ?[...imgs.map(img=>({type:"image",source:{type:"base64",media_type:img.mediaType,data:img.dataUrl.split(",")[1]}})),{type:"text",text:(questionText||"What's in this image?")+docsText}]
+    // Images/PDFs attach as their own content blocks ahead of the text block, per Anthropic's
+    // vision/document message shape — askAIRun passes this straight through to /api/analyze
+    // untouched (see its own doc comment: it stays a dumb pass-through for anything
+    // content-block-shaped) rather than needing to know anything about File objects, canvas
+    // resizing, or PDFs itself. PDFs use the native "document" block type (2026-08-19, ported from
+    // VaultHQ) — see readPdfFile's doc comment for why this is native rather than text-extracted
+    // the way DOCX/PPTX (folded into docsText below) are.
+    const questionContent=(imgs?.length||pdfs?.length)
+      ?[
+          ...(imgs||[]).map(img=>({type:"image",source:{type:"base64",media_type:img.mediaType,data:img.dataUrl.split(",")[1]}})),
+          ...(pdfs||[]).map(pdf=>({type:"document",source:{type:"base64",media_type:"application/pdf",data:pdf.dataUrl.split(",")[1]}})),
+          {type:"text",text:(questionText||(imgs?.length?"What's in this image?":"What's in this document?"))+docsText},
+        ]
       :(questionText||"")+docsText;
     const controller=new AbortController();
     abortRef.current=controller;
@@ -404,11 +494,12 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
   const send=useCallback(async(question)=>{
     const q=(question||input).trim();
     const imgs=attachedImages;
+    const pdfs=attachedPdfs;
     const docs=attachedDocs;
-    if((!q&&!imgs.length)||loading||sendingRef.current)return;
+    if((!q&&!imgs.length&&!pdfs.length)||loading||sendingRef.current)return;
     sendingRef.current=true;
     try{
-      setInput("");setError("");setAttachedImages([]);setAttachedDocs([]);setAttachError("");
+      setInput("");setError("");setAttachedImages([]);setAttachedPdfs([]);setAttachedDocs([]);setAttachError("");
       let chatId=activeAskChatId;
       let priorMessages=[];
       let priorHistory=[];
@@ -418,15 +509,15 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
         priorHistory=existing?.history||[];
       }else{
         chatId=`chat_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-        const title=q?(q.length>60?q.slice(0,57)+"…":q):"(image)";
+        const title=q?(q.length>60?q.slice(0,57)+"…":q):(imgs.length?"(image)":"(PDF)");
         setAskChats(prev=>[{id:chatId,title,messages:[],history:[],updatedAt:Date.now(),pinned:false,projectId:null,labels:[]},...prev]);
         setActiveAskChatId(chatId);
       }
-      await runTurn({chatId,priorMessages,priorHistory,questionText:q,imgs,docs});
+      await runTurn({chatId,priorMessages,priorHistory,questionText:q,imgs,pdfs,docs});
     }finally{
       sendingRef.current=false;
     }
-  },[input,attachedImages,attachedDocs,loading,activeAskChatId,askChats,setAskChats,setActiveAskChatId,runTurn]);
+  },[input,attachedImages,attachedPdfs,attachedDocs,loading,activeAskChatId,askChats,setAskChats,setActiveAskChatId,runTurn]);
 
   // Regenerate (same question, fresh answer) and edit-and-resend (changed question, fresh answer)
   // share this one function — both mean "throw away everything from this user turn onward and
@@ -450,7 +541,7 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
       const priorMessages=existing.messages.slice(0,userIdx);
       const priorHistory=(existing.history||[]).slice(0,userMsg.historyMark||0);
       const questionText=newText!=null?newText:(userMsg.text||"");
-      await runTurn({chatId,priorMessages,priorHistory,questionText,imgs:userMsg.images,docs:userMsg.docs});
+      await runTurn({chatId,priorMessages,priorHistory,questionText,imgs:userMsg.images,pdfs:userMsg.pdfs,docs:userMsg.docs});
     }finally{
       sendingRef.current=false;
     }
@@ -736,17 +827,24 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
   // both are "add something before you send" actions, not send-adjacent ones. The send button
   // itself swaps to a Stop (square) icon while a request is in flight, same position — one button,
   // two meanings depending on state, rather than two separate buttons fighting for that spot.
-  const canSend=(input.trim()||attachedImages.length>0)&&!loading;
+  const canSend=(input.trim()||attachedImages.length>0||attachedPdfs.length>0)&&!loading;
   const composer=(
     <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
       style={{display:"flex",flexDirection:"column",gap:0,background:T.surface,border:`1px solid ${dragActive?T.accent:T.borderStrong}`,borderRadius:T.r22,padding:"8px 8px 8px 12px",boxShadow:T.shadowMd,transition:"border-color 0.1s"}}>
-      {(attachedImages.length>0||attachedDocs.length>0)&&(
+      {(attachedImages.length>0||attachedPdfs.length>0||attachedDocs.length>0)&&(
         <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"4px 8px 8px"}}>
           {attachedImages.map((img,i)=>(
             <div key={`img_${i}`} style={{position:"relative",width:52,height:52,borderRadius:T.r8,overflow:"hidden",border:`1px solid ${T.border}`,flexShrink:0}}>
               <img src={img.dataUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
               <button onClick={()=>removeAttachedImage(i)} title="Remove"
                 style={{position:"absolute",top:1,right:1,width:16,height:16,borderRadius:"50%",background:"rgba(0,0,0,0.65)",border:"none",color:"#fff",fontSize:10*(T.fsScale||1),lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>✕</button>
+            </div>
+          ))}
+          {attachedPdfs.map((pdf,i)=>(
+            <div key={`pdf_${i}`} title={pdf.name} style={{display:"flex",alignItems:"center",gap:5,height:30,padding:"0 8px",borderRadius:T.r8,border:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0,maxWidth:160}}>
+              <span style={{fontSize:11*(T.fsScale||1),color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:T.font}}>{pdf.name}</span>
+              <button onClick={()=>removeAttachedPdf(i)} title="Remove"
+                style={{width:14,height:14,borderRadius:"50%",background:"transparent",border:"none",color:T.textMuted,fontSize:10*(T.fsScale||1),lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>✕</button>
             </div>
           ))}
           {attachedDocs.map((doc,i)=>(
@@ -760,10 +858,10 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
       )}
       {attachError&&<div style={{padding:"0 8px 6px",fontSize:11*(T.fsScale||1),color:T.danger}}>{attachError}</div>}
       <div style={{display:"flex",alignItems:"flex-end",gap:6}}>
-        <input ref={fileInputRef} type="file" accept="image/*,.csv,.xlsx,.xls" multiple style={{display:"none"}}
+        <input ref={fileInputRef} type="file" accept="image/*,.csv,.xlsx,.xls,.pdf,.docx,.pptx" multiple style={{display:"none"}}
           onChange={e=>{addFiles(e.target.files);e.target.value="";}}/>
-        <button onClick={()=>fileInputRef.current?.click()} disabled={loading||(attachedImages.length>=ASK_AI_MAX_IMAGES&&attachedDocs.length>=ASK_AI_MAX_DOCS)} title="Attach an image or a CSV/Excel file for context"
-          style={{width:32,height:32,borderRadius:"50%",background:"transparent",border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:loading?"default":"pointer",flexShrink:0,opacity:loading||(attachedImages.length>=ASK_AI_MAX_IMAGES&&attachedDocs.length>=ASK_AI_MAX_DOCS)?0.35:1}}>
+        <button onClick={()=>fileInputRef.current?.click()} disabled={loading||(attachedImages.length>=ASK_AI_MAX_IMAGES&&attachedPdfs.length>=ASK_AI_MAX_PDFS&&attachedDocs.length>=ASK_AI_MAX_DOCS)} title="Attach an image, PDF, Word/PowerPoint file, or a CSV/Excel file for context"
+          style={{width:32,height:32,borderRadius:"50%",background:"transparent",border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:loading?"default":"pointer",flexShrink:0,opacity:loading||(attachedImages.length>=ASK_AI_MAX_IMAGES&&attachedPdfs.length>=ASK_AI_MAX_PDFS&&attachedDocs.length>=ASK_AI_MAX_DOCS)?0.35:1}}>
           <Icon name="paperclip" size={17} color={T.textMuted}/>
         </button>
         {speechSupported&&(
@@ -876,14 +974,20 @@ export default function AskAI({T,session,workspace,canEdit,mergedNormRows,tags,t
                   ):(
                     <div style={{maxWidth:"80%",padding:"10px 14px",borderRadius:T.r12,background:isUser?T.accent:T.surface,border:isUser?"none":`1px solid ${T.border}`,color:isUser?"#FFFFFF":T.text,fontSize:13*(T.fsScale||1),lineHeight:1.6,fontFamily:T.font}}>
                       {m.images?.length>0&&(
-                        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:(m.text||m.docs?.length)?8:0}}>
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:(m.text||m.pdfs?.length||m.docs?.length)?8:0}}>
                           {m.images.map((img,ii)=><img key={ii} src={img.dataUrl} alt="" style={{width:120,height:120,objectFit:"cover",borderRadius:T.r8,display:"block"}}/>)}
                         </div>
                       )}
-                      {m.docs?.length>0&&(
+                      {(m.pdfs?.length>0||m.docs?.length>0)&&(
                         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:m.text?8:0}}>
-                          {m.docs.map((doc,ii)=>(
-                            <div key={ii} title={doc.name} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",borderRadius:T.r8,background:isUser?"rgba(255,255,255,0.18)":T.surfaceEl,border:isUser?"none":`1px solid ${T.border}`,maxWidth:180}}>
+                          {(m.pdfs||[]).map((pdf,ii)=>(
+                            <div key={`pdf_${ii}`} title={pdf.name} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",borderRadius:T.r8,background:isUser?"rgba(255,255,255,0.18)":T.surfaceEl,border:isUser?"none":`1px solid ${T.border}`,maxWidth:180}}>
+                              <Icon name="paperclip" size={11} color={isUser?"#FFFFFF":T.textMuted}/>
+                              <span style={{fontSize:11*(T.fsScale||1),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pdf.name}</span>
+                            </div>
+                          ))}
+                          {(m.docs||[]).map((doc,ii)=>(
+                            <div key={`doc_${ii}`} title={doc.name} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",borderRadius:T.r8,background:isUser?"rgba(255,255,255,0.18)":T.surfaceEl,border:isUser?"none":`1px solid ${T.border}`,maxWidth:180}}>
                               <Icon name="paperclip" size={11} color={isUser?"#FFFFFF":T.textMuted}/>
                               <span style={{fontSize:11*(T.fsScale||1),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</span>
                             </div>
