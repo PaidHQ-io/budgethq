@@ -123,6 +123,12 @@ export default withApi(async (req, res) => {
   if (req.method === "DELETE") {
     requireEditAccess(myRole);
     if (!entryId) return res.status(400).json({ error: "entryId is required" });
+    // Attachments (core.files rows with vault_entry_id = this id) cascade-delete via the FK from
+    // Vault Phase 1's migration, bypassing files.js's own DELETE handler entirely. Known gap
+    // (2026-08-19, blob upload): any attachment that was blob-backed (blob_url set) leaves its
+    // underlying Vercel Blob object orphaned rather than cleaned up, since that cleanup only runs
+    // in files.js's DELETE branch. Harmless (no data loss/user-facing breakage, just unused
+    // storage) — worth a cleanup job later if it matters at scale, not fixed here.
     const result = await sql`delete from core.vault_entries where id = ${entryId} and workspace_id = ${workspaceId} returning id`;
     if (!result.length) return res.status(404).json({ error: "Vault entry not found" });
     return res.status(200).json({ deleted: true });

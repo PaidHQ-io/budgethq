@@ -29,6 +29,19 @@ export async function requireAuth(req) {
     err.status = 401;
     throw err;
   }
+  return requireAuthToken(token);
+}
+
+// Same verification as requireAuth, but takes the raw token directly instead of pulling it from
+// an Authorization header. Added (2026-08-19, blob upload) for blob-upload-token.js: the Vercel
+// Blob client SDK's upload() doesn't forward custom headers to its handleUploadUrl route, so the
+// session token has to ride in clientPayload instead and gets verified here.
+export async function requireAuthToken(token) {
+  if (!token) {
+    const err = new Error("Missing session token");
+    err.status = 401;
+    throw err;
+  }
   try {
     const { payload } = await jwtVerify(token, getJwks());
     return { userId: payload.sub, email: payload.email || null };

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Btn, Icon, Pill, IconField, SectionLabel, Divider, StatRow, PixelPanel } from "./shared.jsx";
 import { listVaultEntries, getVaultEntry, createVaultEntry, updateVaultEntry, deleteVaultEntry } from "../lib/vaultApi.js";
-import { uploadFile, downloadFile, deleteFile, fileToBase64 } from "../lib/workspaceApi.js";
+import { uploadFileViaBlob, downloadFile, deleteFile } from "../lib/workspaceApi.js";
 import { splitFilterTerms, matchesTerms } from "../lib/core.js";
 import { usePersistentState } from "../lib/persist.js";
 import { exportEntryAsPdf, exportEntryAsPptx, exportEntryAsXlsx, copyEntryForNotion } from "../lib/vaultExport.js";
@@ -166,9 +166,14 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
     if (!canEdit || !entry.id || !fileList?.length) return;
     setUploading(true);
     try {
+      // Always goes straight to Vercel Blob rather than base64-through-the-function (2026-08-19,
+      // per Mo — a >10MB attachment upload was failing with a generic "request failed", really
+      // Vercel's hard 4.5MB serverless body limit — see blob-upload-token.js's doc comment).
+      // Attachments here are real documents (PDFs, decks, briefs), not small system-generated
+      // files, so unlike archiveFile's size-threshold split in PaidHQ.jsx there's no small-file
+      // fast path worth keeping — one upload method, no size guessing.
       for (const f of fileList) {
-        const dataBase64 = await fileToBase64(f);
-        const uploaded = await uploadFile(session, workspace.id, { name: f.name, category: "Vault attachment", mimeType: f.type || "", dataBase64, vaultEntryId: entry.id });
+        const uploaded = await uploadFileViaBlob(session, workspace.id, f, { category: "Vault attachment", vaultEntryId: entry.id });
         setFiles((prev) => [{ id: uploaded.id, name: uploaded.name, mimeType: uploaded.mimeType, size: uploaded.size, createdAt: uploaded.createdAt }, ...prev]);
       }
       showNotif(`Attached ${fileList.length} file${fileList.length === 1 ? "" : "s"}`);

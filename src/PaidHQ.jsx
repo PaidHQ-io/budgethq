@@ -13,7 +13,7 @@ import {
   getWorkspaceConfig, putWorkspaceConfig, getSpendRows, putSpendRows,
   getAskAIData, putAskAIData,
   listVersions, saveVersion, deleteVersion as apiDeleteVersion,
-  listFiles, uploadFile as apiUploadFile, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64, fetchFileBlob,
+  listFiles, uploadFile as apiUploadFile, uploadFileViaBlob, deleteFile as apiDeleteFile, downloadFile as apiDownloadFile, fileToBase64, fetchFileBlob,
   copyFileToWorkspace, authHeader, renameFile as apiRenameFile,
 } from "./lib/workspaceApi";
 import { listMembers, updateMemberRole, removeMember, listInvites, inviteMember, revokeInvite, renameWorkspace, deleteWorkspace, deleteAccount, listConnections, saveConnectionCredential, patchConnection, deleteConnection, startOAuth, getOAuthAccounts, saveOAuthAccount, syncSpend, previewConnector } from "./lib/coreApi";
@@ -105,6 +105,11 @@ function pipelineMonthEndDate(monthStr) {
 // Settings' File Store rendering, which filters this category out) — no schema migration needed.
 const IMPORT_CONFIG_CATEGORY = "__import_config__";
 const importConfigFileName = (dataFileId) => `.paidhq-import-config-${dataFileId}.json`;
+// archiveFile's blob-vs-base64 size cutoff (2026-08-19, per Mo — a >10MB manual "Add file" upload
+// was failing with a generic "request failed", really Vercel's hard 4.5MB serverless function
+// body limit — see blob-upload-token.js's doc comment). Module-level, not per-render state, since
+// it's a fixed constant — keeps archiveFile's useCallback dependency array honest.
+const BLOB_UPLOAD_THRESHOLD = 3 * 1024 * 1024;
 // Browser-safe UTF-8 -> base64 (btoa alone chokes on non-Latin1 characters e.g. a smart quote in a
 // filename) — same escape/unescape trick used broadly for this exact problem.
 function base64EncodeJson(value) {
@@ -651,11 +656,18 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   },[view,workspace?.id,refreshFileStore,refreshTeam,refreshPipelineRows]);
   // Fire-and-forget wrapper for the auto-capture call sites (handleFile, exportTags,
   // importTagsFromCSV below) — a File Store write should never block or fail the actual
-  // import/export it's shadowing.
+  // import/export it's shadowing. Files over BLOB_UPLOAD_THRESHOLD (module-level, above) go
+  // straight to Vercel Blob instead of base64-through-the-function; everyday CSV/XLSX imports
+  // stay on the faster single-request base64 path below that.
   const archiveFile=useCallback((file,category,customName)=>{
     if(!file||!workspace?.id||!session)return Promise.resolve(null);
+    const name=customName||file.name||"untitled";
+    if(file.size>BLOB_UPLOAD_THRESHOLD){
+      return uploadFileViaBlob(session,workspace.id,file,{category,name})
+        .catch(e=>{console.error("[file store save]",e);return null;});
+    }
     return fileToBase64(file)
-      .then(dataBase64=>apiUploadFile(session,workspace.id,{name:customName||file.name||"untitled",category,mimeType:file.type||"",dataBase64}))
+      .then(dataBase64=>apiUploadFile(session,workspace.id,{name,category,mimeType:file.type||"",dataBase64}))
       .catch(e=>{console.error("[file store save]",e);return null;});
   },[workspace?.id,session]);
   // Writes the linked "how to pre-fill this flow's review screen next time" sidecar for a just-

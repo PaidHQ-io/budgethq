@@ -268,10 +268,41 @@ export function listFiles(session, workspaceId) {
 
 // vaultEntryId (2026-08-19, Vault Phase 1) — optional, links this upload as a Vault entry's
 // attachment instead of a general File Store upload. Omitted by every pre-existing caller.
-export function uploadFile(session, workspaceId, { name, category, mimeType, dataBase64, vaultEntryId }) {
+// blobUrl/size (2026-08-19, blob upload) — optional alternative to dataBase64 for files already
+// uploaded straight to Vercel Blob (see uploadFileViaBlob below); mutually exclusive with
+// dataBase64 in practice.
+export function uploadFile(session, workspaceId, { name, category, mimeType, dataBase64, blobUrl, size, vaultEntryId }) {
   return apiFetch(session, `/api/workspaces/${encodeURIComponent(workspaceId)}/files`, {
     method: "POST",
-    body: JSON.stringify({ name, category, mimeType, dataBase64, vaultEntryId }),
+    body: JSON.stringify({ name, category, mimeType, dataBase64, blobUrl, size, vaultEntryId }),
+  });
+}
+
+// Uploads a file straight to Vercel Blob from the browser, then records it in core.files — the
+// large-file path (2026-08-19, per Mo — a >10MB Vault attachment upload was failing with a
+// generic "request failed", which turned out to be Vercel's hard 4.5MB serverless function body
+// limit, not a bug: see api/workspaces/[id]/blob-upload-token.js's doc comment). Use this instead
+// of fileToBase64()+uploadFile() for anything that isn't guaranteed small (Vault attachments,
+// manual "Add file" uploads in Settings' File Store) — CSV auto-archiving from import flows stays
+// on the base64 path since those files are small and already working.
+//
+// Dynamically imports @vercel/blob/client so its ~15KB doesn't sit in the main bundle for users
+// who never touch an upload feature — matches the lazy-import convention pptxgenjs uses in
+// vaultExport.js.
+export async function uploadFileViaBlob(session, workspaceId, file, { category, name, vaultEntryId } = {}) {
+  const { upload } = await import("@vercel/blob/client");
+  const blob = await upload(`${workspaceId}/${Date.now()}-${file.name}`, file, {
+    access: "public",
+    handleUploadUrl: `/api/workspaces/${encodeURIComponent(workspaceId)}/blob-upload-token`,
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+  return uploadFile(session, workspaceId, {
+    name: name || file.name,
+    category,
+    mimeType: file.type || "",
+    blobUrl: blob.url,
+    size: file.size,
+    vaultEntryId,
   });
 }
 
