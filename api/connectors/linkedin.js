@@ -39,61 +39,84 @@ const restHeaders = (token) => ({
   "X-Restli-Protocol-Version": "2.0.0",
 });
 
+// Module-level cache for creative/campaign/campaign-group name resolution, keyed by URN (2026-08-05,
+// per Mo — a manual "Sync now" backfill walks the whole configured date range in 7-day chunks
+// (syncPlatform's SYNC_CHUNK_DAYS in PaidHQ.jsx), and getSpend below was re-resolving every
+// creative/campaign/campaign-group name FROM SCRATCH on every single chunk, since LinkedIn's
+// Advertising API has no bulk-lookup endpoint — one REST call per ID, batched only 20-at-a-time. A
+// months-long backfill re-asked LinkedIn "what's creative #X called?" up to 30+ times for the exact
+// same ID across consecutive weekly chunks, which is most of why a full history sync was taking
+// several minutes. Vercel commonly reuses the same warm function instance across a rapid burst of
+// sequential requests like a sync loop firing chunk after chunk within a few minutes, so a plain
+// module-level Map (declared outside any function, so it survives across invocations on the same
+// warm instance) is very likely to catch most of that repetition. Pure speedup, zero correctness
+// risk: a cache miss (cold start, or a URN never seen before) just falls through to the same fetch
+// as before, and nothing here changes what data gets returned or written to spend_rows. No TTL or
+// eviction needed — a serverless container recycling on its own (Vercel doesn't keep one warm for
+// more than a few idle minutes) is the only invalidation this needs; a creative/campaign/group
+// getting renamed mid-backfill is rare enough not to be worth adding complexity for. Shared by all
+// three resolve*Names functions below since URNs are namespaced by LinkedIn's own type prefix
+// (sponsoredCreative/sponsoredCampaign/sponsoredCampaignGroup) — no collision risk from one Map.
+const nameCache = new Map();
+
+// Shared batched-resolve-with-cache helper — see nameCache's doc comment above for why this exists.
+// `fetchOne(urn, token)` resolves ONE urn's data (or throws, caught by the caller) exactly the way
+// each resolve*Names function used to inline; this just adds the cache check/write around it while
+// keeping the same "batch of 20 concurrent, sequential batches" shape as before.
+async function resolveCached(token, urns, fetchOne) {
+  const result = {};
+  const uncached = [];
+  for (const urn of urns) {
+    if (nameCache.has(urn)) result[urn] = nameCache.get(urn);
+    else uncached.push(urn);
+  }
+  const batches = [];
+  for (let i = 0; i < uncached.length; i += 20) batches.push(uncached.slice(i, i + 20));
+  for (const batch of batches) {
+    await Promise.all(batch.map(async (urn) => {
+      const value = await fetchOne(urn, token);
+      nameCache.set(urn, value);
+      result[urn] = value;
+    }));
+  }
+  return result;
+}
+
 // Resolve campaign names + their parent campaignGroup URN individually by ID — bulk fetch not
 // supported on Advertising API tier. Note: LinkedIn's "Campaign" object is PaidHQ's leaf-level
 // campaign_name (equivalent to an ad set/ad group on other platforms); LinkedIn's "Campaign Group"
 // is PaidHQ's campaign_group_name (equivalent to what other platforms simply call "Campaign").
 async function resolveCampaignNames(token, urns) {
-  const campaigns = {};
-  const batches = [];
-  for (let i = 0; i < urns.length; i += 20) batches.push(urns.slice(i, i + 20));
-
-  for (const batch of batches) {
-    await Promise.all(batch.map(async (urn) => {
-      const id = urn.split(":").pop();
-      try {
-        const res = await fetch(`${BASE}/adCampaignsV2/${id}`, { headers: restHeaders(token) });
-        if (res.ok) {
-          const data = await res.json();
-          campaigns[urn] = {
-            id: String(id),
-            name: data.name || `Campaign ${id}`,
-            groupUrn: data.campaignGroup || null,
-          };
-        } else {
-          campaigns[urn] = { id: String(id), name: `Campaign ${id}`, groupUrn: null };
-        }
-      } catch {
-        campaigns[urn] = { id: String(id), name: `Campaign ${id}`, groupUrn: null };
+  return resolveCached(token, urns, async (urn, tok) => {
+    const id = urn.split(":").pop();
+    try {
+      const res = await fetch(`${BASE}/adCampaignsV2/${id}`, { headers: restHeaders(tok) });
+      if (res.ok) {
+        const data = await res.json();
+        return { id: String(id), name: data.name || `Campaign ${id}`, groupUrn: data.campaignGroup || null };
       }
-    }));
-  }
-  return campaigns;
+      return { id: String(id), name: `Campaign ${id}`, groupUrn: null };
+    } catch {
+      return { id: String(id), name: `Campaign ${id}`, groupUrn: null };
+    }
+  });
 }
 
 // Resolve campaign group names individually by ID (mirrors resolveCampaignNames' batching).
 async function resolveCampaignGroupNames(token, urns) {
-  const groups = {};
-  const batches = [];
-  for (let i = 0; i < urns.length; i += 20) batches.push(urns.slice(i, i + 20));
-
-  for (const batch of batches) {
-    await Promise.all(batch.map(async (urn) => {
-      const id = urn.split(":").pop();
-      try {
-        const res = await fetch(`${BASE}/adCampaignGroupsV2/${id}`, { headers: restHeaders(token) });
-        if (res.ok) {
-          const data = await res.json();
-          groups[urn] = data.name || `Campaign Group ${id}`;
-        } else {
-          groups[urn] = `Campaign Group ${id}`;
-        }
-      } catch {
-        groups[urn] = `Campaign Group ${id}`;
+  return resolveCached(token, urns, async (urn, tok) => {
+    const id = urn.split(":").pop();
+    try {
+      const res = await fetch(`${BASE}/adCampaignGroupsV2/${id}`, { headers: restHeaders(tok) });
+      if (res.ok) {
+        const data = await res.json();
+        return data.name || `Campaign Group ${id}`;
       }
-    }));
-  }
-  return groups;
+      return `Campaign Group ${id}`;
+    } catch {
+      return `Campaign Group ${id}`;
+    }
+  });
 }
 
 // Resolve creative names + their parent campaign URN individually by ID (mirrors
@@ -109,33 +132,21 @@ async function resolveCampaignGroupNames(token, urns) {
 // come through on the first live sync — if LinkedIn's account has creatives worth relabeling here
 // with something more specific, that's a follow-up, not guessed at blind.
 async function resolveCreativeNames(token, urns) {
-  const creatives = {};
-  const batches = [];
-  for (let i = 0; i < urns.length; i += 20) batches.push(urns.slice(i, i + 20));
-
-  for (const batch of batches) {
-    await Promise.all(batch.map(async (urn) => {
-      const id = urn.split(":").pop();
-      try {
-        const res = await fetch(`${BASE}/adCreativesV2/${id}`, { headers: restHeaders(token) });
-        if (res.ok) {
-          const data = await res.json();
-          const inlineText = data.variables?.data?.["com.linkedin.ads.SponsoredUpdateCreativeVariables"]?.share?.text
-            || data.variables?.data?.["com.linkedin.ads.TextAdCreativeVariables"]?.headline;
-          creatives[urn] = {
-            id: String(id),
-            name: data.name || inlineText || `Creative ${id}`,
-            campaignUrn: data.campaign || null,
-          };
-        } else {
-          creatives[urn] = { id: String(id), name: `Creative ${id}`, campaignUrn: null };
-        }
-      } catch {
-        creatives[urn] = { id: String(id), name: `Creative ${id}`, campaignUrn: null };
+  return resolveCached(token, urns, async (urn, tok) => {
+    const id = urn.split(":").pop();
+    try {
+      const res = await fetch(`${BASE}/adCreativesV2/${id}`, { headers: restHeaders(tok) });
+      if (res.ok) {
+        const data = await res.json();
+        const inlineText = data.variables?.data?.["com.linkedin.ads.SponsoredUpdateCreativeVariables"]?.share?.text
+          || data.variables?.data?.["com.linkedin.ads.TextAdCreativeVariables"]?.headline;
+        return { id: String(id), name: data.name || inlineText || `Creative ${id}`, campaignUrn: data.campaign || null };
       }
-    }));
-  }
-  return creatives;
+      return { id: String(id), name: `Creative ${id}`, campaignUrn: null };
+    } catch {
+      return { id: String(id), name: `Creative ${id}`, campaignUrn: null };
+    }
+  });
 }
 
 async function fetchAnalytics(token, accountId, startDate, endDate) {
