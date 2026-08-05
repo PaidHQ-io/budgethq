@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Btn, Icon, Pill, IconField, SectionLabel, Divider, StatRow, PixelPanel } from "./shared.jsx";
+import { Btn, Icon, IconField, SectionLabel, Divider, StatRow } from "./shared.jsx";
 import { listVaultEntries, getVaultEntry, createVaultEntry, updateVaultEntry, deleteVaultEntry } from "../lib/vaultApi.js";
 import { uploadFileViaBlob, downloadFile, deleteFile } from "../lib/workspaceApi.js";
+import { listMembers } from "../lib/coreApi.js";
 import { splitFilterTerms, matchesTerms } from "../lib/core.js";
 import { usePersistentState } from "../lib/persist.js";
 import { exportEntryAsPdf, exportEntryAsPptx, exportEntryAsXlsx, copyEntryForNotion } from "../lib/vaultExport.js";
@@ -42,6 +43,21 @@ function fmtSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Deterministic string -> T.badgeColors index (2026-08-19, per Mo's Notion Document Hub reference
+// screenshot — colored category pills + per-person avatar circles, same color every time for the
+// same category/person rather than random-per-render). Simple additive char-code hash, not
+// cryptographic — collisions are fine here (a shared color between two categories/people is a
+// cosmetic non-issue, not a correctness one).
+function hashColor(str, colors) {
+  let h = 0;
+  for (let i = 0; i < String(str || "").length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return colors[h % colors.length];
+}
+function fmtDate(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
   const k = (suffix) => `paidhq_vault_${suffix}`;
   const [rows, setRows] = useState(null); // null = loading
@@ -52,6 +68,26 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
   const [fCategory, setFCategory] = usePersistentState(k("fCategory"), "");
   const [fTag, setFTag] = usePersistentState(k("fTag"), "");
   const [fSearch, setFSearch] = usePersistentState(k("fSearch"), "");
+  // "all" | "mine" — the reference screenshot's "All Docs"/"My Docs" tabs, filtering on createdBy.
+  const [docsScope, setDocsScope] = usePersistentState(k("docsScope"), "all");
+
+  // Workspace members, fetched here rather than threaded down from PaidHQ.jsx (2026-08-19, per
+  // Mo's Notion table redesign — Created by / Last edited by columns need to resolve a userId to
+  // an email) — PaidHQ.jsx only loads its own team list when the Settings view is active, so
+  // reaching Vault directly (its own nav tab) would otherwise see an empty list. Self-contained,
+  // matches how this component already independently owns its session/workspace-scoped fetches.
+  const [members, setMembers] = useState([]);
+  useEffect(() => {
+    if (!workspace?.id || !session) return;
+    listMembers(session, workspace.id).then(setMembers).catch(() => {});
+  }, [workspace?.id, session]);
+  const memberByUserId = useMemo(() => Object.fromEntries(members.map((m) => [m.userId, m])), [members]);
+  // Falls back to the signed-in user's own session email if the membership list hasn't loaded yet
+  // and the row happens to be theirs — avoids a flash of "—" for your own just-created entries.
+  const personLabel = useCallback(
+    (userId) => memberByUserId[userId]?.email || (userId && userId === session?.user?.id ? session?.user?.email : null) || null,
+    [memberByUserId, session?.user?.id, session?.user?.email]
+  );
 
   const [modalOpen, setModalOpen] = useState(false);
   const [entry, setEntry] = useState(emptyEntry);
@@ -81,6 +117,7 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
 
   const filtered = useMemo(() => {
     return (rows || []).filter((r) => {
+      if (docsScope === "mine" && r.createdBy !== session?.user?.id) return false;
       if (fCategory && r.category !== fCategory) return false;
       if (fTag) {
         const terms = splitFilterTerms(fTag);
@@ -94,7 +131,7 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
       }
       return true;
     });
-  }, [rows, fCategory, fTag, fSearch]);
+  }, [rows, docsScope, session?.user?.id, fCategory, fTag, fSearch]);
 
   const hasF = fCategory || fTag || fSearch;
   const clearF = () => { setFCategory(""); setFTag(""); setFSearch(""); };
@@ -236,7 +273,7 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
   );
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, fontFamily: "'DM Sans',sans-serif" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, fontFamily: T.font }}>
       {sidebarPortal}
 
       <div style={{ padding: "20px 28px 0", flexShrink: 0 }}>
@@ -255,6 +292,18 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
 
       <div style={{ borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}`, background: T.surfaceEl, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", flexWrap: "wrap" }}>
+          {/* All Docs / My Docs (2026-08-19, per Mo's Notion Document Hub reference screenshot) —
+              filters on createdBy rather than a real ownership concept, since every entry is
+              already shared workspace-wide either way; "mine" just means "created by me". */}
+          <div style={{ display: "flex", gap: 4 }}>
+            {[{ key: "all", label: "All Docs" }, { key: "mine", label: "My Docs" }].map((opt) => (
+              <button key={opt.key} onClick={() => setDocsScope(opt.key)}
+                style={{ display: "flex", alignItems: "center", gap: 5, background: docsScope === opt.key ? T.surface : "transparent", border: `1px solid ${docsScope === opt.key ? T.border : "transparent"}`, borderRadius: T.r20, padding: "3px 10px", cursor: "pointer", fontFamily: T.font, fontSize: 11 * (T.fsScale || 1), fontWeight: 600, color: docsScope === opt.key ? T.text : T.textMuted, outline: "none" }}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ width: 1, alignSelf: "stretch", background: T.border, margin: "2px 2px" }} />
           <button onClick={() => setFiltersOpen((o) => !o)} title={filtersOpen ? "Hide filters" : "Show filters"}
             style={{ display: "flex", alignItems: "center", gap: 5, background: filtersOpen ? T.surfaceHover : "transparent", border: `1px solid ${T.border}`, borderRadius: T.r6, padding: "3px 8px", cursor: "pointer", fontFamily: T.font, fontSize: 11 * (T.fsScale || 1), fontWeight: 600, color: T.text, outline: "none" }}>
             <Icon name="filter" size={12} color={T.text} />
@@ -285,38 +334,86 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
         )}
       </div>
 
-      <div className="bhq-scroll" style={{ flex: 1, overflow: "auto", padding: "16px 28px 28px" }}>
+      {/* Table (2026-08-19, per Mo's Notion Document Hub reference screenshot) — replaces the
+          original card list. Doc name / Category / Created by / Created time / Last edited by /
+          Last updated time columns, matching the reference exactly; tags and the content excerpt
+          that used to show under the title in the old card layout are dropped from this row (still
+          editable inside the entry modal, just not part of this table's columns, same as the
+          reference doesn't show them either). "Last edited by" intentionally shows the SAME person
+          as "Created by" — see vault-entries.js's toListItem doc comment for why (no updated_by
+          tracking, this was Mo's own call rather than adding it). */}
+      <div className="bhq-scroll" style={{ flex: 1, overflow: "auto", padding: "0 28px 28px" }}>
         {rows === null && !loadError && <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>Loading…</div>}
         {rows !== null && filtered.length === 0 && (
           <div style={{ padding: "40px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>
             {rows.length === 0 ? "Nothing in the Vault yet — add a brief, strategy note, or sales asset above." : "No entries match the current filters."}
           </div>
         )}
-        {filtered.map((r) => (
-          <PixelPanel key={r.id} T={T} style={{ marginBottom: 8, padding: "12px 14px", cursor: "pointer" }} onClick={() => openEdit(r)}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-                  <Pill color={T.textSub} bg={T.surfaceEl} border={T.border}>{r.category}</Pill>
-                  <span style={{ fontSize: 13 * (T.fsScale || 1), fontWeight: 600, color: T.text }}>{r.title}</span>
-                </div>
-                {r.excerpt && <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, lineHeight: 1.5, marginBottom: (r.tags || []).length ? 6 : 0 }}>{r.excerpt}{r.excerpt.length >= 240 ? "…" : ""}</div>}
-                {(r.tags || []).length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
-                    {r.tags.map((t) => <span key={t} style={{ fontSize: 11 * (T.fsScale || 1), padding: "2px 8px", borderRadius: T.r14, background: T.accentBg, color: T.text, border: `1px solid ${T.accentBorder}` }}>{t}</span>)}
+        {rows !== null && filtered.length > 0 && (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: T.font }}>
+            <thead>
+              <tr>
+                {["Doc name", "Category", "Created by", "Created time", "Last edited by", "Last updated time"].map((h) => (
+                  <th key={h} style={{ textAlign: "left", padding: "10px 12px", fontSize: 11 * (T.fsScale || 1), fontWeight: 600, color: T.textMuted, borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap", position: "sticky", top: 0, background: T.surface }}>
+                    {h}
+                  </th>
+                ))}
+                {canEdit && <th style={{ borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, background: T.surface, width: 32 }} />}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => {
+                const catColor = hashColor(r.category || "General", T.badgeColors);
+                const label = personLabel(r.createdBy);
+                const personColor = hashColor(label || r.createdBy || "?", T.badgeColors);
+                const avatar = (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <div style={{ width: 20, height: 20, borderRadius: "50%", background: personColor, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: "#FFFFFF" }}>
+                      {(label || "?")[0].toUpperCase()}
+                    </div>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 * (T.fsScale || 1), color: T.textSub }}>{label || "Unknown"}</span>
                   </div>
-                )}
-                <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, marginTop: 6 }}>Updated {new Date(r.updatedAt).toLocaleString()}</div>
-              </div>
+                );
+                return (
+                  <tr key={r.id} onClick={() => openEdit(r)} className="bhq-row"
+                    style={{ cursor: "pointer", borderBottom: `1px solid ${T.border}` }}>
+                    <td style={{ padding: "10px 12px", fontSize: 13 * (T.fsScale || 1), fontWeight: 600, color: T.text, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Icon name="file" size={14} color={T.textMuted} />
+                        {r.title}
+                      </div>
+                    </td>
+                    <td style={{ padding: "10px 12px" }}>
+                      <span style={{ display: "inline-block", fontSize: 11 * (T.fsScale || 1), fontWeight: 600, padding: "2px 9px", borderRadius: T.r20, background: catColor + "14", color: catColor, border: `1px solid ${catColor}55` }}>{r.category}</span>
+                    </td>
+                    <td style={{ padding: "10px 12px" }}>{avatar}</td>
+                    <td style={{ padding: "10px 12px", fontSize: 12 * (T.fsScale || 1), color: T.textSub, whiteSpace: "nowrap" }}>{fmtDate(r.createdAt)}</td>
+                    <td style={{ padding: "10px 12px" }}>{avatar}</td>
+                    <td style={{ padding: "10px 12px", fontSize: 12 * (T.fsScale || 1), color: T.textSub, whiteSpace: "nowrap" }}>{fmtDate(r.updatedAt)}</td>
+                    {canEdit && (
+                      <td style={{ padding: "10px 8px", textAlign: "right" }}>
+                        <button onClick={(e) => { e.stopPropagation(); removeEntry(r); }} title="Delete this entry"
+                          style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}>
+                          <Icon name="trash" size={13} color={T.textMuted} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
               {canEdit && (
-                <button onClick={(e) => { e.stopPropagation(); removeEntry(r); }} title="Delete this entry"
-                  style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}>
-                  <Icon name="trash" size={14} color={T.textMuted} />
-                </button>
+                <tr onClick={openNew} className="bhq-row" style={{ cursor: "pointer" }}>
+                  <td colSpan={6} style={{ padding: "10px 12px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 * (T.fsScale || 1), color: T.textMuted }}>
+                      <Icon name="plus" size={13} color={T.textMuted} />
+                      New doc
+                    </div>
+                  </td>
+                </tr>
               )}
-            </div>
-          </PixelPanel>
-        ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {modalOpen && (

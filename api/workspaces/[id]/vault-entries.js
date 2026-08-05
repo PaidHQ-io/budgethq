@@ -40,12 +40,19 @@ import { withApi } from "../../lib/http.js";
 
 const EXCERPT_LEN = 240;
 
+// createdBy (2026-08-19, per Mo — Vault list restyled as a Notion-style table with Created by /
+// Last edited by columns) — the column already existed in the schema (Phase 1's created_by), just
+// wasn't exposed in either response shape yet since nothing on the client needed it until now.
+// There's no updated_by tracking (only created_at/updated_at), so per Mo's own call, "Last edited
+// by" on the client just reuses this same createdBy value rather than adding real last-editor
+// tracking — flagged there, not silently faked as something more accurate than it is.
 const toListItem = (r) => ({
   id: r.id,
   title: r.title,
   category: r.category,
   tags: r.tags || [],
   excerpt: (r.content || "").slice(0, EXCERPT_LEN),
+  createdBy: r.created_by,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -55,6 +62,7 @@ const toFull = (r) => ({
   category: r.category,
   tags: r.tags || [],
   content: r.content || "",
+  createdBy: r.created_by,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
