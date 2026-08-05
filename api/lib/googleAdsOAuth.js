@@ -179,6 +179,30 @@ export function needsReconnectSoon(credential) {
   return !!credential?.reconnectRequired;
 }
 
+// Builds the fullest error message this response actually contains (2026-08-05, mirrored from
+// paidhq-core's identical copy — see that file's fuller doc comment). Google Ads REST errors carry
+// the specific, useful detail one level deeper than the generic top-level message: `error.details[]`
+// includes a `GoogleAdsFailure` object whose own `errors[]` array has the real per-problem message
+// and, for a GAQL query error, a `location.fieldPathElements` pointing at exactly which field was
+// invalid. Falls back to the top-level message when the response doesn't have this shape.
+function formatGoogleAdsError(data, res) {
+  const err = data?.error || {};
+  const failures = (err.details || [])
+    .filter((d) => typeof d?.["@type"] === "string" && d["@type"].includes("GoogleAdsFailure"))
+    .flatMap((d) => d.errors || []);
+  if (failures.length) {
+    const detail = failures
+      .map((f) => {
+        const field = f.location?.fieldPathElements?.map((p) => p.fieldName).join(".");
+        const code = Object.values(f.errorCode || {})[0];
+        return [f.message, field ? `(field: ${field})` : null, code ? `[${code}]` : null].filter(Boolean).join(" ");
+      })
+      .join("; ");
+    return `${err.status || res.status}: ${detail}`;
+  }
+  return `${err.status || res.status}: ${err.message || JSON.stringify(data) || "unknown error"}`;
+}
+
 async function adsApiGet(path, accessToken) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -188,8 +212,7 @@ async function adsApiGet(path, accessToken) {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const err = data?.error || {};
-    throw new Error(`Google Ads API error (${err.status || res.status}): ${err.message || JSON.stringify(data) || "unknown error"}`);
+    throw new Error(`Google Ads API error (${formatGoogleAdsError(data, res)})`);
   }
   return data;
 }
@@ -216,8 +239,7 @@ export async function adsApiSearch(customerId, query, { accessToken, loginCustom
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const err = data?.error || {};
-    throw new Error(`Google Ads API error (${err.status || res.status}) for customer ${customerId}: ${err.message || JSON.stringify(data) || "unknown error"}`);
+    throw new Error(`Google Ads API error (${formatGoogleAdsError(data, res)}) for customer ${customerId} — query: ${query.replace(/\s+/g, " ").trim()}`);
   }
   return data;
 }

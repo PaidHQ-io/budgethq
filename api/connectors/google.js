@@ -119,6 +119,11 @@ function buildQuery(startDate, endDate) {
 // keeps this from ever overlapping with buildQuery()'s results. No search-impression-share fields
 // here — that metric family is Search-network-specific and doesn't apply to PMax's asset_group
 // resource (see WIDENED FIELD SET note up top).
+// average_cpc/ctr REMOVED (2026-08-05, mirrored from paidhq-core's identical copy — see that
+// file's fuller doc comment): threw Google Ads API error (INVALID_ARGUMENT) on Mo's first live
+// sync — average_cpc/ctr are click-based/search-context metrics not selectable on the asset_group
+// resource (Performance Max doesn't use traditional CPC bidding). buildQuery()'s ad_group query
+// still pulls both fine for every other campaign type.
 function buildAssetGroupQuery(startDate, endDate) {
   return `
     SELECT
@@ -127,7 +132,7 @@ function buildAssetGroupQuery(startDate, endDate) {
       segments.date,
       metrics.cost_micros, metrics.impressions, metrics.clicks,
       metrics.conversions, metrics.conversions_value, metrics.all_conversions,
-      metrics.all_conversions_value, metrics.average_cpc, metrics.ctr
+      metrics.all_conversions_value
     FROM asset_group
     WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
       AND campaign.advertising_channel_type = 'PERFORMANCE_MAX'
