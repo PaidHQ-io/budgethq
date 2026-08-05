@@ -94,6 +94,13 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
   const [tagsInput, setTagsInput] = useState(""); // comma-separated, synced from entry.tags when the modal opens
   const [saving, setSaving] = useState(false);
   const [files, setFiles] = useState([]); // attachments of the entry currently open in the modal
+  // Staged File objects for a brand-new, not-yet-saved entry (2026-08-19, per Mo — "make sure we
+  // can attach on the first dialogue, no need for two popups"). Files picked before the entry is
+  // saved can't be uploaded yet (files.js's vaultEntryId needs a real entryId — see this file's top
+  // doc comment), so they're held here and uploaded automatically right after creation succeeds, in
+  // the same submitEntry() call the user already triggered by clicking "Create entry" — one action,
+  // not a separate save-then-attach round trip.
+  const [pendingFiles, setPendingFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [entryLoading, setEntryLoading] = useState(false);
 
@@ -140,6 +147,7 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
     setEntry(emptyEntry());
     setTagsInput("");
     setFiles([]);
+    setPendingFiles([]);
     setModalOpen(true);
   };
 
@@ -149,6 +157,7 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
     setEntry({ id: row.id, title: row.title, category: row.category, tags: row.tags || [], content: "" });
     setTagsInput((row.tags || []).join(", "));
     setFiles([]);
+    setPendingFiles([]);
     try {
       const { entry: full, files: attached } = await getVaultEntry(session, workspace.id, row.id);
       setEntry({ id: full.id, title: full.title, category: full.category, tags: full.tags || [], content: full.content || "" });
@@ -162,6 +171,18 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
   };
 
   const closeModal = () => { if (!saving && !uploading) setModalOpen(false); };
+
+  // Shared by attachFiles (existing entry, uploads immediately) and submitEntry's create branch
+  // (new entry, uploads whatever was staged in pendingFiles right after the entry itself is
+  // created) — see pendingFiles' own doc comment above for why a new entry needs this split.
+  const uploadFilesToEntry = async (entryId, fileList) => {
+    const uploaded = [];
+    for (const f of fileList) {
+      const u = await uploadFileViaBlob(session, workspace.id, f, { category: "Vault attachment", vaultEntryId: entryId });
+      uploaded.push({ id: u.id, name: u.name, mimeType: u.mimeType, size: u.size, createdAt: u.createdAt });
+    }
+    return uploaded;
+  };
 
   const submitEntry = async () => {
     if (!canEdit || !entry.title.trim()) return;
@@ -177,7 +198,23 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
         // new id, so attachments become available immediately instead of a close/reopen round trip.
         const created = await createVaultEntry(session, workspace.id, { title: entry.title.trim(), category: entry.category, tags, content: entry.content });
         setEntry((e) => ({ ...e, id: created.id }));
-        showNotif("Entry created — you can now attach files below");
+        if (pendingFiles.length) {
+          setUploading(true);
+          try {
+            const uploaded = await uploadFilesToEntry(created.id, pendingFiles);
+            setFiles(uploaded);
+            setPendingFiles([]);
+            showNotif(`Entry created with ${uploaded.length} attachment${uploaded.length === 1 ? "" : "s"}`);
+          } catch (err) {
+            // The entry itself saved fine — only the attachment step failed. Surfacing that
+            // distinction matters: this is NOT "your entry didn't save," just "attach again below."
+            showNotif(`Entry created, but attaching files failed: ${err.message || "unknown error"}`, "error");
+          } finally {
+            setUploading(false);
+          }
+        } else {
+          showNotif("Entry created");
+        }
       }
       refresh();
     } catch (err) {
@@ -200,7 +237,14 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
   };
 
   const attachFiles = async (fileList) => {
-    if (!canEdit || !entry.id || !fileList?.length) return;
+    if (!canEdit || !fileList?.length) return;
+    if (!entry.id) {
+      // No real entryId yet — stage locally instead of uploading now (see pendingFiles' doc
+      // comment above). The exact same "Attach files" control is shown either way, so from the
+      // user's side picking files works identically whether the entry is new or already saved.
+      setPendingFiles((prev) => [...prev, ...Array.from(fileList)]);
+      return;
+    }
     setUploading(true);
     try {
       // Always goes straight to Vercel Blob rather than base64-through-the-function (2026-08-19,
@@ -209,11 +253,9 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
       // Attachments here are real documents (PDFs, decks, briefs), not small system-generated
       // files, so unlike archiveFile's size-threshold split in PaidHQ.jsx there's no small-file
       // fast path worth keeping — one upload method, no size guessing.
-      for (const f of fileList) {
-        const uploaded = await uploadFileViaBlob(session, workspace.id, f, { category: "Vault attachment", vaultEntryId: entry.id });
-        setFiles((prev) => [{ id: uploaded.id, name: uploaded.name, mimeType: uploaded.mimeType, size: uploaded.size, createdAt: uploaded.createdAt }, ...prev]);
-      }
-      showNotif(`Attached ${fileList.length} file${fileList.length === 1 ? "" : "s"}`);
+      const uploaded = await uploadFilesToEntry(entry.id, fileList);
+      setFiles((prev) => [...uploaded, ...prev]);
+      showNotif(`Attached ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}`);
     } catch (err) {
       showNotif(err.message || "Attach failed", "error");
     } finally {
@@ -232,6 +274,10 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
       showNotif(err.message || "Remove failed", "error");
     }
   };
+
+  // Removes a staged (not-yet-uploaded) file by index — no API call needed, it was never sent
+  // anywhere yet.
+  const removePendingFile = (idx) => setPendingFiles((prev) => prev.filter((_, i) => i !== idx));
 
   // Asset export (Phase 3) — operates on whatever's currently in the modal, including an unsaved
   // draft's title/content (unlike attachments, which genuinely need a persisted entryId, there's no
@@ -455,30 +501,40 @@ export default function Vault({ T, session, workspace, canEdit, sidebarEl }) {
                     </div>
                   </div>
 
-                  {entry.id ? (
-                    <div>
-                      <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, marginBottom: 6, fontWeight: 600 }}>Attachments</div>
-                      {files.length === 0 && <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, marginBottom: 8 }}>No files attached yet.</div>}
-                      {files.map((f) => (
-                        <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
-                          <Icon name="file" size={13} color={T.textMuted} />
-                          <span style={{ flex: 1, minWidth: 0, fontSize: 12 * (T.fsScale || 1), color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                          <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, flexShrink: 0 }}>{fmtSize(f.size)}</span>
-                          <button onClick={() => downloadFile(session, workspace.id, f.id, f.name)} title="Download" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}><Icon name="download" size={13} color={T.textMuted} /></button>
-                          {canEdit && <button onClick={() => removeAttachment(f)} title="Remove" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}><Icon name="trash" size={13} color={T.textMuted} /></button>}
-                        </div>
-                      ))}
-                      {canEdit && (
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: "6px 12px", border: `1px solid ${T.border}`, borderRadius: T.r6, cursor: uploading ? "not-allowed" : "pointer", fontSize: 12 * (T.fsScale || 1), color: T.text, opacity: uploading ? 0.6 : 1 }}>
-                          <Icon name="paperclip" size={13} color={T.text} />
-                          {uploading ? "Uploading…" : "Attach files"}
-                          <input type="file" multiple disabled={uploading} style={{ display: "none" }} onChange={(e) => { attachFiles(e.target.files); e.target.value = ""; }} />
-                        </label>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, fontStyle: "italic" }}>Save this entry first to attach files.</div>
-                  )}
+                  {/* Attachments (2026-08-19, per Mo — "make sure we can attach on the first
+                      dialogue, no need for two popups") — the same control now works for a
+                      brand-new, not-yet-saved entry too: picking files here stages them in
+                      pendingFiles rather than uploading immediately (see attachFiles' own branch
+                      for why), and they upload automatically the moment submitEntry() creates the
+                      entry. No separate "save first, then come back and attach" step anymore. */}
+                  <div>
+                    <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, marginBottom: 6, fontWeight: 600 }}>Attachments</div>
+                    {files.length === 0 && pendingFiles.length === 0 && <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, marginBottom: 8 }}>No files attached yet.</div>}
+                    {files.map((f) => (
+                      <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+                        <Icon name="file" size={13} color={T.textMuted} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12 * (T.fsScale || 1), color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                        <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, flexShrink: 0 }}>{fmtSize(f.size)}</span>
+                        <button onClick={() => downloadFile(session, workspace.id, f.id, f.name)} title="Download" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}><Icon name="download" size={13} color={T.textMuted} /></button>
+                        {canEdit && <button onClick={() => removeAttachment(f)} title="Remove" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}><Icon name="trash" size={13} color={T.textMuted} /></button>}
+                      </div>
+                    ))}
+                    {pendingFiles.map((f, i) => (
+                      <div key={`pending-${i}-${f.name}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+                        <Icon name="paperclip" size={13} color={T.textMuted} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12 * (T.fsScale || 1), color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                        <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, flexShrink: 0 }}>{fmtSize(f.size)} · will attach on save</span>
+                        {canEdit && <button onClick={() => removePendingFile(i)} title="Remove" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}><Icon name="trash" size={13} color={T.textMuted} /></button>}
+                      </div>
+                    ))}
+                    {canEdit && (
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: "6px 12px", border: `1px solid ${T.border}`, borderRadius: T.r6, cursor: uploading ? "not-allowed" : "pointer", fontSize: 12 * (T.fsScale || 1), color: T.text, opacity: uploading ? 0.6 : 1 }}>
+                        <Icon name="paperclip" size={13} color={T.text} />
+                        {uploading ? "Uploading…" : "Attach files"}
+                        <input type="file" multiple disabled={uploading} style={{ display: "none" }} onChange={(e) => { attachFiles(e.target.files); e.target.value = ""; }} />
+                      </label>
+                    )}
+                  </div>
                 </>
               )}
             </div>
