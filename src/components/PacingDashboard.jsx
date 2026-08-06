@@ -6,7 +6,7 @@ import {
   untagSegmentCampaigns, buildCampaignPlatformIndex, DERIVED_DIMS, pacingStatusMeta, fmtFull, fmtSigned,
   FORECAST_MODELS, FORECAST_MODEL_INHERIT, DEFAULT_MANUAL_TRAILING_DAYS, forecastModelLabel,
   AUTO_SHORT_WINDOW, AUTO_DIVERGENCE_LOW, AUTO_DIVERGENCE_HIGH, CAPACITY_WINDOW, MONTHS, QUARTERS,
-  NUMERIC_FIELDS, NUMERIC_OPERATORS, matchesNumericFilters,
+  NUMERIC_FIELDS, NUMERIC_OPERATORS, matchesNumericFilters, getPeriodRange,
 } from "../lib/core.js";
 import { askAIBuildView, aiConfigToViewConfig } from "../lib/askAI.js";
 import { Icon, Btn, SectionLabel, Sel, Divider, PixelPanel, AISummaryCard, Pill, WarnTip, InfoTip } from "./shared.jsx";
@@ -56,16 +56,17 @@ function reportingFactPeriodRange(periodType, periodStart) {
   const end = nm ? new Date(Number(nm[1]), Number(nm[2]) - 1, Number(nm[3]) - 1) : start;
   return { start, end };
 }
-// Buckets one reporting_facts metric (e.g. "mqls") into the SAME periods array computeSpendTrend
-// already built for the spend table, split into a Goal series (isGoalsSource) and an Actual series
-// (everything else) — filtered by the same trendFilterDim/trendFilterValue substring match
-// computeSpendTrend uses, so the MQL rows always agree with whatever the spend table above is
-// currently filtered to.
-function computeReportingMetricTrend({ reportingFacts, metricKey, filterDim, filterValue, periods, grain }) {
+// Buckets one reporting_facts metric (e.g. "mqls") into an arbitrary array of [start,end] date
+// ranges — either the SAME periods array computeSpendTrend already built for the Trend table (via
+// periodKeyRange, one range per period/column), or a single one-element range for the single-period
+// Budget/Custom view's Monthly/Quarterly/Yearly picker (via core.js's getPeriodRange) — both callers
+// below just hand in whatever ranges apply to them, this function doesn't care which. Filtered by
+// the same trendFilterDim/trendFilterValue substring match computeSpendTrend uses, so the MQL
+// numbers always agree with whatever the spend table above is currently filtered to.
+function computeReportingMetricTrend({ reportingFacts, metricKey, filterDim, filterValue, periodRanges }) {
   const fv = (filterValue || "").trim().toLowerCase();
-  const goalValues = new Array(periods.length).fill(0);
-  const actualValues = new Array(periods.length).fill(0);
-  const periodRanges = periods.map((p) => periodKeyRange(grain, p.key));
+  const goalValues = new Array(periodRanges.length).fill(0);
+  const actualValues = new Array(periodRanges.length).fill(0);
   (reportingFacts || []).forEach((row) => {
     const val = row.metrics?.[metricKey];
     if (val == null) return;
@@ -493,8 +494,19 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     if(!workspace?.id)return;
     listReportingFacts(session,workspace.id).then(setReportingFacts).catch(()=>{});
   },[session,workspace?.id]);
-  const mqlTrend=useMemo(()=>(viewMode==="trend"&&trendData)?computeReportingMetricTrend({reportingFacts,metricKey:"mqls",filterDim:trendFilterDim,filterValue:trendFilterValue,periods:trendData.periods,grain:trendGrain}):null,
+  const mqlTrend=useMemo(()=>(viewMode==="trend"&&trendData)?computeReportingMetricTrend({reportingFacts,metricKey:"mqls",filterDim:trendFilterDim,filterValue:trendFilterValue,periodRanges:trendData.periods.map(p=>periodKeyRange(trendGrain,p.key))}):null,
     [viewMode,trendData,reportingFacts,trendFilterDim,trendFilterValue,trendGrain]);
+  // Single-period MQL Goal/Actual (2026-08-06, per Mo — "we should have monthly, quarterly and
+  // yearly for MQLs," i.e. this figure should track whatever Monthly/Quarterly/Yearly period the
+  // Budget/Custom view (not just Trend) is currently set to, via the SAME year/periodType/month/
+  // quarter picker pacing/customPacing above already use). One-element periodRanges array — see
+  // computeReportingMetricTrend's doc comment for why it accepts ranges generically instead of only
+  // the Trend view's multi-column shape. Workspace-wide (not per-segment) on purpose, for now — a
+  // per-segment MQL breakdown would need reporting_facts rows matched against budgetDims the same
+  // way spend rows are, real added scope beyond what was asked for here.
+  const periodRange=useMemo(()=>{const{start,end}=getPeriodRange(periodType,year,month,quarter);return{start,end};},[periodType,year,month,quarter]);
+  const periodMqlTrend=useMemo(()=>computeReportingMetricTrend({reportingFacts,metricKey:"mqls",periodRanges:[periodRange]}),
+    [reportingFacts,periodRange]);
 
   const filteredSegments=useMemo(()=>pacing.segments.filter(seg=>{
     if(statusFilter!=="all"&&seg.status!==statusFilter)return false;
@@ -791,6 +803,14 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               {label:"Overall Pacing",value:overallPct!=null?`${Math.round(overallPct*100)}%`:"—",color:overallPct!=null&&overallPct-pacing.expectedPct>0.1?T.warning:overallPct!=null&&overallPct-pacing.expectedPct<-0.1?T.accent:T.success},
               {label:"Expected Pace",value:`${Math.round(pacing.expectedPct*100)}%`,color:T.text},
               {label:"Segments",value:pacing.segments.length.toString(),color:T.text},
+              // MQL Goal/Actual (2026-08-06, per Mo) — only shown once there's actually MQL data
+              // imported (goals and/or pipeline actuals) for THIS period, same "don't show an
+              // always-empty stat" gating as everything else in this list is implicitly guaranteed
+              // by (pacing.totals always has a real number even at 0, these two don't).
+              ...(periodMqlTrend.goalTotal>0||periodMqlTrend.actualTotal>0?[
+                {label:"MQL Goal",value:fmtCount(periodMqlTrend.goalTotal),color:T.text},
+                {label:"MQL Actual",value:fmtCount(periodMqlTrend.actualTotal),color:T.text},
+              ]:[]),
             ].map(s=>(
               <PixelPanel key={s.label} T={T} contentStyle={{padding:"12px 14px",background:T.bg}}>
                 <div style={{fontSize:10*(T.fsScale||1),fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>{s.label}</div>
