@@ -94,7 +94,7 @@ const fmtPct=n=>`${n}%`;
 export default // ─── DATA AUDIT ───────────────────────────────────────────────────────────────
 function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=false,tagDims=[]}){
   const audit=useMemo(()=>computeDataAudit({mergedNormRows:mergedNormRows||[],combineGoogleChannels}),[mergedNormRows,combineGoogleChannels]);
-  const{overview,bySource,byPlatform}=audit;
+  const{overview,bySource,byPlatform,possibleDuplicateSpendRows}=audit;
   const platformsWithGaps=byPlatform.filter(p=>p.gapDayCount>0);
   const platformsWithOverlap=byPlatform.filter(p=>p.overlapRanges.length>0);
   // Collapsed by default once there's real data (a workspace with a handful of platforms and years
@@ -179,8 +179,14 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
         )}
 
         {/* Triage banner — only shows when there's actually something to flag */}
-        {(platformsWithGaps.length>0||platformsWithOverlap.length>0)&&(
+        {(platformsWithGaps.length>0||platformsWithOverlap.length>0||possibleDuplicateSpendRows.length>0)&&(
           <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18}}>
+            {possibleDuplicateSpendRows.length>0&&(
+              <Pill color={T.danger} bg={T.dangerBg} border={T.dangerBorder}>
+                <Icon name="alert" size={11} color={T.danger} style={{marginRight:4}}/>
+                {possibleDuplicateSpendRows.length} confirmed duplicate row group{possibleDuplicateSpendRows.length===1?"":"s"} ({fmtFull(possibleDuplicateSpendRows.reduce((s,d)=>s+d.totalSpend-d.totalSpend/d.rows,0))} extra spend)
+              </Pill>
+            )}
             {platformsWithGaps.length>0&&(
               <Pill color={T.danger} bg={T.dangerBg} border={T.dangerBorder}>
                 <Icon name="alert" size={11} color={T.danger} style={{marginRight:4}}/>
@@ -195,7 +201,7 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
             )}
           </div>
         )}
-        {platformsWithGaps.length===0&&platformsWithOverlap.length===0&&(
+        {platformsWithGaps.length===0&&platformsWithOverlap.length===0&&possibleDuplicateSpendRows.length===0&&(
           <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:T.successBg,border:`1px solid ${T.successBorder}`,borderRadius:T.r8,marginBottom:18,fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font}}>
             <Icon name="check" size={13} color={T.success}/>
             No date gaps or overlapping source coverage detected across any platform.
@@ -223,6 +229,34 @@ function DataAudit({T,session,workspace,mergedNormRows,combineGoogleChannels=fal
             </div>
           ))}
         </PixelPanel>
+
+        {/* Possible duplicate spend rows (2026-08-19, per Mo — "linkedin is showing higher spend
+            again, can we check if there are duplicates somehow"). See possibleDuplicateSpendRows'
+            own doc comment (lib/core.js) for the full mechanics — this groups every row by the same
+            identity spendRowKey uses everywhere else and flags any group with more than one row: a
+            confirmed, not just suspected, double-count of that real campaign/ad/day. */}
+        {possibleDuplicateSpendRows.length>0&&(
+          <>
+            <SectionLabel T={T} style={{marginBottom:8}}>Possible duplicate spend rows</SectionLabel>
+            <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,marginBottom:10,lineHeight:1.6,fontFamily:T.font}}>These campaign/ad/day combinations have more than one row in the database sharing the exact same identity — each is real spend being counted twice (or more) everywhere it's summed. Often caused by an ad-level connector resolving a different ad name for the same real ad across two syncs. A Full resync on the affected platform should clean these up.</div>
+            <PixelPanel T={T} style={{marginBottom:24,overflow:"hidden"}} contentStyle={{background:T.surface}}>
+              {possibleDuplicateSpendRows.map((d,i)=>(
+                <div key={i} style={{padding:"10px 14px",borderTop:i>0?`1px solid ${T.border}`:"none",fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:PLATFORM_COLORS[d.platform]||T.textMuted,flexShrink:0}}/>
+                    <strong>{d.campaignGroupName}</strong>
+                    {d.campaignName&&d.campaignName!==d.campaignGroupName&&<span style={{color:T.textSub}}>› {d.campaignName}</span>}
+                    <span style={{color:T.textMuted}}>· {d.date}</span>
+                    <Pill color={T.danger} bg={T.dangerBg} border={T.dangerBorder} style={{fontSize:11*(T.fsScale||1)}}>{d.rows} rows, {fmtFull(d.totalSpend)} total</Pill>
+                  </div>
+                  <div style={{color:T.textSub,fontSize:11*(T.fsScale||1)}}>
+                    Ad name{d.adNames.length===1?"":"s"}: {d.adNames.join(", ")} · Source{d.sources.length===1?"":"s"}: {d.sources.map(sourceLabel).join(", ")}
+                  </div>
+                </div>
+              ))}
+            </PixelPanel>
+          </>
+        )}
 
         {/* By platform */}
         <SectionLabel T={T} style={{marginBottom:8}}>By platform</SectionLabel>

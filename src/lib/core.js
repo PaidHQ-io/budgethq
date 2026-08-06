@@ -808,18 +808,33 @@ export function normalizeRows(rows,colMap){
 // so re-pulling/re-uploading the same data now always overwrites. Campaign identity is trimmed for
 // the same reason -- stray leading/trailing whitespace from a spreadsheet shouldn't be enough to
 // make "Retargeting" and "Retargeting " look like two different ad sets.
-// ad_name suffix (2026-08-19, per Mo's ad-level tagging request): without this, two different ads
-// running under the same ad group on the same day would collide onto the SAME spendRowKey once
+// ad_name/ad_id suffix (2026-08-19, per Mo's ad-level tagging request): without this, two different
+// ads running under the same ad group on the same day would collide onto the SAME spendRowKey once
 // ad-level data starts flowing in (from a future LinkedIn pivot=CREATIVE / Meta level=ad pull, or
 // a CSV import with an Ad column) — mergeRows below is last-write-wins per key, so that collision
 // would silently DROP every ad but the last one merged for that ad group/day, not just fail loudly.
-// Appending ad_name (trimmed, empty string when absent) fixes this while staying 100% backward
-// compatible: every row that predates ad-level data has no ad_name, so its key is byte-identical
-// to before this change — only rows that actually carry an ad_name get a new, more specific key.
+//
+// PREFER ad_id OVER ad_name (2026-08-19 follow-up, per Mo — "linkedin is showing higher spend
+// again," found investigating): this originally suffixed with ad_name alone, which is an
+// API-RESOLVED STRING, not a stable identifier — connectors/linkedin.js's resolveCreativeNames hits
+// LinkedIn's Advertising API once per creative ID with no bulk endpoint, and on ANY transient
+// failure for that one call falls back to a synthesized "Creative {id}" placeholder name instead of
+// throwing (see that function's own doc comment — deliberately never-throw-on-a-missing-name). If a
+// resolve succeeds on one sync (real creative name) and fails on a later one (falls back to
+// "Creative {id}"), the exact same real ad on the exact same day produces TWO DIFFERENT spendRowKeys
+// across those two syncs — mergeRows treats them as different rows instead of one being an update to
+// the other, silently accumulating a second, fully-duplicate spend total for that ad+day every time
+// this happens. ad_id (LinkedIn's own numeric creative ID, or the equivalent stable ID from any other
+// ad-level connector) never changes even when the resolved display name does, so it's used as the
+// dedup identity whenever a row has one; ad_name is only the fallback for rows with no ad_id at all
+// (e.g. a plain CSV import with just an "Ad Name" column and nothing else) — unchanged behavior for
+// those. Every row that predates ad-level data has neither, so its key is still byte-identical to
+// before either of these changes.
 export function spendRowKey(r){
   const d=parseSpendDate(r.date);
   const dateKey=d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`:String(r.date||"").trim();
-  return `${campaignKey((r.campaign_group_name||"").trim(),(r.campaign_name||"").trim())}||${dateKey}||${(r.ad_name||"").trim()}`;
+  const adIdentity=(r.ad_id!=null&&String(r.ad_id).trim())?`id:${String(r.ad_id).trim()}`:(r.ad_name||"").trim();
+  return `${campaignKey((r.campaign_group_name||"").trim(),(r.campaign_name||"").trim())}||${dateKey}||${adIdentity}`;
 }
 export function mergeRows(existing,incoming){
   const map=new Map(existing.map(r=>[spendRowKey(r),r]));
@@ -2090,6 +2105,42 @@ export function computeDataAudit({mergedNormRows,combineGoogleChannels=false}){
     if(dk>psAgg.end)psAgg.end=dk;
   });
 
+  // DUPLICATE SPEND-ROW IDENTITY DETECTION (2026-08-19, per Mo — "linkedin is showing higher spend
+  // again, can we check if there are duplicates somehow"): mergedNormRows is loaded straight from
+  // core.spend_rows — if the database already holds two rows that spendRowKey would treat as the
+  // exact same real thing, those duplicates show up here as separate row objects sharing a key, not
+  // merged away by anything on the way in (found investigating: an ad-level connector's per-ID name
+  // resolution — e.g. LinkedIn's resolveCreativeNames, one REST call per creative with no bulk
+  // endpoint — can transiently fail on one sync and succeed on the next for the exact same real ad,
+  // and used to change spendRowKey's identity when it did, since that key used to include the
+  // resolved NAME rather than the stable ID — see spendRowKey's own doc comment for the fix. This
+  // groups every row by that same key and flags any group with more than one row: each is a
+  // confirmed case of the same real campaign/ad/day being counted twice (or more) in the totals
+  // everywhere else in the app, with the exact extra spend it's adding surfaced directly instead of
+  // left to be taken on faith.
+  const dupKeyMap={};
+  rows.forEach(r=>{
+    const d=parseSpendDate(r.date);
+    const dk=dayKey(d);
+    if(!dk)return;
+    const key=spendRowKey(r);
+    if(!dupKeyMap[key])dupKeyMap[key]=[];
+    dupKeyMap[key].push({...r,_dk:dk});
+  });
+  const possibleDuplicateSpendRows=Object.values(dupKeyMap)
+    .filter(g=>g.length>1)
+    .map(g=>({
+      platform:groupGooglePlatform(derivePlatform(g[0].campaign_group_name,g[0].campaign_name,g[0].platform,g[0].campaign_type),combineGoogleChannels),
+      campaignGroupName:g[0].campaign_group_name,
+      campaignName:g[0].campaign_name,
+      date:g[0]._dk,
+      rows:g.length,
+      totalSpend:g.reduce((s,r)=>s+(r.spend||0),0),
+      sources:[...new Set(g.map(r=>r.source||"manual"))],
+      adNames:[...new Set(g.map(r=>r.ad_name||"(none)"))],
+    }))
+    .sort((a,b)=>b.totalSpend-a.totalSpend);
+
   // Walks a [start,end] calendar span (inclusive) day by day and collapses consecutive days NOT in
   // presentSet into ranges — e.g. missing Mar 5/6/7 becomes one {start:"...-03-05",end:"...-03-07",
   // days:3} entry instead of three separate ones. "T00:00:00" (no Z) keeps every date parsed/
@@ -2152,7 +2203,7 @@ export function computeDataAudit({mergedNormRows,combineGoogleChannels=false}){
       totalRows:rows.length,totalSpend,earliest,latest,unparseableDates,
       sourceCount:bySource.length,platformCount:byPlatform.length,campaignCount:allCampaigns.size,
     },
-    bySource,byPlatform,
+    bySource,byPlatform,possibleDuplicateSpendRows,
   };
 }
 

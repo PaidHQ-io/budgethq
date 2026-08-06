@@ -72,15 +72,25 @@ export function normalizeDate(v) {
 // just resolving to one row. Later entries win ties, same "most recent wins" behavior ON CONFLICT
 // DO UPDATE gives every other duplicate.
 function dedupeByIdentity(rows) {
+  // PREFER ad_id OVER ad_name (2026-08-19, per Mo -- "linkedin is showing higher spend again," found
+  // investigating alongside core.js's identical spendRowKey fix -- see that function's doc comment
+  // for the full mechanism). This used to include BOTH ad_name and ad_id in the identity key, which
+  // is actually worse than including neither: any change in the RESOLVED NAME for the same real ad
+  // (e.g. LinkedIn's per-creative name lookup falling back to a placeholder on one sync, a real name
+  // on the next) changed this key even though ad_id -- the one part of it that's actually stable --
+  // didn't. Every duplicate-collapse this function exists for silently failed to fire for exactly the
+  // rows most at risk of it. Now: ad_id alone when present (a connector-provided stable numeric/string
+  // ID), only falling back to ad_name for rows that don't have one at all (e.g. a plain CSV "Ad Name"
+  // column with no ID) -- unchanged behavior for those.
   const seen = new Map();
   for (const r of rows) {
+    const adIdentity = r.ad_id != null && String(r.ad_id).trim() ? `id:${String(r.ad_id).trim()}` : (r.ad_name || "");
     const key = [
       r.platform || "",
       r.campaign_group_name || "",
       r.campaign_name || "",
       r.campaign_id || "",
-      r.ad_name || "",
-      r.ad_id || "",
+      adIdentity,
       r.campaign_type || "",
       normalizeDate(r.date) || "",
       r.source || "",
