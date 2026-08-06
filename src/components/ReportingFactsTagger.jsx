@@ -72,7 +72,18 @@ function buildColumns(metricOptions) {
   return { allColumns, defaultColumns: allColumns.map((c) => c.key) };
 }
 
-const CAMPAIGN_TAG_ROW_LIMIT = 20000; // sanity cap so a runaway import can't hang this component's group-by
+// Sanity cap so a runaway import can't hang this component's group-by. RAISED 2026-08-19, per Mo —
+// found investigating why a day-level MQL CSV import (one row per campaign PER DAY, easily 100K+ rows
+// for a real product across a year) wasn't showing up when filtered/tagged: the old 20,000 cap was
+// silently — with no warning anywhere in the UI — excluding every row past the 20,000th from BOTH the
+// tagging grid AND any bulk "Apply tag" action, since buildGroups (and therefore every group's own
+// g.rows list that applyDimToGroups/removeDimFromGroup/bulkRemoveTag iterate to build their PATCH
+// requests) only ever saw the first 20,000 of whatever `rows` the API returned. A workspace already
+// past 23,000 real rows (see this file's own "Rows imported" stat) hit that ceiling routinely. Groups-
+// by is a single pass over `rows` (this cap, not campaign count, bounds its cost), so raising it well
+// past realistic near-term volume is cheap — a warning banner below (see `rowLimitExceeded`) now also
+// makes it impossible for this to happen invisibly again if a workspace ever does outgrow the new cap.
+const CAMPAIGN_TAG_ROW_LIMIT = 250000;
 
 // Groups raw reporting_facts rows into one entry per Campaign + Ad Group combo (see this file's top
 // doc comment), summing every metric key present across that group's rows and majority-voting every
@@ -336,6 +347,9 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
 
   const groups = useMemo(() => buildGroups(rows || []), [rows]);
   const rowsById = useMemo(() => new Map((rows || []).map((r) => [r.id, r])), [rows]);
+  // See CAMPAIGN_TAG_ROW_LIMIT's own doc comment — this makes hitting the cap visible instead of a
+  // silent partial-tagging gap.
+  const rowLimitExceeded = (rows || []).length > CAMPAIGN_TAG_ROW_LIMIT;
   // The `columns.includes(c.key.replace(...))` fallback (2026-08-19, alongside the metricOptions fix
   // above) is backward compat for anyone who already toggled metric columns on in the Goals instance
   // before this fix shipped — their persisted `columns` array holds the OLD plain keys ("mqls"), which
@@ -698,6 +712,11 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
       {loadError && (
         <div style={{ padding: "9px 16px", background: T.dangerBg, borderBottom: `1px solid ${T.dangerBorder}`, fontSize: 12 * (T.fsScale || 1), color: T.danger, flexShrink: 0 }}>{loadError}</div>
+      )}
+      {rowLimitExceeded && (
+        <div style={{ padding: "9px 16px", background: T.warningBg, border: `1px solid ${T.warningBorder}`, borderBottom: `1px solid ${T.warningBorder}`, fontSize: 12 * (T.fsScale || 1), color: T.warning, flexShrink: 0 }}>
+          This dataset has {(rows || []).length.toLocaleString()} rows — only the first {CAMPAIGN_TAG_ROW_LIMIT.toLocaleString()} are grouped/taggable here. Rows past that cutoff won't show up in this grid or receive bulk-applied tags. Let us know if you're regularly importing at this volume and we'll raise the cap further.
+        </div>
       )}
       {notif && (
         <div style={{ padding: "9px 16px", borderBottom: `1px solid ${T.border}`, fontSize: 12 * (T.fsScale || 1), background: notif.type === "error" ? T.dangerBg : T.successBg, color: notif.type === "error" ? T.danger : T.success, flexShrink: 0 }}>{notif.msg}</div>

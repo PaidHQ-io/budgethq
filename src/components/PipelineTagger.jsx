@@ -8,7 +8,7 @@ import {
   computeDerivedPipelineMetrics, DERIVED_PIPELINE_METRICS,
   computeCustomMetrics,
 } from "../lib/reportingMetrics.js";
-import { PIPELINE_METRIC_MAP_OPTIONS, AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY } from "../lib/pipelineColumnMapping.js";
+import { PIPELINE_METRIC_MAP_OPTIONS, AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY, isPipelineSource } from "../lib/pipelineColumnMapping.js";
 import { stepPeriodStart, labelForPeriod, normalizePeriodStart } from "../lib/reportingPeriods.js";
 import { splitFilterTerms, matchesTerms } from "../lib/core.js";
 import { usePersistentState } from "../lib/persist.js";
@@ -462,9 +462,21 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
     return hideEmptyRows ? list.filter((c) => !hasNoSelectedMetricData(c.metrics, activeBreakdownColumns)) : list;
   };
 
+  // BUGFIX (2026-08-19, per Mo — found investigating a "Process Runner" phantom campaign row with 8
+  // rows and every metric blank in the By Campaign table): this component ("Performance Intelligence"
+  // — real campaign-level pipeline trend/breakdown/campaign tables) never filtered out goals-sourced
+  // reporting_facts rows the way ReportingAnalyzer.jsx's own embedded ReportingFactsTagger does (see
+  // that component's sourceFilter={isPipelineSource} for the pipeline-only browse/tag grid — this
+  // component predates that split and was never updated to match). A goals import's synthesized
+  // "campaign" (buildGoalsPreview's campaignName is just the joined dimension values, e.g. "Process
+  // Runner" — the product name, not a real ad platform campaign) was showing up right alongside real
+  // campaigns here, with every metric blank since goal values live under "_goal"-suffixed keys
+  // (mqls_goal, not mqls — see GOAL_METRIC_MAP_OPTIONS' own doc comment) that this component's metric
+  // columns never look up. Filtered at the source here, same as the two other reporting_facts
+  // consumers already do.
   useEffect(() => {
     listReportingFacts(session, workspace.id)
-      .then((r) => { setRows(r); setLoadError(""); })
+      .then((r) => { setRows(r.filter((row) => isPipelineSource(row.source || ""))); setLoadError(""); })
       .catch((err) => setLoadError(err.message || "Couldn't load pipeline data."));
   }, [session, workspace.id]);
 
