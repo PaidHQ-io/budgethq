@@ -93,7 +93,6 @@ export default function PipelineColumnMapper({
 
   const setColumnTarget = (i, target) => setMapping((prev) => ({ ...prev, [i]: target }));
 
-  const dupeTargets = useMemo(() => findDuplicateMappingTargets(mapping), [mapping]);
   const mappedCount = useMemo(() => Object.values(mapping).filter((t) => t && t !== "ignore").length, [mapping]);
   // Which of the 9 canonical metrics (PIPELINE_METRIC_MAP_OPTIONS) DIDN'T get mapped to any column
   // (2026-08-05, per Mo — "pipeline value still isn't coming in ... blank everywhere"). The alias
@@ -197,6 +196,12 @@ export default function PipelineColumnMapper({
     });
     return out;
   }, [headers, year]);
+  // Declared here (after columnPeriods, not up near mapping/setMapping above) so the wide-column
+  // exclusion below has a real columnPeriods to read — moved during the bulk-assign fix (2026-08-06)
+  // after this originally sat above columnPeriods's own declaration, which is a temporal-dead-zone
+  // ReferenceError waiting to happen (a const referenced by a useMemo callback that runs immediately,
+  // before the later const in the same render pass is reached, throws) — caught before it shipped.
+  const dupeTargets = useMemo(() => findDuplicateMappingTargets(mapping, columnPeriods), [mapping, columnPeriods]);
   const hasWideColumns = Object.keys(columnPeriods).length > 0;
   const wideColumnIndices = useMemo(() => Object.keys(columnPeriods), [columnPeriods]);
   // BULK-ASSIGN WIDE COLUMNS TO ONE METRIC (2026-08-06, per Mo's Dreamdata daily-MQL file — 581

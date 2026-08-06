@@ -541,11 +541,21 @@ export function parsePipelineFileRaw(file) {
 // Any confirmed target used on more than one column is ambiguous (two columns both claiming to be
 // "Spend," or both claiming the "Campaign Name" identity) — the caller should block confirming until
 // this comes back empty rather than silently picking one. Returns the list of duplicated targets.
-export function findDuplicateMappingTargets(mapping) {
+// columnPeriods (2026-08-06, per Mo's 581-day-column MQL file): a wide day/month/quarter column is
+// EXPECTED to share its metric:: target with every other wide column of the same metric — that's the
+// entire point of PipelineColumnMapper.jsx's bulk "Those N columns are all: MQLs" control. Each such
+// column gets its own dated row from columnPeriods (not the file's single resolvedPeriod), so 581
+// columns all mapped to "metric::mqls" never actually collide in the output the way two ordinary
+// columns both mapped to "campaign" (or both to "metric::mqls" with no date of their own) would. Any
+// index present in columnPeriods is therefore excluded from the duplicate check entirely — a true
+// duplicate among the non-wide columns (still the vast majority of real mistakes: two "Campaign"
+// columns, two flat "MQLs" columns) is still caught exactly as before.
+export function findDuplicateMappingTargets(mapping, columnPeriods) {
   const seen = new Set();
   const dupes = new Set();
-  Object.values(mapping || {}).forEach((target) => {
+  Object.entries(mapping || {}).forEach(([i, target]) => {
     if (!target || target === "ignore") return;
+    if (columnPeriods && columnPeriods[i]) return;
     if (seen.has(target)) dupes.add(target);
     seen.add(target);
   });
