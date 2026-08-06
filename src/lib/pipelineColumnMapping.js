@@ -146,11 +146,11 @@ function normalizeHeader(h) {
 // identifier is usually a product/item, not a campaign; buildNormalizedPipelineRows already just
 // stores whatever's mapped here as campaignName regardless of what it semantically represents).
 const CAMPAIGN_ALIASES = ["campaign name", "campaign", "opportunity name", "opportunity", "deal name", "account name", "product", "product name", "item", "item name"];
-// "google ad group"/"bing ad group" (2026-08-06, per Mo's Dreamdata daily-MQL export, which labels
-// its own ad-group column by platform rather than a generic "Ad Group") added alongside the existing
+// Per-platform variants (2026-08-06, per Mo's Dreamdata daily-MQL exports, which label their own
+// ad-group/ad-set column by platform rather than a generic "Ad Group") added alongside the existing
 // generic aliases — same exact-match philosophy as everywhere else in this file, just widened to
-// match the actual header text a real per-platform Dreamdata export uses.
-const ADGROUP_ALIASES = ["ad group", "ad set", "ad group name", "ad set name", "adset", "adset name", "adgroup name", "google ad group", "bing ad group", "microsoft ad group"];
+// match the actual header text each platform's own export uses.
+const ADGROUP_ALIASES = ["ad group", "ad set", "ad group name", "ad set name", "adset", "adset name", "adgroup name", "google ad group", "bing ad group", "microsoft ad group", "reddit ad group", "meta ad set", "facebook ad set"];
 const CHANNEL_ALIASES = ["channel", "platform", "marketing channel", "source channel", "medium"];
 const METRIC_ALIASES = {
   spend: ["spend", "total spend", "ad spend", "cost", "total cost", "media spend"],
