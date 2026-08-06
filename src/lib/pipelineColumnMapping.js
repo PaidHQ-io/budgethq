@@ -146,7 +146,11 @@ function normalizeHeader(h) {
 // identifier is usually a product/item, not a campaign; buildNormalizedPipelineRows already just
 // stores whatever's mapped here as campaignName regardless of what it semantically represents).
 const CAMPAIGN_ALIASES = ["campaign name", "campaign", "opportunity name", "opportunity", "deal name", "account name", "product", "product name", "item", "item name"];
-const ADGROUP_ALIASES = ["ad group", "ad set", "ad group name", "ad set name", "adset", "adset name", "adgroup name"];
+// "google ad group"/"bing ad group" (2026-08-06, per Mo's Dreamdata daily-MQL export, which labels
+// its own ad-group column by platform rather than a generic "Ad Group") added alongside the existing
+// generic aliases — same exact-match philosophy as everywhere else in this file, just widened to
+// match the actual header text a real per-platform Dreamdata export uses.
+const ADGROUP_ALIASES = ["ad group", "ad set", "ad group name", "ad set name", "adset", "adset name", "adgroup name", "google ad group", "bing ad group", "microsoft ad group"];
 const CHANNEL_ALIASES = ["channel", "platform", "marketing channel", "source channel", "medium"];
 const METRIC_ALIASES = {
   spend: ["spend", "total spend", "ad spend", "cost", "total cost", "media spend"],
@@ -202,7 +206,12 @@ function guessOneColumn(header, tagDims, metricKeySuffix, structuralFieldValues)
 // export (which always landed as periodType "unknown" for a per-row picker), a pipeline CSV/XLSX now
 // resolves to exactly ONE period for the WHOLE file — either detected here, or picked once by the
 // user in PipelineColumnMapper.jsx — applied to every row. day/week grains are deliberately never
-// produced here (only "month"/"quarter"), per Mo: "we don't accept weekly or daily."
+// produced by THIS mechanism (only "month"/"quarter"), per Mo's original request: "we don't accept
+// weekly or daily." That was written for a file with ONE row per period (this vertical/whole-file
+// detector); it doesn't apply to detectDayColumn below, added later (2026-08-06, per Mo's Dreamdata
+// daily-MQL export) for the opposite shape — one row per campaign/ad-group with a separate COLUMN
+// per calendar day — which is real per-day data a source can actually report, not an approximation
+// being forced onto a coarser file.
 const PERIOD_COLUMN_ALIASES = ["date", "month", "period", "reporting period", "reporting month", "period start", "fiscal month", "fiscal quarter", "quarter", "month/year", "report month", "report date", "reporting date"];
 
 // "Q1 2026" / "2026 Q1" style labels — common in quarter-grain CRM/BI exports — don't parse as a
@@ -299,6 +308,22 @@ export function detectQuarterColumn(header) {
     if (last) return Number(last[1]);
   }
   return null;
+}
+
+// Full calendar-date column header ("May 1, 2026", "5/1/2026", "2026-05-01") -> that day's
+// periodStart, e.g. "2026-05-01" (2026-08-06, per Mo's Dreamdata daily-influenced-MQL export — one
+// row per Campaign+Ad Group, then one column per real calendar day rather than per month/quarter).
+// Unlike detectMonthColumn/detectQuarterColumn, a day header already carries its own year, so this
+// returns the resolved date directly instead of a bare 1-12/1-4 number needing a separately-picked
+// year. Regex-gated on a date-SHAPED string before attempting any real parse — deliberately stricter
+// than just trying `new Date(header)` on every column, since a short numeric or plain-text header
+// (a stray "5", "Total", a currency-looking "$120") could otherwise parse into some accidental,
+// wrong date rather than correctly falling through to "not a date column."
+const DAY_COLUMN_RE = /^[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}$|^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$/;
+export function detectDayColumn(header) {
+  const s = String(header ?? "").trim();
+  if (!DAY_COLUMN_RE.test(s)) return null;
+  return normalizePeriodStart("day", s);
 }
 
 // headers: raw header strings in column order. tagDims: this workspace's current tag dimension

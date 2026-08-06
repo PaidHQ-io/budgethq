@@ -5,6 +5,7 @@ import {
   findDuplicateMappingTargets,
   buildNormalizedPipelineRows,
   detectImportPeriod,
+  detectDayColumn,
   detectMonthColumn,
   detectQuarterColumn,
   isTotalRow,
@@ -183,6 +184,12 @@ export default function PipelineColumnMapper({
   const columnPeriods = useMemo(() => {
     const out = {};
     (headers || []).forEach((h, i) => {
+      // Day checked first (2026-08-06, per Mo's Dreamdata daily-MQL export) — a full calendar-date
+      // header already carries its own year, no need for the `year` picker below at all, and it's
+      // strictly more specific than a month/quarter match so it should win if a header somehow could
+      // satisfy more than one (in practice it can't — see each detector's own regex).
+      const day = detectDayColumn(h);
+      if (day) { out[i] = { periodType: "day", periodStart: day }; return; }
       const m = detectMonthColumn(h);
       if (m) { out[i] = { periodType: "month", periodStart: normalizePeriodStart("month", `${year}-${String(m).padStart(2, "0")}-01`) }; return; }
       const q = detectQuarterColumn(h);
@@ -336,8 +343,9 @@ export default function PipelineColumnMapper({
         {hasWideColumns && (
           <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.5, marginBottom: 8 }}>
             {Object.keys(columnPeriods).length} column{Object.keys(columnPeriods).length === 1 ? "" : "s"} above were recognized as
-            individual months or quarters (marked with <span style={{ color: T.accent }}>→</span>) — each becomes its own dated row
-            using the year picked below. The period below only applies to any OTHER mapped metric column that isn't one of those.
+            individual days, months, or quarters (marked with <span style={{ color: T.accent }}>→</span>) — each becomes its own
+            dated row (a full-date column already carries its own year; a bare month/quarter column uses the year picked below).
+            The period below only applies to any OTHER mapped metric column that isn't one of those.
           </div>
         )}
         {periodColumnMapped && (
