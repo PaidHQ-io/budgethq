@@ -4477,7 +4477,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   <Btn onClick={()=>{setStep("upload");setView("data");}} variant="ghost" size="sm" T={T}>← Back to Data Sources</Btn>
                 </div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"11px 16px 5px",alignItems:"end",gap:8,background:T.headerBg}}>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"22px 32px 1fr 90px":"22px 32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"11px 16px 5px",alignItems:"end",gap:8,background:T.headerBg}}>
+                {/* Row number column (2026-08-19, per Mo — "add a row number to the campaign tagger
+                    and pipeline tagger"). Reflects the table's current sort/filter position, not a
+                    stable per-campaign id — same reasoning as PipelineTagger.jsx's NumTh/NumTd. */}
+                <span style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,textAlign:"right"}}>#</span>
                 <input type="checkbox" checked={filtered.length>0&&selected.size===filtered.length} onChange={selAll} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                 {/* Relabeled 2026-07-24 to match current platform terminology (LinkedIn recently
                     renamed its own UI to "Campaign"/"Ad Set", matching what most other platforms
@@ -4496,7 +4500,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   </button>}
                 </div>}
               </div>
-              {filtersOpen&&<div style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 10px",gap:8,alignItems:"start"}}>
+              {filtersOpen&&<div style={{display:"grid",gridTemplateColumns:isMobile?"22px 32px 1fr 90px":"22px 32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr)",padding:"3px 16px 10px",gap:8,alignItems:"start"}}>
+                <div/>
                 <div/>
                 {!isMobile&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
                   <div style={{display:"flex",gap:3,marginTop:3}}>
@@ -4542,11 +4547,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             </div>
 
             <div style={{overflow:"auto",flex:1}}>
-              {filtered.map((c)=>{
+              {filtered.map((c,ci)=>{
                 const ts=tags[c.key]||{};const tc=Object.keys(ts).length;const isSel=selected.has(c.key);const pc=PLATFORM_COLORS[c.platform]||T.textMuted;
                 return(
                   <div key={c.key} className={isSel?undefined:"bhq-row"} onClick={()=>toggleSel(c.key)}
-                    style={{display:"grid",gridTemplateColumns:isMobile?"32px 1fr 90px":"32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"11px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:T.surface,transition:"background 0.1s",gap:6}}>
+                    style={{display:"grid",gridTemplateColumns:isMobile?"22px 32px 1fr 90px":"22px 32px minmax(160px,1fr) minmax(160px,1fr) 110px 130px minmax(180px,1fr) 24px",padding:"11px 16px",borderBottom:`1px solid ${T.border}`,alignItems:"center",cursor:"pointer",background:isSel?T.rowSelected:T.surface,transition:"background 0.1s",gap:6}}>
+                    <span style={{fontSize:12*(T.fsScale||1),color:T.textMuted,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{ci+1}</span>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleSel(c.key)} onClick={e=>e.stopPropagation()} style={{cursor:"pointer",accentColor:T.accent,width:14,height:14}}/>
                     {/* Group and Campaign now share one text treatment (size/weight/color) instead
                         of a muted-vs-bold pair — Vercel's row title and metadata fields read at the

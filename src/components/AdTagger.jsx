@@ -294,6 +294,10 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, tags
         <div style={{ minWidth: "100%", width: "max-content" }}>
           <div style={{ position: "sticky", top: 0, zIndex: 2, background: T.surfaceEl, borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: "flex", padding: "11px 16px 5px", alignItems: "end", gap: 8, background: T.headerBg }}>
+              {/* Row number column (2026-08-19, per Mo — "add a row number to the campaign tagger
+                  and pipeline tagger"). Reflects the table's current sort/filter position, not a
+                  stable per-ad id. */}
+              <div style={{ width: 22, flexShrink: 0, fontSize: 11 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "right" }}>#</div>
               <div style={{ width: 22, flexShrink: 0 }}>
                 <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={selAll} style={{ cursor: "pointer", accentColor: T.accent, width: 14, height: 14 }} />
               </div>
@@ -307,6 +311,7 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, tags
 
             {filtersOpen && (
               <div style={{ display: "flex", padding: "3px 16px 10px", gap: 8, alignItems: "start", flexWrap: "wrap" }}>
+                <div style={{ width: 22, flexShrink: 0 }} />
                 <div style={{ width: 22, flexShrink: 0 }} />
                 <div style={{ ...colBox.campaign, display: "flex", flexDirection: "column", gap: 3 }}>
                   <div style={{ display: "flex", gap: 3 }}>
@@ -373,7 +378,7 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, tags
             )}
           </div>
 
-          {filtered.map((a) => {
+          {filtered.map((a, ai) => {
             const ts = adTags[a.key] || {}; // explicit, ad-level only — drives the × remove control
             const inherited = tags?.[a.campKey] || {}; // this ad's parent campaign's own tags
             const eff = { ...inherited, ...ts }; // effective = own value if set, else inherited
@@ -383,6 +388,7 @@ export default function AdTagger({ T, session, workspace, canEdit, tagDims, tags
             return (
               <div key={a.key} className={isSel ? undefined : "bhq-row"} onClick={() => toggleSel(a.key)}
                 style={{ display: "flex", padding: "11px 16px", borderBottom: `1px solid ${T.border}`, alignItems: "center", cursor: "pointer", background: isSel ? T.rowSelected : T.surface, transition: "background 0.1s", gap: 8 }}>
+                <div style={{ width: 22, flexShrink: 0, fontSize: 12 * (T.fsScale || 1), color: T.textMuted, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{ai + 1}</div>
                 <div style={{ width: 22, flexShrink: 0 }}>
                   <input type="checkbox" checked={isSel} onChange={() => toggleSel(a.key)} onClick={(e) => e.stopPropagation()} style={{ cursor: "pointer", accentColor: T.accent, width: 14, height: 14 }} />
                 </div>

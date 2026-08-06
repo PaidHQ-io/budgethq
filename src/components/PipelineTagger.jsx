@@ -146,6 +146,25 @@ function SortTh({ label, sortKey, sort, onSort, align, T }) {
   );
 }
 
+// Static, non-sortable "#" row-number column — shared by all three tables (Trend by period,
+// Breakdown, By Campaign) plus the Breakdown table's nested per-campaign drill-down (2026-08-19, per
+// Mo — "add a row number to the campaign tagger and pipeline tagger"). Numbers reflect the table's
+// current sort/filter order (row 1 is whatever's on top right now, not a stable per-record id) —
+// that's the useful thing here: "row 12" is unambiguous when talking through a table together, and
+// it stays meaningful after re-sorting since it's always "position on screen right now." Not
+// sortable itself (nothing to sort by) and not exported to CSV (the export functions below key off
+// the underlying row/group objects, not the rendered table, so adding this didn't touch them).
+function NumTh({ T, small }) {
+  return (
+    <th style={{ padding: small ? "6px 8px" : "8px 10px", fontSize: (small ? 9 : 10) * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "right", width: small ? 26 : 32 }}>#</th>
+  );
+}
+function NumTd({ T, n, small }) {
+  return (
+    <td style={{ padding: small ? "6px 8px" : "8px 10px", color: T.textMuted, fontSize: (small ? 11 : 12) * (T.fsScale || 1), textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n}</td>
+  );
+}
+
 // GRAIN ROLL-UP (2026-08-14, per Mo — "when I select QTR or YR in the filter, everything
 // disappears. Are we not aggregating across months to get to quarter and across months to get to
 // year?"): reporting_facts rows can be imported at month, quarter, OR year grain (whatever the
@@ -1105,6 +1124,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
                     <thead>
                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <NumTh T={T} />
                         <SortTh label="Period" sortKey="__label__" sort={periodSort} onSort={(k) => toggleSort(setPeriodSort, k)} align="left" T={T} />
                         <SortTh label="Rows" sortKey="__rows__" sort={periodSort} onSort={(k) => toggleSort(setPeriodSort, k)} align="right" T={T} />
                         {activePeriodColumns.map((c) => (
@@ -1114,9 +1134,9 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                     </thead>
                     <tbody>
                       {visiblePeriodBuckets.length === 0 && (
-                        <tr><td colSpan={2 + activePeriodColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedPeriodBuckets.length > 0 ? "Every period is hidden by \"Hide empty rows.\"" : "No periods match your filters."}</td></tr>
+                        <tr><td colSpan={3 + activePeriodColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedPeriodBuckets.length > 0 ? "Every period is hidden by \"Hide empty rows.\"" : "No periods match your filters."}</td></tr>
                       )}
-                      {visiblePeriodBuckets.map((b) => {
+                      {visiblePeriodBuckets.map((b, bi) => {
                         // Matched by KEY, not array position — sorting the table can reorder rows,
                         // but the forecast is always for one specific real bucket (the most recent
                         // one chronologically), so "is this the forecast row" must stay tied to
@@ -1124,6 +1144,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                         const isForecastRow = forecast && b.key === forecast.bucket.key;
                         return (
                           <tr key={b.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+                            <NumTd T={T} n={bi + 1} />
                             <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text }}>
                               {labelForPeriod(b.periodType, b.periodStart)}
                               {isForecastRow && <Pill color={T.accent} bg={T.accentBg} border={T.accentBorder} style={{ marginLeft: 8, fontSize: 10 * (T.fsScale || 1) }}>in progress</Pill>}
@@ -1144,6 +1165,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                     {sortedPeriodBuckets.length > 0 && (
                       <tfoot>
                         <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                          <td style={{ padding: "8px 10px" }} />
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{searchedRows.length}</td>
                           {activePeriodColumns.map((c) => (
@@ -1179,6 +1201,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
                     <thead>
                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <NumTh T={T} />
                         <SortTh label={sliceOptions.find((o) => o.value === sliceBy)?.label || "Slice"} sortKey="__label__" sort={breakdownSort} onSort={(k) => toggleSort(setBreakdownSort, k)} align="left" T={T} />
                         <SortTh label="Rows" sortKey="__rows__" sort={breakdownSort} onSort={(k) => toggleSort(setBreakdownSort, k)} align="right" T={T} />
                         {activeBreakdownColumns.map((c) => (
@@ -1188,9 +1211,9 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                     </thead>
                     <tbody>
                       {visibleSliceGroups.length === 0 && (
-                        <tr><td colSpan={2 + activeBreakdownColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && filteredSliceGroups.length > 0 ? "Every group is hidden by \"Hide empty rows.\"" : "No groups match your filters."}</td></tr>
+                        <tr><td colSpan={3 + activeBreakdownColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && filteredSliceGroups.length > 0 ? "Every group is hidden by \"Hide empty rows.\"" : "No groups match your filters."}</td></tr>
                       )}
-                      {visibleSliceGroups.map((g) => {
+                      {visibleSliceGroups.map((g, gi) => {
                         // Nested campaign expand (2026-08-11, per Mo — "performance trends at the
                         // campaign level for each product"). Hidden when Slice by is already
                         // Campaign — expanding a campaign row into its own campaign breakdown would
@@ -1200,6 +1223,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                         return (
                           <Fragment key={g.key}>
                             <tr className="bhq-row" style={{ borderBottom: expanded ? "none" : `1px solid ${T.border}` }}>
+                              <NumTd T={T} n={gi + 1} />
                               <td onClick={canExpand ? () => toggleExpandGroup(g.key) : undefined}
                                 style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: canExpand ? "pointer" : "default", userSelect: canExpand ? "none" : "auto" }} title={g.key}>
                                 {canExpand && <Icon name="chevronDown" size={10} color={T.textMuted} style={{ marginRight: 6, transform: expanded ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }} />}
@@ -1212,10 +1236,11 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                             </tr>
                             {expanded && (
                               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                                <td colSpan={2 + activeBreakdownColumns.length} style={{ padding: "0 10px 12px 28px", background: T.surfaceEl }}>
+                                <td colSpan={3 + activeBreakdownColumns.length} style={{ padding: "0 10px 12px 28px", background: T.surfaceEl }}>
                                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 * (T.fsScale || 1) }}>
                                     <thead>
                                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                                        <NumTh T={T} small />
                                         <th style={{ padding: "6px 8px", fontSize: 9 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "left" }}>Campaign</th>
                                         <th style={{ padding: "6px 8px", fontSize: 9 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted, textAlign: "right" }}>Rows</th>
                                         {activeBreakdownColumns.map((c) => (
@@ -1224,8 +1249,9 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {campaignsForGroup(g).map((c) => (
+                                      {campaignsForGroup(g).map((c, ci) => (
                                         <tr key={c.key} className="bhq-row">
+                                          <NumTd T={T} n={ci + 1} small />
                                           <td style={{ padding: "6px 8px", color: T.textSub, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.key}>{c.key}</td>
                                           <td style={{ padding: "6px 8px", color: T.textMuted, fontSize: 11 * (T.fsScale || 1), textAlign: "right" }}>{c.rows.length}</td>
                                           {activeBreakdownColumns.map((col) => (
@@ -1245,6 +1271,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                     {filteredSliceGroups.length > 0 && (
                       <tfoot>
                         <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                          <td style={{ padding: "8px 10px" }} />
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{searchedRows.length}</td>
                           {activeBreakdownColumns.map((c) => (
@@ -1281,6 +1308,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 * (T.fsScale || 1) }}>
                     <thead>
                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        <NumTh T={T} />
                         <SortTh label="Campaign" sortKey="__label__" sort={campaignSort} onSort={(k) => toggleSort(setCampaignSort, k)} align="left" T={T} />
                         <SortTh label="Rows" sortKey="__rows__" sort={campaignSort} onSort={(k) => toggleSort(setCampaignSort, k)} align="right" T={T} />
                         {activeCampaignColumns.map((c) => (
@@ -1290,10 +1318,11 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                     </thead>
                     <tbody>
                       {visibleCampaignGroups.length === 0 && (
-                        <tr><td colSpan={2 + activeCampaignColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedCampaignGroups.length > 0 ? "Every campaign is hidden by \"Hide empty rows.\"" : "No campaigns match your filters."}</td></tr>
+                        <tr><td colSpan={3 + activeCampaignColumns.length} style={{ padding: "32px 20px", textAlign: "center", color: T.textMuted, fontSize: 13 * (T.fsScale || 1) }}>{hideEmptyRows && sortedCampaignGroups.length > 0 ? "Every campaign is hidden by \"Hide empty rows.\"" : "No campaigns match your filters."}</td></tr>
                       )}
-                      {visibleCampaignGroups.map((g) => (
+                      {visibleCampaignGroups.map((g, gi) => (
                         <tr key={g.key} className="bhq-row" style={{ borderBottom: `1px solid ${T.border}` }}>
+                          <NumTd T={T} n={gi + 1} />
                           <td style={{ padding: "8px 10px", fontWeight: 600, color: T.text, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={g.key}>{g.key}</td>
                           <td style={{ padding: "8px 10px", color: T.textSub, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{g.rows.length}</td>
                           {activeCampaignColumns.map((c) => (
@@ -1305,6 +1334,7 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
                     {sortedCampaignGroups.length > 0 && (
                       <tfoot>
                         <tr style={{ borderTop: `2px solid ${T.border}` }}>
+                          <td style={{ padding: "8px 10px" }} />
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text }}>Total</td>
                           <td style={{ padding: "8px 10px", fontWeight: 700, color: T.text, fontSize: 12 * (T.fsScale || 1), textAlign: "right" }}>{searchedRows.length}</td>
                           {activeCampaignColumns.map((c) => (
