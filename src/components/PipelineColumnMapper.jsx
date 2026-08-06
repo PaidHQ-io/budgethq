@@ -364,9 +364,10 @@ export default function PipelineColumnMapper({
         )}
         {periodColumnMapped && (
           <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.5, marginBottom: 8 }}>
-            A column is mapped to "Month / Quarter (varies per row)" — each row will be dated from its own value in that
-            column (falling back to the year picked below if that row's value is a bare month/quarter with no year). The
-            period below only applies to any row whose own period cell doesn't parse.
+            A column is mapped to "Date / Period (varies per row)" — each row will be dated from its own value in that
+            column (a real date like "2026-05-15" or "5/15/2026" lands as an exact day; a bare month/quarter with no
+            year of its own falls back to the year picked below). The period below only applies to any row whose own
+            period cell doesn't parse at all.
           </div>
         )}
         {periodMode === "detected" && detected ? (

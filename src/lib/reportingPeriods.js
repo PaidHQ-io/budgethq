@@ -22,11 +22,23 @@ export const PERIOD_TYPE_LABELS = {
 
 // Parses a YYYY-MM-DD (or any Date-parseable) string into a UTC-anchored Date, so day-of-month
 // math below isn't shifted by the browser's local timezone.
+//
+// BUG FIX (2026-08-06, found while testing parsePeriodCell for pipelineColumnMapping.js's new
+// per-row "period" support): a bare "YYYY-MM" (year-month, no day — e.g. "2026-01") fell through to
+// the generic `new Date(s)` branch below. Per spec, a date-only ISO string parses as UTC midnight —
+// but the very next lines then read it back with LOCAL getters (d.getFullYear()/getMonth()/getDate()),
+// so in any timezone behind UTC that UTC midnight instant reads back as the LAST day of the PRIOR
+// month locally, e.g. "2026-01" -> Dec 31 2025 -> normalized to "2025-12-01", one whole month early.
+// Same underlying bug class as this session's earlier "Invalid Date"/one-day-early fixes elsewhere in
+// the app (see core.js's parseSpendDate doc comment) — handled here the same way, with an explicit
+// regex branch instead of trusting native Date parsing for an ambiguous/timezone-sensitive shape.
 function parseDateUTC(input) {
   if (!input) return null;
   const s = String(input).trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
   if (m) return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  const ym = /^(\d{4})-(\d{2})$/.exec(s);
+  if (ym) return new Date(Date.UTC(Number(ym[1]), Number(ym[2]) - 1, 1));
   const d = new Date(s);
   if (isNaN(d.getTime())) return null;
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));

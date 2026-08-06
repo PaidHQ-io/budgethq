@@ -108,13 +108,25 @@ export const GOALS_SOURCE_PREFIX = "goals";
 export const isGoalsSource = (source) => (source || "").startsWith(GOALS_SOURCE_PREFIX);
 export const isPipelineSource = (source) => !isGoalsSource(source);
 
-// Mapping targets "campaign" | "adgroup" | "channel" (as opposed to "ignore", `tag::${dim}`, or
-// `metric::${key}`) — driven from one array so PipelineColumnMapper.jsx's dropdown and this file's
-// guessing logic can't drift out of sync with each other.
+// Mapping targets "campaign" | "adgroup" | "channel" | "period" (as opposed to "ignore",
+// `tag::${dim}`, or `metric::${key}`) — driven from one array so PipelineColumnMapper.jsx's dropdown
+// and this file's guessing logic can't drift out of sync with each other.
+//
+// "period" (2026-08-06, per Mo — "what happens if each row is a day instead of each column?"): a
+// VERTICAL per-row date/period column, the row-wise counterpart to the wide/horizontal day-or-month-
+// or-quarter COLUMN layout detectDayColumn/detectMonthColumn/detectQuarterColumn already handle (see
+// PipelineColumnMapper.jsx's columnPeriods). Was previously offered only to a since-retired
+// "GOALS_STRUCTURAL_FIELD_OPTIONS" caller from before GoalsObjectives.jsx moved to its own
+// GoalsImportWizard.jsx (2026-08-19) — this array is PipelineColumnMapper.jsx's ONLY caller now
+// (ReportingAnalyzer.jsx, no custom structuralFieldOptions), so "period" was actually unreachable
+// for a real pipeline import until now. Without it, a file with one row per campaign per day (or per
+// month/quarter) had no column target for its own date at all — it fell through to "Ignore," and
+// every row silently got stamped with the SAME single whole-file period instead of its real one.
 export const PIPELINE_STRUCTURAL_FIELD_OPTIONS = [
   { value: "campaign", label: "Campaign Name" },
   { value: "adgroup", label: "Ad Group / Ad Set Name" },
   { value: "channel", label: "Channel" },
+  { value: "period", label: "Date / Period (varies per row)" },
 ];
 
 // Strips common unit/currency NOISE punctuation before collapsing whitespace (2026-08-05, per Mo —
@@ -177,13 +189,13 @@ const METRIC_ALIASES = {
 // structural handling (with its own platform dropdown) rather than being treated as a generic tag.
 //
 // structuralFieldValues (2026-08-19, per Mo's goals-import UX split): which structural targets are
-// actually offered by the CALLER's dropdown (PIPELINE_STRUCTURAL_FIELD_OPTIONS' values by default,
-// or GOALS_STRUCTURAL_FIELD_OPTIONS' values for a goals import — see PipelineColumnMapper.jsx's
-// structuralFieldOptions prop). Guessing a target the caller isn't actually offering would set
-// mapping[i] to a value with no matching <option>, leaving that column's dropdown showing nothing
-// selected — so every alias check below is gated on whether its target is in this list. "period"
-// (a per-ROW month/quarter column — vertical-layout goals files, as opposed to the wide/horizontal
-// month-COLUMN layout detectMonthColumn handles) only ever appears in GOALS_STRUCTURAL_FIELD_OPTIONS.
+// actually offered by the CALLER's dropdown (PIPELINE_STRUCTURAL_FIELD_OPTIONS' values — the only
+// caller left since GoalsObjectives.jsx moved to its own GoalsImportWizard.jsx, see that array's own
+// doc comment). Guessing a target the caller isn't actually offering would set mapping[i] to a value
+// with no matching <option>, leaving that column's dropdown showing nothing selected — so every alias
+// check below is gated on whether its target is in this list. "period" (a per-ROW date/month/quarter
+// column — vertical-layout files, as opposed to the wide/horizontal per-COLUMN layout detectDayColumn/
+// detectMonthColumn/detectQuarterColumn handle) is a real, reachable target now (2026-08-06).
 function guessOneColumn(header, tagDims, metricKeySuffix, structuralFieldValues) {
   const n = normalizeHeader(header);
   const allowed = structuralFieldValues || ["campaign", "adgroup", "channel"];
@@ -582,6 +594,14 @@ export function isTotalRow(headers, row, mapping) {
 export function parsePeriodCell(v, fallbackYear) {
   const s = String(v ?? "").trim();
   if (!s) return null;
+  // Day checked FIRST (2026-08-06, per Mo — "what happens if each row is a day?"): reuses
+  // detectDayColumn's own explicit-regex parsing (never a bare `new Date(s)`) rather than adding a
+  // second, possibly-inconsistent day parser here. Its regexes all require an actual day-of-month
+  // digit to be present, so a genuinely month-only or quarter-only cell ("January 2026", "Q1 2026",
+  // "2026-01") correctly falls through to the quarter/month branches below unaffected — this only
+  // fires for a cell that unambiguously names a specific calendar day.
+  const day = detectDayColumn(s);
+  if (day) return { periodType: "day", periodStart: day };
   const q = parseQuarterLabel(s);
   if (q) return { periodType: "quarter", periodStart: q };
   const m = normalizePeriodStart("month", s);
