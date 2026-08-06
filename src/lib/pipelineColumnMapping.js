@@ -150,7 +150,7 @@ const CAMPAIGN_ALIASES = ["campaign name", "campaign", "opportunity name", "oppo
 // ad-group/ad-set column by platform rather than a generic "Ad Group") added alongside the existing
 // generic aliases — same exact-match philosophy as everywhere else in this file, just widened to
 // match the actual header text each platform's own export uses.
-const ADGROUP_ALIASES = ["ad group", "ad set", "ad group name", "ad set name", "adset", "adset name", "adgroup name", "google ad group", "bing ad group", "microsoft ad group", "reddit ad group", "meta ad set", "facebook ad set"];
+const ADGROUP_ALIASES = ["ad group", "ad set", "ad group name", "ad set name", "adset", "adset name", "adgroup name", "google ad group", "bing ad group", "microsoft ad group", "reddit ad group", "meta ad set", "facebook ad set", "linkedin ad set", "linkedin ad group"];
 const CHANNEL_ALIASES = ["channel", "platform", "marketing channel", "source channel", "medium"];
 const METRIC_ALIASES = {
   spend: ["spend", "total spend", "ad spend", "cost", "total cost", "media spend"],
@@ -310,20 +310,57 @@ export function detectQuarterColumn(header) {
   return null;
 }
 
-// Full calendar-date column header ("May 1, 2026", "5/1/2026", "2026-05-01") -> that day's
-// periodStart, e.g. "2026-05-01" (2026-08-06, per Mo's Dreamdata daily-influenced-MQL export — one
-// row per Campaign+Ad Group, then one column per real calendar day rather than per month/quarter).
-// Unlike detectMonthColumn/detectQuarterColumn, a day header already carries its own year, so this
-// returns the resolved date directly instead of a bare 1-12/1-4 number needing a separately-picked
-// year. Regex-gated on a date-SHAPED string before attempting any real parse — deliberately stricter
-// than just trying `new Date(header)` on every column, since a short numeric or plain-text header
-// (a stray "5", "Total", a currency-looking "$120") could otherwise parse into some accidental,
-// wrong date rather than correctly falling through to "not a date column."
-const DAY_COLUMN_RE = /^[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}$|^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$/;
+// Full calendar-date column header -> that day's periodStart ("2026-05-01") (2026-08-06, per Mo's
+// Dreamdata daily-influenced-MQL exports — one row per Campaign+Ad Group, then one column per real
+// calendar day rather than per month/quarter). Unlike detectMonthColumn/detectQuarterColumn, a day
+// header already carries its own year, so this returns the resolved date directly instead of a bare
+// 1-12/1-4 number needing a separately-picked year.
+//
+// Deliberately hand-parsed with explicit regexes per known shape, NEVER falling back to a bare
+// `new Date(header)` — same "don't trust ambiguous native Date parsing" rule core.js's parseSpendDate
+// already documents (its own doc comment has a confirmed real example: `new Date("Jul-26")` silently
+// parses as day=26 of year 2001, not July 2026). A 2-digit year is even riskier that way. Every branch
+// below extracts numeric day/month/year explicitly and builds the ISO string by hand instead.
+//
+// Two branches (2026-08-06, widened after Mo's LinkedIn export used a DIFFERENT day-header shape than
+// the Dreamdata Google file that prompted the first version of this function — "01-May-26", day
+// FIRST, dash-separated, 2-digit year, rather than "May 1, 2026"):
+//   - month name first: "May 1, 2026" / "May 1 2026" / "May.1,2026"
+//   - day first: "01-May-26" / "1 May 2026" / "01/May/2026"
+// A header that doesn't match either shape (or isn't a real calendar date — e.g. day 32, month 13)
+// returns null and falls through to detectMonthColumn/detectQuarterColumn, same as before.
+function ymdFromMonthName(monthName, day, yearStr) {
+  const mon = MONTH_NAME_TO_NUM[monthName.toLowerCase()];
+  const d = Number(day);
+  if (!mon || !d || d < 1 || d > 31) return null;
+  let y = Number(yearStr);
+  if (!y) return null;
+  if (y < 100) y += y < 70 ? 2000 : 1900; // same 2-digit-year convention as core.js's parseSpendDate
+  return `${y}-${String(mon).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+const MONTH_FIRST_RE = /^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{2,4})$/;
+const DAY_FIRST_RE = /^(\d{1,2})[-\s/]([A-Za-z]{3,9})\.?[-\s/](\d{2,4})$/;
+// Two more all-numeric shapes, same explicit-extraction rule as above — no bare `new Date(header)`.
+const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const NUMERIC_MDY_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/; // M/D/Y — US convention, matches parseSpendDate's own slash-date assumption in core.js
 export function detectDayColumn(header) {
   const s = String(header ?? "").trim();
-  if (!DAY_COLUMN_RE.test(s)) return null;
-  return normalizePeriodStart("day", s);
+  let m = MONTH_FIRST_RE.exec(s);
+  if (m) return ymdFromMonthName(m[1], m[2], m[3]);
+  m = DAY_FIRST_RE.exec(s);
+  if (m) return ymdFromMonthName(m[2], m[1], m[3]);
+  m = ISO_RE.exec(s);
+  if (m) {
+    const mo = Number(m[2]), d = Number(m[3]);
+    return mo >= 1 && mo <= 12 && d >= 1 && d <= 31 ? s : null;
+  }
+  m = NUMERIC_MDY_RE.exec(s);
+  if (m) {
+    const mo = Number(m[1]), d = Number(m[2]);
+    let y = Number(m[3]); if (y < 100) y += 2000;
+    return mo >= 1 && mo <= 12 && d >= 1 && d <= 31 ? `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}` : null;
+  }
+  return null;
 }
 
 // headers: raw header strings in column order. tagDims: this workspace's current tag dimension
