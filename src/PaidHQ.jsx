@@ -1774,6 +1774,25 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       return;
     }
     setSyncState(p=>({...p,[platformKey]:"loading"}));
+    // FULL-RESYNC DUPLICATION FIX (2026-08-06, found live — LinkedIn and Meta both showing ~2x
+    // real spend after a Full resync): mergeRows below only overwrites a row whose identity key
+    // (campaign+campaign group+date+ad_name — see spendRowKey in lib/core.js) exactly matches an
+    // incoming row. If a connector's granularity ever changes (LinkedIn/Meta both switched from
+    // campaign-level rows, ad_name="", to ad-level rows, ad_name=<real ad>, earlier this session),
+    // the OLD rows and the NEW rows have different identities entirely — mergeRows just piles the
+    // new ones on top instead of replacing anything, and the next debounced save (a whole-dataset
+    // replace, see runRowsSave above) faithfully persists both, double-counting the same real
+    // spend. A routine incremental "Sync now" never hits this in practice (it only ever asks for
+    // days after the platform's own last-known end date, so there's nothing old to collide with),
+    // but "Full resync" deliberately re-walks a wide, already-covered range — exactly where a
+    // granularity change would surface. Before re-fetching, strip every existing row this exact
+    // platform's sync tag owns within the range about to be re-walked (never touches CSV/
+    // screenshot/other-platform rows, and never touches dates outside this resync's own range) —
+    // matches the delete-then-insert semantics the cron's replaceWindow already uses server-side,
+    // which is exactly why a routine daily cron sync was never able to reproduce this bug.
+    if(opts?.forceFull){
+      setMergedNormRows(prev=>prev.filter(r=>!(r.source===`sync:${platformKey}`&&r.date>=syncDateRange.start&&r.date<=syncDateRange.end)));
+    }
     const chunks=splitDateRangeIntoChunks(effectiveStart,syncDateRange.end,SYNC_CHUNK_DAYS);
     let totalRows=0;
     let lastEffectiveEndDate=null;
