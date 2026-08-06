@@ -198,6 +198,20 @@ export default function PipelineColumnMapper({
     return out;
   }, [headers, year]);
   const hasWideColumns = Object.keys(columnPeriods).length > 0;
+  // ALL METRIC COLUMNS ALREADY DATED (2026-08-06, per Mo — a Dreamdata daily-MQL file with ~580 day
+  // columns and NOTHING else mapped to a metric was still showing "Couldn't auto-detect a period —
+  // every row will be dated as: Month 2026 August" below, which reads as an unanswered required
+  // field even though it's functionally a no-op here: buildNormalizedPipelineRows only ever falls
+  // back to resolvedPeriod for a metric:: column that ISN'T in columnPeriods, and every metric column
+  // in this file already is. True only when there's at least one mapped metric column AND every one
+  // of them has its own columnPeriods entry — a file that mixes wide day/month/quarter columns with
+  // even one OTHER metric column (needing the manual/detected period) still shows the picker below,
+  // unchanged.
+  const metricColumnIndices = useMemo(
+    () => Object.keys(mapping).filter((i) => (mapping[i] || "").startsWith("metric::")),
+    [mapping]
+  );
+  const allMetricColumnsWide = metricColumnIndices.length > 0 && metricColumnIndices.every((i) => columnPeriods[i]);
 
   // VERTICAL PERIOD COLUMN (2026-08-19, per Mo — "month and/or quarter headers ... could be
   // horizontal or vertical"): when the user maps a column to "period" (only offered when the caller's
@@ -361,6 +375,10 @@ export default function PipelineColumnMapper({
               Detected: <strong>{labelForPeriod(detected.periodType, detected.periodStart)}</strong> — every row will use this period.
             </span>
             <Btn T={T} variant="ghost" size="sm" onClick={() => setPeriodMode("month")}>Use a different period</Btn>
+          </div>
+        ) : allMetricColumnsWide ? (
+          <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub }}>
+            Every mapped metric column already has its own date from the day/month/quarter columns above — nothing else to set here.
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
