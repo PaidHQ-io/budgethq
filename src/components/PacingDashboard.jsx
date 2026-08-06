@@ -13,6 +13,83 @@ import { Icon, Btn, SectionLabel, Sel, Divider, PixelPanel, AISummaryCard, Pill,
 import { usePersistentState } from "../lib/persist.js";
 import { EXPORT_FORMATS, downloadReport } from "../lib/reports.js";
 import { exportReportToGoogleSheets } from "../lib/googleSheets";
+import { listReportingFacts } from "../lib/reportingApi.js";
+import { isGoalsSource } from "../lib/pipelineColumnMapping.js";
+import { stepPeriodStart } from "../lib/reportingPeriods.js";
+
+// ─── MQL GOAL/ACTUAL IN TREND TABLE (2026-08-06, per Mo — "can we get MQL budgets and actuals into
+// the budget pacing tab?") ──────────────────────────────────────────────────────────────────────
+// core.reporting_facts (goals + pipeline actuals, see GoalsObjectives.jsx/ReportingAnalyzer.jsx)
+// carries its OWN period grain per row (periodType/periodStart — day/week/month/quarter/year, see
+// lib/reportingPeriods.js), independent of whatever grain the Trend view is currently showing
+// (trendGrain). A row's grain can be coarser than the view (e.g. one yearly MQL goal row shown at
+// Quarter grain) or finer (a monthly actual shown at Quarter/Year grain) — either way, naively
+// keying off trendBucketKey (which assumes a single Date, not a Date range) would either drop the
+// row (grain mismatch) or dump its whole value into just the first overlapping bucket (wrong
+// total). Below instead computes each row's own [start,end] date range from its periodType/
+// periodStart, finds every CURRENT-view bucket that range overlaps, and splits the row's value
+// evenly across however many buckets that is — exact or intentionally-approximate in exactly the
+// same "prorate the whole value across everything it actually spans" spirit as computeSpendTrend's
+// existing is_monthly proration and budgetValues month-to-day proration above, not a new pattern.
+//
+// Deliberately NOT placed in lib/core.js: reportingMetrics.js already imports from core.js
+// (getDecimalAdjust) — importing reportingMetrics.js/pipelineColumnMapping.js back into core.js for
+// labelForMetricKey/isGoalsSource would create a circular import. This component already imports
+// both safely as a leaf consumer, so the aggregation lives here instead.
+function periodKeyRange(grain, key) {
+  if (grain === "day") { const [y, m, d] = key.split("-").map(Number); const dt = new Date(y, m - 1, d); return { start: dt, end: dt }; }
+  if (grain === "week") { const [y, m, d] = key.split("-").map(Number); const start = new Date(y, m - 1, d); return { start, end: new Date(y, m - 1, d + 6) }; }
+  if (grain === "quarter") { const [y, qs] = key.split("-Q"); const q = Number(qs), yr = Number(y); return { start: new Date(yr, (q - 1) * 3, 1), end: new Date(yr, q * 3, 0) }; }
+  if (grain === "year") { const yr = Number(key); return { start: new Date(yr, 0, 1), end: new Date(yr, 11, 31) }; }
+  const [y, m] = key.split("-").map(Number);
+  return { start: new Date(y, m - 1, 1), end: new Date(y, m, 0) };
+}
+// A reporting_facts row's own [start,end] range, built in local time from its periodType/
+// periodStart string (never via new Date(isoString), same "avoid the UTC/local shift" reasoning as
+// fmtCalendarDate's fix elsewhere in this app — see core.js's parseSpendDate doc comment).
+function reportingFactPeriodRange(periodType, periodStart) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(periodStart || "");
+  if (!m) return null;
+  const start = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const nextStr = stepPeriodStart(periodType, periodStart);
+  const nm = nextStr && /^(\d{4})-(\d{2})-(\d{2})/.exec(nextStr);
+  const end = nm ? new Date(Number(nm[1]), Number(nm[2]) - 1, Number(nm[3]) - 1) : start;
+  return { start, end };
+}
+// Buckets one reporting_facts metric (e.g. "mqls") into the SAME periods array computeSpendTrend
+// already built for the spend table, split into a Goal series (isGoalsSource) and an Actual series
+// (everything else) — filtered by the same trendFilterDim/trendFilterValue substring match
+// computeSpendTrend uses, so the MQL rows always agree with whatever the spend table above is
+// currently filtered to.
+function computeReportingMetricTrend({ reportingFacts, metricKey, filterDim, filterValue, periods, grain }) {
+  const fv = (filterValue || "").trim().toLowerCase();
+  const goalValues = new Array(periods.length).fill(0);
+  const actualValues = new Array(periods.length).fill(0);
+  const periodRanges = periods.map((p) => periodKeyRange(grain, p.key));
+  (reportingFacts || []).forEach((row) => {
+    const val = row.metrics?.[metricKey];
+    if (val == null) return;
+    if (filterDim && fv) {
+      const tv = String(row.tags?.[filterDim] || "").toLowerCase();
+      if (!tv.includes(fv)) return;
+    }
+    const range = reportingFactPeriodRange(row.periodType, row.periodStart);
+    if (!range) return;
+    const overlapping = [];
+    periodRanges.forEach((pr, i) => { if (range.start <= pr.end && range.end >= pr.start) overlapping.push(i); });
+    if (!overlapping.length) return;
+    const share = val / overlapping.length;
+    const target = isGoalsSource(row.source) ? goalValues : actualValues;
+    overlapping.forEach((i) => { target[i] += share; });
+  });
+  return {
+    goalValues, actualValues,
+    goalTotal: goalValues.reduce((s, v) => s + v, 0),
+    actualTotal: actualValues.reduce((s, v) => s + v, 0),
+  };
+}
+// Plain count formatter (MQLs aren't dollars) — fmtFull/fmt$ in core.js are both money-only.
+const fmtCount = (n) => (n ? Math.round(n).toLocaleString() : "—");
 
 // Forecast-model "mode" — the 3 user-facing choices (Auto/Committed/Manual) — vs. the raw stored
 // string (see FORECAST_MODELS in lib/core.js): Manual doesn't have one fixed stored value, it's
@@ -199,7 +276,7 @@ const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
   );
 };
 
-export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,session,onNavigate,sidebarEl,canEdit=true,onAskAboutView,initialViewConfig,onConsumeInitialViewConfig,combineGoogleChannels=false}){
+export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,session,workspace,onNavigate,sidebarEl,canEdit=true,onAskAboutView,initialViewConfig,onConsumeInitialViewConfig,combineGoogleChannels=false}){
   const now=new Date();
   const yr=now.getFullYear();
   // Period/filter/view-mode controls below are persisted to localStorage (2026-07-30, per Mo —
@@ -404,6 +481,20 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   },[trendStartMonth,trendEndMonth]);
   const trendData=useMemo(()=>viewMode==="trend"?computeSpendTrend({mergedNormRows,tags:campaignTags,filterDim:trendFilterDim,filterValue:trendFilterValue,seriesDim:trendSeriesDim,start:trendRange.start,end:trendRange.end,grain:trendGrain,budgets,budgetDims,combineGoogleChannels}):null,
     [viewMode,mergedNormRows,campaignTags,trendFilterDim,trendFilterValue,trendSeriesDim,trendRange,trendGrain,budgets,budgetDims,combineGoogleChannels]);
+
+  // MQL goal/actual (2026-08-06, per Mo) — fetched once per workspace, unfiltered by period on
+  // purpose (unlike spend, reporting_facts rows can be a coarser grain than the current view — see
+  // computeReportingMetricTrend's doc comment above — so period filtering happens client-side
+  // against the actual overlap, not via the API's strict period_start >= start / <= end filter).
+  // reporting_facts is a small, aggregated-by-period dataset per workspace (not one row per
+  // campaign per day like spend_rows), so fetching it unfiltered here is cheap.
+  const[reportingFacts,setReportingFacts]=useState([]);
+  useEffect(()=>{
+    if(!workspace?.id)return;
+    listReportingFacts(session,workspace.id).then(setReportingFacts).catch(()=>{});
+  },[session,workspace?.id]);
+  const mqlTrend=useMemo(()=>(viewMode==="trend"&&trendData)?computeReportingMetricTrend({reportingFacts,metricKey:"mqls",filterDim:trendFilterDim,filterValue:trendFilterValue,periods:trendData.periods,grain:trendGrain}):null,
+    [viewMode,trendData,reportingFacts,trendFilterDim,trendFilterValue,trendGrain]);
 
   const filteredSegments=useMemo(()=>pacing.segments.filter(seg=>{
     if(statusFilter!=="all"&&seg.status!==statusFilter)return false;
@@ -1364,6 +1455,29 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 {trendData.periodTotals.map((v,i)=><td key={i} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{fmtFull(v)}</td>)}
                 <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text,paddingRight:24}}>{fmtFull(trendData.grandTotal)}</td>
               </tr>
+              {mqlTrend&&(mqlTrend.goalTotal>0||mqlTrend.actualTotal>0)&&(
+                <>
+                  <tr>
+                    <td colSpan={trendData.periods.length+2} style={{padding:"14px 14px 4px",paddingLeft:24,borderTop:`1px solid ${T.border}`}}>
+                      <SectionLabel T={T} style={{marginBottom:0,color:T.textSub}}>MQLs</SectionLabel>
+                    </td>
+                  </tr>
+                  <tr className="bhq-tr">
+                    <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",paddingLeft:24}}>
+                      <Pill color={T.textMuted} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,borderRadius:T.r6}}>MQL Goal</Pill>
+                    </td>
+                    {mqlTrend.goalValues.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{v>0?fmtCount(v):"—"}</td>)}
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.textMuted,paddingRight:24}}>{fmtCount(mqlTrend.goalTotal)}</td>
+                  </tr>
+                  <tr className="bhq-tr">
+                    <td style={{padding:"8px 14px",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",paddingLeft:24}}>
+                      <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,borderRadius:T.r6}}>MQL Actual</Pill>
+                    </td>
+                    {mqlTrend.actualValues.map((v,i)=><td key={i} style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,color:T.text}}>{v>0?fmtCount(v):"—"}</td>)}
+                    <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text,paddingRight:24}}>{fmtCount(mqlTrend.actualTotal)}</td>
+                  </tr>
+                </>
+              )}
             </tbody>
           </table>
           </>
