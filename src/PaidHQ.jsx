@@ -4010,12 +4010,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                     const syncBorder=syncFailed?T.dangerBorder:syncRolling?T.accentBorder:T.border;
                     const syncTitle=syncRolling?`Rolling sync — ${syncLabel.toLowerCase()}, last ${conn.rollingWindowDays||14} days. Set from the ⋯ menu's Sync schedule.`:"Manual only — data only updates when someone clicks Sync now, or from the ⋯ menu's Sync schedule.";
                     const importRange=importDateRangeByProvider[pl.key];
-                    // fmtShort renders both conn.connectedAt (a full ISO timestamp) and
-                    // importRange.start/end (plain "YYYY-MM-DD" strings from importDateRangeByProvider)
-                    // — the two need different parsing, or date-only strings render one day early in
-                    // timezones behind UTC (new Date("YYYY-MM-DD") parses as UTC midnight, then
-                    // toLocaleDateString renders in local time). See fmtCalendarDate in lib/core.js.
-                    const fmtShort=d=>d?(/^\d{4}-\d{2}-\d{2}$/.test(d)?fmtCalendarDate(d,{month:"short",day:"numeric",year:"numeric"}):new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})):"—";
+                    // fmtCalendarDate (lib/core.js) parses via parseSpendDate, which handles every
+                    // date format this app produces (plain "YYYY-MM-DD", full ISO timestamp, etc.)
+                    // and constructs its Date in local time, so it's safe for both conn.connectedAt
+                    // and importRange.start/end without needing to branch on format here.
+                    const fmtShort=d=>d?fmtCalendarDate(d,{month:"short",day:"numeric",year:"numeric"}):"—";
                     const menuOpen=connActionsMenuProvider===pl.key;
                     const syncing=(syncState[pl.key]||"idle")==="loading";
                     const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key||syncing;
