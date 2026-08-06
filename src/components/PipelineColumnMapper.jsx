@@ -198,6 +198,35 @@ export default function PipelineColumnMapper({
     return out;
   }, [headers, year]);
   const hasWideColumns = Object.keys(columnPeriods).length > 0;
+  const wideColumnIndices = useMemo(() => Object.keys(columnPeriods), [columnPeriods]);
+  // BULK-ASSIGN WIDE COLUMNS TO ONE METRIC (2026-08-06, per Mo's Dreamdata daily-MQL file — 581
+  // separate day columns, e.g. "Jan 1, 2025"). columnPeriods only tells us WHICH DATE each of those
+  // columns is — it says nothing about WHAT METRIC the column's values ARE, and guessOneColumn can
+  // never guess that on its own: it matches a header's TEXT against known metric aliases ("MQLs",
+  // "Spend", ...), and a date string never matches any of those, so every wide day/month/quarter
+  // column defaults to "Ignore" exactly like any other unrecognized header. Left alone, that's not
+  // just a leftover period-picker UX issue — it silently drops the file's entire actual data, since
+  // buildNormalizedPipelineRows skips any column whose mapping is "ignore" regardless of whether
+  // columnPeriods recognizes its header as a date. For a 12-column goals file that was tolerable to
+  // fix by hand; for a 581-column file it isn't. This control sets every wide column CURRENTLY on
+  // "Ignore" (or already mapped to some metric — so switching the dropdown re-targets them) to one
+  // chosen metric in a single action, without touching any wide column the user has deliberately
+  // mapped to something else (a structural field, a tag, or left as a different metric on purpose in
+  // a file that mixes more than one wide metric block).
+  const [wideColumnMetricKey, setWideColumnMetricKey] = useState("");
+  const applyMetricToWideColumns = (key) => {
+    setWideColumnMetricKey(key);
+    setMapping((prev) => {
+      const next = { ...prev };
+      wideColumnIndices.forEach((i) => {
+        const cur = prev[i] || "ignore";
+        if (cur === "ignore" || cur.startsWith("metric::")) {
+          next[i] = key ? `metric::${key}${metricKeySuffix}` : "ignore";
+        }
+      });
+      return next;
+    });
+  };
   // ALL METRIC COLUMNS ALREADY DATED (2026-08-06, per Mo — a Dreamdata daily-MQL file with ~580 day
   // columns and NOTHING else mapped to a metric was still showing "Couldn't auto-detect a period —
   // every row will be dated as: Month 2026 August" below, which reads as an unanswered required
@@ -356,10 +385,26 @@ export default function PipelineColumnMapper({
         </div>
         {hasWideColumns && (
           <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub, lineHeight: 1.5, marginBottom: 8 }}>
-            {Object.keys(columnPeriods).length} column{Object.keys(columnPeriods).length === 1 ? "" : "s"} above were recognized as
-            individual days, months, or quarters (marked with <span style={{ color: T.accent }}>→</span>) — each becomes its own
-            dated row (a full-date column already carries its own year; a bare month/quarter column uses the year picked below).
-            The period below only applies to any OTHER mapped metric column that isn't one of those.
+            <div style={{ marginBottom: 8 }}>
+              {wideColumnIndices.length} column{wideColumnIndices.length === 1 ? "" : "s"} above were recognized as
+              individual days, months, or quarters (marked with <span style={{ color: T.accent }}>→</span>) — each becomes its own
+              dated row (a full-date column already carries its own year; a bare month/quarter column uses the year picked below).
+              The period below only applies to any OTHER mapped metric column that isn't one of those.
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "8px 10px", background: T.accentBg, border: `1px solid ${T.accentBorder}`, borderRadius: T.r8 }}>
+              <span style={{ color: T.text, fontWeight: 600 }}>Those {wideColumnIndices.length} columns are all:</span>
+              <Sel T={T} value={wideColumnMetricKey} onChange={applyMetricToWideColumns} style={selStyle}>
+                <option value="">Choose a metric to fill them all in at once…</option>
+                {metricOptions.map((m) => (
+                  <option key={m.key} value={m.key}>{m.label}</option>
+                ))}
+              </Sel>
+              <span style={{ color: T.textMuted }}>
+                Sets every one of those columns still on "Ignore" to this metric in a single click — without this, none of that
+                data comes in. Mixing metrics across the wide columns? Pick the main one here, then fix any individual column's
+                own dropdown above.
+              </span>
+            </div>
           </div>
         )}
         {periodColumnMapped && (
