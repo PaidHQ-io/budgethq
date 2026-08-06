@@ -161,7 +161,18 @@ export async function getSpend({ startDate, endDate, credential }) {
     })
   );
 
-  const allRows = Array.from(agg.values());
+  // BOUNDARY CLAMP (2026-08-06): a live sync requesting start_date=2026-01-01 got back real
+  // date_of_report=2025-12-31 rows anyway (confirmed via direct DB inspection — 7 rows, real
+  // per-campaign spend, same created_at as that sync's in-range rows, so definitely Capterra's
+  // response and not a leftover from some earlier bug). The request itself was correct — this
+  // repo's own code just forwards startDate/endDate straight through with no date math to get
+  // wrong (see fetchAllClicksForKey above) — so this is Capterra's API handing back a day outside
+  // what was asked for, not a bug on our end. Every other connector's date window is exact, and
+  // the Connections table's Import Start/End columns (and the incremental-sync "already up to
+  // date through X" logic in src/PaidHQ.jsx) both assume a connector never returns rows outside
+  // the [startDate, endDate] it was given — so clamp here rather than trusting Capterra's response
+  // boundary, the same defensive posture as numOrNull's "drop rather than fabricate" above.
+  const allRows = Array.from(agg.values()).filter((r) => r.date >= startDate && r.date <= endDate);
   if (!allRows.length && errors.length) {
     throw new Error(`Capterra sync failed for all campaigns — ${errors.join("; ")}`);
   }
