@@ -63,12 +63,24 @@ function reportingFactPeriodRange(periodType, periodStart) {
 // below just hand in whatever ranges apply to them, this function doesn't care which. Filtered by
 // the same trendFilterDim/trendFilterValue substring match computeSpendTrend uses, so the MQL
 // numbers always agree with whatever the spend table above is currently filtered to.
+// BUGFIX (2026-08-19, per Mo — MQL Goal always showing blank in the Trend/single-period views, found
+// investigating a parallel "MQLs coming in blank" report on the Goals & Objectives tab, same root
+// cause): a goal row never stores its value under the plain metric key ("mqls") — GoalsImportWizard.jsx
+// writes every goal metric under GOAL_METRIC_MAP_OPTIONS' "_goal"-suffixed key ("mqls_goal") specifically
+// so a goal number can never collide with real pipeline performance data (see that constant's own doc
+// comment in pipelineColumnMapping.js). This function used to look up `row.metrics?.[metricKey]`
+// ("mqls") for EVERY row regardless of source, then route the result to goalValues/actualValues based
+// on isGoalsSource — so a real goal row's actual value (sitting under "mqls_goal") was never found at
+// all, `val == null` short-circuited, and goalValues stayed all-zero forever. Now looks up the
+// SOURCE-APPROPRIATE key up front — `${metricKey}_goal` for a goals row, plain metricKey otherwise —
+// instead of one shared lookup key for both.
 function computeReportingMetricTrend({ reportingFacts, metricKey, filterDim, filterValue, periodRanges }) {
   const fv = (filterValue || "").trim().toLowerCase();
   const goalValues = new Array(periodRanges.length).fill(0);
   const actualValues = new Array(periodRanges.length).fill(0);
   (reportingFacts || []).forEach((row) => {
-    const val = row.metrics?.[metricKey];
+    const isGoal = isGoalsSource(row.source);
+    const val = row.metrics?.[isGoal ? `${metricKey}_goal` : metricKey];
     if (val == null) return;
     if (filterDim && fv) {
       const tv = String(row.tags?.[filterDim] || "").toLowerCase();
@@ -80,7 +92,7 @@ function computeReportingMetricTrend({ reportingFacts, metricKey, filterDim, fil
     periodRanges.forEach((pr, i) => { if (range.start <= pr.end && range.end >= pr.start) overlapping.push(i); });
     if (!overlapping.length) return;
     const share = val / overlapping.length;
-    const target = isGoalsSource(row.source) ? goalValues : actualValues;
+    const target = isGoal ? goalValues : actualValues;
     overlapping.forEach((i) => { target[i] += share; });
   });
   return {

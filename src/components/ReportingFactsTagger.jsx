@@ -50,14 +50,27 @@ const RESERVED_TAG_KEYS = new Set([AD_GROUP_TAG_KEY, CHANNEL_TAG_KEY]);
 // Selectable/orderable column definitions (2026-08-03, per Mo's point 5 — "the fields/columns will
 // be selectable"). Campaign Name is the one column that can't be turned off — it's this table's
 // primary identity, same role Campaign Tagger's own (non-optional) Campaign column plays.
-const METRIC_COLUMNS = PIPELINE_METRIC_MAP_OPTIONS.map((m) => ({ key: m.key, label: m.label, type: "metric", money: isMoneyMetric(m.key) }));
-const ALL_COLUMNS = [
-  { key: "campaignName", label: "Campaign Name", type: "text", required: true },
-  { key: "adGroup", label: "Ad Group/Ad Set Name", type: "text" },
-  { key: "channel", label: "Channel", type: "channel" },
-  ...METRIC_COLUMNS,
-];
-const DEFAULT_COLUMNS = ALL_COLUMNS.map((c) => c.key);
+//
+// PARAMETERIZED BY metricOptions (2026-08-19 bugfix — found investigating "MQLs coming in blank" for
+// Goals & Objectives): this used to be a MODULE-LEVEL constant built off PIPELINE_METRIC_MAP_OPTIONS
+// unconditionally — fine for the pipeline instance, but GoalsObjectives.jsx's rows are written by
+// GoalsImportWizard.jsx under GOAL_METRIC_MAP_OPTIONS' "_goal"-suffixed keys (mqls_goal, spend_goal,
+// ...), deliberately never plain "mqls"/"spend" (see that constant's own doc comment — keeps a goal
+// number from ever colliding with real pipeline performance data). A goals import was landing real
+// data in the database the whole time; this component was just never told to look for the "_goal"
+// keys the rows actually used, so every metric column read as blank for every row. Now a function of
+// the metricOptions prop (still defaults to PIPELINE_METRIC_MAP_OPTIONS — every existing pipeline call
+// site unaffected), computed once per render inside the component below.
+function buildColumns(metricOptions) {
+  const metricColumns = (metricOptions || PIPELINE_METRIC_MAP_OPTIONS).map((m) => ({ key: m.key, label: m.label, type: "metric", money: isMoneyMetric(m.key) }));
+  const allColumns = [
+    { key: "campaignName", label: "Campaign Name", type: "text", required: true },
+    { key: "adGroup", label: "Ad Group/Ad Set Name", type: "text" },
+    { key: "channel", label: "Channel", type: "channel" },
+    ...metricColumns,
+  ];
+  return { allColumns, defaultColumns: allColumns.map((c) => c.key) };
+}
 
 const CAMPAIGN_TAG_ROW_LIMIT = 20000; // sanity cap so a runaway import can't hang this component's group-by
 
@@ -248,8 +261,11 @@ const fIn = { background: "transparent", border: "none", outline: "none", width:
 //     instance and the pipeline instance would silently share the same column/filter/sort state,
 //     since both would otherwise read/write the exact same localStorage keys. GoalsObjectives passes
 //     "paidhq_goals_tagger_" so the two tabs' UI preferences stay fully independent.
-export default function ReportingFactsTagger({ T, session, workspace, tagDims, canEdit, refreshSignal, onBackToDataSources, sidebarEl, sourceFilter, datasetLabel = "Pipeline Tagger", storageKeyPrefix = "paidhq_pipeline_tagger_" }) {
+export default function ReportingFactsTagger({ T, session, workspace, tagDims, canEdit, refreshSignal, onBackToDataSources, sidebarEl, sourceFilter, datasetLabel = "Pipeline Tagger", storageKeyPrefix = "paidhq_pipeline_tagger_", metricOptions = PIPELINE_METRIC_MAP_OPTIONS }) {
   const k = (suffix) => `${storageKeyPrefix}${suffix}`;
+  // See buildColumns's own doc comment above for why this is a function of metricOptions rather than
+  // the module-level constant it used to be.
+  const { allColumns: ALL_COLUMNS, defaultColumns: DEFAULT_COLUMNS } = useMemo(() => buildColumns(metricOptions), [metricOptions]);
   const [rows, setRows] = useState(null); // null = loading
   const [loadError, setLoadError] = useState("");
   const [dimensionValues, setDimensionValues] = useState({ tagDims: [], values: {}, campaignName: [] });
@@ -320,7 +336,17 @@ export default function ReportingFactsTagger({ T, session, workspace, tagDims, c
 
   const groups = useMemo(() => buildGroups(rows || []), [rows]);
   const rowsById = useMemo(() => new Map((rows || []).map((r) => [r.id, r])), [rows]);
-  const visibleCols = useMemo(() => ALL_COLUMNS.filter((c) => c.required || columns.includes(c.key)), [columns]);
+  // The `columns.includes(c.key.replace(...))` fallback (2026-08-19, alongside the metricOptions fix
+  // above) is backward compat for anyone who already toggled metric columns on in the Goals instance
+  // before this fix shipped — their persisted `columns` array holds the OLD plain keys ("mqls"), which
+  // no longer match ALL_COLUMNS' now-correct "_goal"-suffixed keys ("mqls_goal"). Without this, every
+  // metric column they'd already selected would silently vanish from view instead of just starting to
+  // show real data. Harmless no-op for the pipeline instance, where keys were never suffixed to begin
+  // with (the replace is a no-op there).
+  const visibleCols = useMemo(
+    () => ALL_COLUMNS.filter((c) => c.required || columns.includes(c.key) || columns.includes(c.key.replace(/_goal$/, ""))),
+    [ALL_COLUMNS, columns]
+  );
   const showAdGroup = visibleCols.some((c) => c.key === "adGroup");
   const showChannel = visibleCols.some((c) => c.key === "channel");
   const distinctChannels = useMemo(() => Array.from(new Set(groups.map((g) => g.channel).filter(Boolean))).sort(), [groups]);

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { SectionLabel } from "./shared.jsx";
 import ReportingFactsTagger from "./ReportingFactsTagger.jsx";
 import GoalsImportWizard from "./GoalsImportWizard.jsx";
-import { isGoalsSource } from "../lib/pipelineColumnMapping.js";
+import { isGoalsSource, GOAL_METRIC_MAP_OPTIONS } from "../lib/pipelineColumnMapping.js";
 
 // Goals & Objectives tab (REBUILT AGAIN 2026-08-19, per Mo — "no this is not working at all. there's
 // no need to choose the channel or the month. I want you to complete start fresh and duplicate the
@@ -102,6 +102,12 @@ export default function GoalsObjectives({
         sourceFilter={isGoalsSource}
         datasetLabel="Goals & Objectives"
         storageKeyPrefix="paidhq_goals_tagger_"
+        // BUGFIX (2026-08-19, per Mo — "MQLs coming in blank" after a real, successful goals import):
+        // GoalsImportWizard writes every metric under GOAL_METRIC_MAP_OPTIONS' "_goal"-suffixed keys
+        // (mqls_goal, not mqls) — see that constant's own doc comment. Without this prop,
+        // ReportingFactsTagger defaulted to plain PIPELINE_METRIC_MAP_OPTIONS keys and could never find
+        // this tab's own data, even though it imported and tagged correctly the whole time.
+        metricOptions={GOAL_METRIC_MAP_OPTIONS}
       />
     </div>
   );
