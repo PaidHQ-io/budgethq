@@ -71,6 +71,25 @@
  * an ApiFaultDetail after the element-order fixes above, remove these new <a:AdGroupPerformance
  * ReportColumn> lines one at a time (or diff against learn.microsoft.com's AdGroupPerformanceReport
  * Column enum) to isolate an invalid column name before assuming a different bug class.
+ *
+ * FIX (2026-08-06) — this CONFIDENCE NOTE's caution was warranted: live sync threw exactly the
+ * predicted DeserializationFailed fault, "Invalid enum value 'AdGroupStatus' cannot be
+ * deserialized into type '...AdGroupPerformanceReportColumn'". Diffed the full request against
+ * Microsoft's published enum (learn.microsoft.com/en-us/advertising/reporting-service/
+ * adgroupperformancereportcolumn) and found two bad guesses from the widening pass above:
+ *   - "AdGroupStatus" doesn't exist as an enum member at all. The ad group's own status is just
+ *     called "Status" in this report type (CampaignStatus and AccountStatus exist as their own
+ *     members, but AdGroupStatus does not — Status unambiguously means the ad group's status
+ *     here since this IS the ad-group-level report). Renamed the column to "Status" and renamed
+ *     the corresponding CSV-column read below (buildExtraMetrics) from row.AdGroupStatus to
+ *     row.Status to match.
+ *   - "BidStrategyType" isn't in the enum either, and has no equivalent column in this report
+ *     type at all — removed outright, along with buildExtraMetrics' row.BidStrategyType read.
+ * WCF's strict sequential deserialization (see the element-order bugs documented above) means it
+ * stops at the FIRST invalid enum value in document order and never reports later ones in the
+ * same fault — AdGroupStatus came before BidStrategyType in the column list, so only it appeared
+ * in the error text. Fixing AdGroupStatus alone would have shipped a second broken sync hitting
+ * the BidStrategyType error next; both were diffed against the full enum and fixed together.
  */
 
 const REPORTING_SVC_URL = "https://reporting.api.bingads.microsoft.com/Api/Advertiser/Reporting/v13/ReportingService.svc";
@@ -129,8 +148,7 @@ function buildSubmitReportXml({ accessToken, developerToken, customerId, account
           <a:AdGroupPerformanceReportColumn>AllRevenue</a:AdGroupPerformanceReportColumn>
           <a:AdGroupPerformanceReportColumn>AllReturnOnAdSpend</a:AdGroupPerformanceReportColumn>
           <a:AdGroupPerformanceReportColumn>CampaignStatus</a:AdGroupPerformanceReportColumn>
-          <a:AdGroupPerformanceReportColumn>AdGroupStatus</a:AdGroupPerformanceReportColumn>
-          <a:AdGroupPerformanceReportColumn>BidStrategyType</a:AdGroupPerformanceReportColumn>
+          <a:AdGroupPerformanceReportColumn>Status</a:AdGroupPerformanceReportColumn>
         </Columns>
         <Scope>
           <AccountIds xmlns:a="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
@@ -330,8 +348,9 @@ export function buildExtraMetrics(row) {
   put("all_revenue", "AllRevenue");
   put("all_return_on_ad_spend", "AllReturnOnAdSpend");
   if (row.CampaignStatus) out.campaign_status = row.CampaignStatus;
-  if (row.AdGroupStatus) out.ad_group_status = row.AdGroupStatus;
-  if (row.BidStrategyType) out.bidding_strategy_type = row.BidStrategyType;
+  // "Status" here is the ad group's own status column — see the FIX (2026-08-06) doc comment at
+  // the top of this file for why the requested column is named "Status", not "AdGroupStatus".
+  if (row.Status) out.ad_group_status = row.Status;
   return out;
 }
 
