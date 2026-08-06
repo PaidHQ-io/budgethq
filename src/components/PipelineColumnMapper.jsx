@@ -384,7 +384,16 @@ export default function PipelineColumnMapper({
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 12 * (T.fsScale || 1), color: T.textSub }}>
-              {detected ? "This file has no single detected period." : "Couldn't auto-detect a period from this file."} Every row will be dated as:
+              {/* WORDING FIX (2026-08-06, per Mo — "I'm still being asked to input a month" after
+                  mapping a per-row Date/Period column): this fallback section stayed visible (it
+                  genuinely still needs to cover any row whose own period cell fails to parse), but
+                  its copy unconditionally said "Every row will be dated as: [picker]" even when
+                  periodColumnMapped is true — wrong once most/all rows are actually using their own
+                  real per-row date, and read as "your per-row dates aren't being used, pick one for
+                  everything," not "this is only a fallback." */}
+              {periodColumnMapped
+                ? "Rows whose own Date/Period cell doesn't parse will fall back to:"
+                : `${detected ? "This file has no single detected period." : "Couldn't auto-detect a period from this file."} Every row will be dated as:`}
             </span>
             <Sel T={T} value={periodMode} onChange={setPeriodMode} style={{ ...selStyle, width: 110 }}>
               <option value="month">Month</option>
