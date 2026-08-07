@@ -9,7 +9,9 @@ import { listReportingFacts } from "../lib/reportingApi.js";
 import {
   buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup, channelCode,
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
+  LINKEDIN_COMPANY_SIZE_RANGES,
 } from "../lib/accountPlanning.js";
+import { SearchableSelect } from "./ui/searchable-select.jsx";
 import { fmtFull } from "../lib/core.js";
 import { DonutChart, BarList } from "@tremor/react";
 import {
@@ -629,7 +631,7 @@ function TargetingStep({ session, workspace, taxonomy, targeting, setTargeting, 
   const removeProfile = (id) => setTargeting(profiles.filter((p) => p.id !== id));
   const addProfile = () => setTargeting([...profiles, {
     id: `tp_${Date.now()}`, name: "New Profile", method: "job_function_seniority",
-    titles: [], functions: [], seniorities: [], companySizes: [], industries: [],
+    titles: [], functions: [], seniorities: [], companySizes: [], companySizeRanges: [], industries: [],
     listAttachments: [], exclusionAttachments: [], remarketing: { enabled: false, poolItemId: "", windowDays: 30 },
   }]);
 
@@ -707,13 +709,21 @@ function TargetingStep({ session, workspace, taxonomy, targeting, setTargeting, 
 
                 <div className="mb-2.5 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Company Size</div>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Company Size Segment</div>
                     <MultiToggle options={companySizeValues} selected={p.companySizes} canEdit={canEdit} onChange={(v) => updateProfile(p.id, { companySizes: v })} />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Industry</div>
-                    <MultiToggle options={industryValues} selected={p.industries} canEdit={canEdit} onChange={(v) => updateProfile(p.id, { industries: v })} />
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      LinkedIn Company Size (targeting range)
+                    </div>
+                    <MultiToggle options={LINKEDIN_COMPANY_SIZE_RANGES} selected={p.companySizeRanges || []} canEdit={canEdit} onChange={(v) => updateProfile(p.id, { companySizeRanges: v })} />
                   </div>
+                </div>
+
+                <div className="mb-2.5">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Industry ({industryValues.length} available)</div>
+                  <SearchableSelect options={industryValues} value={p.industries} onChange={(v) => updateProfile(p.id, { industries: v })} multiple
+                    disabled={!canEdit} placeholder="Search LinkedIn industries…" className="max-w-md" />
                 </div>
 
                 <div className="mb-2.5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -921,6 +931,16 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
                     const dim = dimByKey[tok];
                     const val = row.dimValues?.[tok] || "";
                     if (dim && dim.values.length > 0) {
+                      // Large value lists (Industry: ~300 LinkedIn values) get the searchable
+                      // combobox instead of a plain Select — a Radix Select's Viewport scrolls but
+                      // has no filtering, unusable at that size (2026-08-06, per Mo).
+                      if (dim.values.length > 12) {
+                        return (
+                          <SearchableSelect key={tok} options={dim.values} value={val}
+                            onChange={(v) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: v } })}
+                            disabled={!canEdit} placeholder={`${dim.label}…`} className="w-40" />
+                        );
+                      }
                       return (
                         <Select key={tok} disabled={!canEdit} value={val || "__none__"} onValueChange={(v) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: v === "__none__" ? "" : v } })}>
                           <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue placeholder={`${dim.label}…`} /></SelectTrigger>

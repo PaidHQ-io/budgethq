@@ -166,12 +166,154 @@ export function scoreAuditGroups(groups, { minSpend = 100 } = {}) {
 
 // ─── TAXONOMY ───────────────────────────────────────────────────────────────────────────────────
 
+// LinkedIn's own Company Size targeting facet (2026-08-06, per Mo — "the ranges in the ad sets in
+// linkedin are 1-10, 11-50..."): these are LinkedIn Campaign Manager's literal audience-targeting
+// buckets, a DIFFERENT concept from the "segment" dimension below (SMB/MM/ENT is Mo's own naming
+// shorthand for a name-friendly bucket; these ranges are what actually gets clicked in LinkedIn's
+// targeting UI) — kept as its own list, attached to Targeting Profiles as companySizeRanges, not
+// merged into the segment dimension or used in campaign names.
+export const LINKEDIN_COMPANY_SIZE_RANGES = ["1-10", "11-50", "51-200", "201-500", "501-1,000", "1,001-5,000", "5,001-10,000", "10,000+"];
+
+// LinkedIn's industry taxonomy (2026-08-06, per Mo — "here's also a list of the linkedin industries
+// we can use in a drop down multi selection... make sure its searchable"), transcribed from Mo's own
+// paste. A few likely typos were corrected against Mo's OWN second (categorized) list, which agreed
+// on the corrected spelling in each case: "Correctional Instituations" -> "Correctional
+// Institutions", "Fine Arts School" -> "Fine Arts Schools" (matches the plural pattern of every
+// other "...Schools" entry, and the categorized list's own "Fine Arts Schools"). Two entries were
+// corrected on general knowledge of LinkedIn's real taxonomy without a second source in Mo's own
+// lists to confirm against — "Metal One Mining" -> "Metal Ore Mining" and "Speciality Trade
+// Contractors" -> "Specialty Trade Contractors" (American spelling, consistent with every other
+// entry in the list) — worth a quick skim given the size of this list and that it was transcribed
+// by hand rather than pulled from an API. Everything else is verbatim from Mo's paste, including
+// entries that look redundant with a broader sibling (e.g. "Farming" alongside "Farming, Ranching
+// and Forestry") — LinkedIn's real taxonomy does carry legacy + consolidated values side by side, so
+// these weren't merged.
+export const LINKEDIN_INDUSTRIES = [
+  "Abrasives and Nonmetallic Minerals Manufacturing", "Accessible Architecture and Design", "Accessible Hardware Manufacturing",
+  "Accommodation and Food Services", "Accounting", "Administration of Justice", "Administrative and Support Services",
+  "Advertising Services", "Agriculture Chemical Manufacturing", "Agriculture, Construction, Mining Machinery Manufacturing",
+  "Air, Water and Waste Program Management", "Airlines and Aviation", "Alternative Dispute Resolution",
+  "Alternative Fuel Vehicle Manufacturing", "Alternative Medicine", "Ambulance Services", "Amusement Parks and Arcades",
+  "Animal Feed Manufacturing", "Animation and Post-Production", "Apparel Manufacturing",
+  "Appliances, Electrical and Electronics Manufacturing", "Architecture and Planning", "Architecture and Structural Metal Manufacturing",
+  "Armed Forces", "Artificial Rubber and Synthetic Fiber Manufacturing", "Artists and Writers", "Audio and Video Equipment Manufacturing",
+  "Automation Machinery Manufacturing", "Aviation and Aerospace Component Manufacturing", "Baked Goods Manufacturing", "Banking",
+  "Bars, Taverns and Nightclubs", "Bed and Breakfast, Hostels and Homestays", "Beverage Manufacturing",
+  "Biomass Electric Power Generation", "Biotechnology Research", "Blockchain Services", "Blogs",
+  "Boilers, Tanks and Shipping Container Manufacturing", "Book and Periodical Publishing", "Book Publishing", "Breweries",
+  "Broadcast Media Production and Distribution", "Building Construction", "Building Equipment Contractors",
+  "Building Finishing Contractors", "Building Structure and Exterior Contractors", "Business Consulting and Services",
+  "Business Content", "Business Intelligence Platforms", "Cable and Satellite Programming", "Capital Markets", "Caterers",
+  "Chemical Manufacturing", "Chemical Raw Materials Manufacturing", "Child Day Care Services", "Chiropractors",
+  "Circuses and Magic Shows", "Civic and Social Organizations", "Civil Engineering", "Claims Adjusting, Actuarial Services",
+  "Clay and Refractory Products Manufacturing", "Climate Data and Analytics", "Climate Technology Product Manufacturing",
+  "Coal Mining", "Collective Agencies", "Commercial and Industrial Equipment Rental", "Commercial and Industrial Machinery Maintenance",
+  "Communications Equipment Manufacturing", "Community Development and Urban Planning", "Computer and Network Security",
+  "Computer Games", "Computer Hardware Manufacturing", "Computer Networking Products", "Computers and Electronics Manufacturing",
+  "Construction", "Construction Hardware Manufacturing", "Consumer Goods Rental", "Consumer Services", "Correctional Institutions",
+  "Cosmetology and Barber Schools", "Courts of Law", "Credit Intermediation", "Cutlery and Handtool Manufacturing",
+  "Dairy Product Manufacturing", "Dance Companies", "Data Infrastructure and Analytics", "Data Security Software Products",
+  "Defense and Space Manufacturing", "Dentists", "Design Services", "Desktop Computing Software Products",
+  "Digital Accessibility Services", "Distilleries", "E-Learning Providers", "Economic Programs", "Education",
+  "Education Administration Programs", "Electric Lighting Equipment Manufacturing", "Electric Power Generation",
+  "Electric Power Transmission, Control and Distribution", "Electrical Equipment Manufacturing",
+  "Electronic and Precision Equipment Maintenance", "Embedded Software Products", "Emergency and Relief Services",
+  "Engineering Services", "Engines and Power Transmission Equipment Manufacturing", "Entertainment Providers",
+  "Environmental Quality Programs", "Environmental Services", "Equipment", "Equipment Rental Services", "Events Services",
+  "Executive Offices", "Executive Search Services", "Fabricated Metal Products", "Facilities Services",
+  "Family Planning Centers", "Farming", "Farming, Ranching and Forestry", "Fashion Accessories Manufacturing",
+  "Financial Services", "Fine Arts Schools", "Fire Protection", "Fisheries", "Flight Training", "Food and Beverage Manufacturing",
+  "Food and Beverage Retail", "Food and Beverage Services", "Footwear and Leather Goods Repair", "Footwear Manufacturing",
+  "Forestry and Logging", "Fossil Fuel Electric Power Generation", "Freight and Package Transportation",
+  "Fruit and Vegetable Preserves Manufacturing", "Fuel Cell Manufacturing", "Fundraising", "Funds and Trusts",
+  "Furniture and Home Furnishings Manufacturing", "Gambling Facilities and Casinos", "Geothermal Electric Power Generation",
+  "Glass Product Manufacturing", "Glass, Ceramics and Concrete Manufacturing", "Golf Courses and Country Clubs",
+  "Government Administration", "Government Relationship Services", "Graphic Design", "Ground Passenger Transportation",
+  "Health and Human Services", "Higher Education", "Highway, Street and Bridge Construction", "Historical Sites",
+  "Holding Companies", "Home Health Care Services", "Horticulture", "Hospitality", "Hospitals", "Hospitals and Healthcare",
+  "Hotels and Motels", "Household Appliance Manufacturing", "Household Institutional Furniture Manufacturing",
+  "Household Services", "Housing and Community Development", "Human Resources Services",
+  "HVAC and Refrigeration Equipment Manufacturing", "Hydroelectric Power Generation", "Individual and Family Services",
+  "Industrial Machinery Manufacturing", "Industry Associates", "Information Services", "Insurance",
+  "Insurance Agencies and Brokerages", "Insurance and Employee Benefit Funds", "Insurance Carriers", "Interior Design",
+  "International Affairs", "International Trade and Development", "Internet Marketplace Platforms", "Internet News",
+  "Internet Publishing", "Interurban and Rural Bus Service", "Investment Advice", "Investment Banking", "Investment Management",
+  "IT Services and IT Consulting", "IT System Custom Software Development", "IT System Data Services", "IT System Design Services",
+  "IT System Installation and Disposal", "IT System Testing and Evaluation", "IT System Training and Support",
+  "IT Systems Operations and Maintenance", "Janitorial Services", "Landscaping Services", "Language Schools",
+  "Laundry and Drycleaning Services", "Law Enforcement", "Law Practice", "Leasing Non-Residential Real Estate",
+  "Leasing Residential Real Estate", "Leather Product Manufacturing", "Legal Services", "Libraries",
+  "Lime and Gypsum Products Manufacturing", "Loan Brokers", "Machinery Manufacturing", "Magnetic and Optical Media Manufacturing",
+  "Manufacturing", "Maritime Transportation", "Market Research", "Mattress and Blinds Manufacturing",
+  "Measuring and Control Instrument Manufacturing", "Media and Telecommunications", "Media Production",
+  "Medical and Diagnostic Laboratories", "Medical Equipment Manufacturing", "Medical Practices", "Mental Health Care",
+  "Metal Ore Mining", "Metal Treatments", "Metal Valve, Ball and Roller Manufacturing", "Metal Working Machinery Manufacturing",
+  "Military and International Affairs", "Mining", "Mobile Computing Software Products", "Mobile Food Services",
+  "Mobile Gaming Apps", "Motor Vehicle Manufacturing", "Motor Vehicle Parts Manufacturing", "Movies and Sound Recording",
+  "Movies, Video and Sound", "Museums", "Museums, Historical Sites and Zoos", "Musicians", "Nanotechnology Research",
+  "Natural Gas Distribution", "Natural Gas Extraction", "Newspaper Publishing", "Non-Profit Organizations",
+  "Nonmetallic Mineral Mining", "Nonresidential Building Construction", "Nuclear Electric Power Generation",
+  "Nursing Homes and Residential Care Facilities", "Office Administration", "Office Furniture and Fixtures Manufacturing",
+  "Oil and Coal Product Manufacturing", "Oil and Gas", "Oil Extraction", "Oil, Gas and Mining", "Online and Mail Order Retail",
+  "Online Audio and Video Media", "Operations Consulting", "Optometrists", "Outpatient Care Centers",
+  "Outsourcing and Offshoring Consulting", "Packaging and Containers Manufacturing", "Paint, Coating and Adhesive Manufacturing",
+  "Paper and Forest Product Manufacturing", "Pension Funds", "Performing Arts", "Performing Arts and Spectator Sports",
+  "Periodical Publishing", "Personal and Laundry Services", "Personal Care Product Manufacturing", "Personal Care Services",
+  "Pet Services", "Pharmaceutical Manufacturing", "Philanthropic Fundraising Services", "Photography",
+  "Physical, Occupational and Speech Therapists", "Physicians", "Pipeline Transportation",
+  "Plastics and Rubber Product Manufacturing", "Plastics Manufacturing", "Political Organizations", "Postal Services",
+  "Primary and Secondary Education", "Printing Services", "Professional Organizations", "Professional Services",
+  "Professional Training and Coaching", "Public Assistance Programs", "Public Health", "Public Policy Offices",
+  "Public Relations and Communications Services", "Public Safety", "Racetracks", "Radio and Television Broadcasting",
+  "Rail Transportation", "Railroad Equipment Manufacturing", "Ranching", "Ranching and Fisheries", "Real Estate",
+  "Real Estate Agents and Brokers", "Real Estate and Equipment Services", "Recreational Facilities", "Regenerative Design",
+  "Religious Institutions", "Renewable Energy Equipment Manufacturing", "Renewable Energy Power Generation",
+  "Research Services", "Residential Building Construction", "Retail", "Retail Apparel and Fashion",
+  "Retail Appliances, Electrical and Electronic Equipment", "Retail Art Dealers", "Retail Art Supplies",
+  "Retail Books and Printed News", "Retail Building Materials and Garden Equipment", "Retail Florists",
+  "Retail Furniture and Home Furnishings", "Retail Gasoline", "Retail Groceries", "Retail Health and Personal Care Products",
+  "Retail Luxury Goods and Jewelry", "Retail Motor Vehicles", "Retail Musical Instruments", "Retail Office Equipment",
+  "Retail Office Supplies and Gifts", "Retail Pharmacies", "Retail Recyclable Materials and Used Merchandise",
+  "Reupholstery and Furniture Repair", "Robot Manufacturing", "Robotics Engineering", "Satellite Telecommunications",
+  "Savings Institutions", "School and Employee Bus Services", "Secretarial Schools", "Securities and Commodity Exchanges",
+  "Security and Investigations", "Security Guards and Patrol Services", "Security System Services", "Semiconductor Manufacturing",
+  "Services for Renewable Energy", "Services for the Elderly and Disabled", "Sheet Music Publishing", "Shipbuilding",
+  "Shuttles and Special Needs Transportation Services", "Sightseeing Transportation", "Skiing Facilities",
+  "Smart Meter Manufacturing", "Soap and Cleaning Product Manufacturing", "Social Networking Platforms",
+  "Software Development", "Solar Electric Power Generation", "Sound Recording", "Space Research and Technology",
+  "Specialty Trade Contractors", "Spectator Sports", "Sporting Goods Manufacturing", "Sports and Recreation Instruction",
+  "Sports Goods Manufacturing", "Sports Teams and Clubs", "Spring and Wire Product Manufacturing", "Staffing and Recruiting",
+  "Steam and Air-Conditioning Supply", "Strategic Management Services", "Subdivision of Land",
+  "Sugar and Confectionary Product Manufacturing", "Surveying and Mapping Services", "Taxi and Limousine Services",
+  "Technical and Vocational Training", "Technology, Information and Internet", "Technology, Information and Media",
+  "Telecommunications", "Telecommunications Carriers", "Telephone Call Centers", "Temporary Help Services",
+  "Textile Manufacturing", "Theater Companies", "Think Tanks", "Tobacco Manufacturing", "Translation and Localization",
+  "Transportation Equipment Manufacturing", "Transportation, Logistics, Supply Chain and Storage", "Travel Arrangements",
+  "Truck Transportation", "Trusts and Estates", "Turned Products and Fastener Manufacturing", "Urban Transit Services",
+  "Utilities", "Utilities Administration", "Utilities System Construction", "Vehicle Repair and Maintenance",
+  "Venture Capital and Private Equity Principals", "Veterinary Services", "Vocational Rehabilitation Services",
+  "Warehousing and Storage", "Waste Collection", "Waste Treatment and Disposal", "Water Supply and Irrigation Systems",
+  "Water, Waste, Steam and Air Conditioning Services", "Wellness and Fitness Services", "Wholesale Alcoholic Beverages",
+  "Wholesale Apparel and Sewing Supplies", "Wholesale Appliances, Electrical and Electronics", "Wholesale Building Materials",
+  "Wholesale Chemical and Allied Products", "Wholesale Computer Equipment", "Wholesale Drugs and Sundries",
+  "Wholesale Food and Beverage", "Wholesale Footwear", "Wholesale Furniture and Home Furnishings",
+  "Wholesale Hardware, Plumbing and Heating Equipment", "Wholesale Import and Export", "Wholesale Luxury Goods and Jewelry",
+  "Wholesale Machinery", "Wholesale Metals and Minerals", "Wholesale Motor Vehicles and Parts", "Wholesale Paper Products",
+  "Wholesale Petroleum and Petroleum Products", "Wholesale Photography Equipment and Supplies", "Wholesale Raw Farm Products",
+  "Wholesale Recyclable Materials", "Wind Electric Power Generation", "Wineries", "Wireless Services",
+  "Women's Handbag Manufacturing", "Wood Product Manufacturing", "Writing and Editing", "Zoos and Botanical Gardens",
+];
+
 // segment/industry added 2026-08-06 (per Mo — "shouldn't we add company size segments (SMB, MM,
 // Enterprise) and industries") as real taxonomy dimensions, not just targeting inputs: they're
 // categorical and low-cardinality enough to be worth scanning in a name, AND the Targeting step's
 // profiles below pull their companySizes/industries option lists from these SAME dimension value
-// lists — one source of truth so "Enterprise" in a campaign name and "Enterprise" in an actual
-// LinkedIn targeting spec can never quietly drift apart.
+// lists — one source of truth so a segment code in a campaign name and the same segment in an
+// actual LinkedIn targeting spec can never quietly drift apart. Segment values are now the short
+// codes (SMB/MM/ENT) rather than full words (2026-08-06, per Mo — "this is basically a consensus
+// among marketers") since they're meant to appear directly in campaign/ad-set names, not just as a
+// UI label. Industry is pre-seeded with the full LinkedIn taxonomy above so every new plan starts
+// with the real option set instead of an empty list the user has to retype from scratch.
 export const DEFAULT_TAXONOMY_DIMENSIONS = [
   { key: "product", label: "Product", values: [] },
   // businessType added 2026-08-06 (per Mo — "we need to include NB for new business and/or EB for
@@ -182,8 +324,8 @@ export const DEFAULT_TAXONOMY_DIMENSIONS = [
   // them into one dimension would lose information a client will actually want to filter/report on.
   { key: "businessType", label: "New / Existing Business", values: ["NB", "EB"] },
   { key: "region", label: "Region", values: [] },
-  { key: "segment", label: "Company Size Segment", values: ["SMB", "Mid-Market", "Enterprise"] },
-  { key: "industry", label: "Industry", values: [] },
+  { key: "segment", label: "Company Size Segment", values: ["SMB", "MM", "ENT"] },
+  { key: "industry", label: "Industry", values: LINKEDIN_INDUSTRIES },
   { key: "funnel", label: "Funnel Stage", values: ["TOFU", "MOFU", "BOFU"] },
   { key: "audience", label: "Audience", values: [] },
   { key: "buytype", label: "Buy Type", values: ["Prospecting", "Retargeting", "ABM"] },
