@@ -440,6 +440,48 @@ export function computeBudgetRollup(mappingRows, groupFn) {
   return [...map.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount);
 }
 
+// ─── FLIGHTING ──────────────────────────────────────────────────────────────────────────────────
+// (2026-08-06, per Mo — after flagging that the Mapping budget field is monthly but LinkedIn
+// Campaign Manager itself runs on daily or lifetime/total budgets: "we should add a toggle for
+// evergreen or campaign with a specific flight date.") A Mapping row's `budget` stays the single
+// entered number (monthly, per the existing "$/mo" convention, unchanged) — flighting only adds
+// `flightType` ("evergreen" | "flighted") and, when flighted, `startDate`/`endDate` (yyyy-mm-dd
+// strings, native <input type="date"> format).
+//
+// The number an ad platform actually wants at setup time is always COMPUTED from budget + flight
+// type, never separately typed (same "one number, everything else derived" reasoning as
+// computeBudgetRollup above): an EVERGREEN row (no end date — runs continuously) maps to a DAILY
+// budget, since that's the only field LinkedIn's own "Run continuously" campaigns take. A FLIGHTED
+// row (has a start/end date) maps to a TOTAL/lifetime budget for that window, since that's the field
+// LinkedIn's "Set a start and end date" campaigns take and the platform paces spend across it
+// automatically — a planner doesn't hand-compute a daily rate for a bounded flight, they hand a
+// total. Both are derived from the SAME implied daily rate (monthly / ~30.44 average days/month) so
+// the two numbers can never quietly disagree with each other.
+const AVG_DAYS_PER_MONTH = 30.44;
+
+export function computeFlightDays(startDate, endDate) {
+  if (!startDate || !endDate) return null;
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+  return Math.round((end - start) / 86400000) + 1; // inclusive of both the start and end day
+}
+
+// Daily rate implied by a monthly budget — what an evergreen campaign's "Daily budget" field wants.
+export function computeDailyBudget(monthlyBudget) {
+  const amt = Number(monthlyBudget) || 0;
+  return amt > 0 ? amt / AVG_DAYS_PER_MONTH : null;
+}
+
+// Total spend across a specific flight window, at that same implied daily rate — what a flighted
+// campaign's "Total budget" field wants.
+export function computeFlightTotalBudget(monthlyBudget, startDate, endDate) {
+  const daily = computeDailyBudget(monthlyBudget);
+  const days = computeFlightDays(startDate, endDate);
+  if (!daily || !days) return null;
+  return daily * days;
+}
+
 export function validateName(name, template) {
   const issues = [];
   if (!name || !name.trim()) return { valid: false, issues: ["Name is empty"] };

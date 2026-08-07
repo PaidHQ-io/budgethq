@@ -9,7 +9,7 @@ import { listReportingFacts } from "../lib/reportingApi.js";
 import {
   buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup, channelCode, platformFamily,
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
-  LINKEDIN_COMPANY_SIZE_RANGES, PLATFORM_CODES,
+  LINKEDIN_COMPANY_SIZE_RANGES, PLATFORM_CODES, computeFlightDays, computeDailyBudget, computeFlightTotalBudget,
 } from "../lib/accountPlanning.js";
 import { SearchableSelect } from "./ui/searchable-select.jsx";
 import { fmtFull } from "../lib/core.js";
@@ -314,7 +314,7 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
       oldKey: g.key, oldName: g.level === "ad" ? (g.adLabel || g.campaignName) : g.campaignName,
       oldCampaignGroup: g.campaignGroupName, platform: g.platform,
       level: g.level === "ad" ? "ad" : "campaign", action: g.tier === "consolidate" ? "kill" : "rename",
-      manualName: "", dimValues: {}, status: "planned", parentKey: "",
+      manualName: "", dimValues: {}, status: "planned", parentKey: "", flightType: "evergreen", startDate: "", endDate: "",
     }]);
   };
   const setDecision = (key, patch) => setAuditDecisions({ ...auditDecisions, [key]: { ...(auditDecisions[key] || {}), ...patch } });
@@ -826,7 +826,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
   const generatedName = (row) => generateName(rowTemplate(row), rowValues(row));
   const finalName = (row) => (row.manualName && row.manualName.trim()) || generatedName(row);
 
-  const addRow = () => setMapping([...mapping, { oldKey: `manual_${Date.now()}`, oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", parentKey: "", action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "" }]);
+  const addRow = () => setMapping([...mapping, { oldKey: `manual_${Date.now()}`, oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", parentKey: "", action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "", flightType: "evergreen", startDate: "", endDate: "" }]);
 
   // Budget rollups — grouped from each row's own `budget` (the only place budget is entered, per
   // Mo's call), never a separately-typed number per level, so these can never silently stop adding
@@ -895,6 +895,47 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
       ) : (
         <MappingTable mapping={mapping} setMapping={setMapping} {...helpers} />
       )}
+    </div>
+  );
+}
+
+// Evergreen vs. flighted toggle (2026-08-06, per Mo — after flagging the Mapping budget field is
+// monthly but LinkedIn itself runs on daily/lifetime budgets: "we should add a toggle for evergreen
+// or campaign with a specific flight date"). Shared between the Table and Builder views. The daily
+// or total figure shown is always COMPUTED from the entered monthly budget + dates, never a second
+// typed number — see computeDailyBudget/computeFlightTotalBudget's own doc comment in
+// accountPlanning.js for why (evergreen -> daily budget field, flighted -> total/lifetime budget
+// field, matching what LinkedIn Campaign Manager actually asks for in each case).
+function FlightFields({ row, onChange, canEdit, compact }) {
+  const flightType = row.flightType || "evergreen";
+  const daily = computeDailyBudget(row.budget);
+  const total = computeFlightTotalBudget(row.budget, row.startDate, row.endDate);
+  const days = computeFlightDays(row.startDate, row.endDate);
+  const inputH = compact ? "h-7" : "h-8";
+  const labelCls = compact ? "text-[10px]" : "text-xs";
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className={cn("font-semibold uppercase tracking-wide text-muted-foreground", labelCls)}>Flighting</div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {[["evergreen", "Evergreen"], ["flighted", "Flight dates"]].map(([k, l]) => (
+          <Badge key={k} variant={flightType === k ? "default" : "outline"} className={cn("select-none", canEdit && "cursor-pointer", flightType !== k && "opacity-60")}
+            onClick={() => canEdit && onChange({ flightType: k })}>{l}</Badge>
+        ))}
+        {flightType === "flighted" ? (
+          <>
+            <Input type="date" disabled={!canEdit} value={row.startDate || ""} onChange={(e) => onChange({ startDate: e.target.value })} className={cn(inputH, "w-[138px] text-xs")} />
+            <span className="text-xs text-muted-foreground">to</span>
+            <Input type="date" disabled={!canEdit} value={row.endDate || ""} onChange={(e) => onChange({ endDate: e.target.value })} className={cn(inputH, "w-[138px] text-xs")} />
+            {days && total != null ? (
+              <span className="text-[11px] text-muted-foreground">{days}d · ≈{fmtFull(total)} total budget</span>
+            ) : row.startDate && row.endDate ? (
+              <span className="text-[11px] text-warning">End date must be on/after start date</span>
+            ) : null}
+          </>
+        ) : (
+          daily != null && <span className="text-[11px] text-muted-foreground">≈ {fmtFull(daily)}/day</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -987,6 +1028,10 @@ function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, ge
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
+              </div>
+
+              <div className="mt-2.5">
+                <FlightFields row={row} onChange={(patch) => updateRow(i, patch)} canEdit={canEdit} />
               </div>
 
               <Separator className="my-3" />
@@ -1091,7 +1136,8 @@ function MappingBuilder({ mapping, setMapping, dimByKey, profiles, rowTemplate, 
   );
   const blankRow = (extra) => ({
     oldKey: newMappingKey(), oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", parentKey: "",
-    action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "", ...extra,
+    action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "",
+    flightType: "evergreen", startDate: "", endDate: "", ...extra,
   });
   const addCampaign = () => setMapping([...mapping, blankRow({})]);
   const addChild = (parentKey, level, platform) => setMapping([...mapping, blankRow({ level, parentKey, platform })]);
@@ -1325,6 +1371,7 @@ function NodeHeader({ row, icon: Icon, nodeLabel, dimByKey, profiles, rowTemplat
               <Input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(row.oldKey, { budget: e.target.value })} placeholder="$/mo" className="h-7 w-24 text-xs" />
             </div>
           </div>
+          <FlightFields row={row} onChange={(patch) => updateRow(row.oldKey, patch)} canEdit={canEdit} compact />
           {tokens.length > 0 && (
             <div>
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Name tokens</div>
