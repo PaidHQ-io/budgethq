@@ -41,7 +41,11 @@ import { Button } from "./components/ui/button.jsx";
 import { Checkbox } from "./components/ui/checkbox.jsx";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "./components/ui/select.jsx";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "./components/ui/table.jsx";
-import { Plus, X, File, PencilSimple, DownloadSimple, PaperPlaneTilt, Trash, Check } from "@phosphor-icons/react";
+import {
+  Plus, X, File, PencilSimple, DownloadSimple, PaperPlaneTilt, Trash, Check,
+  MagnifyingGlass, Question, CaretDown, DotsThree, Export as ExportIcon, EnvelopeSimple, FloppyDisk, ClockCounterClockwise,
+} from "@phosphor-icons/react";
+import { NavItem } from "./components/ui/nav-item.jsx";
 
 // Lazy-loaded tab components (2026-07-25 split, per Mo — "there should be a global forecasting
 // model selector" conversation led into a broader ask to split the four tab components out of
@@ -3079,199 +3083,177 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     <div style={{height:"100vh",width:"100vw",display:"flex",flexDirection:"row",background:T.bg,color:T.text,fontFamily:T.font,overflow:"hidden",position:"relative"}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
 
-      {/* ── VERTICAL RAIL ── (2026-07-31, per Mo, restructured 2026-08-01: the primary tab
-          nav moved OUT to a new horizontal top bar above the content — per Mo, matching the
-          Aida reference's two-surface nav (a pill-tab top bar plus a slim utility rail),
-          instead of collapsing everything into this one bar the way the 2026-07-31 pass did.
-          This rail now holds only the secondary/utility cluster: workspace switcher, account
-          menu, settings, and the file/export "more" menu. Icon-only, filled with the active
-          theme's own accent color — every icon here gets a native `title` tooltip in place of
-          a label. Dropdowns for the workspace/account/"more" triggers open to the RIGHT of the
-          rail, since there's a fixed-width column to their left instead of open space above
-          them.
+      {/* ── SIDEBAR ── (rebuilt 2026-08-07, Venture CRM retheme, per Mo: "I want the exact same
+          layout, same buttons, same font and text, same vertical menu bar, same horizontal top
+          menu bar... same lines and borders, same background colors" — replaces the prior
+          icon-only 64px utility rail + horizontal pill-tab bar (2026-08-01 design, see git
+          history) with Venture's actual shell anatomy: a full labeled left sidebar (logo, primary
+          nav, workspace switcher footer) plus a top header (search / help / profile), matching
+          Venture's General Settings screenshot exactly. Every dropdown/menu that used to live in
+          the old icon rail is preserved with identical handlers and content, just relocated to
+          the equivalent Venture slot: workspace switcher → sidebar footer (Venture's "M Marketing
+          Team's" cluster), account menu (sign out/switch/add account) → TopHeader profile
+          cluster, Settings → a plain nav item at the bottom of the sidebar list (matching
+          Venture's own Settings nav item), file/export "more" menu → a TopHeader icon button next
+          to Help Center (Venture has no equivalent contextual export menu, so this is the closest
+          slot for it). */}
+      <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-border bg-background">
+        <div className="flex h-[64px] items-center gap-2 border-b border-border px-5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-primary">
+            <Icon name="bolt" size={15} color="#fff"/>
+          </div>
+          <span className="text-base font-semibold text-foreground">PaidHQ</span>
+        </div>
 
-          2026-08-01 fix (per Mo, "fix the vertical icon rail"): the reference's own `<aside>`
-          rail has NO background fill at all — transparent, sitting directly on the app frame's
-          own background, with a thin right-border divider and individual circular
-          (`rounded-full`) buttons that only turn solid black when active; everything else here
-          was originally built assuming a colored bar (solid T.accent fill, white icons, square
-          buttons), which is a real structural mismatch, not just a token gap. All of the
-          T.wideLayout-conditional values below are Aida-only in effect (T.wideLayout is
-          undefined/falsy on Classic/Midnight, so every ternary's `else` branch is the exact
-          original hardcoded value — zero visual change for those two). ── */}
-      {/* 2026-08-05 fix (per Mo — "make the blue vertical bar on the left hand side the same grey
-          shared by the rest of the classic theme"): this rail used to fill solid T.accent (blue on
-          Classic) on every non-Aida theme — a leftover from before the Aida-driven "transparent
-          rail, colored circular badges only" redesign above ever existed (see this block's other
-          2026-08-01 doc comment). Classic/Midnight now use T.sidebarBg (the exact grey the stats
-          <aside> already uses) instead of a solid accent fill, with a matching border like Aida's
-          own transparent rail — every icon/badge color below that used to assume a dark blue
-          backdrop (white icons, white-alpha hover tints) is updated alongside this to the same
-          neutral tokens Aida's branch already uses, since white-on-white would otherwise be
-          unreadable against the new grey background. */}
-      <div style={{width:64,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",background:T.wideLayout?"transparent":T.sidebarBg,borderRight:`1px solid ${T.border}`,zIndex:30,position:"relative"}}>
-        <div style={{flex:1}}/>
+        <nav className="flex-1 overflow-y-auto px-3 py-4">
+          <div className="flex flex-col gap-0.5">
+            {NAV.map(item=>{
+              const active=view===item.key;
+              return(
+                <NavItem key={item.key} active={active} icon={<Icon name={item.icon} size={16}/>}
+                  onClick={()=>{
+                    // Same routing as before (see git history's prior version of this loop) —
+                    // Tagger/Data Sources still branch on whether data already exists rather than
+                    // on the transient `step` flag.
+                    if(item.key==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}
+                    else if(item.key==="data"){setStep("upload");setView("data");}
+                    else setView(item.key);
+                  }}>
+                  {item.label}
+                </NavItem>
+              );
+            })}
+          </div>
+          <div className="my-3 border-t border-border"/>
+          <NavItem active={view==="settings"} icon={<Icon name="gear" size={16}/>} onClick={()=>setView("settings")}>Settings</NavItem>
+        </nav>
 
-        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,paddingBottom:14,width:"100%",flexShrink:0}}>
-          {workspace&&workspaces&&(
-            <div style={{position:"relative"}}>
-              <button title={workspace.name} onClick={()=>setWorkspaceMenuOpen(o=>!o)}
-                onMouseEnter={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background=T.wideLayout?T.surface:T.surfaceHover;}}
-                onMouseLeave={e=>{if(!workspaceMenuOpen)e.currentTarget.style.background="transparent";}}
-                style={{width:40,height:36,display:"flex",alignItems:"center",justifyContent:"center",border:"none",borderRadius:T.wideLayout?"50%":T.r8,background:workspaceMenuOpen?(T.wideLayout?T.surface:T.accentBg):"transparent",cursor:"pointer",transition:"background 0.12s",fontFamily:T.font}}>
-                <div style={{width:22,height:22,borderRadius:"50%",background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10*(T.fsScale||1),fontWeight:700,color:T.onAccent,flexShrink:0}}>
-                  {(workspace.name||"?")[0].toUpperCase()}
-                </div>
-              </button>
-              {workspaceMenuOpen&&(<>
-                <div onClick={()=>setWorkspaceMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-                <div style={{position:"absolute",bottom:0,left:"calc(100% + 8px)",zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                  <div style={{padding:"5px 10px 6px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Workspaces</div>
-                  {workspaces.map(w=>(
-                    <button key={w.id} className="bhq-row" onClick={()=>{setWorkspaceMenuOpen(false);onSwitchWorkspace&&onSwitchWorkspace(w.id);}}
-                      style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 10px",borderRadius:T.r6,background:w.id===workspace.id?T.accentBg:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
-                      {w.id===workspace.id&&<Icon name="check" size={13} color={T.accent}/>}
-                    </button>
-                  ))}
-                  <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
-                  <button className="bhq-row" onClick={()=>{setWorkspaceMenuOpen(false);onCreateWorkspace&&onCreateWorkspace();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                    + New workspace
+        {/* Workspace switcher footer — same menu content/handlers as the old rail's version,
+            repositioned to match Venture's bottom-left workspace cluster. */}
+        {workspace&&workspaces&&(
+          <div className="relative border-t border-border p-3">
+            <button onClick={()=>setWorkspaceMenuOpen(o=>!o)}
+              className="flex w-full items-center gap-2 rounded-sm p-2 hover:bg-secondary/60">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                {(workspace.name||"?")[0].toUpperCase()}
+              </div>
+              <span className="min-w-0 flex-1 truncate text-left text-sm font-medium text-foreground">{workspace.name}</span>
+              <CaretDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground"/>
+            </button>
+            {workspaceMenuOpen&&(<>
+              <div onClick={()=>setWorkspaceMenuOpen(false)} className="fixed inset-0 z-[249]"/>
+              <div className="absolute bottom-full left-3 z-[250] mb-1.5 min-w-[220px] rounded-sm border border-border bg-background p-1.5 shadow-card">
+                <div className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Workspaces</div>
+                {workspaces.map(w=>(
+                  <button key={w.id} onClick={()=>{setWorkspaceMenuOpen(false);onSwitchWorkspace&&onSwitchWorkspace(w.id);}}
+                    className={cn("flex w-full items-center justify-between gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary",w.id===workspace.id&&"bg-secondary")}>
+                    <span className="truncate">{w.name}</span>
+                    {w.id===workspace.id&&<Check className="h-3.5 w-3.5 shrink-0"/>}
                   </button>
-                </div>
-              </>)}
-            </div>
-          )}
-          {session&&(
-            <div style={{position:"relative"}}>
-              <button title={session.user?.email} onClick={()=>setAccountMenuOpen(o=>!o)}
-                style={{width:30,height:30,borderRadius:"50%",background:T.accent,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s",fontSize:11*(T.fsScale||1),fontWeight:700,color:T.onAccent,fontFamily:T.font}}>
-                {(session.user?.email||"?")[0].toUpperCase()}
-              </button>
-              {accountMenuOpen&&(<>
-                <div onClick={()=>setAccountMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-                <div style={{position:"absolute",bottom:0,left:"calc(100% + 8px)",zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                  <div style={{padding:"7px 10px 8px",fontSize:12*(T.fsScale||1),color:T.text,fontWeight:600,wordBreak:"break-all"}}>{session.user?.email}</div>
-                  <div style={{height:1,background:T.border,margin:"2px 4px 6px"}}/>
-                  <button className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onSignOut&&onSignOut();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.danger,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                    Sign out
-                  </button>
-                  {/* Other accounts held in this browser (e.g. a client's login alongside your
-                      own) — clicking one flips the whole app over to it, landing on that account's
-                      last-active workspace. See AuthGate.jsx for how these sessions stay alive in
-                      the background. */}
-                  {accounts&&accounts.filter(a=>a.storageKey!==activeAccountKey).length>0&&(<>
-                    <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
-                    <div style={{padding:"5px 10px 6px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Switch account</div>
-                    {accounts.filter(a=>a.storageKey!==activeAccountKey).map(a=>(
-                      <button key={a.storageKey} className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onSwitchAccount&&onSwitchAccount(a.storageKey);}}
-                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left",overflow:"hidden"}}>
-                        <span style={{width:18,height:18,borderRadius:"50%",background:T.accentBg,color:T.accent,fontSize:10*(T.fsScale||1),fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{(a.email||"?")[0].toUpperCase()}</span>
-                        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.email}</span>
-                      </button>
-                    ))}
-                  </>)}
-                  <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
-                  <button className="bhq-row" onClick={()=>{setAccountMenuOpen(false);onAddAccount&&onAddAccount();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                    + Add account
-                  </button>
-                </div>
-              </>)}
-            </div>
-          )}
-          <button title="Settings" onClick={()=>setView("settings")}
-            onMouseEnter={e=>{if(view!=="settings")e.currentTarget.style.background=T.wideLayout?T.surfaceHover:T.surfaceHover;}}
-            onMouseLeave={e=>{if(view!=="settings")e.currentTarget.style.background="transparent";}}
-            style={{width:40,height:40,borderRadius:T.wideLayout?"50%":T.r10,background:view==="settings"?(T.wideLayout?T.accent:T.accentBg):"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
-            <Icon name="gear" size={16} color={T.wideLayout?(view==="settings"?T.onAccent:T.textMuted):(view==="settings"?T.accent:T.textMuted)}/>
-          </button>
-          <div style={{position:"relative"}}>
+                ))}
+                <div className="my-1 h-px bg-border"/>
+                <button onClick={()=>{setWorkspaceMenuOpen(false);onCreateWorkspace&&onCreateWorkspace();}}
+                  className="w-full rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary">+ New workspace</button>
+              </div>
+            </>)}
+          </div>
+        )}
+      </aside>
+
+      {/* ── RIGHT COLUMN ── */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0,position:"relative"}}>
+
+      {/* ── TOP HEADER ── search + file/export menu + Help Center + profile/account menu, matching
+          Venture's exact header anatomy (search bar left, utility cluster right). */}
+      <div className="flex h-[64px] shrink-0 items-center justify-between border-b border-border px-6">
+        <div className="flex h-9 w-[280px] items-center gap-2 rounded-sm border border-input px-3 text-muted-foreground">
+          <MagnifyingGlass className="h-4 w-4"/>
+          <span className="text-sm">Search</span>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* File/export "more" menu — unchanged content/handlers from the old rail, relocated
+              here since Venture has no equivalent contextual export menu of its own. */}
+          <div className="relative">
             <button title="More" onClick={()=>setFileMenuOpen(o=>!o)}
-              onMouseEnter={e=>{if(!fileMenuOpen)e.currentTarget.style.background=T.wideLayout?T.surfaceHover:T.surfaceHover;}}
-              onMouseLeave={e=>{if(!fileMenuOpen)e.currentTarget.style.background="transparent";}}
-              style={{width:40,height:40,borderRadius:T.wideLayout?"50%":T.r10,background:fileMenuOpen?(T.wideLayout?T.accent:T.accentBg):"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background 0.12s"}}>
-              <Icon name="dots" size={16} color={T.wideLayout?(fileMenuOpen?T.onAccent:T.textMuted):(fileMenuOpen?T.accent:T.textMuted)}/>
+              className={cn("flex h-8 w-8 items-center justify-center rounded-sm border border-border text-muted-foreground",fileMenuOpen&&"bg-secondary")}>
+              <DotsThree className="h-4 w-4" weight="bold"/>
             </button>
             {fileMenuOpen&&(<>
-              <div onClick={()=>setFileMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:249}}/>
-              <div style={{position:"absolute",bottom:0,left:"calc(100% + 8px)",zIndex:250,minWidth:240,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
+              <div onClick={()=>setFileMenuOpen(false)} className="fixed inset-0 z-[249]"/>
+              <div className="absolute right-0 top-full z-[250] mt-1.5 min-w-[240px] rounded-sm border border-border bg-background p-1.5 shadow-card">
                 {exportableView&&(<>
-                  <div style={{padding:"5px 10px 5px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Export {exportableView.label}</div>
-                  <div style={{display:"flex",gap:4,padding:"0 6px 6px"}}>
+                  <div className="px-2.5 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Export {exportableView.label}</div>
+                  <div className="flex gap-1 px-1.5 pb-1.5">
                     {EXPORT_FORMATS.map(f=>(
-                      <button key={f.key} className="bhq-row" onClick={()=>{setFileMenuOpen(false);handleExportDownload(f.key);}}
-                        style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font}}>
-                        {f.label}
-                      </button>
+                      <button key={f.key} onClick={()=>{setFileMenuOpen(false);handleExportDownload(f.key);}}
+                        className="flex-1 rounded-sm border border-border py-1.5 text-xs font-semibold text-muted-foreground hover:bg-secondary">{f.label}</button>
                     ))}
                   </div>
-                  <button className="bhq-row" disabled={sheetsExporting} onClick={()=>{setFileMenuOpen(false);handleExportToGoogleSheets();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:T.font,textAlign:"left"}}>
-                    <Icon name="export" size={14} color={T.textSub}/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
+                  <button disabled={sheetsExporting} onClick={()=>{setFileMenuOpen(false);handleExportToGoogleSheets();}}
+                    className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary disabled:opacity-60">
+                    <ExportIcon className="h-3.5 w-3.5 text-muted-foreground"/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
                   </button>
-                  <button className="bhq-row" onClick={()=>{setFileMenuOpen(false);openEmailExport();}}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                    <Icon name="mail" size={14} color={T.textSub}/> Email a copy…
+                  <button onClick={()=>{setFileMenuOpen(false);openEmailExport();}}
+                    className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary">
+                    <EnvelopeSimple className="h-3.5 w-3.5 text-muted-foreground"/> Email a copy…
                   </button>
-                  <div style={{height:1,background:T.border,margin:"6px 4px"}}/>
+                  <div className="my-1 h-px bg-border"/>
                 </>)}
-                {canEdit&&<button className="bhq-row" onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
-                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                  <Icon name="save" size={14} color={T.textSub}/> Name current version…
+                {canEdit&&<button onClick={()=>{setFileMenuOpen(false);setNameVersionOpen(true);}}
+                  className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary">
+                  <FloppyDisk className="h-3.5 w-3.5 text-muted-foreground"/> Name current version…
                 </button>}
-                {canEdit&&<button className="bhq-row" onClick={openVersionHistory}
-                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left"}}>
-                  <Icon name="clock" size={14} color={T.textSub}/> Version history
+                {canEdit&&<button onClick={openVersionHistory}
+                  className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary">
+                  <ClockCounterClockwise className="h-3.5 w-3.5 text-muted-foreground"/> Version history
                 </button>}
               </div>
             </>)}
           </div>
-        </div>
-      </div>
 
-      {/* ── RIGHT COLUMN ── everything that used to sit below the old horizontal top bar now
-          lives in its own flex column beside the rail instead of below it. */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0,position:"relative"}}>
+          <button className="flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-sm font-medium text-muted-foreground hover:bg-secondary/60">
+            <Question className="h-4 w-4"/> Help Center
+          </button>
 
-      {/* ── TOP BAR ── (2026-08-01, per Mo — restoring a horizontal pill nav above the content,
-          alongside the utility rail, matching the Aida reference's two-surface nav instead of
-          the single full-height rail the 2026-07-31 pass collapsed everything into). Primary
-          tab-switching lives here now; the rail (see above) keeps workspace/account/settings/
-          file-menu. Logo mark moved here from the top of the rail, matching the reference's
-          layout (logo + pill tabs together on one bar). overflowX:auto rather than wrapping —
-          8 tabs at comfortable pill width is wider than the reference's 3-tab bar, so this can
-          need to scroll on a narrower window instead of collapsing into two rows. */}
-      <div style={{display:"flex",alignItems:"center",gap:6,padding:"12px 20px",borderBottom:`1px solid ${T.border}`,background:T.topbarBg,flexShrink:0,overflowX:"auto"}}>
-        <div style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginRight:6}}>
-          <Icon name="bolt" size={18} color={T.accent}/>
+          {/* Profile / account menu — unchanged content/handlers, relocated from the old rail. */}
+          {session&&(
+            <div className="relative">
+              <button onClick={()=>setAccountMenuOpen(o=>!o)} className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                  {(session.user?.email||"?")[0].toUpperCase()}
+                </div>
+                <CaretDown className="h-3.5 w-3.5 text-muted-foreground"/>
+              </button>
+              {accountMenuOpen&&(<>
+                <div onClick={()=>setAccountMenuOpen(false)} className="fixed inset-0 z-[249]"/>
+                <div className="absolute right-0 top-full z-[250] mt-1.5 min-w-[240px] rounded-sm border border-border bg-background p-1.5 shadow-card">
+                  <div className="break-all px-2.5 py-1.5 text-sm font-semibold text-foreground">{session.user?.email}</div>
+                  <div className="my-1 h-px bg-border"/>
+                  <button onClick={()=>{setAccountMenuOpen(false);onSignOut&&onSignOut();}}
+                    className="w-full rounded-sm px-2.5 py-1.5 text-left text-sm text-destructive hover:bg-secondary">Sign out</button>
+                  {accounts&&accounts.filter(a=>a.storageKey!==activeAccountKey).length>0&&(<>
+                    <div className="my-1 h-px bg-border"/>
+                    <div className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Switch account</div>
+                    {accounts.filter(a=>a.storageKey!==activeAccountKey).map(a=>(
+                      <button key={a.storageKey} onClick={()=>{setAccountMenuOpen(false);onSwitchAccount&&onSwitchAccount(a.storageKey);}}
+                        className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary">
+                        <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-semibold text-foreground">{(a.email||"?")[0].toUpperCase()}</span>
+                        <span className="truncate">{a.email}</span>
+                      </button>
+                    ))}
+                  </>)}
+                  <div className="my-1 h-px bg-border"/>
+                  <button onClick={()=>{setAccountMenuOpen(false);onAddAccount&&onAddAccount();}}
+                    className="w-full rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary">+ Add account</button>
+                </div>
+              </>)}
+            </div>
+          )}
         </div>
-        {NAV.map(item=>{
-          const active=view===item.key;
-          return <button key={item.key} onClick={()=>{
-              // Same routing as before (see the rail's prior version of this loop, in git
-              // history) — Tagger/Data Sources still branch on whether data already exists
-              // rather than on the transient `step` flag. See that history for the full
-              // "BUG FIX (2026-07-24)" reasoning; unchanged here, just relocated.
-              if(item.key==="tagger"){if(mergedNormRows.length>0){setStep("tag");setView("tagger");}else{setStep("upload");setView("data");}}
-              else if(item.key==="data"){setStep("upload");setView("data");}
-              else setView(item.key);
-            }}
-            onMouseEnter={e=>{if(!active)e.currentTarget.style.background=T.surfaceHover;}}
-            onMouseLeave={e=>{if(!active)e.currentTarget.style.background="transparent";}}
-            style={{display:"flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:T.r20,border:"none",background:active?T.accent:"transparent",color:active?T.onAccent:T.textMuted,fontSize:13*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font,whiteSpace:"nowrap",transition:"background 0.12s,color 0.12s",flexShrink:0}}>
-            <Icon name={item.icon} size={14} color={active?T.onAccent:T.textMuted}/>
-            {item.label}
-          </button>;
-        })}
       </div>
 
       {/* View-only banner — "member" role can see every tab but every product API route rejects
-          their writes server-side (requireEditAccess). This is the one place that surfaces that
-          plainly regardless of which tab you're on, rather than only finding out via a failed
-          save. Owners/admins never see this. */}
+          their writes server-side (requireEditAccess). Unchanged from before. */}
       {!canEdit&&(
         <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"7px 16px",background:T.accentBg,borderBottom:`1px solid ${T.accentBorder}`,fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font,flexShrink:0}}>
           <Icon name="lock" size={12} color={T.textSub}/>
