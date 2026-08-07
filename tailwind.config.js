@@ -86,6 +86,11 @@ export default {
       },
       fontFamily: {
         sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        // Display face (2026-08-06, per Mo's "beautiful typography" ask) — Space Grotesk for
+        // headings/big KPI numbers only, loaded via @import in index.css. Kept separate from
+        // `sans` on purpose: a geometric display face reads as confident at large sizes but hurts
+        // legibility in dense tables/forms, so body/UI text stays on Inter.
+        display: ["Space Grotesk", "Inter", "-apple-system", "sans-serif"],
       },
       boxShadow: {
         // Bumped 2026-08-06 (per Mo — "it really doesn't look very good") — the original values

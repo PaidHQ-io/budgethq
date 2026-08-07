@@ -13,7 +13,7 @@ import {
 import { fmtFull } from "../lib/core.js";
 import { DonutChart, BarList } from "@tremor/react";
 import {
-  Plus, Trash2, ChevronLeft, Compass, Search, Tags, Target as TargetIcon, ListChecks, X,
+  Plus, Trash2, ChevronLeft, Compass, Search, Tags, Target as TargetIcon, ListChecks, X, Moon, Sun,
 } from "lucide-react";
 import { Button } from "./ui/button.jsx";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.jsx";
@@ -122,19 +122,35 @@ function SavedIndicator({ saving, savedAt }) {
   return null;
 }
 
+// Dark mode toggle (2026-08-06, per Mo's "world class" push — "possible dark mode" was part of the
+// approved plan). Lives here rather than in shared.jsx on purpose: this is the new Tailwind/shadcn
+// design system's own control, not something the old T-theme system (Classic/Midnight/Aida) should
+// pick up mid-retirement.
+function ThemeToggle({ dark, onToggle }) {
+  return (
+    <button type="button" onClick={onToggle} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-0 bg-secondary text-muted-foreground transition-all hover:bg-accent hover:text-accent-foreground active:scale-90">
+      {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </button>
+  );
+}
+
 // ─── LIST VIEW ──────────────────────────────────────────────────────────────────────────────────
 
-function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete }) {
+function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete, dark, onToggleDark }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const submit = () => { const n = name.trim(); if (!n) return; onCreate(n); setName(""); setCreating(false); };
   return (
     <div className="mx-auto max-w-4xl">
-      <div className="mb-6">
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground">Account Planning</h2>
-        <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-          Audit what's working in an existing account, design a purpose-built taxonomy, and map the old structure onto the new one — one project per rebuild, saved and resumable.
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-display text-2xl font-semibold tracking-tight text-foreground">Account Planning</h2>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            Audit what's working in an existing account, design a purpose-built taxonomy, and map the old structure onto the new one — one project per rebuild, saved and resumable.
+          </p>
+        </div>
+        <ThemeToggle dark={dark} onToggle={onToggleDark} />
       </div>
 
       {canEdit && (
@@ -165,10 +181,12 @@ function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete }) {
         </Card>
       ) : (
         <div className="flex flex-col gap-2">
-          {plans.map((p) => {
+          {plans.map((p, i) => {
             const status = STATUS_META[p.status || "draft"];
             return (
-              <Card key={p.id} onClick={() => onOpen(p.id)} className="cursor-pointer transition-colors hover:border-primary/40">
+              <Card key={p.id} onClick={() => onOpen(p.id)}
+                style={{ animationDelay: `${Math.min(i, 8) * 40}ms`, animationFillMode: "backwards" }}
+                className="animate-in fade-in slide-in-from-bottom-1 cursor-pointer duration-300 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg">
                 <CardContent className="flex items-center gap-3 p-4">
                   <div className="min-w-0 flex-1">
                     <div className="mb-0.5 truncate text-sm font-semibold text-foreground">{p.name}</div>
@@ -308,7 +326,7 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
               <div>
                 <div className="text-xs font-medium text-muted-foreground">In scope</div>
-                <div className="text-2xl font-bold text-primary">{fmtFull(counts.totalSpend)}</div>
+                <div className="font-display text-2xl font-bold text-primary">{fmtFull(counts.totalSpend)}</div>
               </div>
               {["keep", "review", "consolidate", "insufficient-data"].map((t) => (
                 <div key={t}>
@@ -782,7 +800,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</div>
-                <div className="text-2xl font-bold text-primary">{fmtFull(totalBudget)}</div>
+                <div className="font-display text-2xl font-bold text-primary">{fmtFull(totalBudget)}</div>
               </div>
               <div>
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By product</div>
@@ -917,6 +935,23 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
 
+  // Dark mode (2026-08-06, per Mo's "world class" push) — initial value read once via useState's
+  // own initializer (never set synchronously in an effect body, per this file's established
+  // set-state-in-effect pattern): explicit saved choice wins, otherwise fall back to the OS-level
+  // preference. The effect below only performs DOM/localStorage side effects, not setState, so it's
+  // exempt from that lint rule entirely.
+  const [dark, setDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const saved = window.localStorage.getItem("paidhq-theme");
+    if (saved) return saved === "dark";
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches || false;
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    window.localStorage.setItem("paidhq-theme", dark ? "dark" : "light");
+  }, [dark]);
+  const toggleDark = () => setDark((d) => !d);
+
   // Mount-only fetch — all setState happens inside the promise callbacks (async-external-system
   // pattern), never synchronously in the effect body itself. plansLoading starts true via its own
   // useState initializer above, so there's no need to set it true again here.
@@ -966,7 +1001,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
   if (!selectedId || !plan) {
     return (
       <div className="flex-1 overflow-auto bg-muted p-6 sm:p-10">
-        <PlanList plans={plans} loading={plansLoading} canEdit={canEdit} onOpen={openPlan} onCreate={createPlan} onDelete={removePlan} />
+        <PlanList plans={plans} loading={plansLoading} canEdit={canEdit} onOpen={openPlan} onCreate={createPlan} onDelete={removePlan} dark={dark} onToggleDark={toggleDark} />
       </div>
     );
   }
@@ -977,29 +1012,32 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
   return (
     <div className="flex-1 overflow-auto bg-muted p-6 sm:p-10">
       <div className="mx-auto max-w-5xl">
-        <div className="mb-5">
-          <button type="button" onClick={backToList} className="mb-2 flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground">
-            <ChevronLeft className="h-3.5 w-3.5" /> All plans
-          </button>
-          <div className="flex flex-wrap items-center gap-2.5">
-            {canEdit ? (
-              <input value={plan.name} onChange={(e) => setStepField("name", e.target.value)}
-                className="min-w-[200px] border-none bg-transparent p-0 text-2xl font-semibold text-foreground outline-none" />
-            ) : (
-              <h2 className="text-2xl font-semibold text-foreground">{plan.name}</h2>
-            )}
-            {canEdit && (
-              <Select value={plan.status || "draft"} onValueChange={(v) => setStepField("status", v)}>
-                <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="in_progress">In progress</SelectItem>
-                  <SelectItem value="complete">Complete</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-            <SavedIndicator saving={saving} savedAt={savedAt} />
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <button type="button" onClick={backToList} className="mb-2 flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground">
+              <ChevronLeft className="h-3.5 w-3.5" /> All plans
+            </button>
+            <div className="flex flex-wrap items-center gap-2.5">
+              {canEdit ? (
+                <input value={plan.name} onChange={(e) => setStepField("name", e.target.value)}
+                  className="font-display min-w-[200px] border-none bg-transparent p-0 text-2xl font-semibold text-foreground outline-none" />
+              ) : (
+                <h2 className="font-display text-2xl font-semibold text-foreground">{plan.name}</h2>
+              )}
+              {canEdit && (
+                <Select value={plan.status || "draft"} onValueChange={(v) => setStepField("status", v)}>
+                  <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="in_progress">In progress</SelectItem>
+                    <SelectItem value="complete">Complete</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+              <SavedIndicator saving={saving} savedAt={savedAt} />
+            </div>
           </div>
+          <ThemeToggle dark={dark} onToggle={toggleDark} />
         </div>
 
         <div className="flex flex-col items-start gap-5 lg:flex-row">
@@ -1009,8 +1047,8 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
               const StepIcon = s.Icon;
               return (
                 <button type="button" key={s.key} onClick={() => setStepField("activeStep", s.key)}
-                  className={cn("flex items-center gap-2 whitespace-nowrap rounded-lg border-0 px-3 py-2 text-left transition-colors", active ? "bg-accent" : "bg-transparent hover:bg-secondary")}>
-                  <span className={cn("flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold", active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground")}>
+                  className={cn("flex items-center gap-2 whitespace-nowrap rounded-lg border-0 px-3 py-2 text-left transition-all active:scale-[0.97]", active ? "bg-accent" : "bg-transparent hover:bg-secondary")}>
+                  <span className={cn("flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors", active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground")}>
                     {i + 1}
                   </span>
                   <StepIcon className={cn("h-3.5 w-3.5", active ? "text-primary" : "text-muted-foreground")} />
@@ -1020,7 +1058,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
             })}
           </div>
 
-          <div className="min-w-0 flex-1">
+          <div key={activeStep} className="min-w-0 flex-1 animate-in fade-in slide-in-from-bottom-2 duration-300">
             {activeStep === "context" && <ContextStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
             {activeStep === "audit" && (
               <AuditStep session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels}
