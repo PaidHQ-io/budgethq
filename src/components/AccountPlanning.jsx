@@ -776,12 +776,24 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
 // migration is needed (taxonomy is already a flexible jsonb column). Set here, in Taxonomy, because
 // that's where a dimension's real value list actually exists; compared against ACTUAL Mapping
 // budgets on the Mapping step's own Budget rollup card (computeDimensionBudgetComparison, same
-// engine function feeds both).
+// engine function feeds both). dim.budgetMode ("dollar" | "percent") and dim.budgetPercents (2026-08-07,
+// per Mo — "set percentages for each segment instead of actual dollar values"): percent is purely an
+// input convenience — dim.budgets always holds the real dollar amount (derived from
+// contextBudgetTotal * pct/100 whenever a percent changes), so nothing downstream needs to know this
+// mode exists.
 //
 // Capped at dimensions with 1-15 values — Industry alone has 421 possible values, and a per-value $
 // input list at that size would be unusable busywork, not a real feature. A dimension can still be
 // used for naming/targeting at any size; it just doesn't get a budget-allocation card here.
 const MAX_BUDGET_ALLOCATION_VALUES = 15;
+
+// PCT_TOLERANCE (2026-08-07, per Mo — "give the user the ability to set a monthly budget amount and
+// then just set percentages for each segment instead of actual dollar values... each bucket should
+// add up to 100%"): percentages a user types by hand (33.3/33.3/33.4) essentially never sum to
+// exactly 100.0 due to normal float/rounding slop, so "fully allocated" is judged within a small
+// epsilon rather than requiring bit-exact 100 — same reasoning as the dollar-mode remaining check
+// right below it, just applied to percent instead of dollars.
+const PCT_TOLERANCE = 0.05;
 
 function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }) {
   const eligible = dimensions.filter((d) => d.values.length > 0 && d.values.length <= MAX_BUDGET_ALLOCATION_VALUES);
@@ -798,33 +810,104 @@ function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {eligible.map((d) => {
             const budgets = d.budgets || {};
+            // budgetMode/budgetPercents (2026-08-07, per Mo's percent-split ask): budgets (dollar
+            // amounts) stays the single source of truth every downstream consumer already reads
+            // (Mapping's computeDimensionBudgetComparison, this same card's dollar-mode math) — %
+            // mode is purely an alternate INPUT method that computes and writes the dollar amount
+            // back into budgets on every keystroke, so nothing downstream has to know this mode
+            // exists. budgetPercents just remembers what the user actually typed, so switching back
+            // to % mode (or the Context total changing later) doesn't lose/misrepresent their split.
+            const mode = d.budgetMode === "percent" ? "percent" : "dollar";
+            const percents = d.budgetPercents || {};
             const total = Object.values(budgets).reduce((s, v) => s + (Number(v) || 0), 0);
+            const pctTotal = Object.values(percents).reduce((s, v) => s + (Number(v) || 0), 0);
             const setValueBudget = (value, amount) => updateDim(d.key, { budgets: { ...budgets, [value]: amount } });
+            const setValuePercent = (value, pct) => {
+              const nextPercents = { ...percents, [value]: pct };
+              const dollarAmount = contextBudgetTotal > 0 ? Math.round(contextBudgetTotal * (Number(pct) || 0)) / 100 : "";
+              updateDim(d.key, { budgetPercents: nextPercents, budgets: { ...budgets, [value]: dollarAmount } });
+            };
+            const setMode = (nextMode) => {
+              if (nextMode === "percent" && contextBudgetTotal > 0) {
+                // Seed percents from whatever dollar amounts already exist, so toggling to % for the
+                // first time on an already-filled-in card doesn't blank everything out.
+                const seeded = { ...percents };
+                d.values.forEach((v) => { if (seeded[v] == null && budgets[v]) seeded[v] = Math.round((Number(budgets[v]) / contextBudgetTotal) * 1000) / 10; });
+                updateDim(d.key, { budgetMode: nextMode, budgetPercents: seeded });
+              } else {
+                updateDim(d.key, { budgetMode: nextMode });
+              }
+            };
+            // Split evenly (2026-08-07, per Mo's own example — "33.3% in MM, 33.3% in SMB and 33.4%
+            // in ENT"): last value absorbs the rounding remainder so the split always sums to exactly
+            // 100.0, never 99.9 or 100.1 from naive equal division.
+            const splitEvenly = () => {
+              const n = d.values.length;
+              if (n === 0) return;
+              const even = Math.round((100 / n) * 10) / 10;
+              const nextPercents = {};
+              d.values.forEach((v, i) => { nextPercents[v] = i === n - 1 ? Math.round((100 - even * (n - 1)) * 10) / 10 : even; });
+              const nextBudgets = { ...budgets };
+              d.values.forEach((v) => { nextBudgets[v] = contextBudgetTotal > 0 ? Math.round(contextBudgetTotal * (nextPercents[v] || 0)) / 100 : ""; });
+              updateDim(d.key, { budgetPercents: nextPercents, budgets: nextBudgets });
+            };
             const remaining = contextBudgetTotal > 0 ? contextBudgetTotal - total : null;
+            const remainingPct = 100 - pctTotal;
             return (
               <Card key={d.key}>
                 <CardContent className="p-4">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold text-foreground">{d.label}</span>
-                    {total > 0 && (
-                      <span className="shrink-0 text-xs font-medium text-primary">
-                        {fmtFull(total)}/mo{contextBudgetTotal > 0 && <span className="font-normal text-muted-foreground"> / {fmtFull(contextBudgetTotal)}</span>}
-                      </span>
-                    )}
+                    <div className="flex shrink-0 items-center gap-2">
+                      {total > 0 && (
+                        <span className="text-xs font-medium text-primary">
+                          {fmtFull(total)}/mo{contextBudgetTotal > 0 && <span className="font-normal text-muted-foreground"> / {fmtFull(contextBudgetTotal)}</span>}
+                        </span>
+                      )}
+                      {canEdit && (
+                        <div className="flex items-center gap-0.5 rounded-md border border-border bg-secondary/40 p-0.5">
+                          <button type="button" onClick={() => setMode("dollar")}
+                            className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium transition-all", mode === "dollar" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>$</button>
+                          <button type="button" onClick={() => setMode("percent")} disabled={!(contextBudgetTotal > 0)}
+                            title={contextBudgetTotal > 0 ? "" : "Set a Context budget total first"}
+                            className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium transition-all", mode === "percent" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground", !(contextBudgetTotal > 0) && "cursor-not-allowed opacity-40")}>%</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
+                  {mode === "percent" && canEdit && (
+                    <button type="button" onClick={splitEvenly} className="mb-1.5 text-[11px] font-medium text-primary hover:underline">Split evenly</button>
+                  )}
                   <div className="flex flex-col gap-1.5">
                     {d.values.map((v) => (
                       <div key={v} className="flex items-center gap-2">
                         <span className="min-w-0 flex-1 truncate text-xs text-foreground">{v}</span>
-                        <Input type="number" disabled={!canEdit} value={budgets[v] || ""} onChange={(e) => setValueBudget(v, e.target.value)}
-                          placeholder="$/mo" className="h-7 w-28 shrink-0 text-xs" />
+                        {mode === "percent" ? (
+                          <>
+                            <div className="flex h-7 w-20 shrink-0 items-center gap-1 rounded-md border border-input bg-background px-2 text-xs">
+                              <input type="number" disabled={!canEdit} value={percents[v] ?? ""} onChange={(e) => setValuePercent(v, e.target.value)}
+                                placeholder="0" step="0.1" className="w-full bg-transparent outline-none" />
+                              <span className="text-muted-foreground">%</span>
+                            </div>
+                            <span className="w-20 shrink-0 truncate text-right text-[11px] text-muted-foreground">{contextBudgetTotal > 0 ? fmtFull(budgets[v] || 0) : "—"}</span>
+                          </>
+                        ) : (
+                          <Input type="number" disabled={!canEdit} value={budgets[v] || ""} onChange={(e) => setValueBudget(v, e.target.value)}
+                            placeholder="$/mo" className="h-7 w-28 shrink-0 text-xs" />
+                        )}
                       </div>
                     ))}
                   </div>
-                  {remaining != null && total > 0 && (
-                    <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remaining < 0 ? "text-destructive" : remaining > 0 ? "text-warning" : "text-success")}>
-                      {remaining < 0 ? `${fmtFull(Math.abs(remaining))} over your Context budget` : remaining > 0 ? `${fmtFull(remaining)} of Context budget not yet allocated here` : "Fully allocated"}
+                  {mode === "percent" ? (
+                    <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remainingPct < -PCT_TOLERANCE ? "text-destructive" : remainingPct > PCT_TOLERANCE ? "text-warning" : "text-success")}>
+                      {pctTotal === 0 ? "0% allocated" : remainingPct < -PCT_TOLERANCE ? `${Math.abs(remainingPct).toFixed(1)}% over 100%` : remainingPct > PCT_TOLERANCE ? `${pctTotal.toFixed(1)}% allocated — ${remainingPct.toFixed(1)}% left` : `100% allocated${contextBudgetTotal > 0 ? ` (${fmtFull(total)}/mo)` : ""}`}
                     </div>
+                  ) : (
+                    remaining != null && total > 0 && (
+                      <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remaining < 0 ? "text-destructive" : remaining > 0 ? "text-warning" : "text-success")}>
+                        {remaining < 0 ? `${fmtFull(Math.abs(remaining))} over your Context budget` : remaining > 0 ? `${fmtFull(remaining)} of Context budget not yet allocated here` : "Fully allocated"}
+                      </div>
+                    )
                   )}
                 </CardContent>
               </Card>
