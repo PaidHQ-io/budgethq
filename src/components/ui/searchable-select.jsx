@@ -7,8 +7,14 @@
 // (value: string, onChange(nextValue)) and multi-select (value: string[], onChange(nextArray),
 // multiple) off one component so Mapping's per-row token picker and Targeting's Industry field can
 // share the same behavior instead of two bespoke implementations.
+// Icon swap 2026-08-07 (Venture CRM retheme): lucide-react -> @phosphor-icons/react, matching every
+// other newly-touched component this pass (see badge.jsx/select.jsx's sibling comments). Full
+// visual rebuild against Venture's own Menu Item "Search Result" variant deferred to whichever page
+// migration first uses this component (Targeting Library / Mapping) — this component's radius/
+// accent colors already inherit the new tokens automatically via rounded-md/bg-accent/bg-secondary,
+// since those Tailwind classes now resolve through the retheme'd CSS variables.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, X, Check, ChevronDown } from "lucide-react";
+import { MagnifyingGlass, X, Check, CaretDown } from "@phosphor-icons/react";
 import { cn } from "../../lib/utils.js";
 import { Badge } from "./badge.jsx";
 
@@ -71,10 +77,10 @@ export function SearchableSelect({
       <button type="button" onClick={() => setOpen((o) => !o)}
         className="flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2.5 text-xs text-muted-foreground transition-colors hover:bg-secondary/60">
         <span className="flex items-center gap-1.5 truncate">
-          <Search className="h-3 w-3 shrink-0" />
+          <MagnifyingGlass className="h-3 w-3 shrink-0" />
           {multiple ? (selected.length ? `${selected.length} selected — search to add more…` : placeholder) : (value || placeholder)}
         </span>
-        <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-180")} />
+        <CaretDown className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
         <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 overflow-hidden rounded-md border border-border bg-white shadow-md animate-in fade-in zoom-in-95 duration-100">
