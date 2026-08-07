@@ -103,6 +103,15 @@ async function resolveCached(token, urns, fetchOne) {
 // official docs that this is a bare numeric ID in the path, not a URN. format is the campaignFormat
 // enum (STANDARD_UPDATE, CAROUSEL, SINGLE_VIDEO, etc.) — reused as the Ad Format column's source
 // since LinkedIn constrains creatives under a campaign to match that campaign's format.
+// Diagnostic logging (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's
+// linkedin.js for the fuller doc comment): both resolve*Names branches previously swallowed a
+// failure with no trace of why. Pure diagnostic addition, zero behavior change.
+async function logResolveFailure(kind, id, res, err) {
+  if (err) { console.error(`[linkedin connector] ${kind} ${id} threw:`, err.message); return; }
+  const body = await res.text().catch(() => "<unreadable body>");
+  console.error(`[linkedin connector] ${kind} ${id} failed: HTTP ${res.status} — ${body.slice(0, 300)}`);
+}
+
 async function resolveCampaignNames(token, accountId, urns) {
   return resolveCached(token, urns, async (urn, tok) => {
     const id = urn.split(":").pop();
@@ -112,8 +121,10 @@ async function resolveCampaignNames(token, accountId, urns) {
         const data = await res.json();
         return { id: String(id), name: data.name || `Campaign ${id}`, groupUrn: data.campaignGroup || null, objectiveType: data.objectiveType || null, format: data.format || null };
       }
+      await logResolveFailure("campaign", id, res);
       return { id: String(id), name: `Campaign ${id}`, groupUrn: null, objectiveType: null, format: null };
-    } catch {
+    } catch (err) {
+      await logResolveFailure("campaign", id, null, err);
       return { id: String(id), name: `Campaign ${id}`, groupUrn: null, objectiveType: null, format: null };
     }
   });
@@ -153,8 +164,10 @@ async function resolveCreativeNames(token, accountId, urns) {
         const data = await res.json();
         return { id: String(id), name: data.name || `Creative ${id}`, campaignUrn: data.campaign || null };
       }
+      await logResolveFailure("creative", id, res);
       return { id: String(id), name: `Creative ${id}`, campaignUrn: null };
-    } catch {
+    } catch (err) {
+      await logResolveFailure("creative", id, null, err);
       return { id: String(id), name: `Creative ${id}`, campaignUrn: null };
     }
   });
@@ -223,6 +236,12 @@ export async function getSpend({ startDate, endDate, credential }) {
   const groupUrns = [...new Set(Object.values(campaigns).map((c) => c.groupUrn).filter(Boolean))];
   const groups = groupUrns.length ? await resolveCampaignGroupNames(token, groupUrns) : {};
 
+  // Resolution summary (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's
+  // linkedin.js for the fuller doc comment).
+  const creativeFallbacks = Object.values(creatives).filter((c) => c.name.startsWith("Creative ")).length;
+  const campaignsMissingObjective = Object.values(campaigns).filter((c) => !c.objectiveType).length;
+  console.log(`[linkedin connector] resolved ${creativeUrns.length} creatives (${creativeFallbacks} fell back to ID), ${campaignUrns.length} campaigns (${campaignsMissingObjective} missing objective/format), ${groupUrns.length} campaign groups`);
+
   return withSpend
     .map((el) => {
       const creativeUrn = (el.pivotValues || [])[0];
@@ -285,6 +304,9 @@ export async function getReachMetrics({ startDate, endDate, credential }) {
     const impressions = el.impressions || 0;
     out[id] = { reach, frequency: reach > 0 ? Math.round((impressions / reach) * 100) / 100 : null };
   }
+  // Diagnostic logging (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's
+  // linkedin.js for the fuller doc comment).
+  console.log(`[linkedin connector] reach: ${elements.length} elements returned, ${Object.keys(out).length} keyed by creative id, ${Object.values(out).filter((v) => v.reach > 0).length} with reach > 0`);
   return out;
 }
 
