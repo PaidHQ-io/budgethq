@@ -545,7 +545,13 @@ export const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","
 // "Vault" tab, Phase 1/2 of a larger migration; Ask AI grounding in vault entries is a later,
 // explicitly deferred phase) added right before Ask AI, same placement reasoning as changeHistory
 // above — see Vault.jsx.
-export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Pipeline Tagger",icon:"tag"},{key:"pipelineTagger",label:"Performance Intelligence",icon:"search"},{key:"goalsObjectives",label:"Goals & Objectives",icon:"target"},{key:"changeHistory",label:"Change History",icon:"history"},{key:"vault",label:"Vault",icon:"lock"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
+// "accountPlanning" (2026-08-06, per Mo — "I need a way of figuring out how to restructure and
+// rebuild an account... what can I build in PaidHQ that would help me do that" -> Account Planning:
+// audit what's working, design a target taxonomy, map old structure to new) placed right after
+// Goals & Objectives — it's a planning/strategy tab like that one, not a data-review tab like
+// Change History/Vault, so it groups with the "decide what to do" tabs rather than the
+// "look at what happened" ones. See AccountPlanning.jsx.
+export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Pipeline Tagger",icon:"tag"},{key:"pipelineTagger",label:"Performance Intelligence",icon:"search"},{key:"goalsObjectives",label:"Goals & Objectives",icon:"target"},{key:"accountPlanning",label:"Account Planning",icon:"compass"},{key:"changeHistory",label:"Change History",icon:"history"},{key:"vault",label:"Vault",icon:"lock"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 export function autoDetect(h){

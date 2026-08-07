@@ -446,6 +446,10 @@ export const Icon=({name,size=18,color="currentColor",style})=>{
     // Goals & Objectives tab (2026-08-01, per Mo) — simple bullseye, matches the flat-line 24x24
     // language every other nav icon here uses.
     case"target":return<svg {...p}><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill={color} stroke="none"/></svg>;
+    // "compass" (2026-08-06, per Mo — Account Planning tab) — direction-finding glyph for a
+    // restructure/rebuild-planning tool, distinct from "target" (Goals & Objectives) even though
+    // both are circle-based; the diamond needle is what reads as "compass" rather than "goal".
+    case"compass":return<svg {...p}><circle cx="12" cy="12" r="8.5"/><path d="M15.5 8.5 13 13l-4.5 2.5L11 11Z" fill={color} stroke="none"/></svg>;
     // Ask AI improvements (2026-07-28, per Mo — "start building" on the model picker/voice/
     // image-upload/copy/stop set) — four new glyphs matching the same flat-line 24x24 language
     // as everything above.

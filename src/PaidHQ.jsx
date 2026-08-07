@@ -76,6 +76,11 @@ const AdTagger = lazy(() => import("./components/AdTagger.jsx"));
 // tab; Phase 1 of 2 confirmed via AskUserQuestion — storage/resources now, Ask AI grounding later).
 // See Vault.jsx's own doc comment for what's in/out of scope this phase.
 const Vault = lazy(() => import("./components/Vault.jsx"));
+// Account Planning (2026-08-06, per Mo — restructure/rebuild-an-account planning: audit what's
+// working, design a target taxonomy, map old structure to new). Same "self-contained tab, own data
+// fetch" shape as DataAudit — receives mergedNormRows/combineGoogleChannels from the central load,
+// fetches reporting_facts itself. See AccountPlanning.jsx's own doc comment.
+const AccountPlanning = lazy(() => import("./components/AccountPlanning.jsx"));
 
 // Minimal, theme-matched fallback while a lazily-loaded tab chunk is still fetching — deliberately
 // plain (no logo/branding) since this only ever shows for a moment on a cold chunk load.
@@ -4659,6 +4664,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {view==="reportingAnalyzer"&&<Suspense fallback={<TabLoadingFallback/>}><ReportingAnalyzer T={T} session={session} workspace={workspace} initialPendingRows={pendingReportingRows} onConsumeInitialPendingRows={()=>setPendingReportingRows(null)} initialRawPipelineImport={pendingReportingRawImport} onConsumeInitialRawPipelineImport={()=>setPendingReportingRawImport(null)} campaignTags={tags} tagDims={tagDims} canEdit={canEdit} onBackToDataSources={()=>setView("data")} sidebarEl={reportingAnalyzerSidebarEl} archiveImportConfig={archiveImportConfig}/></Suspense>}
       {view==="pipelineTagger"&&<Suspense fallback={<TabLoadingFallback/>}><PipelineTagger T={T} session={session} workspace={workspace} tagDims={tagDims} customMetrics={customMetrics} sidebarEl={pipelineTaggerSidebarEl} pipelineDimensions={pipelineDimensions} setPipelineDimensions={setPipelineDimensions} pipelineViews={pipelineViews} setPipelineViews={setPipelineViews} canEdit={canEdit}/></Suspense>}
       {view==="goalsObjectives"&&<Suspense fallback={<TabLoadingFallback/>}><GoalsObjectives T={T} session={session} workspace={workspace} tagDims={tagDims} canEdit={canEdit} sidebarEl={goalsObjectivesSidebarEl} promptAndArchiveFile={promptAndArchiveFile} initialImportFile={pendingGoalsImportFile} onConsumeInitialImportFile={()=>setPendingGoalsImportFile(null)}/></Suspense>}
+      {/* Account Planning — same "raw mergedNormRows, own reporting_facts fetch" shape as Data
+          Audit below (deliberately NOT visibleNormRows — an audit of what's working shouldn't
+          silently hide a paused/excluded connector's history, same reasoning as Data Audit's own
+          comment). No sidebar portal needed (self-contained page, same as Data Audit). */}
+      {view==="accountPlanning"&&<Suspense fallback={<TabLoadingFallback/>}><AccountPlanning T={T} session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels} canEdit={canEdit}/></Suspense>}
       {view==="changeHistory"&&<Suspense fallback={<TabLoadingFallback/>}><ChangeHistory T={T} session={session} workspace={workspace} canEdit={canEdit} sidebarEl={changeHistorySidebarEl}/></Suspense>}
       {view==="vault"&&<Suspense fallback={<TabLoadingFallback/>}><Vault T={T} session={session} workspace={workspace} canEdit={canEdit} sidebarEl={vaultSidebarEl}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
