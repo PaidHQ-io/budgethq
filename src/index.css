@@ -28,28 +28,34 @@ html, body {
    Midnight/Aida and wideLayout are being retired as tabs migrate, per Mo's call to consolidate
    rather than carry three variants through the rebuild. */
 :root {
+  /* Swapped to Tremor's ACTUAL brand color (2026-08-06, per Mo's tremor.so/blocks screenshots —
+     "it doesn't look anything like what's on the tremor website"): Tremor's own default brand
+     color is Tailwind blue-500 (#3b82f6, hsl(217 91% 60%)), not the indigo/violet this session
+     started with. Everything below is that one blue driving primary/ring/accent, same "one brand
+     color doing the work" pattern visible across every tremor.so/blocks example — badges, chart
+     lines/fills, buttons, and focus rings all read as the same blue, not a scattered palette. */
   --background: 0 0% 100%;
   --foreground: 240 10% 12%;
   --card: 0 0% 100%;
   --card-foreground: 240 10% 12%;
-  --border: 240 6% 88%;
-  --input: 240 6% 88%;
-  --ring: 243 75% 59%;
-  --primary: 243 75% 59%;
+  --border: 240 6% 90%;
+  --input: 240 6% 90%;
+  --ring: 217 91% 60%;
+  --primary: 217 91% 60%;
   --primary-foreground: 0 0% 100%;
   --secondary: 240 5% 96%;
   --secondary-foreground: 240 10% 14%;
-  --muted: 240 5% 96%;
+  --muted: 240 5% 97%;
   --muted-foreground: 240 4% 46%;
-  --accent: 243 75% 96%;
-  --accent-foreground: 243 75% 40%;
+  --accent: 217 91% 96%;
+  --accent-foreground: 217 91% 40%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
   --success: 142 71% 33%;
   --success-foreground: 0 0% 100%;
   --warning: 38 92% 45%;
   --warning-foreground: 0 0% 100%;
-  --radius: 0.625rem;
+  --radius: 0.75rem;
 }
 
 @tailwind base;

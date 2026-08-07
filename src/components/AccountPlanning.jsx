@@ -308,12 +308,12 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
               <div>
                 <div className="text-xs font-medium text-muted-foreground">In scope</div>
-                <div className="text-lg font-bold text-primary">{fmtFull(counts.totalSpend)}</div>
+                <div className="text-2xl font-bold text-primary">{fmtFull(counts.totalSpend)}</div>
               </div>
               {["keep", "review", "consolidate", "insufficient-data"].map((t) => (
                 <div key={t}>
                   <div className="text-xs font-medium text-muted-foreground">{TIER_META[t].label}</div>
-                  <div className="text-lg font-bold text-foreground">{counts[t] || 0}</div>
+                  <div className="text-2xl font-bold text-foreground">{counts[t] || 0}</div>
                 </div>
               ))}
             </div>
@@ -458,7 +458,7 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
         <div className="flex flex-col gap-2.5">
           {dimensions.map((d) => (
             <Card key={d.key}>
-              <CardContent className="p-3">
+              <CardContent className="p-4">
                 <div className="mb-2 flex items-center gap-2">
                   {canEdit ? (
                     <Input value={d.label} onChange={(e) => updateDim(d.key, { label: e.target.value })} className="h-8 w-full max-w-xs flex-1 font-semibold" />
@@ -496,7 +496,7 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
             const example = generateName(template, exampleValues);
             return (
               <Card key={levelKey}>
-                <CardContent className="p-3">
+                <CardContent className="p-4">
                   <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{levelLabel(levelKey, family)}</div>
                   {canEdit ? (
                     <Input value={template} onChange={(e) => setTemplate(levelKey, e.target.value)} className="font-mono" />
@@ -623,7 +623,7 @@ function TargetingStep({ session, workspace, taxonomy, targeting, setTargeting, 
         <div className="flex flex-col gap-3">
           {profiles.map((p) => (
             <Card key={p.id}>
-              <CardContent className="p-3.5">
+              <CardContent className="p-5">
                 <div className="mb-2.5 flex items-center gap-2">
                   {canEdit ? (
                     <Input value={p.name} onChange={(e) => updateProfile(p.id, { name: e.target.value })} className="h-8 max-w-[260px] flex-1 font-semibold" />
@@ -782,7 +782,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</div>
-                <div className="text-lg font-bold text-primary">{fmtFull(totalBudget)}</div>
+                <div className="text-2xl font-bold text-primary">{fmtFull(totalBudget)}</div>
               </div>
               <div>
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By product</div>
@@ -808,7 +808,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
           const validation = validateName(finalName(row), template);
           return (
             <Card key={row.oldKey}>
-              <CardContent className="p-3.5">
+              <CardContent className="p-5">
                 <div className="flex flex-wrap items-start gap-2.5">
                   <div className="min-w-[160px]">
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Old</div>
@@ -965,7 +965,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
 
   if (!selectedId || !plan) {
     return (
-      <div className="flex-1 overflow-auto bg-muted p-4 sm:p-7">
+      <div className="flex-1 overflow-auto bg-muted p-6 sm:p-10">
         <PlanList plans={plans} loading={plansLoading} canEdit={canEdit} onOpen={openPlan} onCreate={createPlan} onDelete={removePlan} />
       </div>
     );
@@ -975,7 +975,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
   const setStepField = (field, value) => setPlan({ ...plan, [field]: value });
 
   return (
-    <div className="flex-1 overflow-auto bg-muted p-4 sm:p-7">
+    <div className="flex-1 overflow-auto bg-muted p-6 sm:p-10">
       <div className="mx-auto max-w-5xl">
         <div className="mb-5">
           <button type="button" onClick={backToList} className="mb-2 flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground">
