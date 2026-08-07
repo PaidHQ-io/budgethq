@@ -59,31 +59,47 @@
  *       -- Purely a stated plan-level intent — Mapping's own per-row FlightFields (flightType/
  *       -- startDate/endDate on each mapping row, unchanged) is still where the real, enforced
  *       -- flighting choice gets made for each campaign.
- *       -- segments (2026-08-07, per Mo — "we're missing company size segments of SMB, MM and
- *       -- Enterprise in this screen"): free-text ChipList like products/regions/personas, defaults
- *       -- to ["SMB","MM","Enterprise"] client-side when unset (see DEFAULT_SEGMENTS in
- *       -- AccountPlanning.jsx) rather than needing a migration/default here — jsonb has no fixed
- *       -- shape, so older rows without this key just fall back at read time.
+ *       -- segments / regions / funnelStages (2026-08-07, per Mo — "we need some of the data to be
+ *       -- consistent as a pick list"): PLAIN STRING ARRAYS, unchanged shape, but as of this pass
+ *       -- the CLIENT UI no longer free-types into them — Context's Company Size Segment/Region/
+ *       -- Funnel Stage cards are now PickList components (AccountPlanning.jsx) that toggle values
+ *       -- on/off from a fixed catalog (SEGMENT_OPTIONS = SMB/MM/ENT, REGION_OPTIONS = 13
+ *       -- alphabetized region codes from US to LATAM, FUNNEL_STAGE_OPTIONS = TOFU/MOFU/BOFU/
+ *       -- Remarketing) plus a "+ Custom" escape hatch that appends any value not already on the
+ *       -- list. The stored array can still contain values outside the fixed catalog (either from
+ *       -- Custom entries or from rows saved before this change) — PickList renders those as
+ *       -- removable "extra" chips rather than dropping them, so nothing written under the old
+ *       -- free-text ChipList regime is lost or hidden. No default backfill on empty/unset (the old
+ *       -- DEFAULT_SEGMENTS/DEFAULT_FUNNEL_STAGES client-side fallback constants that used to live in
+ *       -- AccountPlanning.jsx have been deleted) — an empty array now just means nothing's picked
+ *       -- yet, same as products/personas always worked.
  *       -- adFormatsByPlatform / objectivesByPlatform (2026-08-07, per Mo — "add a segment for ad
- *       -- format... and ad set objective... in the context tab", then "I think we need to start
- *       -- actually at the channel selection" -> "let's try it as is"): { [platform]: string[] },
- *       -- keyed by the same PLATFORM_CODES platform names used in Mapping (LinkedIn/Meta/Bing/Google
- *       -- Search/Google Display/Demand Gen/Performance Max/YouTube/Capterra). Same client-side-
- *       -- default pattern as segments (see DEFAULT_AD_FORMATS_BY_PLATFORM/
- *       -- DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM in AccountPlanning.jsx) — what this PLAN intends to
- *       -- use per platform, deliberately separate from the Audit step's live objective/ad_format
- *       -- columns which reflect what's actually running on the connected account today. Mapping's
- *       -- Ad-level rows (see mapping shape below) source their Ad Format/Objective select options
- *       -- from context.adFormatsByPlatform[row.platform]/objectivesByPlatform[row.platform].
+ *       -- format... and ad set objective... in the context tab", then "Ad format, make it a
+ *       -- picklist... Ad Set Objectives - take all of the ad set objectives from linkedin ads and
+ *       -- meta ads and put them as a pick list"): { [platform]: string[] }, keyed by the same
+ *       -- PLATFORM_CODES platform names used in Mapping (LinkedIn/Meta/Bing/Google Search/Google
+ *       -- Display/Demand Gen/Performance Max/YouTube/Capterra) — this per-platform SELECTION shape
+ *       -- is unchanged. What changed is the CATALOG each platform's card picks from: previously a
+ *       -- distinct best-guessed list per platform (DEFAULT_AD_FORMATS_BY_PLATFORM/
+ *       -- DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM, both now deleted), now ONE shared fixed catalog for
+ *       -- every platform — AD_FORMAT_OPTIONS (Video/Image/Static/GIF/Banner/Text/Spotlight/
+ *       -- InMessage/Conversation/Document/Event/Carousel) and AD_SET_OBJECTIVE_OPTIONS (LinkedIn's
+ *       -- Brand Awareness/Website Visits/Engagement/Video Views/Lead Generation/Website Conversions/
+ *       -- Job Applicants plus Meta ODAX's Awareness/Traffic/Leads/App Promotion/Sales, "Engagement"
+ *       -- deduped across the two), each with its own "+ Custom" escape hatch. What this PLAN
+ *       -- intends to use per platform, deliberately separate from the Audit step's (now
+ *       -- CampaignAudit.jsx, standalone) live objective/ad_format columns which reflect what's
+ *       -- actually running on the connected account today. Mapping's Ad-level rows (see mapping
+ *       -- shape below) source their Ad Format/Objective select options from
+ *       -- context.adFormatsByPlatform[row.platform]/objectivesByPlatform[row.platform], via
+ *       -- adFormatOptionsFor/adObjectiveOptionsFor which now fall back to the shared
+ *       -- AD_FORMAT_OPTIONS/AD_SET_OBJECTIVE_OPTIONS catalog (not a per-platform default) when a
+ *       -- platform has nothing picked yet.
  *       -- adFormats / objectives (LEGACY, 2026-08-07): the original flat, non-platform-scoped lists
  *       -- from the first version of this request. No longer read anywhere client-side (a single
  *       -- flat list can't hold LinkedIn-only formats like CTV/Spotlight alongside Google/Meta/Bing
  *       -- formats without them all bleeding across platforms) — left as-is on old rows rather than
  *       -- migrated/deleted, same posture as the budgets key below.
- *       -- funnelStages (2026-08-07, per Mo — "let's add the funnel options for TOFU, MOFU, BOFU
- *       -- (Remarketing)"): same client-side-default pattern (DEFAULT_FUNNEL_STAGES), defaults to
- *       -- ["TOFU","MOFU","BOFU (Remarketing)"] — free text, not the enum-constrained Taxonomy
- *       -- "funnel" dimension (which keeps the plain TOFU/MOFU/BOFU codes for generated names).
  *       -- budgets (LEGACY, 2026-08-07 — per Mo, "nor do I think any budget allocation should be set
  *       -- in context"): the old itemized label+$ list this UI no longer shows or writes to. Left
  *       -- as-is on old rows rather than migrated/deleted, but NOT summed into a default for the new

@@ -131,6 +131,64 @@ function ChipList({ items, onAdd, onRemove, placeholder, canEdit }) {
   );
 }
 
+// PickList (2026-08-07, per Mo — "we need some of the data to be consistent as a pick list...
+// [Company Size Segment] a pick list of SMB, MM, ENT and a fourth custom option where they can
+// manually input additional options"): a constrained sibling to ChipList above, for fields where
+// free typing invites drift (a plan spelling out "Enterprise" while another types "ENT" while a
+// third types "Ent." — three different strings meaning the same thing to a human, three different
+// values to every downstream consumer that groups by exact string match, e.g. Budget by Segment's
+// per-value $ allocation or the Ad Set Budget Allocation table's permutation keys). `options` is the
+// fixed catalog rendered as toggleable badges; clicking one adds/removes it from `items` — the SAME
+// flat string-array storage shape ChipList uses, so nothing downstream (Budget, Mapping, the ad-set
+// engine) has to know or care whether a value came from a fixed pick or free typing. Any value
+// already in `items` that ISN'T in `options` (typed via the trailing "+ Custom" control, or saved by
+// an older ChipList-based version of this field) still renders as its own removable chip — nothing
+// existing silently disappears when a field switches from ChipList to PickList.
+function PickList({ options, items, canEdit, onChange }) {
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customVal, setCustomVal] = useState("");
+  const toggle = (opt) => {
+    if (!canEdit) return;
+    onChange(items.includes(opt) ? items.filter((v) => v !== opt) : [...items, opt]);
+  };
+  const removeCustom = (v) => canEdit && onChange(items.filter((x) => x !== v));
+  const addCustom = () => {
+    const v = customVal.trim();
+    if (v && !items.includes(v)) onChange([...items, v]);
+    setCustomVal("");
+    setCustomOpen(false);
+  };
+  const extras = items.filter((v) => !options.includes(v));
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {options.map((opt) => (
+        <Badge key={opt} variant={items.includes(opt) ? "default" : "outline"}
+          className={cn("select-none", canEdit && "cursor-pointer", !items.includes(opt) && "opacity-60")}
+          onClick={() => toggle(opt)}>
+          {opt}
+        </Badge>
+      ))}
+      {extras.map((v) => (
+        <Badge key={v} variant="default" className="select-none gap-1 pr-1.5">
+          {v}
+          {canEdit && <X className="h-3 w-3 cursor-pointer opacity-70 hover:opacity-100" onClick={() => removeCustom(v)} />}
+        </Badge>
+      ))}
+      {canEdit && (customOpen ? (
+        <span className="flex items-center gap-1">
+          <input autoFocus value={customVal} onChange={(e) => setCustomVal(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } if (e.key === "Escape") { setCustomOpen(false); setCustomVal(""); } }}
+            placeholder="Type a custom value…" className="h-7 w-40 rounded-md border border-input bg-background px-2 text-xs outline-none" />
+          <Button size="sm" variant="secondary" className="h-7" onClick={addCustom}>Add</Button>
+        </span>
+      ) : (
+        <Badge variant="outline" className="cursor-pointer select-none border-dashed" onClick={() => setCustomOpen(true)}>+ Custom</Badge>
+      ))}
+      {options.length === 0 && extras.length === 0 && !canEdit && <span className="text-xs text-muted-foreground">None yet</span>}
+    </div>
+  );
+}
+
 function SavedIndicator({ saving, savedAt }) {
   if (saving) return <span className="text-xs text-muted-foreground">Saving…</span>;
   if (savedAt) return <span className="text-xs text-muted-foreground">Saved</span>;
@@ -334,125 +392,92 @@ function ChannelStrategyStep({ context, setContext, canEdit }) {
 
 // ─── STEP: CONTEXT ──────────────────────────────────────────────────────────────────────────────
 
-// DEFAULT_SEGMENTS (2026-08-07, per Mo — "we're missing company size segments of SMB, MM and
-// Enterprise in this screen"): seeds the new Company Size Segments card below with the same
-// three values Taxonomy's fixed "segment" dimension already uses everywhere else in this app (see
-// DEFAULT_TAXONOMY_DIMENSIONS in accountPlanning.js), spelled out in full rather than the ENT
-// shorthand since this card is a free-text ChipList like Products/Regions/Personas, not the
-// enum-constrained taxonomy dimension. Only used as a fallback when a plan hasn't saved its own
-// segments list yet — editing/removing a chip persists context.segments like any other field here.
-const DEFAULT_SEGMENTS = ["SMB", "MM", "Enterprise"];
+// Fixed pick-list catalogs for Context (2026-08-07, per Mo — "we need some of the data to be
+// consistent as a pick list"), rendered via the new PickList component above. These REPLACE two
+// earlier approaches on this screen: the plain free-text ChipList every field originally used (drift
+// risk — "Enterprise" vs "ENT" vs "Ent." all meaning the same thing), and, for Ad Format/Ad Set
+// Objective specifically, the short-lived per-platform DEFAULT_*_BY_PLATFORM seed-data approach
+// (2026-08-07, per Mo's earlier "let's try it as is" approval of the channel-first Mapping proposal)
+// — that approach guessed 8 of 9 platforms' catalogs and flagged them as unverified; Mo has now
+// supplied ONE authoritative combined catalog for each field instead, so there's nothing left to
+// guess. Ad Format/Ad Set Objective KEEP their per-platform SELECTION (context.adFormatsByPlatform/
+// objectivesByPlatform — a plan still picks a different subset per platform, since LinkedIn and
+// Google don't run the same formats), just no longer a different CATALOG per platform — every
+// platform now picks from this same fixed list.
+const SEGMENT_OPTIONS = ["SMB", "MM", "ENT"];
+// Alphabetized per Mo's explicit instruction — see PickList's own doc comment for why exact-string
+// consistency matters here specifically (these feed Budget by Segment's per-value $ allocation and
+// the Ad Set Budget Allocation table's permutation keys, both grouped by exact string match).
+const REGION_OPTIONS = ["APAC", "CAN", "DACH", "EMEA", "EUROPE", "LATAM", "NA", "NAM", "NAMER", "NORDIC", "UK", "UK-IRE", "US"];
+const FUNNEL_STAGE_OPTIONS = ["TOFU", "MOFU", "BOFU", "Remarketing"];
+const AD_FORMAT_OPTIONS = ["Video", "Image", "Static", "GIF", "Banner", "Text", "Spotlight", "InMessage", "Conversation", "Document", "Event", "Carousel"];
+// LinkedIn Ads objectives (Brand Awareness through Job Applicants) followed by Meta Ads' own
+// Outcome-Driven Ad Experience objectives (Awareness through Sales) — kept as two recognizable,
+// platform-native groups rather than merged/renamed into one taxonomy, per Mo's "take all of the ad
+// set objectives from linkedin ads and meta ads." Overlapping concepts (LinkedIn's "Lead Generation"
+// vs Meta's "Leads") are kept as separate, distinct entries since they're genuinely different labels
+// on each platform's own campaign setup UI — collapsing them would make the picklist say something
+// neither platform actually shows.
+const AD_SET_OBJECTIVE_OPTIONS = [
+  "Brand Awareness", "Website Visits", "Engagement", "Video Views", "Lead Generation", "Website Conversions", "Job Applicants",
+  "Awareness", "Traffic", "Leads", "App Promotion", "Sales",
+];
 
-// The original DEFAULT_AD_FORMATS/DEFAULT_AD_SET_OBJECTIVES flat-list constants (2026-08-07, per
-// Mo — "we need to add a segment for ad format... and ad set objective... in the context tab") were
-// removed 2026-08-07 (per Mo — "I think we need to start actually at the channel selection as the
-// first part of the campaign builder") in favor of the per-platform versions below, once it became
-// clear a single flat list can't hold LinkedIn-only formats (CTV, Spotlight, In Message) alongside
-// Google/Meta/Bing formats without every platform seeing every other platform's options.
-// context.adFormats/context.objectives (old plans' saved flat data) are LEGACY — never read by
-// ContextStep anymore, left as-is on old rows rather than migrated/deleted, matching the same
-// "don't carry old data forward as a default, don't delete it either" posture as context.budgets
-// (see account-plans.js's schema doc comment).
-
-// DEFAULT_AD_FORMATS_BY_PLATFORM / DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM (2026-08-07, per Mo's
-// approval "let's try it as is" of the channel-first Mapping proposal, which included "Ad Format and
-// Ad Set Objective move from one flat list each to per-platform lists on Context"): keyed by the same
-// 9 PLATFORM_CODES keys used everywhere else (accountPlanning.js). LinkedIn keeps Mo's original,
-// verified values from the DEFAULT_AD_FORMATS/DEFAULT_AD_SET_OBJECTIVES request above unchanged. The
-// other 8 platforms are MY best-guess seed data, not confirmed by Mo — flagged here the same way the
-// channel-first proposal flagged them, so this comment is the one place to check/correct if any of
-// these turn out wrong for how Mo's clients actually run these channels. Like every other seeded
-// ChipList default in this file, these are just a starting point a plan can freely trim/extend/replace.
-const DEFAULT_AD_FORMATS_BY_PLATFORM = {
-  LinkedIn: ["Single Image", "Video", "CTV", "In Message", "Text", "Conversation", "Document", "Spotlight"],
-  Meta: ["Single Image", "Video", "Carousel", "Collection", "Stories", "Reels", "Instant Experience"], // best guess, unverified
-  Bing: ["Responsive Search Ad", "Expanded Text Ad", "Product (Shopping) Ad", "Audience Ad", "Dynamic Search Ad"], // best guess, unverified
-  "Google Search": ["Responsive Search Ad", "Expanded Text Ad", "Call-Only Ad", "Dynamic Search Ad"], // best guess, unverified
-  "Google Display": ["Responsive Display Ad", "Image Ad", "HTML5 Ad", "Native Ad"], // best guess, unverified
-  "Demand Gen": ["Single Image", "Carousel", "Video"], // best guess, unverified
-  "Performance Max": ["Responsive Ad", "Image", "Video", "Text", "Product Feed"], // best guess, unverified
-  YouTube: ["Skippable In-Stream", "Non-Skippable In-Stream", "Bumper", "In-Feed Video", "Shorts", "Masthead"], // best guess, unverified
-  Reddit: ["Single Image", "Video", "Carousel", "Text Post", "Community Takeover"], // best guess, unverified
-  TikTok: ["In-Feed Video", "Spark Ad", "TopView", "Branded Effect", "Collection"], // best guess, unverified
-  Capterra: ["Sponsored Listing", "Category Leader", "Display Ad"], // best guess, unverified
-};
-const DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM = {
-  LinkedIn: ["Conversions", "Brand Awareness", "Website Traffic", "Lead Generation", "Engagement"],
-  Meta: ["Conversions", "Brand Awareness", "Traffic", "Engagement", "Leads", "App Promotion", "Sales"], // best guess, unverified
-  Bing: ["Website Traffic", "Conversions", "Brand Awareness", "Lead Generation"], // best guess, unverified
-  "Google Search": ["Conversions", "Website Traffic", "Leads", "Sales", "Calls"], // best guess, unverified
-  "Google Display": ["Brand Awareness", "Website Traffic", "Conversions", "Remarketing"], // best guess, unverified
-  "Demand Gen": ["Conversions", "Website Traffic", "Brand Awareness"], // best guess, unverified
-  "Performance Max": ["Sales", "Leads", "Website Traffic", "Store Visits"], // best guess, unverified
-  YouTube: ["Brand Awareness", "Video Views", "Consideration", "Conversions"], // best guess, unverified
-  Reddit: ["Brand Awareness", "Traffic", "Conversions", "Lead Generation", "App Installs"], // best guess, unverified
-  TikTok: ["Brand Awareness", "Traffic", "Conversions", "App Installs", "Lead Generation", "Community Interaction"], // best guess, unverified
-  Capterra: ["Lead Generation", "Website Traffic"], // best guess, unverified
-};
-
-// adFormatOptionsFor / objectiveOptionsFor (2026-08-07): the one shared lookup both ContextStep
-// (editing the list) and Mapping's Ad-level nodes (picking FROM the list, per Mo's "let's try it as
-// is" approval — "Ad Format/Objective selects at Ad level... sourced from
-// context.adFormatsByPlatform[row.platform]/objectivesByPlatform[row.platform]") use to resolve a
-// platform's options — a saved plan-level list if one exists, else the seeded
-// DEFAULT_*_BY_PLATFORM default, else empty (a platform with no seed data, e.g. a future addition to
-// PLATFORM_CODES, just shows no options rather than throwing).
+// adFormatOptionsFor / adObjectiveOptionsFor (2026-08-07): the one shared lookup both Mapping's
+// Ad-level nodes (picking FROM the list — sourced from context.adFormatsByPlatform[row.platform]/
+// objectivesByPlatform[row.platform]) and MappingTable use to resolve a platform's options — a saved
+// plan-level selection if one exists, else the full fixed catalog (AD_FORMAT_OPTIONS/
+// AD_SET_OBJECTIVE_OPTIONS) as a graceful fallback so a platform nobody's configured yet on Context
+// still shows every valid option rather than an empty dropdown.
 function adFormatOptionsFor(context, platform) {
   const list = (context?.adFormatsByPlatform || {})[platform];
-  return list && list.length ? list : (DEFAULT_AD_FORMATS_BY_PLATFORM[platform] || []);
+  return list && list.length ? list : AD_FORMAT_OPTIONS;
 }
 function adObjectiveOptionsFor(context, platform) {
   const list = (context?.objectivesByPlatform || {})[platform];
-  return list && list.length ? list : (DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM[platform] || []);
+  return list && list.length ? list : AD_SET_OBJECTIVE_OPTIONS;
 }
-
-// DEFAULT_FUNNEL_STAGES (2026-08-07, per Mo — "let's add the funnel options for TOFU, MOFU, BOFU
-// (Remarketing)"): same seeded-ChipList pattern as the cards above. BOFU is labeled "BOFU
-// (Remarketing)" rather than a separate 4th chip, matching how Mo phrased the request — this is a
-// free-text tag, not the enum-constrained Taxonomy "funnel" dimension (DEFAULT_TAXONOMY_DIMENSIONS'
-// funnel values stay the plain TOFU/MOFU/BOFU codes it puts into generated names).
-const DEFAULT_FUNNEL_STAGES = ["TOFU", "MOFU", "BOFU (Remarketing)"];
 
 function ContextStep({ context, setContext, canEdit }) {
   const products = context.products || [];
   const regions = context.regions || [];
   const personas = context.personas || [];
-  const segments = context.segments && context.segments.length ? context.segments : DEFAULT_SEGMENTS;
-  const funnelStages = context.funnelStages && context.funnelStages.length ? context.funnelStages : DEFAULT_FUNNEL_STAGES;
+  const segments = context.segments || [];
+  const funnelStages = context.funnelStages || [];
 
-  // Ad Format / Ad Set Objective (2026-08-07, per Mo's "let's try it as is" approval — see
-  // DEFAULT_AD_FORMATS_BY_PLATFORM's doc comment above): each card now scopes to ONE platform at a
-  // time via its own picker, reading/writing context.adFormatsByPlatform[platform] /
-  // context.objectivesByPlatform[platform] instead of the old flat context.adFormats/objectives.
-  // Defaults to LinkedIn since that's the one platform whose seed values are Mo-verified rather than
-  // a best guess.
+  // Ad Format / Ad Set Objective (2026-08-07): each card scopes to ONE platform at a time via its
+  // own picker, reading/writing context.adFormatsByPlatform[platform]/objectivesByPlatform[platform]
+  // — unchanged from the earlier per-platform-selection approval. What changed is the OPTIONS each
+  // card picks from: a single fixed AD_FORMAT_OPTIONS/AD_SET_OBJECTIVE_OPTIONS catalog for every
+  // platform now (see those constants' own doc comment), not a different guessed list per platform.
+  // Deliberately reads the RAW per-platform array here (no adFormatOptionsFor/adObjectiveOptionsFor
+  // fallback-to-full-catalog) — those helpers' fallback is for CONSUMERS assuming "nothing scoped
+  // yet = everything's fair game," which is the wrong behavior for the editor itself: an untouched
+  // platform should show as genuinely empty here, not pre-checked.
   const [formatPlatform, setFormatPlatform] = useState("LinkedIn");
   const [objectivePlatform, setObjectivePlatform] = useState("LinkedIn");
   const adFormatsByPlatform = context.adFormatsByPlatform || {};
   const objectivesByPlatform = context.objectivesByPlatform || {};
-  const adFormats = adFormatOptionsFor(context, formatPlatform);
-  const objectives = adObjectiveOptionsFor(context, objectivePlatform);
+  const adFormats = adFormatsByPlatform[formatPlatform] || [];
+  const objectives = objectivesByPlatform[objectivePlatform] || [];
   return (
     <div className="flex flex-col gap-4">
       {/* Walkthrough (2026-08-07, per Mo — "I also need an explanation or walk through of what to
-          do in this screen for the benefit of the user"): this is the FIRST step of the 6-step
-          Account Planning flow (Context -> Audit -> Taxonomy -> Budget -> Targeting -> Mapping), and
-          it's all freeform inputs with no validation, so a first-time user has no signal for what
-          "done" looks like here or why it matters. Explains each field in the order it appears below
-          and how it feeds later steps, so the panel and the grid stay in sync if fields are
-          reordered. Budgets USED to live on this screen as a free-form itemized list — moved out
-          entirely into their own Budget step (2026-08-07, per Mo — "nor do I think any budget
-          allocation should be set in context... There should be a net new tab just for setting
-          budgets and allocating budgets per segment") since setting a total and allocating it per
-          segment/dimension is a different kind of task than the tag-list scoping fields below, and
-          deserved its own dedicated screen rather than competing for space here. */}
+          do in this screen for the benefit of the user"): explains each field in the order it
+          appears below and how it feeds later steps, so the panel and the grid stay in sync if
+          fields are reordered. Budgets USED to live on this screen as a free-form itemized list —
+          moved out entirely into their own Budget step. Segment/Region/Ad Format/Ad Set Objective/
+          Funnel Stage moved from free-text ChipLists to fixed PickLists (2026-08-07, per Mo — "we
+          need some of the data to be consistent as a pick list") so every plan uses the exact same
+          spelling for the same value, since Budget by Segment and the Ad Set Budget Allocation table
+          both group by exact string match. */}
       <Card className="border-primary/20 bg-primary/5">
         <CardContent className="flex gap-3 pt-4">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div className="text-sm text-muted-foreground">
             <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
             <p>
-              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, <span className="font-medium text-foreground">Company Size Segments</span>, and <span className="font-medium text-foreground">Funnel Stage</span> are simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. <span className="font-medium text-foreground">Ad Format</span> and <span className="font-medium text-foreground">Ad Set Objective</span> work the same way but are scoped per platform — pick a platform from the dropdown on each card first, then add the formats/objectives you intend to use on that platform, since what's available on LinkedIn (Document, Spotlight, In Message…) doesn't line up with Google or Meta. These describe what this plan intends to use, which is worth keeping distinct from what's actually running today (that's what the Audit step's own Ad Format/Objective columns show, pulled live from the connected accounts). None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be — Mapping's Ad-level rows will offer the Ad Format/Objective options you set here for that ad's platform. Setting the actual budget — total and per-segment breakdown — happens in its own Budget step, once these fields (and Taxonomy's dimensions) exist to allocate against.
+              Set up the scope for this account plan. <span className="font-medium text-foreground">Products</span> and <span className="font-medium text-foreground">Audiences / Personas</span> are free-text tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. <span className="font-medium text-foreground">Company Size Segment</span>, <span className="font-medium text-foreground">Region</span>, <span className="font-medium text-foreground">Ad Format</span>, <span className="font-medium text-foreground">Ad Set Objective</span>, and <span className="font-medium text-foreground">Funnel Stage</span> are pick lists instead — click a value to select or deselect it, or use "+ Custom" for anything not already on the list, so every plan stays consistent (no "Enterprise" in one plan and "ENT" in another). Ad Format and Ad Set Objective are additionally scoped per platform — pick a platform from the dropdown on each card first, then pick the formats/objectives this plan intends to use on that platform. None of this is required to move on, but the more filled in here, the more useful the later steps will be — Budget's per-value allocation cards and the Ad Set Budget Allocation table both pull their rows straight from what's picked here, and Mapping's Ad-level rows offer the Ad Format/Objective options set here for that ad's platform.
             </p>
           </div>
         </CardContent>
@@ -467,11 +492,10 @@ function ContextStep({ context, setContext, canEdit }) {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle>Regions</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle>Region</CardTitle></CardHeader>
           <CardContent>
-            <ChipList items={regions} canEdit={canEdit} placeholder="Add a region…"
-              onAdd={(v) => setContext({ ...context, regions: [...regions, v] })}
-              onRemove={(i) => setContext({ ...context, regions: regions.filter((_, x) => x !== i) })} />
+            <PickList options={REGION_OPTIONS} items={regions} canEdit={canEdit}
+              onChange={(next) => setContext({ ...context, regions: next })} />
           </CardContent>
         </Card>
         <Card>
@@ -483,11 +507,10 @@ function ContextStep({ context, setContext, canEdit }) {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle>Company Size Segments</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle>Company Size Segment</CardTitle></CardHeader>
           <CardContent>
-            <ChipList items={segments} canEdit={canEdit} placeholder="Add a segment…"
-              onAdd={(v) => setContext({ ...context, segments: [...segments, v] })}
-              onRemove={(i) => setContext({ ...context, segments: segments.filter((_, x) => x !== i) })} />
+            <PickList options={SEGMENT_OPTIONS} items={segments} canEdit={canEdit}
+              onChange={(next) => setContext({ ...context, segments: next })} />
           </CardContent>
         </Card>
         <Card>
@@ -501,9 +524,8 @@ function ContextStep({ context, setContext, canEdit }) {
             </Select>
           </CardHeader>
           <CardContent>
-            <ChipList items={adFormats} canEdit={canEdit} placeholder="Add an ad format…"
-              onAdd={(v) => setContext({ ...context, adFormatsByPlatform: { ...adFormatsByPlatform, [formatPlatform]: [...adFormats, v] } })}
-              onRemove={(i) => setContext({ ...context, adFormatsByPlatform: { ...adFormatsByPlatform, [formatPlatform]: adFormats.filter((_, x) => x !== i) } })} />
+            <PickList options={AD_FORMAT_OPTIONS} items={adFormats} canEdit={canEdit}
+              onChange={(next) => setContext({ ...context, adFormatsByPlatform: { ...adFormatsByPlatform, [formatPlatform]: next } })} />
           </CardContent>
         </Card>
         <Card>
@@ -517,17 +539,15 @@ function ContextStep({ context, setContext, canEdit }) {
             </Select>
           </CardHeader>
           <CardContent>
-            <ChipList items={objectives} canEdit={canEdit} placeholder="Add an objective…"
-              onAdd={(v) => setContext({ ...context, objectivesByPlatform: { ...objectivesByPlatform, [objectivePlatform]: [...objectives, v] } })}
-              onRemove={(i) => setContext({ ...context, objectivesByPlatform: { ...objectivesByPlatform, [objectivePlatform]: objectives.filter((_, x) => x !== i) } })} />
+            <PickList options={AD_SET_OBJECTIVE_OPTIONS} items={objectives} canEdit={canEdit}
+              onChange={(next) => setContext({ ...context, objectivesByPlatform: { ...objectivesByPlatform, [objectivePlatform]: next } })} />
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle>Funnel Stage</CardTitle></CardHeader>
           <CardContent>
-            <ChipList items={funnelStages} canEdit={canEdit} placeholder="Add a funnel stage…"
-              onAdd={(v) => setContext({ ...context, funnelStages: [...funnelStages, v] })}
-              onRemove={(i) => setContext({ ...context, funnelStages: funnelStages.filter((_, x) => x !== i) })} />
+            <PickList options={FUNNEL_STAGE_OPTIONS} items={funnelStages} canEdit={canEdit}
+              onChange={(next) => setContext({ ...context, funnelStages: next })} />
           </CardContent>
         </Card>
       </div>
@@ -676,16 +696,19 @@ const BUDGET_CADENCE_OPTIONS = [
 // feeds both). Deliberately reads straight from `context` (products/regions/personas/segments), NOT
 // from taxonomy.dimensions — those are a separate, independently-edited value list that a plan could
 // easily forget to keep in sync with what's actually set on the Context screen; reading Context
-// directly means there's only ONE place these lists live, no double-entry. segment applies the same
-// DEFAULT_SEGMENTS fallback ContextStep itself uses, so what's allocated here always matches what
-// Context is actually showing. Order (product, region, persona, segment) is just declaration order —
-// buildAdSetCombos below reorders these for ad set NAMING specifically (persona_segment_region_product,
-// matching Mo's own example), unrelated to this array's order.
+// directly means there's only ONE place these lists live, no double-entry. segment/region now come
+// from the fixed PickList catalogs on the Context screen (SEGMENT_OPTIONS/REGION_OPTIONS, plus
+// whatever custom values were added there) rather than free text, but this field still just reads
+// whatever ctx.segments/ctx.regions holds — no separate fallback needed since an empty pick is a
+// genuinely empty list, not a signal to substitute defaults. Order (product, region, persona,
+// segment) is just declaration order — buildAdSetCombos below reorders these for ad set NAMING
+// specifically (persona_segment_region_product, matching Mo's own example), unrelated to this
+// array's order.
 const CONTEXT_BUDGET_FIELDS = [
   { key: "product", label: "Product", getValues: (ctx) => ctx.products || [] },
   { key: "region", label: "Region", getValues: (ctx) => ctx.regions || [] },
   { key: "persona", label: "Persona", getValues: (ctx) => ctx.personas || [] },
-  { key: "segment", label: "Company Size Segment", getValues: (ctx) => (ctx.segments && ctx.segments.length ? ctx.segments : DEFAULT_SEGMENTS) },
+  { key: "segment", label: "Company Size Segment", getValues: (ctx) => ctx.segments || [] },
 ];
 
 function BudgetStep({ taxonomy, setTaxonomy, context, canEdit }) {
