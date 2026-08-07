@@ -202,6 +202,19 @@ export function syncSpend(session, { platform, startDate, endDate, workspaceId }
   });
 }
 
+// Live, on-demand reach + frequency for an exact date window (2026-08-07, per Mo — "we need reach
+// and frequency"), for Account Planning's Audit step. Deliberately a separate call from syncSpend —
+// see paidhq-core's api/reach-metrics.js doc comment for why this can't just be another synced
+// spend_rows field: reach is deduplicated/non-additive across days, so it's always computed fresh
+// for the exact window asked about instead of summed from daily rows. Returns
+// { linkedin: {[adId]: {reach, frequency}} | null, meta: {...} | null, errors: {...} } — null for a
+// platform the workspace hasn't connected, an entry in `errors` for a platform that failed (e.g.
+// LinkedIn's 92-day range cap) without blanking the other platform's data.
+export function getReachMetrics(session, workspaceId, { startDate, endDate }) {
+  const params = new URLSearchParams({ workspaceId, startDate, endDate });
+  return coreFetch(session, `/api/reach-metrics?${params.toString()}`);
+}
+
 // Preview what a connector sees before (or after) saving a connection — currently only
 // googlesheets implements this (see paidhq-core's connectors/googlesheets.js previewSheet). Powers
 // the connect panel's "review & adjust mapping" step and the connections table's "Adjust mapping"

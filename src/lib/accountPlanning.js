@@ -69,6 +69,17 @@ export function buildAuditGroups({ mergedNormRows = [], reportingFacts = [], com
         campaignName: r.campaign_name || "",
         adLabel,
         campaignNameKey,
+        // campaignId/adId (2026-08-07, per Mo's reach/frequency ask): raw connector-provided IDs,
+        // kept separate from the human-facing name fields above — this is what lets the UI join
+        // live-fetched reach/frequency (keyed by adId, see coreApi.js's getReachMetrics) back onto
+        // the right group, without relying on names (which can collide or get re-resolved).
+        campaignId: r.campaign_id || null,
+        adId: (r.ad_id != null && String(r.ad_id).trim()) ? String(r.ad_id) : null,
+        // objective (2026-08-07, per Mo — "we need to know the ad set objective since the same ad
+        // run in a conversion objective is going to perform differently than one run in a brand
+        // awareness objective"): stable per campaign, so the first non-null value seen for this
+        // group is authoritative — see scoreAuditGroups' cohorting below for how this is used.
+        objective: null,
         spend: 0, impressions: 0, clicks: 0, conversions: 0,
       });
     }
@@ -78,6 +89,7 @@ export function buildAuditGroups({ mergedNormRows = [], reportingFacts = [], com
     g.clicks += r.clicks || 0;
     const em = r.extra_metrics || {};
     g.conversions += Number(em.conversions ?? em.all_conversions ?? 0) || 0;
+    if (!g.objective && em.objective) g.objective = em.objective;
 
     campaignSpendTotals.set(campaignNameKey, (campaignSpendTotals.get(campaignNameKey) || 0) + (r.spend || 0));
   }
@@ -118,12 +130,25 @@ export function buildAuditGroups({ mergedNormRows = [], reportingFacts = [], com
 
 // Annotates each group with a signalType ("pipeline" | "platform-conversions" | "platform-engagement"
 // | "insufficient-volume") and a tier ("keep" | "review" | "consolidate" | "insufficient-data"),
-// ranked ONLY against other groups sharing the same signalType — a $/MQL number is not comparable to
-// a CPC number, so mixing them into one ranking would be a false precision the demo can't afford.
+// ranked ONLY against other groups sharing the same signalType AND the same campaign objective
+// (2026-08-07, per Mo — "we're really going to have to measure the performance of the ad in the
+// context of the ad set that it is in... the same ad run in a conversion objective is going to
+// perform differently than one run in a brand awareness objective") — a $/MQL number is not
+// comparable to a CPC number (the pre-existing signalType split), AND a CPC number from a Brand
+// Awareness ad set isn't comparable to a CPC number from a Website Conversions ad set either (an
+// awareness campaign is bid/optimized to maximize impressions, not clicks, so it will structurally
+// look "worse" on cost-per-click despite doing exactly what it was built to do). Groups with no known
+// objective (search platforms, or a paid-social row from before objective capture shipped) fall into
+// a shared "unspecified" bucket per signalType — same effective behavior as before this change.
 // minSpend: groups below this total spend don't have enough volume to trust a tier judgment either
 // way, regardless of which signal they'd otherwise use.
 export function scoreAuditGroups(groups, { minSpend = 100 } = {}) {
-  const cohorts = { pipeline: [], "platform-conversions": [], "platform-engagement": [] };
+  const cohorts = new Map();
+  const pushToCohort = (signalType, objective, g) => {
+    const cohortKey = `${signalType}::${objective || "unspecified"}`;
+    if (!cohorts.has(cohortKey)) cohorts.set(cohortKey, []);
+    cohorts.get(cohortKey).push(g);
+  };
   const scored = groups.map((g) => {
     const base = { ...g };
     if (g.spend < minSpend) {
@@ -134,16 +159,16 @@ export function scoreAuditGroups(groups, { minSpend = 100 } = {}) {
     if (g.primaryMetricKey && g.primaryMetricValue > 0) {
       base.signalType = "pipeline";
       base.costPerUnit = g.spend / g.primaryMetricValue;
-      cohorts.pipeline.push(base);
+      pushToCohort(base.signalType, g.objective, base);
     } else if (g.conversions > 0) {
       base.signalType = "platform-conversions";
       base.costPerUnit = g.spend / g.conversions;
-      cohorts["platform-conversions"].push(base);
+      pushToCohort(base.signalType, g.objective, base);
     } else if (g.clicks > 0) {
       base.signalType = "platform-engagement";
       base.costPerUnit = g.spend / g.clicks; // CPC
       base.ctr = g.impressions > 0 ? g.clicks / g.impressions : null;
-      cohorts["platform-engagement"].push(base);
+      pushToCohort(base.signalType, g.objective, base);
     } else {
       base.signalType = "insufficient-volume";
       base.tier = "insufficient-data";
@@ -151,7 +176,7 @@ export function scoreAuditGroups(groups, { minSpend = 100 } = {}) {
     return base;
   });
 
-  for (const list of Object.values(cohorts)) {
+  for (const list of cohorts.values()) {
     list.sort((a, b) => a.costPerUnit - b.costPerUnit); // lower cost-per-outcome = better
     const n = list.length;
     list.forEach((g, i) => {
@@ -162,6 +187,17 @@ export function scoreAuditGroups(groups, { minSpend = 100 } = {}) {
     });
   }
   return scored;
+}
+
+// Humanizes a platform's raw objective enum for display (2026-08-07). LinkedIn's values look like
+// BRAND_AWARENESS/WEBSITE_VISITS/LEAD_GENERATION/WEBSITE_CONVERSIONS/ENGAGEMENT/VIDEO_VIEWS/
+// JOB_APPLICANTS; Meta's look like OUTCOME_AWARENESS/OUTCOME_TRAFFIC/OUTCOME_ENGAGEMENT/
+// OUTCOME_LEADS/OUTCOME_SALES/OUTCOME_APP_PROMOTION — stripping Meta's "OUTCOME_" prefix means both
+// platforms read as a consistent short label ("Awareness", not "Outcome Awareness").
+export function humanizeObjective(raw) {
+  if (!raw) return null;
+  return String(raw).replace(/^OUTCOME_/, "").split("_").filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }
 
 // ─── TAXONOMY ───────────────────────────────────────────────────────────────────────────────────

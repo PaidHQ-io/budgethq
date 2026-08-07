@@ -57,6 +57,37 @@ async function fetchAllInsights(firstUrl) {
   return rows;
 }
 
+// Campaign objective (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's
+// meta.js for the fuller doc comment). Insights doesn't return objective directly (it's a Campaign-
+// node property, not a metric), so this is its own per-campaign fetch, cached module-level same as
+// linkedin.js's nameCache.
+const objectiveCache = new Map();
+async function resolveCampaignObjectives(token, campaignIds) {
+  const result = {};
+  const uncached = [];
+  for (const id of campaignIds) {
+    if (objectiveCache.has(id)) result[id] = objectiveCache.get(id);
+    else uncached.push(id);
+  }
+  const batches = [];
+  for (let i = 0; i < uncached.length; i += 20) batches.push(uncached.slice(i, i + 20));
+  for (const batch of batches) {
+    await Promise.all(batch.map(async (id) => {
+      let objective = null;
+      try {
+        const res = await fetch(`${GRAPH_BASE}/${id}?fields=objective&access_token=${token}`);
+        const data = await res.json().catch(() => null);
+        if (res.ok) objective = data?.objective || null;
+      } catch {
+        objective = null;
+      }
+      objectiveCache.set(id, objective);
+      result[id] = objective;
+    }));
+  }
+  return result;
+}
+
 export async function getSpend({ startDate, endDate, credential }) {
   const token = credential?.accessToken;
   const accountId = credential?.accountId;
@@ -84,6 +115,9 @@ export async function getSpend({ startDate, endDate, credential }) {
 
   const raw = await fetchAllInsights(firstUrl);
 
+  const uniqueCampaignIds = [...new Set(raw.map((r) => r.campaign_id).filter(Boolean))];
+  const objectives = uniqueCampaignIds.length ? await resolveCampaignObjectives(token, uniqueCampaignIds) : {};
+
   return raw
     .map((r) => ({
       campaign_group_name: r.campaign_name || `Campaign ${r.campaign_id}`,
@@ -96,8 +130,39 @@ export async function getSpend({ startDate, endDate, credential }) {
       spend: Math.round(parseFloat(r.spend || "0") * 100) / 100,
       impressions: parseInt(r.impressions || "0", 10) || 0,
       clicks: parseInt(r.clicks || "0", 10) || 0,
+      extra_metrics: { objective: objectives[r.campaign_id] || undefined },
     }))
     .filter((r) => r.date && r.spend > 0);
+}
+
+// Reach & frequency (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's
+// meta.js for the fuller doc comment). Deliberately NOT synced into spend_rows — see
+// linkedin.js's getReachMetrics doc comment for why. Meta's Insights API returns true period reach
+// AND frequency directly when time_increment is omitted (one row per ad for the whole range).
+export async function getReachMetrics({ startDate, endDate, credential }) {
+  const token = credential?.accessToken;
+  const accountId = credential?.accountId;
+  if (!token || !accountId) return {};
+
+  const params = new URLSearchParams({
+    access_token: token,
+    level: "ad",
+    time_range: JSON.stringify({ since: startDate, until: endDate }),
+    fields: "ad_id,reach,frequency",
+    limit: "250",
+  });
+  const firstUrl = `${GRAPH_BASE}/${accountId}/insights?${params.toString()}`;
+  const raw = await fetchAllInsights(firstUrl);
+
+  const out = {};
+  for (const r of raw) {
+    if (!r.ad_id) continue;
+    out[r.ad_id] = {
+      reach: parseInt(r.reach || "0", 10) || 0,
+      frequency: r.frequency != null ? Math.round(parseFloat(r.frequency) * 100) / 100 : null,
+    };
+  }
+  return out;
 }
 
 export const meta = {

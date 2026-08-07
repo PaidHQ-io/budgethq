@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   listAccountPlans, getAccountPlan, createAccountPlan, updateAccountPlan, deleteAccountPlan,
 } from "../lib/accountPlanningApi.js";
@@ -6,11 +6,12 @@ import {
   listTargetingLibraryItems, createTargetingLibraryItem, deleteTargetingLibraryItem,
 } from "../lib/targetingLibraryApi.js";
 import { listReportingFacts } from "../lib/reportingApi.js";
+import { getReachMetrics } from "../lib/coreApi.js";
 import {
   buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup, channelCode, platformFamily,
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
   LINKEDIN_COMPANY_SIZE_RANGES, PLATFORM_CODES, computeFlightDays, computeDailyBudget, computeFlightTotalBudget,
-  computeDimensionBudgetComparison,
+  computeDimensionBudgetComparison, humanizeObjective,
 } from "../lib/accountPlanning.js";
 import { SearchableSelect } from "./ui/searchable-select.jsx";
 import { fmtFull, campaignKey, adKey, splitFilterTerms, matchesTerms, localISODate } from "../lib/core.js";
@@ -325,6 +326,23 @@ function effectiveAuditTags(g, tags, adTags) {
   return { ...campTags, ...(adTags[key] || {}) };
 }
 
+// LinkedIn's own hard cap on the reach query — see paidhq-core's connectors/linkedin.js
+// getReachMetrics doc comment. Applied to both platforms for one predictable rule rather than reach
+// working for Meta but not LinkedIn on the same wide date selection.
+const REACH_MAX_DAYS = 92;
+
+// Looks up a group's live-fetched reach/frequency by platform + adId — see coreApi.js's
+// getReachMetrics doc comment for the shape of reachData. Only ad-level LinkedIn/Meta groups can
+// ever have reach data (search platforms and campaign-level rows never will) — everything else
+// quietly returns null, which the table renders as "—".
+function reachForGroup(g, reachData) {
+  if (!reachData || g.level !== "ad" || !g.adId) return null;
+  const platformKey = g.platform === "LinkedIn" ? "linkedin" : g.platform === "Meta" ? "meta" : null;
+  if (!platformKey) return null;
+  const data = reachData[platformKey];
+  return data ? data[g.adId] || null : null;
+}
+
 function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, tags = {}, tagDims = [], adTags = {}, auditDecisions, setAuditDecisions, mapping, setMapping, canEdit }) {
   const [reportingFacts, setReportingFacts] = useState(null);
   const [minSpend, setMinSpend] = useState(100);
@@ -339,6 +357,34 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
   }, [session, workspace?.id]);
 
   const { dateFrom, dateTo } = useMemo(() => computeAuditDateRange(datePreset, customStart, customEnd), [datePreset, customStart, customEnd]);
+
+  // Reach/frequency (2026-08-07, per Mo — "we need reach and frequency"): a LIVE, on-demand fetch
+  // scoped to the exact selected window, NOT part of the regular synced spend data — see
+  // coreApi.js's getReachMetrics doc comment for why (reach is deduplicated/non-additive across
+  // days, so it can't be summed the way spend/impressions/clicks are). REACH_MAX_DAYS mirrors
+  // LinkedIn's own hard cap on this query (92 days) — Meta doesn't share that specific limit, but
+  // capping both platforms to the same window keeps the UI's behavior simple and predictable rather
+  // than reach silently working for one platform and not the other on the same selection.
+  const [reachData, setReachData] = useState(null); // { linkedin, meta, errors } | null — null also reads as "loading" (see below), same convention AdTagger.jsx's own load effect uses for `rows`
+  const reachRequestRef = useRef(0); // guards against an older, slower request overwriting a newer one's result — see effect below
+  const reachWindowDays = dateFrom && dateTo ? Math.round((new Date(dateTo) - new Date(dateFrom)) / 86400000) + 1 : null;
+  const reachWindowTooWide = reachWindowDays == null || reachWindowDays > REACH_MAX_DAYS;
+  const reachLoading = !reachWindowTooWide && reachData === null;
+  useEffect(() => {
+    // No synchronous setState in the effect body itself (react-hooks/set-state-in-effect) — when
+    // the window is too wide (or workspace/session isn't ready), this just skips fetching entirely
+    // rather than resetting reachData to null here; groupsWithReach below already ignores any stale
+    // reachData once reachWindowTooWide flips true, so there's nothing to clean up. setReachData is
+    // only ever called inside the promise callbacks below, same "reset only inside a promise
+    // callback" posture AdTagger.jsx's own load effect uses. reachRequestRef (a ref, not state) is
+    // fine to mutate synchronously here — it just tags this fetch so a slower, superseded request
+    // can't clobber a newer one's result if the date range changes again before it resolves.
+    if (!workspace?.id || !session || reachWindowTooWide) return;
+    const requestId = ++reachRequestRef.current;
+    getReachMetrics(session, workspace.id, { startDate: dateFrom, endDate: dateTo })
+      .then((data) => { if (reachRequestRef.current === requestId) setReachData(data); })
+      .catch((e) => { if (reachRequestRef.current === requestId) setReachData({ errors: { _general: e.message } }); });
+  }, [session, workspace?.id, dateFrom, dateTo, reachWindowTooWide]);
 
   const groups = useMemo(() => {
     if (reportingFacts === null) return [];
@@ -358,7 +404,12 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
       .filter((d) => d.value > 0)
   ), [counts]);
 
-  const tierFiltered = tierFilter === "all" ? groups : groups.filter((g) => g.tier === tierFilter);
+  const groupsWithReach = useMemo(
+    () => groups.map((g) => ({ ...g, reachMetrics: reachWindowTooWide ? null : reachForGroup(g, reachData) })),
+    [groups, reachData, reachWindowTooWide]
+  );
+
+  const tierFiltered = tierFilter === "all" ? groupsWithReach : groupsWithReach.filter((g) => g.tier === tierFilter);
   const tagTerms = splitFilterTerms(fTag);
   const visible = tagTerms.length === 0 ? tierFiltered : tierFiltered.filter((g) => {
     const eff = effectiveAuditTags(g, tags, adTags);
@@ -445,6 +496,17 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
               </>
             )}
           </div>
+          {reachWindowTooWide && (
+            <div className="text-[11px] text-muted-foreground/80">Reach/Frequency need a range of {REACH_MAX_DAYS} days or less to show.</div>
+          )}
+          {!reachWindowTooWide && reachLoading && (
+            <div className="text-[11px] text-muted-foreground/80">Loading reach/frequency…</div>
+          )}
+          {!reachWindowTooWide && !reachLoading && reachData?.errors && Object.keys(reachData.errors).length > 0 && (
+            <div className="text-[11px] text-warning">
+              {Object.entries(reachData.errors).map(([k, v]) => `${k === "_general" ? "Reach" : k}: ${v}`).join(" · ")}
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-1.5 pb-1.5">
           {["all", "keep", "review", "consolidate", "insufficient-data"].map((t) => (
@@ -468,6 +530,9 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
               <TableHead>Spend</TableHead>
               <TableHead>Impressions</TableHead>
               <TableHead>Clicks</TableHead>
+              <TableHead>Reach</TableHead>
+              <TableHead>Frequency</TableHead>
+              <TableHead>Objective</TableHead>
               <TableHead>Signal</TableHead>
               <TableHead>Cost/unit</TableHead>
               <TableHead>Decision</TableHead>
@@ -488,6 +553,9 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
                   <TableCell className="text-sm">{fmtFull(g.spend)}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{(g.impressions || 0).toLocaleString()}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{(g.clicks || 0).toLocaleString()}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{g.reachMetrics?.reach != null ? g.reachMetrics.reach.toLocaleString() : "—"}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{g.reachMetrics?.frequency != null ? g.reachMetrics.frequency.toFixed(2) : "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{humanizeObjective(g.objective) || "—"}</TableCell>
                   <TableCell>
                     <div className="text-xs text-muted-foreground">{SIGNAL_LABELS[g.signalType]}</div>
                     {g.primaryMetricKey && <div className="text-[11px] text-muted-foreground/70">{g.primaryMetricKey}</div>}

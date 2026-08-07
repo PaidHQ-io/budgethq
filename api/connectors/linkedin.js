@@ -86,6 +86,10 @@ async function resolveCached(token, urns, fetchOne) {
 // supported on Advertising API tier. Note: LinkedIn's "Campaign" object is PaidHQ's leaf-level
 // campaign_name (equivalent to an ad set/ad group on other platforms); LinkedIn's "Campaign Group"
 // is PaidHQ's campaign_group_name (equivalent to what other platforms simply call "Campaign").
+// objectiveType (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's linkedin.js
+// for the fuller doc comment): piggybacks on this same per-campaign fetch rather than a separate API
+// call. UNVERIFIED against a real account's actual JSON response — worth a quick check against the
+// first live sync.
 async function resolveCampaignNames(token, urns) {
   return resolveCached(token, urns, async (urn, tok) => {
     const id = urn.split(":").pop();
@@ -93,11 +97,11 @@ async function resolveCampaignNames(token, urns) {
       const res = await fetch(`${BASE}/adCampaignsV2/${id}`, { headers: restHeaders(tok) });
       if (res.ok) {
         const data = await res.json();
-        return { id: String(id), name: data.name || `Campaign ${id}`, groupUrn: data.campaignGroup || null };
+        return { id: String(id), name: data.name || `Campaign ${id}`, groupUrn: data.campaignGroup || null, objectiveType: data.objectiveType || null };
       }
-      return { id: String(id), name: `Campaign ${id}`, groupUrn: null };
+      return { id: String(id), name: `Campaign ${id}`, groupUrn: null, objectiveType: null };
     } catch {
-      return { id: String(id), name: `Campaign ${id}`, groupUrn: null };
+      return { id: String(id), name: `Campaign ${id}`, groupUrn: null, objectiveType: null };
     }
   });
 }
@@ -229,9 +233,49 @@ export async function getSpend({ startDate, endDate, credential }) {
         spend: Math.round(parseFloat(el.costInLocalCurrency) * 100) / 100,
         impressions: el.impressions || 0,
         clicks: el.clicks || 0,
+        extra_metrics: { objective: c.objectiveType || undefined },
       };
     })
     .filter((r) => r.date);
+}
+
+// Reach & frequency (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's
+// linkedin.js for the fuller doc comment). Deliberately NOT folded into getSpend/synced into
+// spend_rows — reach is deduplicated/non-additive across days, so it's fetched LIVE for the exact
+// window the caller needs, never summed from daily rows. LinkedIn hard-caps this to 92-day windows.
+export async function getReachMetrics({ startDate, endDate, credential }) {
+  const token = credential?.accessToken || process.env.LINKEDIN_ACCESS_TOKEN;
+  const accountId = credential?.accountId || process.env.LINKEDIN_ACCOUNT_ID;
+  if (!token || !accountId) return {};
+
+  const s = new Date(startDate);
+  const e = new Date(endDate);
+  const days = Math.round((e - s) / 86400000) + 1;
+  if (days > 92) throw new Error("LinkedIn reach data is only available for date ranges of 92 days or less — narrow the time frame to see it.");
+
+  const url =
+    `${BASE}/adAnalyticsV2` +
+    `?q=analytics` +
+    `&pivot=CREATIVE` +
+    `&dateRange.start.year=${s.getFullYear()}&dateRange.start.month=${s.getMonth() + 1}&dateRange.start.day=${s.getDate()}` +
+    `&dateRange.end.year=${e.getFullYear()}&dateRange.end.month=${e.getMonth() + 1}&dateRange.end.day=${e.getDate()}` +
+    `&accounts[0]=urn:li:sponsoredAccount:${accountId}` +
+    `&fields=pivotValues,impressions,approximateMemberReach`;
+
+  const res = await fetch(url, { headers: analyticsHeaders(token) });
+  if (!res.ok) throw new Error(`LinkedIn analytics API ${res.status}: ${await res.text()}`);
+  const elements = (await res.json()).elements || [];
+
+  const out = {};
+  for (const el of elements) {
+    const creativeUrn = (el.pivotValues || [])[0];
+    const id = creativeUrn?.split(":").pop();
+    if (!id) continue;
+    const reach = el.approximateMemberReach || 0;
+    const impressions = el.impressions || 0;
+    out[id] = { reach, frequency: reach > 0 ? Math.round((impressions / reach) * 100) / 100 : null };
+  }
+  return out;
 }
 
 export const meta = {
