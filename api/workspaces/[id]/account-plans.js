@@ -24,12 +24,17 @@
  *     name text not null,
  *     status text not null default 'draft',              -- draft | in_progress | complete
  *     active_step text not null default 'context',        -- context | audit | taxonomy | targeting | mapping
- *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, segments, budgets }
+ *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, segments, adFormats, objectives, budgets }
  *       -- segments (2026-08-07, per Mo — "we're missing company size segments of SMB, MM and
  *       -- Enterprise in this screen"): free-text ChipList like products/regions/personas, defaults
  *       -- to ["SMB","MM","Enterprise"] client-side when unset (see DEFAULT_SEGMENTS in
  *       -- AccountPlanning.jsx) rather than needing a migration/default here — jsonb has no fixed
  *       -- shape, so older rows without this key just fall back at read time.
+ *       -- adFormats / objectives (2026-08-07, per Mo — "add a segment for ad format... and ad set
+ *       -- objective... in the context tab"): same client-side-default pattern as segments (see
+ *       -- DEFAULT_AD_FORMATS/DEFAULT_AD_SET_OBJECTIVES in AccountPlanning.jsx) — what this PLAN
+ *       -- intends to use, deliberately separate from the Audit step's live objective/ad_format
+ *       -- columns which reflect what's actually running on the connected account today.
  *     taxonomy jsonb not null default '{}'::jsonb,          -- { dimensions, nameTemplates, utmNotes }
  *     audit_decisions jsonb not null default '{}'::jsonb,  -- { [groupKey]: { decision, note } }
  *     targeting jsonb not null default '[]'::jsonb,         -- [{ id, name, method, titles, functions,

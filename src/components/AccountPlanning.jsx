@@ -231,11 +231,24 @@ function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete, dark, o
 // segments list yet — editing/removing a chip persists context.segments like any other field here.
 const DEFAULT_SEGMENTS = ["SMB", "MM", "Enterprise"];
 
+// DEFAULT_AD_FORMATS / DEFAULT_AD_SET_OBJECTIVES (2026-08-07, per Mo — "we need to add a segment for
+// ad format... and ad set objective... in the context tab"): same seeded-ChipList pattern as
+// DEFAULT_SEGMENTS above — free-text tag lists a plan can trim/extend, not enum-constrained taxonomy
+// dimensions. Seeded with the exact values Mo listed. Deliberately independent of the real
+// LinkedIn/Meta objective and ad_format values the Audit table now surfaces from actual connector
+// data (buildAuditGroups' g.objective/g.adFormat, see accountPlanning.js) — those describe what's
+// ACTUALLY running on the audited account; these describe what this plan intends to use, which can
+// legitimately differ (e.g. planning to add Conversation Ads that don't exist yet in the account).
+const DEFAULT_AD_FORMATS = ["Single Image", "Video", "CTV", "In Message", "Text", "Conversation", "Document", "Spotlight"];
+const DEFAULT_AD_SET_OBJECTIVES = ["Conversions", "Brand Awareness", "Website Traffic", "Lead Generation", "Engagement"];
+
 function ContextStep({ context, setContext, canEdit }) {
   const products = context.products || [];
   const regions = context.regions || [];
   const personas = context.personas || [];
   const segments = context.segments && context.segments.length ? context.segments : DEFAULT_SEGMENTS;
+  const adFormats = context.adFormats && context.adFormats.length ? context.adFormats : DEFAULT_AD_FORMATS;
+  const objectives = context.objectives && context.objectives.length ? context.objectives : DEFAULT_AD_SET_OBJECTIVES;
   const budgets = context.budgets || [];
   const [bLabel, setBLabel] = useState(""); const [bAmount, setBAmount] = useState("");
   const addBudget = () => { const l = bLabel.trim(); const a = Number(bAmount); if (!l || !a) return; setContext({ ...context, budgets: [...budgets, { label: l, amount: a }] }); setBLabel(""); setBAmount(""); };
@@ -257,7 +270,7 @@ function ContextStep({ context, setContext, canEdit }) {
           <div className="text-sm text-muted-foreground">
             <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
             <p>
-              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, and <span className="font-medium text-foreground">Company Size Segments</span> are all simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. These describe what this plan covers and carry through as reference context in later steps (Taxonomy, Targeting, Mapping). <span className="font-medium text-foreground">Budgets</span> is where you break the total spend down by whatever lines make sense (by product, region, persona, segment, or anything else) — add a label and an amount, and edit an amount any time by typing directly into its field. None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be.
+              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, <span className="font-medium text-foreground">Company Size Segments</span>, <span className="font-medium text-foreground">Ad Format</span>, and <span className="font-medium text-foreground">Ad Set Objective</span> are all simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. These describe what this plan covers and carry through as reference context in later steps (Taxonomy, Targeting, Mapping); Ad Format and Ad Set Objective in particular are what you intend to use, which is worth keeping distinct from what's actually running today (that's what the Audit step's own Ad Format/Objective columns show, pulled live from the connected accounts). <span className="font-medium text-foreground">Budgets</span> is where you break the total spend down by whatever lines make sense (by product, region, persona, segment, or anything else) — add a label and an amount, and edit an amount any time by typing directly into its field. None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be.
             </p>
           </div>
         </CardContent>
@@ -293,6 +306,22 @@ function ContextStep({ context, setContext, canEdit }) {
             <ChipList items={segments} canEdit={canEdit} placeholder="Add a segment…"
               onAdd={(v) => setContext({ ...context, segments: [...segments, v] })}
               onRemove={(i) => setContext({ ...context, segments: segments.filter((_, x) => x !== i) })} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Ad Format</CardTitle></CardHeader>
+          <CardContent>
+            <ChipList items={adFormats} canEdit={canEdit} placeholder="Add an ad format…"
+              onAdd={(v) => setContext({ ...context, adFormats: [...adFormats, v] })}
+              onRemove={(i) => setContext({ ...context, adFormats: adFormats.filter((_, x) => x !== i) })} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Ad Set Objective</CardTitle></CardHeader>
+          <CardContent>
+            <ChipList items={objectives} canEdit={canEdit} placeholder="Add an objective…"
+              onAdd={(v) => setContext({ ...context, objectives: [...objectives, v] })}
+              onRemove={(i) => setContext({ ...context, objectives: objectives.filter((_, x) => x !== i) })} />
           </CardContent>
         </Card>
         <Card className="sm:col-span-2">
