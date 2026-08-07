@@ -11,146 +11,180 @@ import {
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
 } from "../lib/accountPlanning.js";
 import { fmtFull } from "../lib/core.js";
-import { Icon, PixelPanel, DashStatTile, Pill, SectionLabel, Breadcrumb, Btn } from "./shared.jsx";
+import { DonutChart, BarList } from "@tremor/react";
+import {
+  Plus, Trash2, ChevronLeft, Compass, Search, Tags, Target as TargetIcon, ListChecks, X,
+} from "lucide-react";
+import { Button } from "./ui/button.jsx";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.jsx";
+import { Badge } from "./ui/badge.jsx";
+import { Input } from "./ui/input.jsx";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./ui/select.jsx";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "./ui/table.jsx";
+import { Separator } from "./ui/separator.jsx";
+import { cn } from "../lib/utils.js";
 
 // src/components/AccountPlanning.jsx — Account Planning (2026-08-06, per Mo — "I need a way of
 // figuring out how to restructure and rebuild an account that already has existing ads and
 // campaigns... looking at what's working and then porting that over to a new structure that
 // follows best practices... world class, bespoke, purpose-built for performance." Confirmed via
-// AskUserQuestion: audit + taxonomy designer (names, not full UTMs for MVP — "Campaign, Ad set/Ad
-// group and Ad naming") + old->new mapping, as a named step-by-step project, MVP scope with
-// before/after comparison deferred to a later phase.
+// AskUserQuestion: audit + taxonomy designer + targeting (job title/function, lists, exclusions,
+// remarketing) + old->new mapping, as a named step-by-step project.
 //
-// A "plan" is a resumable project (list view below, Vault-list pattern) that walks four steps:
-//   1. Context   — products/regions/personas + budgets, free-form inputs that seed step 3.
-//   2. Audit     — "what's working" now, computed LIVE every time (see accountPlanning.js's own
-//                  doc comment for why numbers are never frozen), with a persisted decision layer.
-//   3. Taxonomy  — target naming convention across Campaign/Ad Group(Set)/Ad, generated live.
-//   4. Mapping   — old campaign/ad -> new generated name, the actual execution checklist.
+// UI REBUILD (2026-08-06, per Mo — "let's rebuild with tailwind + shadcn/tremor now," confirmed via
+// AskUserQuestion): this is the FIRST tab rebuilt on the new Tailwind/shadcn/Tremor stack, and the
+// template the rest of PaidHQ will be migrated to incrementally, tab by tab, per Mo's call. Notable
+// departures from every other (not-yet-migrated) tab in this codebase:
+//   - No `T` theme prop, no shared.jsx primitives (PixelPanel/Pill/Btn/SectionLabel/Icon) — those
+//     belong to the old inline-style/multi-theme system being retired as tabs migrate, per Mo's call
+//     to consolidate to one design instead of carrying Classic/Midnight/Aida through the rebuild.
+//   - Styling is Tailwind utility classes; components are the new src/components/ui/* shadcn
+//     primitives plus @tremor/react for the two genuine data-viz spots (tier distribution donut,
+//     budget rollup bar lists) — see tailwind.config.js's own doc comment for the stack decisions
+//     (Tailwind v3 not v4, preflight off, fresh palette) and package.json for why @tremor/react
+//     needed --legacy-peer-deps (built for React 18, project is on 19; works fine in practice).
+//   - The underlying data model and engine (accountPlanning.js, accountPlanningApi.js,
+//     targetingLibraryApi.js) are COMPLETELY UNCHANGED — this is a presentation-layer rewrite only.
 //
-// mergedNormRows/combineGoogleChannels/tagDims come from PaidHQ.jsx's central workspace-data load,
-// same props DataAudit.jsx already receives — reporting_facts isn't part of that central load, so
-// this component fetches it independently, same pattern DataAudit.jsx's own reportingFacts effect
-// uses.
-
-function isMobilePad() { return typeof window !== "undefined" && window.innerWidth < 640; }
-
-const inputStyle = (T) => ({
-  background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: T.r6, color: T.text,
-  padding: "6px 9px", fontSize: 12 * (T.fsScale || 1), fontFamily: T.font, outline: "none",
-});
-const selectStyle = (T) => ({ ...inputStyle(T), cursor: "pointer" });
+// A "plan" is a resumable project (list view below) that walks five steps:
+//   1. Context    — products/regions/personas + budgets, free-form inputs that seed step 3.
+//   2. Audit      — "what's working" now, computed LIVE every time (see accountPlanning.js's own
+//                   doc comment for why numbers are never frozen), with a persisted decision layer.
+//   3. Taxonomy   — target naming convention across Campaign/Ad Group(Set)/Ad, generated live.
+//   4. Targeting  — shared library (lists/exclusions/remarketing) + reusable Targeting Profiles.
+//   5. Mapping    — old campaign/ad -> new generated name, the actual execution checklist.
+//
+// mergedNormRows/combineGoogleChannels come from PaidHQ.jsx's central workspace-data load, same
+// props DataAudit.jsx receives — reporting_facts isn't part of that central load, so this component
+// fetches it independently, same pattern DataAudit.jsx's own reportingFacts effect uses.
 
 const STEPS = [
-  { key: "context", label: "Context", icon: "target" },
-  { key: "audit", label: "Audit", icon: "search" },
-  { key: "taxonomy", label: "Taxonomy", icon: "tag" },
-  { key: "targeting", label: "Targeting", icon: "compass" },
-  { key: "mapping", label: "Mapping", icon: "history" },
+  { key: "context", label: "Context", Icon: TargetIcon },
+  { key: "audit", label: "Audit", Icon: Search },
+  { key: "taxonomy", label: "Taxonomy", Icon: Tags },
+  { key: "targeting", label: "Targeting", Icon: Compass },
+  { key: "mapping", label: "Mapping", Icon: ListChecks },
 ];
 
-const TIER_COLORS = (T) => ({
-  keep: { color: T.success, bg: T.successBg, border: T.successBorder, label: "Keep" },
-  review: { color: T.warning, bg: T.warningBg, border: T.warningBorder, label: "Review" },
-  consolidate: { color: T.danger, bg: T.dangerBg, border: T.dangerBorder, label: "Consolidate/Kill" },
-  "insufficient-data": { color: T.textMuted, bg: T.surfaceHover, border: T.border, label: "Insufficient data" },
-});
+const TIER_META = {
+  keep: { badge: "success", label: "Keep" },
+  review: { badge: "warning", label: "Review" },
+  consolidate: { badge: "destructive", label: "Consolidate/Kill" },
+  "insufficient-data": { badge: "secondary", label: "Insufficient data" },
+};
 const SIGNAL_LABELS = {
   pipeline: "Pipeline/funnel",
   "platform-conversions": "Platform conversions",
   "platform-engagement": "Platform (CPC)",
   "insufficient-volume": "Not enough spend",
 };
+const STATUS_META = {
+  draft: { badge: "secondary", label: "Draft" },
+  in_progress: { badge: "warning", label: "In progress" },
+  complete: { badge: "success", label: "Complete" },
+};
+const DONUT_COLORS = ["emerald", "amber", "rose", "slate"];
 
 // ─── SMALL SHARED PIECES ───────────────────────────────────────────────────────────────────────
 
-function ChipList({ T, items, onAdd, onRemove, placeholder, canEdit }) {
+function SectionLabel({ children, className }) {
+  return <h4 className={cn("mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground", className)}>{children}</h4>;
+}
+
+function ChipList({ items, onAdd, onRemove, placeholder, canEdit }) {
   const [val, setVal] = useState("");
   const add = () => { const v = val.trim(); if (!v || items.includes(v)) { setVal(""); return; } onAdd(v); setVal(""); };
   return (
     <div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: canEdit ? 8 : 0 }}>
+      <div className={cn("flex flex-wrap gap-1.5", canEdit ? "mb-2" : "")}>
         {items.map((it, i) => (
-          <Pill key={i} color={T.text} bg={T.surfaceHover} border={T.border}>
+          <Badge key={i} variant="secondary" className="gap-1 pr-1.5">
             {it}
-            {canEdit && <span onClick={() => onRemove(i)} style={{ cursor: "pointer", opacity: 0.55, marginLeft: 6, fontWeight: 700 }}>×</span>}
-          </Pill>
+            {canEdit && <X className="h-3 w-3 cursor-pointer opacity-60 hover:opacity-100" onClick={() => onRemove(i)} />}
+          </Badge>
         ))}
-        {items.length === 0 && <span style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>None yet</span>}
+        {items.length === 0 && <span className="text-xs text-muted-foreground">None yet</span>}
       </div>
       {canEdit && (
-        <div style={{ display: "flex", gap: 6 }}>
-          <input value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-            placeholder={placeholder} style={{ ...inputStyle(T), flex: 1 }} />
-          <Btn T={T} size="sm" variant="subtle" onClick={add}>Add</Btn>
+        <div className="flex gap-1.5">
+          <Input value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+            placeholder={placeholder} className="h-8 flex-1 text-xs" />
+          <Button size="sm" variant="secondary" className="h-8" onClick={add}>Add</Button>
         </div>
       )}
     </div>
   );
 }
 
-function SavedIndicator({ T, saving, savedAt }) {
-  if (saving) return <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Saving…</span>;
-  if (savedAt) return <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Saved</span>;
+function SavedIndicator({ saving, savedAt }) {
+  if (saving) return <span className="text-xs text-muted-foreground">Saving…</span>;
+  if (savedAt) return <span className="text-xs text-muted-foreground">Saved</span>;
   return null;
 }
 
 // ─── LIST VIEW ──────────────────────────────────────────────────────────────────────────────────
 
-function PlanList({ T, plans, loading, canEdit, onOpen, onCreate, onDelete }) {
+function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const submit = () => { const n = name.trim(); if (!n) return; onCreate(n); setName(""); setCreating(false); };
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <div style={{ marginBottom: 20 }}>
-        {T.wideLayout && <Breadcrumb T={T} items={["Home", "Account Planning"]} />}
-        <h2 style={{ fontSize: T.wideLayout ? 36 : 20 * (T.fsScale || 1), fontWeight: T.wideLayout ? 600 : 700, color: T.text, letterSpacing: "-0.3px", marginBottom: 4, fontFamily: T.font }}>Account Planning</h2>
-        <p style={{ fontSize: 13 * (T.fsScale || 1), color: T.textSub, fontFamily: T.font, maxWidth: 640 }}>
+    <div className="mx-auto max-w-4xl">
+      <div className="mb-6">
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground">Account Planning</h2>
+        <p className="mt-1 max-w-xl text-sm text-muted-foreground">
           Audit what's working in an existing account, design a purpose-built taxonomy, and map the old structure onto the new one — one project per rebuild, saved and resumable.
         </p>
       </div>
 
       {canEdit && (
-        <div style={{ marginBottom: 18 }}>
+        <div className="mb-5">
           {!creating ? (
-            <Btn T={T} variant="primary" onClick={() => setCreating(true)}><Icon name="plus" size={13} color={T.onAccent} style={{ marginRight: 6 }} />New plan</Btn>
+            <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New plan</Button>
           ) : (
-            <PixelPanel T={T} contentStyle={{ padding: 12, display: "flex", gap: 8 }}>
-              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") setCreating(false); }}
-                placeholder="e.g. Q4 InsightSoftware Rebuild" style={{ ...inputStyle(T), flex: 1 }} />
-              <Btn T={T} variant="primary" onClick={submit}>Create</Btn>
-              <Btn T={T} variant="ghost" onClick={() => { setCreating(false); setName(""); }}>Cancel</Btn>
-            </PixelPanel>
+            <Card>
+              <CardContent className="flex gap-2 p-3">
+                <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") setCreating(false); }}
+                  placeholder="e.g. Q4 InsightSoftware Rebuild" className="flex-1" />
+                <Button onClick={submit}>Create</Button>
+                <Button variant="ghost" onClick={() => { setCreating(false); setName(""); }}>Cancel</Button>
+              </CardContent>
+            </Card>
           )}
         </div>
       )}
 
       {loading ? (
-        <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Loading…</div>
+        <div className="text-sm text-muted-foreground">Loading…</div>
       ) : plans.length === 0 ? (
-        <PixelPanel T={T} contentStyle={{ padding: 28, textAlign: "center" }}>
-          <div style={{ fontSize: 14 * (T.fsScale || 1), fontWeight: 700, color: T.text, marginBottom: 6, fontFamily: T.font }}>No plans yet</div>
-          <div style={{ fontSize: 12.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Start a new plan to audit an account and design its rebuild.</div>
-        </PixelPanel>
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="mb-1 text-sm font-semibold text-foreground">No plans yet</div>
+            <div className="text-sm text-muted-foreground">Start a new plan to audit an account and design its rebuild.</div>
+          </CardContent>
+        </Card>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex flex-col gap-2">
           {plans.map((p) => {
-            const statusPill = { draft: { c: T.textMuted, bg: T.surfaceHover, b: T.border, l: "Draft" }, in_progress: { c: T.warning, bg: T.warningBg, b: T.warningBorder, l: "In progress" }, complete: { c: T.success, bg: T.successBg, b: T.successBorder, l: "Complete" } }[p.status || "draft"];
+            const status = STATUS_META[p.status || "draft"];
             return (
-              <PixelPanel key={p.id} T={T} onClick={() => onOpen(p.id)} contentStyle={{ padding: "13px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5 * (T.fsScale || 1), fontWeight: 700, color: T.text, fontFamily: T.font, marginBottom: 2 }}>{p.name}</div>
-                  <div style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Updated {new Date(p.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · Step: {STEPS.find((s) => s.key === p.activeStep)?.label || "Context"}</div>
-                </div>
-                <Pill color={statusPill.c} bg={statusPill.bg} border={statusPill.b}>{statusPill.l}</Pill>
-                {canEdit && (
-                  <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${p.name}"? This can't be undone.`)) onDelete(p.id); }}
-                    style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
-                    <Icon name="trash" size={14} color={T.textMuted} />
-                  </button>
-                )}
-              </PixelPanel>
+              <Card key={p.id} onClick={() => onOpen(p.id)} className="cursor-pointer transition-colors hover:border-primary/40">
+                <CardContent className="flex items-center gap-3 p-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-0.5 truncate text-sm font-semibold text-foreground">{p.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Updated {new Date(p.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · Step: {STEPS.find((s) => s.key === p.activeStep)?.label || "Context"}
+                    </div>
+                  </div>
+                  <Badge variant={status.badge}>{status.label}</Badge>
+                  {canEdit && (
+                    <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${p.name}"? This can't be undone.`)) onDelete(p.id); }}
+                      className="flex p-1 text-muted-foreground hover:text-destructive">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </CardContent>
+              </Card>
             );
           })}
         </div>
@@ -161,7 +195,7 @@ function PlanList({ T, plans, loading, canEdit, onOpen, onCreate, onDelete }) {
 
 // ─── STEP 1: CONTEXT ────────────────────────────────────────────────────────────────────────────
 
-function ContextStep({ T, context, setContext, canEdit }) {
+function ContextStep({ context, setContext, canEdit }) {
   const products = context.products || [];
   const regions = context.regions || [];
   const personas = context.personas || [];
@@ -169,52 +203,60 @@ function ContextStep({ T, context, setContext, canEdit }) {
   const [bLabel, setBLabel] = useState(""); const [bAmount, setBAmount] = useState("");
   const addBudget = () => { const l = bLabel.trim(); const a = Number(bAmount); if (!l || !a) return; setContext({ ...context, budgets: [...budgets, { label: l, amount: a }] }); setBLabel(""); setBAmount(""); };
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div>
-        <SectionLabel T={T}>Products</SectionLabel>
-        <ChipList T={T} items={products} canEdit={canEdit} placeholder="Add a product…"
-          onAdd={(v) => setContext({ ...context, products: [...products, v] })}
-          onRemove={(i) => setContext({ ...context, products: products.filter((_, x) => x !== i) })} />
-      </div>
-      <div>
-        <SectionLabel T={T}>Regions</SectionLabel>
-        <ChipList T={T} items={regions} canEdit={canEdit} placeholder="Add a region…"
-          onAdd={(v) => setContext({ ...context, regions: [...regions, v] })}
-          onRemove={(i) => setContext({ ...context, regions: regions.filter((_, x) => x !== i) })} />
-      </div>
-      <div>
-        <SectionLabel T={T}>Audiences / Personas</SectionLabel>
-        <ChipList T={T} items={personas} canEdit={canEdit} placeholder="Add an audience or persona…"
-          onAdd={(v) => setContext({ ...context, personas: [...personas, v] })}
-          onRemove={(i) => setContext({ ...context, personas: personas.filter((_, x) => x !== i) })} />
-      </div>
-      <div>
-        <SectionLabel T={T}>Budgets</SectionLabel>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: canEdit ? 8 : 0 }}>
-          {budgets.map((b, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surfaceHover, borderRadius: T.r8, fontSize: 12.5 * (T.fsScale || 1), fontFamily: T.font }}>
-              <span style={{ flex: 1, color: T.text }}>{b.label}</span>
-              <span style={{ fontWeight: 700, color: T.text }}>{fmtFull(b.amount)}</span>
-              {canEdit && <span onClick={() => setContext({ ...context, budgets: budgets.filter((_, x) => x !== i) })} style={{ cursor: "pointer", opacity: 0.55, fontWeight: 700 }}>×</span>}
-            </div>
-          ))}
-          {budgets.length === 0 && <span style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>None yet</span>}
-        </div>
-        {canEdit && (
-          <div style={{ display: "flex", gap: 6 }}>
-            <input value={bLabel} onChange={(e) => setBLabel(e.target.value)} placeholder="e.g. Insight — Q4" style={{ ...inputStyle(T), flex: 1 }} />
-            <input value={bAmount} onChange={(e) => setBAmount(e.target.value)} placeholder="Amount" type="number" style={{ ...inputStyle(T), width: 120 }} />
-            <Btn T={T} size="sm" variant="subtle" onClick={addBudget}>Add</Btn>
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <Card>
+        <CardHeader className="pb-2"><CardTitle>Products</CardTitle></CardHeader>
+        <CardContent>
+          <ChipList items={products} canEdit={canEdit} placeholder="Add a product…"
+            onAdd={(v) => setContext({ ...context, products: [...products, v] })}
+            onRemove={(i) => setContext({ ...context, products: products.filter((_, x) => x !== i) })} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2"><CardTitle>Regions</CardTitle></CardHeader>
+        <CardContent>
+          <ChipList items={regions} canEdit={canEdit} placeholder="Add a region…"
+            onAdd={(v) => setContext({ ...context, regions: [...regions, v] })}
+            onRemove={(i) => setContext({ ...context, regions: regions.filter((_, x) => x !== i) })} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2"><CardTitle>Audiences / Personas</CardTitle></CardHeader>
+        <CardContent>
+          <ChipList items={personas} canEdit={canEdit} placeholder="Add an audience or persona…"
+            onAdd={(v) => setContext({ ...context, personas: [...personas, v] })}
+            onRemove={(i) => setContext({ ...context, personas: personas.filter((_, x) => x !== i) })} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2"><CardTitle>Budgets</CardTitle></CardHeader>
+        <CardContent>
+          <div className={cn("flex flex-col gap-1.5", canEdit ? "mb-2" : "")}>
+            {budgets.map((b, i) => (
+              <div key={i} className="flex items-center gap-2.5 rounded-md bg-secondary px-3 py-2 text-sm">
+                <span className="flex-1 text-foreground">{b.label}</span>
+                <span className="font-semibold text-foreground">{fmtFull(b.amount)}</span>
+                {canEdit && <X className="h-3.5 w-3.5 cursor-pointer opacity-60 hover:opacity-100" onClick={() => setContext({ ...context, budgets: budgets.filter((_, x) => x !== i) })} />}
+              </div>
+            ))}
+            {budgets.length === 0 && <span className="text-xs text-muted-foreground">None yet</span>}
           </div>
-        )}
-      </div>
+          {canEdit && (
+            <div className="flex gap-1.5">
+              <Input value={bLabel} onChange={(e) => setBLabel(e.target.value)} placeholder="e.g. Insight — Q4" className="h-8 flex-1 text-xs" />
+              <Input value={bAmount} onChange={(e) => setBAmount(e.target.value)} placeholder="Amount" type="number" className="h-8 w-28 text-xs" />
+              <Button size="sm" variant="secondary" className="h-8" onClick={addBudget}>Add</Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 // ─── STEP 2: AUDIT ──────────────────────────────────────────────────────────────────────────────
 
-function AuditStep({ T, session, workspace, mergedNormRows, combineGoogleChannels, auditDecisions, setAuditDecisions, mapping, setMapping, canEdit }) {
+function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, auditDecisions, setAuditDecisions, mapping, setMapping, canEdit }) {
   const [reportingFacts, setReportingFacts] = useState(null);
   const [minSpend, setMinSpend] = useState(100);
   const [tierFilter, setTierFilter] = useState("all");
@@ -235,8 +277,13 @@ function AuditStep({ T, session, workspace, mergedNormRows, combineGoogleChannel
     return c;
   }, [groups]);
 
+  const donutData = useMemo(() => (
+    ["keep", "review", "consolidate", "insufficient-data"]
+      .map((t) => ({ name: TIER_META[t].label, value: counts[t] || 0 }))
+      .filter((d) => d.value > 0)
+  ), [counts]);
+
   const visible = tierFilter === "all" ? groups : groups.filter((g) => g.tier === tierFilter);
-  const tierColors = TIER_COLORS(T);
 
   const addToMapping = (g) => {
     if (mapping.some((m) => m.oldKey === g.key)) return;
@@ -249,85 +296,123 @@ function AuditStep({ T, session, workspace, mergedNormRows, combineGoogleChannel
   };
   const setDecision = (key, patch) => setAuditDecisions({ ...auditDecisions, [key]: { ...(auditDecisions[key] || {}), ...patch } });
 
-  if (reportingFacts === null) return <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Loading account data…</div>;
-  if (groups.length === 0) return <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>No spend data to audit yet — bring in data via Data Sources first.</div>;
+  if (reportingFacts === null) return <div className="text-sm text-muted-foreground">Loading account data…</div>;
+  if (groups.length === 0) return <div className="text-sm text-muted-foreground">No spend data to audit yet — bring in data via Data Sources first.</div>;
 
   return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 10, marginBottom: 16 }}>
-        <DashStatTile T={T} label="In scope" value={fmtFull(counts.totalSpend)} variant="accent" />
-        <DashStatTile T={T} label="Keep" value={counts.keep} valueColor={T.success} />
-        <DashStatTile T={T} label="Review" value={counts.review} valueColor={T.warning} />
-        <DashStatTile T={T} label="Consolidate/Kill" value={counts.consolidate} valueColor={T.danger} />
-        <DashStatTile T={T} label="Insufficient data" value={counts["insufficient-data"]} />
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-2"><CardTitle>Scope</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <div>
+                <div className="text-xs font-medium text-muted-foreground">In scope</div>
+                <div className="text-lg font-bold text-primary">{fmtFull(counts.totalSpend)}</div>
+              </div>
+              {["keep", "review", "consolidate", "insufficient-data"].map((t) => (
+                <div key={t}>
+                  <div className="text-xs font-medium text-muted-foreground">{TIER_META[t].label}</div>
+                  <div className="text-lg font-bold text-foreground">{counts[t] || 0}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Tier distribution</CardTitle></CardHeader>
+          <CardContent>
+            {donutData.length > 0 ? (
+              <DonutChart data={donutData} category="value" index="name" colors={DONUT_COLORS} className="h-32" showAnimation={false} />
+            ) : (
+              <div className="text-xs text-muted-foreground">No scored groups yet</div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Min spend to score</span>
-          <input type="number" value={minSpend} onChange={(e) => setMinSpend(e.target.value)} style={{ ...inputStyle(T), width: 90 }} />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Min spend to score</span>
+          <Input type="number" value={minSpend} onChange={(e) => setMinSpend(e.target.value)} className="h-8 w-24 text-xs" />
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div className="flex flex-wrap gap-1.5">
           {["all", "keep", "review", "consolidate", "insufficient-data"].map((t) => (
-            <Pill key={t} onClick={() => setTierFilter(t)} style={{ cursor: "pointer", opacity: tierFilter === t ? 1 : 0.55 }}
-              color={t === "all" ? T.text : tierColors[t].color} bg={t === "all" ? T.surfaceHover : tierColors[t].bg} border={t === "all" ? T.border : tierColors[t].border}>
-              {t === "all" ? "All" : tierColors[t].label} {t !== "all" && `(${counts[t] || 0})`}
-            </Pill>
+            <Badge key={t} variant={t === "all" ? "outline" : tierFilter === t ? TIER_META[t].badge : "outline"}
+              className={cn("cursor-pointer select-none", tierFilter !== t && "opacity-60")} onClick={() => setTierFilter(t)}>
+              {t === "all" ? "All" : TIER_META[t].label} {t !== "all" && `(${counts[t] || 0})`}
+            </Badge>
           ))}
         </div>
       </div>
 
-      <div style={{ border: `1px solid ${T.border}`, borderRadius: T.r10, overflow: "hidden" }}>
-        <div style={{ display: isMobilePad() ? undefined : "grid", gridTemplateColumns: isMobilePad() ? undefined : "1.7fr 0.9fr 0.9fr 1.1fr 0.8fr 1.3fr 0.6fr", gap: 8, padding: "8px 14px", background: T.headerBg, borderBottom: `1px solid ${T.border}`, fontSize: 10 * (T.fsScale || 1), fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: T.textMuted }}>
-          <div>Campaign / Ad</div><div>Platform</div><div>Spend</div><div>Signal</div><div>Cost/unit</div><div>Decision</div><div></div>
-        </div>
-        {visible.slice(0, 250).map((g) => {
-          const dec = auditDecisions[g.key] || {};
-          const tc = tierColors[g.tier];
-          return (
-            <div key={g.key} style={{ display: isMobilePad() ? "flex" : "grid", flexDirection: isMobilePad() ? "column" : undefined, gridTemplateColumns: isMobilePad() ? undefined : "1.7fr 0.9fr 0.9fr 1.1fr 0.8fr 1.3fr 0.6fr", gap: 8, padding: "10px 14px", borderTop: `1px solid ${T.border}`, fontSize: 12 * (T.fsScale || 1), color: T.text, alignItems: "center", fontFamily: T.font }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.level === "ad" ? (g.adLabel || g.campaignName) : g.campaignName}</div>
-                {g.level === "ad" && <div style={{ fontSize: 10.5 * (T.fsScale || 1), color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.campaignName}</div>}
-              </div>
-              <div style={{ color: T.textSub }}>{g.platform}</div>
-              <div>{fmtFull(g.spend)}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textSub }}>{SIGNAL_LABELS[g.signalType]}</span>
-                {g.primaryMetricKey && <span style={{ fontSize: 10 * (T.fsScale || 1), color: T.textMuted }}>{g.primaryMetricKey}</span>}
-              </div>
-              <div>{g.costPerUnit != null ? `$${g.costPerUnit.toFixed(2)}` : "—"}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <Pill color={tc.color} bg={tc.bg} border={tc.border}>{tc.label}</Pill>
-                {canEdit && (
-                  <select value={dec.decision || ""} onChange={(e) => setDecision(g.key, { decision: e.target.value })} style={{ ...selectStyle(T), fontSize: 10.5 * (T.fsScale || 1), padding: "3px 5px" }}>
-                    <option value="">Use tier</option>
-                    <option value="keep">Keep</option>
-                    <option value="consolidate">Consolidate</option>
-                    <option value="kill">Kill</option>
-                  </select>
-                )}
-              </div>
-              <div>
-                {canEdit && (
-                  <button onClick={() => addToMapping(g)} disabled={mapping.some((m) => m.oldKey === g.key)}
-                    style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: T.r6, cursor: mapping.some((m) => m.oldKey === g.key) ? "default" : "pointer", padding: "4px 8px", fontSize: 10.5 * (T.fsScale || 1), color: mapping.some((m) => m.oldKey === g.key) ? T.textMuted : T.text, fontFamily: T.font }}>
-                    {mapping.some((m) => m.oldKey === g.key) ? "In mapping" : "+ Mapping"}
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {visible.length > 250 && <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font, marginTop: 8 }}>Showing first 250 of {visible.length} — narrow the filter above to see more.</div>}
+      <Card className="overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Campaign / Ad</TableHead>
+              <TableHead>Platform</TableHead>
+              <TableHead>Spend</TableHead>
+              <TableHead>Signal</TableHead>
+              <TableHead>Cost/unit</TableHead>
+              <TableHead>Decision</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visible.slice(0, 250).map((g) => {
+              const dec = auditDecisions[g.key] || {};
+              const inMapping = mapping.some((m) => m.oldKey === g.key);
+              return (
+                <TableRow key={g.key}>
+                  <TableCell className="max-w-[220px]">
+                    <div className="truncate text-sm font-medium text-foreground">{g.level === "ad" ? (g.adLabel || g.campaignName) : g.campaignName}</div>
+                    {g.level === "ad" && <div className="truncate text-xs text-muted-foreground">{g.campaignName}</div>}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{g.platform}</TableCell>
+                  <TableCell className="text-sm">{fmtFull(g.spend)}</TableCell>
+                  <TableCell>
+                    <div className="text-xs text-muted-foreground">{SIGNAL_LABELS[g.signalType]}</div>
+                    {g.primaryMetricKey && <div className="text-[11px] text-muted-foreground/70">{g.primaryMetricKey}</div>}
+                  </TableCell>
+                  <TableCell className="text-sm">{g.costPerUnit != null ? `$${g.costPerUnit.toFixed(2)}` : "—"}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={TIER_META[g.tier].badge}>{TIER_META[g.tier].label}</Badge>
+                      {canEdit && (
+                        <Select value={dec.decision || "__tier__"} onValueChange={(v) => setDecision(g.key, { decision: v === "__tier__" ? "" : v })}>
+                          <SelectTrigger className="h-7 w-[100px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__tier__">Use tier</SelectItem>
+                            <SelectItem value="keep">Keep</SelectItem>
+                            <SelectItem value="consolidate">Consolidate</SelectItem>
+                            <SelectItem value="kill">Kill</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {canEdit && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={inMapping} onClick={() => addToMapping(g)}>
+                        {inMapping ? "In mapping" : "+ Mapping"}
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Card>
+      {visible.length > 250 && <div className="text-xs text-muted-foreground">Showing first 250 of {visible.length} — narrow the filter above to see more.</div>}
     </div>
   );
 }
 
 // ─── STEP 3: TAXONOMY ───────────────────────────────────────────────────────────────────────────
 
-function TaxonomyStep({ T, taxonomy, setTaxonomy, context, canEdit }) {
+function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
   const family = taxonomy.family || "search";
@@ -364,45 +449,45 @@ function TaxonomyStep({ T, taxonomy, setTaxonomy, context, canEdit }) {
   const availableTokens = ["platform", ...dimensions.map((d) => d.key)];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+    <div className="flex flex-col gap-6">
       <div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <SectionLabel T={T} style={{ marginBottom: 0 }}>Dimensions</SectionLabel>
-          {canEdit && <Btn T={T} size="sm" variant="subtle" onClick={addDimension}><Icon name="plus" size={11} color={T.text} style={{ marginRight: 4 }} />Add dimension</Btn>}
+        <div className="mb-2 flex items-center justify-between">
+          <SectionLabel className="mb-0">Dimensions</SectionLabel>
+          {canEdit && <Button size="sm" variant="secondary" onClick={addDimension}><Plus className="h-3.5 w-3.5" />Add dimension</Button>}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="flex flex-col gap-2.5">
           {dimensions.map((d) => (
-            <PixelPanel key={d.key} T={T} contentStyle={{ padding: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                {canEdit ? (
-                  <input value={d.label} onChange={(e) => updateDim(d.key, { label: e.target.value })} style={{ ...inputStyle(T), fontWeight: 700, flex: 1, maxWidth: 220 }} />
-                ) : (
-                  <span style={{ fontWeight: 700, fontFamily: T.font, color: T.text }}>{d.label}</span>
-                )}
-                <code style={{ fontSize: 10.5 * (T.fsScale || 1), color: T.textMuted, background: T.surfaceHover, padding: "2px 6px", borderRadius: T.r6 }}>{`{${d.key}}`}</code>
-                {canEdit && d.key.startsWith("custom_") && (
-                  <span onClick={() => removeDimension(d.key)} style={{ cursor: "pointer", color: T.textMuted, marginLeft: "auto", fontWeight: 700 }}>×</span>
-                )}
-              </div>
-              <ChipList T={T} items={d.values} canEdit={canEdit} placeholder="Add a value…" onAdd={(v) => addDimValue(d.key, v)} onRemove={(i) => removeDimValue(d.key, i)} />
-            </PixelPanel>
+            <Card key={d.key}>
+              <CardContent className="p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  {canEdit ? (
+                    <Input value={d.label} onChange={(e) => updateDim(d.key, { label: e.target.value })} className="h-8 max-w-[220px] flex-1 font-semibold" />
+                  ) : (
+                    <span className="font-semibold text-foreground">{d.label}</span>
+                  )}
+                  <code className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{`{${d.key}}`}</code>
+                  {canEdit && d.key.startsWith("custom_") && <X className="ml-auto h-3.5 w-3.5 cursor-pointer text-muted-foreground hover:text-destructive" onClick={() => removeDimension(d.key)} />}
+                </div>
+                <ChipList items={d.values} canEdit={canEdit} placeholder="Add a value…" onAdd={(v) => addDimValue(d.key, v)} onRemove={(i) => removeDimValue(d.key, i)} />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
 
       <div>
-        <SectionLabel T={T}>Naming</SectionLabel>
+        <SectionLabel>Naming</SectionLabel>
         {canEdit && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          <div className="mb-3 flex gap-1.5">
             {["search", "social"].map((f) => (
-              <Pill key={f} onClick={() => setTaxonomy({ ...taxonomy, dimensions, nameTemplates: templates, family: f })} style={{ cursor: "pointer", opacity: family === f ? 1 : 0.5 }}
-                color={T.text} bg={family === f ? T.accentBg : T.surfaceHover} border={T.border}>
+              <Badge key={f} variant={family === f ? "default" : "outline"} className="cursor-pointer select-none"
+                onClick={() => setTaxonomy({ ...taxonomy, dimensions, nameTemplates: templates, family: f })}>
                 {f === "search" ? "Paid search style (Ad Group)" : "Paid social style (Ad Set)"}
-              </Pill>
+              </Badge>
             ))}
           </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="flex flex-col gap-3">
           {["campaign", "adgroup", "ad"].map((levelKey) => {
             const template = templates[levelKey] || "";
             const exampleValues = {};
@@ -410,19 +495,21 @@ function TaxonomyStep({ T, taxonomy, setTaxonomy, context, canEdit }) {
             exampleValues.platform = family === "social" ? "LinkedIn" : "Google Search";
             const example = generateName(template, exampleValues);
             return (
-              <PixelPanel key={levelKey} T={T} contentStyle={{ padding: 12 }}>
-                <div style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, fontFamily: T.font }}>{levelLabel(levelKey, family)}</div>
-                {canEdit ? (
-                  <input value={template} onChange={(e) => setTemplate(levelKey, e.target.value)} style={{ ...inputStyle(T), width: "100%", fontFamily: "monospace" }} />
-                ) : (
-                  <div style={{ fontFamily: "monospace", fontSize: 12 * (T.fsScale || 1), color: T.text }}>{template}</div>
-                )}
-                <div style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textSub, marginTop: 6, fontFamily: T.font }}>Example: <strong style={{ color: T.text }}>{example || "—"}</strong></div>
-              </PixelPanel>
+              <Card key={levelKey}>
+                <CardContent className="p-3">
+                  <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{levelLabel(levelKey, family)}</div>
+                  {canEdit ? (
+                    <Input value={template} onChange={(e) => setTemplate(levelKey, e.target.value)} className="font-mono" />
+                  ) : (
+                    <div className="font-mono text-sm text-foreground">{template}</div>
+                  )}
+                  <div className="mt-1.5 text-xs text-muted-foreground">Example: <strong className="font-semibold text-foreground">{example || "—"}</strong></div>
+                </CardContent>
+              </Card>
             );
           })}
         </div>
-        <div style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font, marginTop: 8 }}>Available tokens: {availableTokens.map((t) => `{${t}}`).join(", ")}</div>
+        <div className="mt-2 text-xs text-muted-foreground">Available tokens: {availableTokens.map((t) => `{${t}}`).join(", ")}</div>
       </div>
     </div>
   );
@@ -432,50 +519,46 @@ function TaxonomyStep({ T, taxonomy, setTaxonomy, context, canEdit }) {
 // (2026-08-06, per Mo — "we need to determine if we're going to use job titles OR job function +
 // seniorities... layer on contact or company lists, whether we're going to remarket, what
 // exclusions..." — confirmed via AskUserQuestion as its own step, with the reusable
-// lists/exclusions/remarketing pools shared across every plan in the workspace.) Two halves: the
-// shared Library (workspace-scoped, fetched from targeting-library.js) and this plan's Targeting
-// Profiles (reusable audience definitions a Mapping row picks from, rather than every ad set
-// re-specifying its own targeting from scratch — same reasoning as the taxonomy dimensions
-// themselves, applied to targeting logic instead of naming).
+// lists/exclusions/remarketing pools shared across every plan in the workspace.)
 
-function MultiToggle({ T, options, selected, onChange, canEdit }) {
+function MultiToggle({ options, selected, onChange, canEdit }) {
   const toggle = (v) => (selected.includes(v) ? onChange(selected.filter((x) => x !== v)) : onChange([...selected, v]));
-  if (options.length === 0) return <span style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>No values defined in Taxonomy yet</span>;
+  if (options.length === 0) return <span className="text-xs text-muted-foreground">No values defined in Taxonomy yet</span>;
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+    <div className="flex flex-wrap gap-1.5">
       {options.map((v) => (
-        <Pill key={v} onClick={() => canEdit && toggle(v)} style={{ cursor: canEdit ? "pointer" : "default", opacity: selected.includes(v) ? 1 : 0.5 }}
-          color={T.text} bg={selected.includes(v) ? T.accentBg : T.surfaceHover} border={T.border}>{v}</Pill>
+        <Badge key={v} variant={selected.includes(v) ? "default" : "outline"} className={cn("select-none", canEdit && "cursor-pointer", !selected.includes(v) && "opacity-60")}
+          onClick={() => canEdit && toggle(v)}>{v}</Badge>
       ))}
     </div>
   );
 }
 
-function LibrarySection({ T, label, type, items, onAdd, onRemove, canEdit }) {
+function LibrarySection({ label, type, items, onAdd, onRemove, canEdit }) {
   const filtered = items.filter((it) => it.type === type);
   const [name, setName] = useState(""); const [desc, setDesc] = useState("");
   const add = () => { if (!name.trim()) return; onAdd({ type, name: name.trim(), description: desc.trim() }); setName(""); setDesc(""); };
   return (
     <div>
-      <div style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, fontFamily: T.font }}>{label}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: canEdit ? 8 : 0 }}>
+      <SectionLabel>{label}</SectionLabel>
+      <div className={cn("flex flex-col gap-1.5", canEdit ? "mb-2" : "")}>
         {filtered.map((it) => (
-          <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: T.surfaceHover, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), fontFamily: T.font }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, color: T.text }}>{it.name}</div>
-              {it.description && <div style={{ fontSize: 10.5 * (T.fsScale || 1), color: T.textMuted }}>{it.description}</div>}
+          <div key={it.id} className="flex items-center gap-2 rounded-md bg-secondary px-2.5 py-1.5 text-sm">
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-foreground">{it.name}</div>
+              {it.description && <div className="text-[11px] text-muted-foreground">{it.description}</div>}
             </div>
-            {canEdit && <span onClick={() => onRemove(it.id)} style={{ cursor: "pointer", opacity: 0.55, fontWeight: 700, flexShrink: 0 }}>×</span>}
+            {canEdit && <X className="h-3.5 w-3.5 shrink-0 cursor-pointer opacity-60 hover:opacity-100" onClick={() => onRemove(it.id)} />}
           </div>
         ))}
-        {filtered.length === 0 && <span style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>None yet</span>}
+        {filtered.length === 0 && <span className="text-xs text-muted-foreground">None yet</span>}
       </div>
       {canEdit && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name…" style={inputStyle(T)} />
-          <div style={{ display: "flex", gap: 6 }}>
-            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (optional)" style={{ ...inputStyle(T), flex: 1 }} />
-            <Btn T={T} size="sm" variant="subtle" onClick={add}>Add</Btn>
+        <div className="flex flex-col gap-1.5">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name…" className="h-8 text-xs" />
+          <div className="flex gap-1.5">
+            <Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (optional)" className="h-8 flex-1 text-xs" />
+            <Button size="sm" variant="secondary" className="h-8" onClick={add}>Add</Button>
           </div>
         </div>
       )}
@@ -483,7 +566,7 @@ function LibrarySection({ T, label, type, items, onAdd, onRemove, canEdit }) {
   );
 }
 
-function TargetingStep({ T, session, workspace, taxonomy, targeting, setTargeting, canEdit }) {
+function TargetingStep({ session, workspace, taxonomy, targeting, setTargeting, canEdit }) {
   const [library, setLibrary] = useState(null);
   useEffect(() => {
     if (!workspace?.id || !session) return;
@@ -506,131 +589,144 @@ function TargetingStep({ T, session, workspace, taxonomy, targeting, setTargetin
     listAttachments: [], exclusionAttachments: [], remarketing: { enabled: false, poolItemId: "", windowDays: 30 },
   }]);
 
-  if (library === null) return <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Loading targeting library…</div>;
+  if (library === null) return <div className="text-sm text-muted-foreground">Loading targeting library…</div>;
   const listItems = library.filter((it) => it.type === "list");
   const exclusionItems = library.filter((it) => it.type === "exclusion");
   const remarketingItems = library.filter((it) => it.type === "remarketing");
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      <PixelPanel T={T} contentStyle={{ padding: 16 }}>
-        <SectionLabel T={T}>Shared Targeting Library</SectionLabel>
-        <div style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font, marginBottom: 12 }}>Reused across every Account Planning project for this workspace — define once, attach to any profile below.</div>
-        <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "1fr 1fr 1fr", gap: 16 }}>
-          <LibrarySection T={T} label="Contact / Company Lists" type="list" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
-          <LibrarySection T={T} label="Exclusion Lists" type="exclusion" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
-          <LibrarySection T={T} label="Remarketing Pools" type="remarketing" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
-        </div>
-      </PixelPanel>
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle>Shared Targeting Library</CardTitle>
+          <CardDescription>Reused across every Account Planning project for this workspace — define once, attach to any profile below.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <LibrarySection label="Contact / Company Lists" type="list" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
+            <LibrarySection label="Exclusion Lists" type="exclusion" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
+            <LibrarySection label="Remarketing Pools" type="remarketing" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
+          </div>
+        </CardContent>
+      </Card>
 
       <div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <SectionLabel T={T} style={{ marginBottom: 0 }}>Targeting Profiles</SectionLabel>
-          {canEdit && <Btn T={T} size="sm" variant="subtle" onClick={addProfile}><Icon name="plus" size={11} color={T.text} style={{ marginRight: 4 }} />Add profile</Btn>}
+        <div className="mb-2 flex items-center justify-between">
+          <SectionLabel className="mb-0">Targeting Profiles</SectionLabel>
+          {canEdit && <Button size="sm" variant="secondary" onClick={addProfile}><Plus className="h-3.5 w-3.5" />Add profile</Button>}
         </div>
         {profiles.length === 0 && (
-          <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font, marginBottom: 8 }}>
+          <div className="mb-2 text-sm text-muted-foreground">
             Each profile is a reusable audience definition (e.g. "Enterprise IT Buyers") — assign one to any ad set in Mapping instead of re-specifying targeting from scratch every time.
           </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="flex flex-col gap-3">
           {profiles.map((p) => (
-            <PixelPanel key={p.id} T={T} contentStyle={{ padding: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                {canEdit ? (
-                  <input value={p.name} onChange={(e) => updateProfile(p.id, { name: e.target.value })} style={{ ...inputStyle(T), fontWeight: 700, flex: 1, maxWidth: 260 }} />
+            <Card key={p.id}>
+              <CardContent className="p-3.5">
+                <div className="mb-2.5 flex items-center gap-2">
+                  {canEdit ? (
+                    <Input value={p.name} onChange={(e) => updateProfile(p.id, { name: e.target.value })} className="h-8 max-w-[260px] flex-1 font-semibold" />
+                  ) : (
+                    <span className="font-semibold text-foreground">{p.name}</span>
+                  )}
+                  {canEdit && <X className="ml-auto h-3.5 w-3.5 cursor-pointer text-muted-foreground hover:text-destructive" onClick={() => removeProfile(p.id)} />}
+                </div>
+
+                <div className="mb-2.5 flex gap-1.5">
+                  {[["job_title", "Job Titles"], ["job_function_seniority", "Function + Seniority"]].map(([k, l]) => (
+                    <Badge key={k} variant={p.method === k ? "default" : "outline"} className={cn("select-none", canEdit && "cursor-pointer", p.method !== k && "opacity-60")}
+                      onClick={() => canEdit && updateProfile(p.id, { method: k })}>{l}</Badge>
+                  ))}
+                </div>
+
+                {p.method === "job_title" ? (
+                  <div className="mb-2.5">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Job Titles</div>
+                    <ChipList items={p.titles} canEdit={canEdit} placeholder="Add a job title…" onAdd={(v) => updateProfile(p.id, { titles: [...p.titles, v] })} onRemove={(i) => updateProfile(p.id, { titles: p.titles.filter((_, x) => x !== i) })} />
+                  </div>
                 ) : (
-                  <span style={{ fontWeight: 700, color: T.text, fontFamily: T.font }}>{p.name}</span>
+                  <div className="mb-2.5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Job Functions</div>
+                      <ChipList items={p.functions} canEdit={canEdit} placeholder="Add a function…" onAdd={(v) => updateProfile(p.id, { functions: [...p.functions, v] })} onRemove={(i) => updateProfile(p.id, { functions: p.functions.filter((_, x) => x !== i) })} />
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Seniorities</div>
+                      <ChipList items={p.seniorities} canEdit={canEdit} placeholder="Add a seniority…" onAdd={(v) => updateProfile(p.id, { seniorities: [...p.seniorities, v] })} onRemove={(i) => updateProfile(p.id, { seniorities: p.seniorities.filter((_, x) => x !== i) })} />
+                    </div>
+                  </div>
                 )}
-                {canEdit && <span onClick={() => removeProfile(p.id)} style={{ cursor: "pointer", color: T.textMuted, marginLeft: "auto", fontWeight: 700 }}>×</span>}
-              </div>
 
-              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                {[["job_title", "Job Titles"], ["job_function_seniority", "Function + Seniority"]].map(([k, l]) => (
-                  <Pill key={k} onClick={() => canEdit && updateProfile(p.id, { method: k })} style={{ cursor: canEdit ? "pointer" : "default", opacity: p.method === k ? 1 : 0.5 }}
-                    color={T.text} bg={p.method === k ? T.accentBg : T.surfaceHover} border={T.border}>{l}</Pill>
-                ))}
-              </div>
-
-              {p.method === "job_title" ? (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Job Titles</div>
-                  <ChipList T={T} items={p.titles} canEdit={canEdit} placeholder="Add a job title…" onAdd={(v) => updateProfile(p.id, { titles: [...p.titles, v] })} onRemove={(i) => updateProfile(p.id, { titles: p.titles.filter((_, x) => x !== i) })} />
-                </div>
-              ) : (
-                <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 10 }}>
+                <div className="mb-2.5 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Job Functions</div>
-                    <ChipList T={T} items={p.functions} canEdit={canEdit} placeholder="Add a function…" onAdd={(v) => updateProfile(p.id, { functions: [...p.functions, v] })} onRemove={(i) => updateProfile(p.id, { functions: p.functions.filter((_, x) => x !== i) })} />
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Company Size</div>
+                    <MultiToggle options={companySizeValues} selected={p.companySizes} canEdit={canEdit} onChange={(v) => updateProfile(p.id, { companySizes: v })} />
                   </div>
                   <div>
-                    <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Seniorities</div>
-                    <ChipList T={T} items={p.seniorities} canEdit={canEdit} placeholder="Add a seniority…" onAdd={(v) => updateProfile(p.id, { seniorities: [...p.seniorities, v] })} onRemove={(i) => updateProfile(p.id, { seniorities: p.seniorities.filter((_, x) => x !== i) })} />
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Industry</div>
+                    <MultiToggle options={industryValues} selected={p.industries} canEdit={canEdit} onChange={(v) => updateProfile(p.id, { industries: v })} />
                   </div>
                 </div>
-              )}
 
-              <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Company Size</div>
-                  <MultiToggle T={T} options={companySizeValues} selected={p.companySizes} canEdit={canEdit} onChange={(v) => updateProfile(p.id, { companySizes: v })} />
+                <div className="mb-2.5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lists to layer on</div>
+                    {listItems.length === 0 ? <span className="text-xs text-muted-foreground">Add lists to the library above first</span> : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {listItems.map((it) => {
+                          const attached = p.listAttachments.find((a) => a.itemId === it.id);
+                          return (
+                            <Badge key={it.id} variant={attached ? "default" : "outline"} className={cn("cursor-pointer select-none", !attached && "opacity-60")}
+                              onClick={() => { if (!canEdit) return; const next = attached ? p.listAttachments.filter((a) => a.itemId !== it.id) : [...p.listAttachments, { itemId: it.id, direction: "include" }]; updateProfile(p.id, { listAttachments: next }); }}>
+                              {it.name}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Exclusions</div>
+                    {exclusionItems.length === 0 ? <span className="text-xs text-muted-foreground">Add exclusion lists to the library above first</span> : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {exclusionItems.map((it) => {
+                          const attached = p.exclusionAttachments.find((a) => a.itemId === it.id);
+                          return (
+                            <Badge key={it.id} variant={attached ? "destructive" : "outline"} className={cn("cursor-pointer select-none", !attached && "opacity-60")}
+                              onClick={() => { if (!canEdit) return; const next = attached ? p.exclusionAttachments.filter((a) => a.itemId !== it.id) : [...p.exclusionAttachments, { itemId: it.id }]; updateProfile(p.id, { exclusionAttachments: next }); }}>
+                              {it.name}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Industry</div>
-                  <MultiToggle T={T} options={industryValues} selected={p.industries} canEdit={canEdit} onChange={(v) => updateProfile(p.id, { industries: v })} />
-                </div>
-              </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Lists to layer on</div>
-                  {listItems.length === 0 ? <span style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Add lists to the library above first</span> : (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {listItems.map((it) => {
-                        const attached = p.listAttachments.find((a) => a.itemId === it.id);
-                        return (
-                          <Pill key={it.id} onClick={() => { if (!canEdit) return; const next = attached ? p.listAttachments.filter((a) => a.itemId !== it.id) : [...p.listAttachments, { itemId: it.id, direction: "include" }]; updateProfile(p.id, { listAttachments: next }); }}
-                            style={{ cursor: canEdit ? "pointer" : "default", opacity: attached ? 1 : 0.5 }} color={T.text} bg={attached ? T.accentBg : T.surfaceHover} border={T.border}>{it.name}</Pill>
-                        );
-                      })}
-                    </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className={cn("flex items-center gap-1.5 text-sm text-foreground", canEdit && "cursor-pointer")}>
+                    <input type="checkbox" disabled={!canEdit} checked={!!p.remarketing?.enabled} onChange={(e) => updateProfile(p.id, { remarketing: { ...p.remarketing, enabled: e.target.checked } })} className="h-3.5 w-3.5 accent-primary" />
+                    Remarketing
+                  </label>
+                  {p.remarketing?.enabled && (
+                    <>
+                      <Select disabled={!canEdit} value={p.remarketing.poolItemId || "__none__"} onValueChange={(v) => updateProfile(p.id, { remarketing: { ...p.remarketing, poolItemId: v === "__none__" ? "" : v } })}>
+                        <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue placeholder="Pool…" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Pool…</SelectItem>
+                          {remarketingItems.map((it) => <SelectItem key={it.id} value={it.id}>{it.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex items-center gap-1.5">
+                        <Input type="number" disabled={!canEdit} value={p.remarketing.windowDays || 30} onChange={(e) => updateProfile(p.id, { remarketing: { ...p.remarketing, windowDays: Number(e.target.value) } })} className="h-8 w-16 text-xs" />
+                        <span className="text-xs text-muted-foreground">days</span>
+                      </div>
+                    </>
                   )}
                 </div>
-                <div>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Exclusions</div>
-                  {exclusionItems.length === 0 ? <span style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Add exclusion lists to the library above first</span> : (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {exclusionItems.map((it) => {
-                        const attached = p.exclusionAttachments.find((a) => a.itemId === it.id);
-                        return (
-                          <Pill key={it.id} onClick={() => { if (!canEdit) return; const next = attached ? p.exclusionAttachments.filter((a) => a.itemId !== it.id) : [...p.exclusionAttachments, { itemId: it.id }]; updateProfile(p.id, { exclusionAttachments: next }); }}
-                            style={{ cursor: canEdit ? "pointer" : "default", opacity: attached ? 1 : 0.5 }} color={attached ? T.danger : T.text} bg={attached ? T.dangerBg : T.surfaceHover} border={attached ? T.dangerBorder : T.border}>{it.name}</Pill>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5 * (T.fsScale || 1), color: T.text, fontFamily: T.font, cursor: canEdit ? "pointer" : "default" }}>
-                  <input type="checkbox" disabled={!canEdit} checked={!!p.remarketing?.enabled} onChange={(e) => updateProfile(p.id, { remarketing: { ...p.remarketing, enabled: e.target.checked } })} style={{ accentColor: T.accent, width: 13, height: 13 }} />
-                  Remarketing
-                </label>
-                {p.remarketing?.enabled && (
-                  <>
-                    <select disabled={!canEdit} value={p.remarketing.poolItemId || ""} onChange={(e) => updateProfile(p.id, { remarketing: { ...p.remarketing, poolItemId: e.target.value } })} style={selectStyle(T)}>
-                      <option value="">Pool…</option>
-                      {remarketingItems.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
-                    </select>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <input type="number" disabled={!canEdit} value={p.remarketing.windowDays || 30} onChange={(e) => updateProfile(p.id, { remarketing: { ...p.remarketing, windowDays: Number(e.target.value) } })} style={{ ...inputStyle(T), width: 60 }} />
-                      <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>days</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </PixelPanel>
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -638,9 +734,9 @@ function TargetingStep({ T, session, workspace, taxonomy, targeting, setTargetin
   );
 }
 
-// ─── STEP 4: MAPPING ────────────────────────────────────────────────────────────────────────────
+// ─── STEP 5: MAPPING ────────────────────────────────────────────────────────────────────────────
 
-function MappingStep({ T, mapping, setMapping, taxonomy, targeting, canEdit }) {
+function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
   const dimByKey = useMemo(() => Object.fromEntries(dimensions.map((d) => [d.key, d])), [dimensions]);
@@ -657,21 +753,22 @@ function MappingStep({ T, mapping, setMapping, taxonomy, targeting, canEdit }) {
 
   const ACTION_LABELS = { rename: "Rename", split: "Split", merge: "Merge into", kill: "Kill", keep: "Keep as-is" };
   const STATUS_LABELS = { planned: "Planned", in_progress: "In progress", live: "Live" };
+  const LEVEL_LABELS = { campaign: "Campaign", adgroup: "Ad Group / Ad Set", ad: "Ad" };
 
   // Budget rollups — grouped from each row's own `budget` (the only place budget is entered, per
   // Mo's call), never a separately-typed number per level, so these can never silently stop adding
-  // up. Groups by whichever taxonomy dimension a row's dimValues actually has a value for, plus
-  // platform, so this works whether or not every row has every dimension filled in yet.
+  // up.
   const rollupsByProduct = useMemo(() => computeBudgetRollup(mapping, (r) => r.dimValues?.product), [mapping]);
   const rollupsBySegment = useMemo(() => computeBudgetRollup(mapping, (r) => r.dimValues?.segment), [mapping]);
   const rollupsByPlatform = useMemo(() => computeBudgetRollup(mapping, (r) => r.platform), [mapping]);
   const totalBudget = mapping.reduce((s, r) => s + (Number(r.budget) || 0), 0);
+  const asBarList = (rows) => rows.map((r) => ({ name: r.label, value: r.amount }));
 
   if (mapping.length === 0) {
     return (
       <div>
-        <div style={{ fontSize: 12.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font, marginBottom: 12 }}>No mapping rows yet — add campaigns/ads from the Audit step, or add a row manually for something entirely new.</div>
-        {canEdit && <Btn T={T} variant="subtle" onClick={addRow}><Icon name="plus" size={12} color={T.text} style={{ marginRight: 6 }} />Add row</Btn>}
+        <div className="mb-3 text-sm text-muted-foreground">No mapping rows yet — add campaigns/ads from the Audit step, or add a row manually for something entirely new.</div>
+        {canEdit && <Button variant="secondary" onClick={addRow}><Plus className="h-4 w-4" />Add row</Button>}
       </div>
     );
   }
@@ -679,113 +776,130 @@ function MappingStep({ T, mapping, setMapping, taxonomy, targeting, canEdit }) {
   return (
     <div>
       {totalBudget > 0 && (
-        <PixelPanel T={T} contentStyle={{ padding: 14, marginBottom: 16 }}>
-          <SectionLabel T={T}>Budget rollup</SectionLabel>
-          <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
-            {[["Total", [{ label: "All", amount: totalBudget }]], ["By product", rollupsByProduct], ["By segment", rollupsBySegment], ["By platform", rollupsByPlatform]].map(([label, rows]) => (
-              <div key={label}>
-                <div style={{ fontSize: 10.5 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5, fontFamily: T.font }}>{label}</div>
-                {rows.map((r) => (
-                  <div key={r.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 * (T.fsScale || 1), color: T.text, fontFamily: T.font, marginBottom: 2 }}>
-                    <span style={{ color: T.textSub }}>{r.label}</span><span style={{ fontWeight: 700 }}>{fmtFull(r.amount)}</span>
-                  </div>
-                ))}
+        <Card className="mb-4">
+          <CardHeader className="pb-2"><CardTitle>Budget rollup</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</div>
+                <div className="text-lg font-bold text-primary">{fmtFull(totalBudget)}</div>
               </div>
-            ))}
-          </div>
-        </PixelPanel>
+              <div>
+                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By product</div>
+                {rollupsByProduct.length ? <BarList data={asBarList(rollupsByProduct)} valueFormatter={fmtFull} className="text-xs" /> : <span className="text-xs text-muted-foreground">—</span>}
+              </div>
+              <div>
+                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By segment</div>
+                {rollupsBySegment.length ? <BarList data={asBarList(rollupsBySegment)} valueFormatter={fmtFull} className="text-xs" /> : <span className="text-xs text-muted-foreground">—</span>}
+              </div>
+              <div>
+                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By platform</div>
+                {rollupsByPlatform.length ? <BarList data={asBarList(rollupsByPlatform)} valueFormatter={fmtFull} className="text-xs" /> : <span className="text-xs text-muted-foreground">—</span>}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
-      {canEdit && <div style={{ marginBottom: 12 }}><Btn T={T} size="sm" variant="subtle" onClick={addRow}><Icon name="plus" size={11} color={T.text} style={{ marginRight: 4 }} />Add row</Btn></div>}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {canEdit && <div className="mb-3"><Button size="sm" variant="secondary" onClick={addRow}><Plus className="h-3.5 w-3.5" />Add row</Button></div>}
+      <div className="flex flex-col gap-2.5">
         {mapping.map((row, i) => {
           const template = rowTemplate(row);
           const tokens = templateTokens(template).filter((t) => t !== "platform");
           const validation = validateName(finalName(row), template);
           return (
-            <PixelPanel key={row.oldKey} T={T} contentStyle={{ padding: 14 }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-start" }}>
-                <div style={{ minWidth: 160 }}>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3, fontFamily: T.font }}>Old</div>
-                  {row.oldName ? (
-                    <div style={{ fontSize: 12.5 * (T.fsScale || 1), color: T.text, fontFamily: T.font, fontWeight: 600 }}>{row.oldName}</div>
-                  ) : (
-                    <input value={row.oldName} onChange={(e) => updateRow(i, { oldName: e.target.value })} placeholder="Old name (optional)" disabled={!canEdit} style={{ ...inputStyle(T), width: 160 }} />
+            <Card key={row.oldKey}>
+              <CardContent className="p-3.5">
+                <div className="flex flex-wrap items-start gap-2.5">
+                  <div className="min-w-[160px]">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Old</div>
+                    {row.oldName ? (
+                      <div className="text-sm font-semibold text-foreground">{row.oldName}</div>
+                    ) : (
+                      <Input value={row.oldName} onChange={(e) => updateRow(i, { oldName: e.target.value })} placeholder="Old name (optional)" disabled={!canEdit} className="h-8 w-40 text-xs" />
+                    )}
+                    {row.oldCampaignGroup && <div className="text-[11px] text-muted-foreground">{row.oldCampaignGroup}</div>}
+                  </div>
+
+                  <div>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Level</div>
+                    <Select disabled={!canEdit} value={row.level} onValueChange={(v) => updateRow(i, { level: v })}>
+                      <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{Object.entries(LEVEL_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Action</div>
+                    <Select disabled={!canEdit} value={row.action} onValueChange={(v) => updateRow(i, { action: v })}>
+                      <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{Object.entries(ACTION_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</div>
+                    <Select disabled={!canEdit} value={row.status} onValueChange={(v) => updateRow(i, { status: v })}>
+                      <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{Object.entries(STATUS_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Targeting</div>
+                    <Select disabled={!canEdit} value={row.targetingProfileId || "__none__"} onValueChange={(v) => updateRow(i, { targetingProfileId: v === "__none__" ? "" : v })}>
+                      <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget</div>
+                    <Input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(i, { budget: e.target.value })} placeholder="$/mo" className="h-8 w-24 text-xs" />
+                  </div>
+
+                  {canEdit && (
+                    <button onClick={() => removeRow(i)} className="ml-auto self-start p-1 text-muted-foreground hover:text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   )}
-                  {row.oldCampaignGroup && <div style={{ fontSize: 10.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>{row.oldCampaignGroup}</div>}
                 </div>
 
-                <div>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3, fontFamily: T.font }}>Level</div>
-                  <select disabled={!canEdit} value={row.level} onChange={(e) => updateRow(i, { level: e.target.value })} style={selectStyle(T)}>
-                    <option value="campaign">Campaign</option>
-                    <option value="adgroup">Ad Group / Ad Set</option>
-                    <option value="ad">Ad</option>
-                  </select>
-                </div>
+                <Separator className="my-3" />
 
-                <div>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3, fontFamily: T.font }}>Action</div>
-                  <select disabled={!canEdit} value={row.action} onChange={(e) => updateRow(i, { action: e.target.value })} style={selectStyle(T)}>
-                    {Object.entries(ACTION_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                  </select>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3, fontFamily: T.font }}>Status</div>
-                  <select disabled={!canEdit} value={row.status} onChange={(e) => updateRow(i, { status: e.target.value })} style={selectStyle(T)}>
-                    {Object.entries(STATUS_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                  </select>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3, fontFamily: T.font }}>Targeting</div>
-                  <select disabled={!canEdit} value={row.targetingProfileId || ""} onChange={(e) => updateRow(i, { targetingProfileId: e.target.value })} style={selectStyle(T)}>
-                    <option value="">None</option>
-                    {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3, fontFamily: T.font }}>Budget</div>
-                  <input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(i, { budget: e.target.value })} placeholder="$/mo" style={{ ...inputStyle(T), width: 90 }} />
-                </div>
-
-                {canEdit && (
-                  <button onClick={() => removeRow(i)} style={{ marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer", padding: 4, alignSelf: "flex-start" }}>
-                    <Icon name="trash" size={13} color={T.textMuted} />
-                  </button>
-                )}
-              </div>
-
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                <div className="mb-2 flex flex-wrap gap-1.5">
                   {tokens.map((tok) => {
                     const dim = dimByKey[tok];
                     const val = row.dimValues?.[tok] || "";
                     if (dim && dim.values.length > 0) {
                       return (
-                        <select key={tok} disabled={!canEdit} value={val} onChange={(e) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: e.target.value } })} style={selectStyle(T)}>
-                          <option value="">{dim.label}…</option>
-                          {dim.values.map((v) => <option key={v} value={v}>{v}</option>)}
-                        </select>
+                        <Select key={tok} disabled={!canEdit} value={val || "__none__"} onValueChange={(v) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: v === "__none__" ? "" : v } })}>
+                          <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue placeholder={`${dim.label}…`} /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">{dim.label}…</SelectItem>
+                            {dim.values.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
                       );
                     }
                     return (
-                      <input key={tok} disabled={!canEdit} value={val} onChange={(e) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: e.target.value } })}
-                        placeholder={dim ? dim.label : tok} style={{ ...inputStyle(T), width: 120 }} />
+                      <Input key={tok} disabled={!canEdit} value={val} onChange={(e) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: e.target.value } })}
+                        placeholder={dim ? dim.label : tok} className="h-8 w-32 text-xs" />
                     );
                   })}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: T.font }}>New</div>
-                  <input disabled={!canEdit} value={row.manualName} onChange={(e) => updateRow(i, { manualName: e.target.value })}
-                    placeholder={generatedName(row) || "Generated from taxonomy…"} style={{ ...inputStyle(T), flex: 1, fontFamily: "monospace", fontWeight: 600 }} />
+                <div className="flex items-center gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New</div>
+                  <Input disabled={!canEdit} value={row.manualName} onChange={(e) => updateRow(i, { manualName: e.target.value })}
+                    placeholder={generatedName(row) || "Generated from taxonomy…"} className="h-8 flex-1 font-mono text-xs font-semibold" />
                 </div>
                 {finalName(row) && !validation.valid && (
-                  <div style={{ fontSize: 10.5 * (T.fsScale || 1), color: T.warning, marginTop: 4, fontFamily: T.font }}>{validation.issues.join(" · ")}</div>
+                  <div className="mt-1.5 text-xs text-warning">{validation.issues.join(" · ")}</div>
                 )}
-              </div>
-            </PixelPanel>
+              </CardContent>
+            </Card>
           );
         })}
       </div>
@@ -795,7 +909,7 @@ function MappingStep({ T, mapping, setMapping, taxonomy, targeting, canEdit }) {
 
 // ─── MAIN ───────────────────────────────────────────────────────────────────────────────────────
 
-export default function AccountPlanning({ T, session, workspace, mergedNormRows, combineGoogleChannels = {}, canEdit }) {
+export default function AccountPlanning({ session, workspace, mergedNormRows, combineGoogleChannels = {}, canEdit }) {
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -823,11 +937,9 @@ export default function AccountPlanning({ T, session, workspace, mergedNormRows,
     getAccountPlan(session, workspace.id, selectedId).then(setPlan).catch(() => setPlan(null));
   }, [selectedId, session, workspace?.id]);
 
-  // Debounced autosave — local `plan` state is the source of truth once loaded; every change
-  // schedules a PATCH ~900ms after the last edit so rapid typing/chip-adding doesn't fire a request
-  // per keystroke, same reasoning as every other autosave debounce already in this codebase.
-  // setSaving(true) fires inside the timeout callback (not synchronously in the effect body) so the
-  // indicator only lights up once a save is actually about to happen, not on every keystroke.
+  // Debounced autosave — see updateAccountPlan's own call below for the field list; setSaving(true)
+  // fires inside the timeout callback (not synchronously in the effect body) per React's
+  // set-state-in-effect rule.
   useEffect(() => {
     if (!plan || !canEdit) return;
     const t = setTimeout(() => {
@@ -853,8 +965,8 @@ export default function AccountPlanning({ T, session, workspace, mergedNormRows,
 
   if (!selectedId || !plan) {
     return (
-      <div style={{ flex: 1, overflow: "auto", padding: isMobilePad() ? "16px" : "24px 28px" }}>
-        <PlanList T={T} plans={plans} loading={plansLoading} canEdit={canEdit} onOpen={openPlan} onCreate={createPlan} onDelete={removePlan} />
+      <div className="flex-1 overflow-auto bg-background p-4 sm:p-7">
+        <PlanList plans={plans} loading={plansLoading} canEdit={canEdit} onOpen={openPlan} onCreate={createPlan} onDelete={removePlan} />
       </div>
     );
   }
@@ -863,60 +975,64 @@ export default function AccountPlanning({ T, session, workspace, mergedNormRows,
   const setStepField = (field, value) => setPlan({ ...plan, [field]: value });
 
   return (
-    <div style={{ flex: 1, overflow: "auto", padding: isMobilePad() ? "16px" : "24px 28px" }}>
-      <div style={{ maxWidth: 1040, margin: "0 auto" }}>
-        <div style={{ marginBottom: 18 }}>
-          {T.wideLayout && <Breadcrumb T={T} items={["Home", "Account Planning", plan.name]} />}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <button onClick={backToList} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4, color: T.textMuted, fontSize: 12 * (T.fsScale || 1), fontFamily: T.font }}>
-              <Icon name="chevronDown" size={12} color={T.textMuted} style={{ transform: "rotate(90deg)" }} /> All plans
-            </button>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+    <div className="flex-1 overflow-auto bg-background p-4 sm:p-7">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-5">
+          <button onClick={backToList} className="mb-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            <ChevronLeft className="h-3.5 w-3.5" /> All plans
+          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
             {canEdit ? (
               <input value={plan.name} onChange={(e) => setStepField("name", e.target.value)}
-                style={{ fontSize: T.wideLayout ? 28 : 18 * (T.fsScale || 1), fontWeight: 700, color: T.text, fontFamily: T.font, background: "transparent", border: "none", outline: "none", padding: 0, minWidth: 200 }} />
+                className="min-w-[200px] border-none bg-transparent p-0 text-2xl font-semibold text-foreground outline-none" />
             ) : (
-              <h2 style={{ fontSize: T.wideLayout ? 28 : 18 * (T.fsScale || 1), fontWeight: 700, color: T.text, fontFamily: T.font }}>{plan.name}</h2>
+              <h2 className="text-2xl font-semibold text-foreground">{plan.name}</h2>
             )}
             {canEdit && (
-              <select value={plan.status || "draft"} onChange={(e) => setStepField("status", e.target.value)} style={selectStyle(T)}>
-                <option value="draft">Draft</option>
-                <option value="in_progress">In progress</option>
-                <option value="complete">Complete</option>
-              </select>
+              <Select value={plan.status || "draft"} onValueChange={(v) => setStepField("status", v)}>
+                <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="in_progress">In progress</SelectItem>
+                  <SelectItem value="complete">Complete</SelectItem>
+                </SelectContent>
+              </Select>
             )}
-            <SavedIndicator T={T} saving={saving} savedAt={savedAt} />
+            <SavedIndicator saving={saving} savedAt={savedAt} />
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: isMobilePad() ? "wrap" : "nowrap" }}>
-          <div style={{ display: "flex", flexDirection: isMobilePad() ? "row" : "column", gap: 4, flexShrink: 0, width: isMobilePad() ? "100%" : 190, overflowX: isMobilePad() ? "auto" : undefined }}>
+        <div className="flex flex-col items-start gap-5 lg:flex-row">
+          <div className="flex w-full shrink-0 flex-row gap-1 overflow-x-auto lg:w-[190px] lg:flex-col lg:overflow-visible">
             {STEPS.map((s, i) => {
               const active = activeStep === s.key;
+              const StepIcon = s.Icon;
               return (
                 <button key={s.key} onClick={() => setStepField("activeStep", s.key)}
-                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: T.r8, border: "none", background: active ? T.accentBg : "transparent", cursor: "pointer", textAlign: "left", whiteSpace: "nowrap" }}>
-                  <span style={{ width: 18, height: 18, borderRadius: "50%", background: active ? T.accent : T.surfaceHover, color: active ? T.onAccent : T.textMuted, fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
-                  <span style={{ fontSize: 12.5 * (T.fsScale || 1), fontWeight: active ? 700 : 500, color: active ? T.accent : T.textSub, fontFamily: T.font }}>{s.label}</span>
+                  className={cn("flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-left transition-colors", active ? "bg-accent" : "hover:bg-secondary")}>
+                  <span className={cn("flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold", active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground")}>
+                    {i + 1}
+                  </span>
+                  <StepIcon className={cn("h-3.5 w-3.5", active ? "text-primary" : "text-muted-foreground")} />
+                  <span className={cn("text-sm", active ? "font-semibold text-primary" : "font-medium text-muted-foreground")}>{s.label}</span>
                 </button>
               );
             })}
           </div>
 
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {activeStep === "context" && <ContextStep T={T} context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
+          <div className="min-w-0 flex-1">
+            {activeStep === "context" && <ContextStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
             {activeStep === "audit" && (
-              <AuditStep T={T} session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels}
+              <AuditStep session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels}
                 auditDecisions={plan.auditDecisions || {}} setAuditDecisions={(v) => setStepField("auditDecisions", v)}
                 mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} canEdit={canEdit} />
             )}
-            {activeStep === "taxonomy" && <TaxonomyStep T={T} taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
+            {activeStep === "taxonomy" && <TaxonomyStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
             {activeStep === "targeting" && (
-              <TargetingStep T={T} session={session} workspace={workspace} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} setTargeting={(v) => setStepField("targeting", v)} canEdit={canEdit} />
+              <TargetingStep session={session} workspace={workspace} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} setTargeting={(v) => setStepField("targeting", v)} canEdit={canEdit} />
             )}
             {activeStep === "mapping" && (
-              <MappingStep T={T} mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} canEdit={canEdit} />
+              <MappingStep mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} canEdit={canEdit} />
             )}
           </div>
         </div>

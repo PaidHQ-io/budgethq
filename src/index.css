@@ -18,3 +18,40 @@ html, body {
   display: flex;
   flex-direction: column;
 }
+
+/* ─── Tailwind + shadcn/ui + Tremor design tokens (2026-08-06, per Mo — UI rebuild, starting with
+   Account Planning) ───────────────────────────────────────────────────────────────────────────
+   A fresh palette (per Mo's call, not a port of the old T-theme colors in shared.jsx): neutral
+   slate surfaces + an indigo primary. HSL triplets (no hsl() wrapper) so both plain Tailwind
+   classes (via tailwind.config.js's color extension) and Tremor's tremor-* classes can read them
+   with a Tailwind alpha modifier (hsl(var(--x) / <alpha>)). Single light theme only — Classic/
+   Midnight/Aida and wideLayout are being retired as tabs migrate, per Mo's call to consolidate
+   rather than carry three variants through the rebuild. */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 12%;
+  --border: 240 6% 88%;
+  --input: 240 6% 88%;
+  --ring: 243 75% 59%;
+  --primary: 243 75% 59%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 5% 96%;
+  --secondary-foreground: 240 10% 14%;
+  --muted: 240 5% 96%;
+  --muted-foreground: 240 4% 46%;
+  --accent: 243 75% 96%;
+  --accent-foreground: 243 75% 40%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 71% 33%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 45%;
+  --warning-foreground: 0 0% 100%;
+  --radius: 0.625rem;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

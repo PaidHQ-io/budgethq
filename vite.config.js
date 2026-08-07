@@ -1,9 +1,22 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+// package.json has "type":"module", so this file is ESM — no __dirname global, has to be derived
+// from import.meta.url instead (the standard ESM equivalent).
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    // "@/" alias (2026-08-06, per Mo — Tailwind/shadcn/Tremor UI rebuild) — shadcn's own component
+    // recipes and every doc example import via "@/components/ui/...", "@/lib/utils", so the new
+    // src/components/ui/* primitives and src/lib/utils.js follow that same convention rather than
+    // inventing a different relative-import style just for the new UI layer.
+    alias: { '@': path.resolve(__dirname, './src') },
+  },
   build: {
     rollupOptions: {
       output: {
