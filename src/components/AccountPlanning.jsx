@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   listAccountPlans, getAccountPlan, createAccountPlan, updateAccountPlan, deleteAccountPlan,
 } from "../lib/accountPlanningApi.js";
+import {
+  listTargetingLibraryItems, createTargetingLibraryItem, deleteTargetingLibraryItem,
+} from "../lib/targetingLibraryApi.js";
 import { listReportingFacts } from "../lib/reportingApi.js";
 import {
-  buildAuditGroups, scoreAuditGroups, levelLabel,
+  buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup,
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
 } from "../lib/accountPlanning.js";
 import { fmtFull } from "../lib/core.js";
@@ -42,6 +45,7 @@ const STEPS = [
   { key: "context", label: "Context", icon: "target" },
   { key: "audit", label: "Audit", icon: "search" },
   { key: "taxonomy", label: "Taxonomy", icon: "tag" },
+  { key: "targeting", label: "Targeting", icon: "compass" },
   { key: "mapping", label: "Mapping", icon: "history" },
 ];
 
@@ -424,16 +428,227 @@ function TaxonomyStep({ T, taxonomy, setTaxonomy, context, canEdit }) {
   );
 }
 
+// ─── STEP 4: TARGETING ──────────────────────────────────────────────────────────────────────────
+// (2026-08-06, per Mo — "we need to determine if we're going to use job titles OR job function +
+// seniorities... layer on contact or company lists, whether we're going to remarket, what
+// exclusions..." — confirmed via AskUserQuestion as its own step, with the reusable
+// lists/exclusions/remarketing pools shared across every plan in the workspace.) Two halves: the
+// shared Library (workspace-scoped, fetched from targeting-library.js) and this plan's Targeting
+// Profiles (reusable audience definitions a Mapping row picks from, rather than every ad set
+// re-specifying its own targeting from scratch — same reasoning as the taxonomy dimensions
+// themselves, applied to targeting logic instead of naming).
+
+function MultiToggle({ T, options, selected, onChange, canEdit }) {
+  const toggle = (v) => (selected.includes(v) ? onChange(selected.filter((x) => x !== v)) : onChange([...selected, v]));
+  if (options.length === 0) return <span style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>No values defined in Taxonomy yet</span>;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {options.map((v) => (
+        <Pill key={v} onClick={() => canEdit && toggle(v)} style={{ cursor: canEdit ? "pointer" : "default", opacity: selected.includes(v) ? 1 : 0.5 }}
+          color={T.text} bg={selected.includes(v) ? T.accentBg : T.surfaceHover} border={T.border}>{v}</Pill>
+      ))}
+    </div>
+  );
+}
+
+function LibrarySection({ T, label, type, items, onAdd, onRemove, canEdit }) {
+  const filtered = items.filter((it) => it.type === type);
+  const [name, setName] = useState(""); const [desc, setDesc] = useState("");
+  const add = () => { if (!name.trim()) return; onAdd({ type, name: name.trim(), description: desc.trim() }); setName(""); setDesc(""); };
+  return (
+    <div>
+      <div style={{ fontSize: 11 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, fontFamily: T.font }}>{label}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: canEdit ? 8 : 0 }}>
+        {filtered.map((it) => (
+          <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: T.surfaceHover, borderRadius: T.r8, fontSize: 12 * (T.fsScale || 1), fontFamily: T.font }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, color: T.text }}>{it.name}</div>
+              {it.description && <div style={{ fontSize: 10.5 * (T.fsScale || 1), color: T.textMuted }}>{it.description}</div>}
+            </div>
+            {canEdit && <span onClick={() => onRemove(it.id)} style={{ cursor: "pointer", opacity: 0.55, fontWeight: 700, flexShrink: 0 }}>×</span>}
+          </div>
+        ))}
+        {filtered.length === 0 && <span style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>None yet</span>}
+      </div>
+      {canEdit && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name…" style={inputStyle(T)} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (optional)" style={{ ...inputStyle(T), flex: 1 }} />
+            <Btn T={T} size="sm" variant="subtle" onClick={add}>Add</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TargetingStep({ T, session, workspace, taxonomy, targeting, setTargeting, canEdit }) {
+  const [library, setLibrary] = useState(null);
+  useEffect(() => {
+    if (!workspace?.id || !session) return;
+    listTargetingLibraryItems(session, workspace.id).then(setLibrary).catch(() => setLibrary([]));
+  }, [session, workspace?.id]);
+
+  const addLibraryItem = (fields) => createTargetingLibraryItem(session, workspace.id, fields).then(setLibrary);
+  const removeLibraryItem = (id) => deleteTargetingLibraryItem(session, workspace.id, id).then(setLibrary);
+
+  const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
+  const companySizeValues = dimensions.find((d) => d.key === "segment")?.values || [];
+  const industryValues = dimensions.find((d) => d.key === "industry")?.values || [];
+
+  const profiles = targeting || [];
+  const updateProfile = (id, patch) => setTargeting(profiles.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const removeProfile = (id) => setTargeting(profiles.filter((p) => p.id !== id));
+  const addProfile = () => setTargeting([...profiles, {
+    id: `tp_${Date.now()}`, name: "New Profile", method: "job_function_seniority",
+    titles: [], functions: [], seniorities: [], companySizes: [], industries: [],
+    listAttachments: [], exclusionAttachments: [], remarketing: { enabled: false, poolItemId: "", windowDays: 30 },
+  }]);
+
+  if (library === null) return <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Loading targeting library…</div>;
+  const listItems = library.filter((it) => it.type === "list");
+  const exclusionItems = library.filter((it) => it.type === "exclusion");
+  const remarketingItems = library.filter((it) => it.type === "remarketing");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <PixelPanel T={T} contentStyle={{ padding: 16 }}>
+        <SectionLabel T={T}>Shared Targeting Library</SectionLabel>
+        <div style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font, marginBottom: 12 }}>Reused across every Account Planning project for this workspace — define once, attach to any profile below.</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "1fr 1fr 1fr", gap: 16 }}>
+          <LibrarySection T={T} label="Contact / Company Lists" type="list" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
+          <LibrarySection T={T} label="Exclusion Lists" type="exclusion" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
+          <LibrarySection T={T} label="Remarketing Pools" type="remarketing" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
+        </div>
+      </PixelPanel>
+
+      <div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <SectionLabel T={T} style={{ marginBottom: 0 }}>Targeting Profiles</SectionLabel>
+          {canEdit && <Btn T={T} size="sm" variant="subtle" onClick={addProfile}><Icon name="plus" size={11} color={T.text} style={{ marginRight: 4 }} />Add profile</Btn>}
+        </div>
+        {profiles.length === 0 && (
+          <div style={{ fontSize: 12 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font, marginBottom: 8 }}>
+            Each profile is a reusable audience definition (e.g. "Enterprise IT Buyers") — assign one to any ad set in Mapping instead of re-specifying targeting from scratch every time.
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {profiles.map((p) => (
+            <PixelPanel key={p.id} T={T} contentStyle={{ padding: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                {canEdit ? (
+                  <input value={p.name} onChange={(e) => updateProfile(p.id, { name: e.target.value })} style={{ ...inputStyle(T), fontWeight: 700, flex: 1, maxWidth: 260 }} />
+                ) : (
+                  <span style={{ fontWeight: 700, color: T.text, fontFamily: T.font }}>{p.name}</span>
+                )}
+                {canEdit && <span onClick={() => removeProfile(p.id)} style={{ cursor: "pointer", color: T.textMuted, marginLeft: "auto", fontWeight: 700 }}>×</span>}
+              </div>
+
+              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                {[["job_title", "Job Titles"], ["job_function_seniority", "Function + Seniority"]].map(([k, l]) => (
+                  <Pill key={k} onClick={() => canEdit && updateProfile(p.id, { method: k })} style={{ cursor: canEdit ? "pointer" : "default", opacity: p.method === k ? 1 : 0.5 }}
+                    color={T.text} bg={p.method === k ? T.accentBg : T.surfaceHover} border={T.border}>{l}</Pill>
+                ))}
+              </div>
+
+              {p.method === "job_title" ? (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Job Titles</div>
+                  <ChipList T={T} items={p.titles} canEdit={canEdit} placeholder="Add a job title…" onAdd={(v) => updateProfile(p.id, { titles: [...p.titles, v] })} onRemove={(i) => updateProfile(p.id, { titles: p.titles.filter((_, x) => x !== i) })} />
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Job Functions</div>
+                    <ChipList T={T} items={p.functions} canEdit={canEdit} placeholder="Add a function…" onAdd={(v) => updateProfile(p.id, { functions: [...p.functions, v] })} onRemove={(i) => updateProfile(p.id, { functions: p.functions.filter((_, x) => x !== i) })} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Seniorities</div>
+                    <ChipList T={T} items={p.seniorities} canEdit={canEdit} placeholder="Add a seniority…" onAdd={(v) => updateProfile(p.id, { seniorities: [...p.seniorities, v] })} onRemove={(i) => updateProfile(p.id, { seniorities: p.seniorities.filter((_, x) => x !== i) })} />
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Company Size</div>
+                  <MultiToggle T={T} options={companySizeValues} selected={p.companySizes} canEdit={canEdit} onChange={(v) => updateProfile(p.id, { companySizes: v })} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Industry</div>
+                  <MultiToggle T={T} options={industryValues} selected={p.industries} canEdit={canEdit} onChange={(v) => updateProfile(p.id, { industries: v })} />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Lists to layer on</div>
+                  {listItems.length === 0 ? <span style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Add lists to the library above first</span> : (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {listItems.map((it) => {
+                        const attached = p.listAttachments.find((a) => a.itemId === it.id);
+                        return (
+                          <Pill key={it.id} onClick={() => { if (!canEdit) return; const next = attached ? p.listAttachments.filter((a) => a.itemId !== it.id) : [...p.listAttachments, { itemId: it.id, direction: "include" }]; updateProfile(p.id, { listAttachments: next }); }}
+                            style={{ cursor: canEdit ? "pointer" : "default", opacity: attached ? 1 : 0.5 }} color={T.text} bg={attached ? T.accentBg : T.surfaceHover} border={T.border}>{it.name}</Pill>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: T.font }}>Exclusions</div>
+                  {exclusionItems.length === 0 ? <span style={{ fontSize: 11.5 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>Add exclusion lists to the library above first</span> : (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {exclusionItems.map((it) => {
+                        const attached = p.exclusionAttachments.find((a) => a.itemId === it.id);
+                        return (
+                          <Pill key={it.id} onClick={() => { if (!canEdit) return; const next = attached ? p.exclusionAttachments.filter((a) => a.itemId !== it.id) : [...p.exclusionAttachments, { itemId: it.id }]; updateProfile(p.id, { exclusionAttachments: next }); }}
+                            style={{ cursor: canEdit ? "pointer" : "default", opacity: attached ? 1 : 0.5 }} color={attached ? T.danger : T.text} bg={attached ? T.dangerBg : T.surfaceHover} border={attached ? T.dangerBorder : T.border}>{it.name}</Pill>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5 * (T.fsScale || 1), color: T.text, fontFamily: T.font, cursor: canEdit ? "pointer" : "default" }}>
+                  <input type="checkbox" disabled={!canEdit} checked={!!p.remarketing?.enabled} onChange={(e) => updateProfile(p.id, { remarketing: { ...p.remarketing, enabled: e.target.checked } })} style={{ accentColor: T.accent, width: 13, height: 13 }} />
+                  Remarketing
+                </label>
+                {p.remarketing?.enabled && (
+                  <>
+                    <select disabled={!canEdit} value={p.remarketing.poolItemId || ""} onChange={(e) => updateProfile(p.id, { remarketing: { ...p.remarketing, poolItemId: e.target.value } })} style={selectStyle(T)}>
+                      <option value="">Pool…</option>
+                      {remarketingItems.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                    </select>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <input type="number" disabled={!canEdit} value={p.remarketing.windowDays || 30} onChange={(e) => updateProfile(p.id, { remarketing: { ...p.remarketing, windowDays: Number(e.target.value) } })} style={{ ...inputStyle(T), width: 60 }} />
+                      <span style={{ fontSize: 11 * (T.fsScale || 1), color: T.textMuted, fontFamily: T.font }}>days</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </PixelPanel>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── STEP 4: MAPPING ────────────────────────────────────────────────────────────────────────────
 
-function MappingStep({ T, mapping, setMapping, taxonomy, canEdit }) {
+function MappingStep({ T, mapping, setMapping, taxonomy, targeting, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
   const dimByKey = useMemo(() => Object.fromEntries(dimensions.map((d) => [d.key, d])), [dimensions]);
+  const profiles = targeting || [];
 
   const updateRow = (i, patch) => setMapping(mapping.map((r, x) => (x === i ? { ...r, ...patch } : r)));
   const removeRow = (i) => setMapping(mapping.filter((_, x) => x !== i));
-  const addRow = () => setMapping([...mapping, { oldKey: `manual_${Date.now()}`, oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", action: "rename", manualName: "", dimValues: {}, status: "planned" }]);
+  const addRow = () => setMapping([...mapping, { oldKey: `manual_${Date.now()}`, oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "" }]);
 
   const rowValues = (row) => ({ platform: row.platform || "", ...row.dimValues });
   const rowTemplate = (row) => templates[row.level] || templates.campaign || "";
@@ -442,6 +657,15 @@ function MappingStep({ T, mapping, setMapping, taxonomy, canEdit }) {
 
   const ACTION_LABELS = { rename: "Rename", split: "Split", merge: "Merge into", kill: "Kill", keep: "Keep as-is" };
   const STATUS_LABELS = { planned: "Planned", in_progress: "In progress", live: "Live" };
+
+  // Budget rollups — grouped from each row's own `budget` (the only place budget is entered, per
+  // Mo's call), never a separately-typed number per level, so these can never silently stop adding
+  // up. Groups by whichever taxonomy dimension a row's dimValues actually has a value for, plus
+  // platform, so this works whether or not every row has every dimension filled in yet.
+  const rollupsByProduct = useMemo(() => computeBudgetRollup(mapping, (r) => r.dimValues?.product), [mapping]);
+  const rollupsBySegment = useMemo(() => computeBudgetRollup(mapping, (r) => r.dimValues?.segment), [mapping]);
+  const rollupsByPlatform = useMemo(() => computeBudgetRollup(mapping, (r) => r.platform), [mapping]);
+  const totalBudget = mapping.reduce((s, r) => s + (Number(r.budget) || 0), 0);
 
   if (mapping.length === 0) {
     return (
@@ -454,6 +678,23 @@ function MappingStep({ T, mapping, setMapping, taxonomy, canEdit }) {
 
   return (
     <div>
+      {totalBudget > 0 && (
+        <PixelPanel T={T} contentStyle={{ padding: 14, marginBottom: 16 }}>
+          <SectionLabel T={T}>Budget rollup</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: isMobilePad() ? "1fr" : "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
+            {[["Total", [{ label: "All", amount: totalBudget }]], ["By product", rollupsByProduct], ["By segment", rollupsBySegment], ["By platform", rollupsByPlatform]].map(([label, rows]) => (
+              <div key={label}>
+                <div style={{ fontSize: 10.5 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5, fontFamily: T.font }}>{label}</div>
+                {rows.map((r) => (
+                  <div key={r.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 * (T.fsScale || 1), color: T.text, fontFamily: T.font, marginBottom: 2 }}>
+                    <span style={{ color: T.textSub }}>{r.label}</span><span style={{ fontWeight: 700 }}>{fmtFull(r.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </PixelPanel>
+      )}
       {canEdit && <div style={{ marginBottom: 12 }}><Btn T={T} size="sm" variant="subtle" onClick={addRow}><Icon name="plus" size={11} color={T.text} style={{ marginRight: 4 }} />Add row</Btn></div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {mapping.map((row, i) => {
@@ -494,6 +735,19 @@ function MappingStep({ T, mapping, setMapping, taxonomy, canEdit }) {
                   <select disabled={!canEdit} value={row.status} onChange={(e) => updateRow(i, { status: e.target.value })} style={selectStyle(T)}>
                     {Object.entries(STATUS_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                   </select>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3, fontFamily: T.font }}>Targeting</div>
+                  <select disabled={!canEdit} value={row.targetingProfileId || ""} onChange={(e) => updateRow(i, { targetingProfileId: e.target.value })} style={selectStyle(T)}>
+                    <option value="">None</option>
+                    {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 10 * (T.fsScale || 1), fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3, fontFamily: T.font }}>Budget</div>
+                  <input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(i, { budget: e.target.value })} placeholder="$/mo" style={{ ...inputStyle(T), width: 90 }} />
                 </div>
 
                 {canEdit && (
@@ -580,7 +834,8 @@ export default function AccountPlanning({ T, session, workspace, mergedNormRows,
       setSaving(true);
       updateAccountPlan(session, workspace.id, {
         planId: plan.id, name: plan.name, status: plan.status, activeStep: plan.activeStep,
-        context: plan.context, taxonomy: plan.taxonomy, auditDecisions: plan.auditDecisions, mapping: plan.mapping,
+        context: plan.context, taxonomy: plan.taxonomy, auditDecisions: plan.auditDecisions,
+        targeting: plan.targeting, mapping: plan.mapping,
       }).then(() => { setSaving(false); setSavedAt(Date.now()); }).catch(() => setSaving(false));
     }, 900);
     return () => clearTimeout(t);
@@ -657,7 +912,12 @@ export default function AccountPlanning({ T, session, workspace, mergedNormRows,
                 mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} canEdit={canEdit} />
             )}
             {activeStep === "taxonomy" && <TaxonomyStep T={T} taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
-            {activeStep === "mapping" && <MappingStep T={T} mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} taxonomy={plan.taxonomy || {}} canEdit={canEdit} />}
+            {activeStep === "targeting" && (
+              <TargetingStep T={T} session={session} workspace={workspace} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} setTargeting={(v) => setStepField("targeting", v)} canEdit={canEdit} />
+            )}
+            {activeStep === "mapping" && (
+              <MappingStep T={T} mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} canEdit={canEdit} />
+            )}
           </div>
         </div>
       </div>

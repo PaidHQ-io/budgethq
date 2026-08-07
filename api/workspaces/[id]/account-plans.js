@@ -23,24 +23,38 @@
  *     workspace_id uuid not null references core.workspaces(id) on delete cascade,
  *     name text not null,
  *     status text not null default 'draft',              -- draft | in_progress | complete
- *     active_step text not null default 'context',        -- context | audit | taxonomy | mapping
+ *     active_step text not null default 'context',        -- context | audit | taxonomy | targeting | mapping
  *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, budgets }
  *     taxonomy jsonb not null default '{}'::jsonb,          -- { dimensions, nameTemplates, utmNotes }
  *     audit_decisions jsonb not null default '{}'::jsonb,  -- { [groupKey]: { decision, note } }
- *     mapping jsonb not null default '[]'::jsonb,           -- [{ oldKey, oldName, newName, level, action, status }]
+ *     targeting jsonb not null default '[]'::jsonb,         -- [{ id, name, method, titles, functions,
+ *                                                            --   seniorities, companySizes, industries,
+ *                                                            --   listAttachments, exclusionAttachments,
+ *                                                            --   remarketing, notes }] — plan-scoped
+ *                                                            --   Targeting Profiles; see
+ *                                                            --   src/lib/accountPlanning.js and
+ *                                                            --   targeting-library.js's own doc
+ *                                                            --   comment for the workspace-shared
+ *                                                            --   list/exclusion/remarketing items
+ *                                                            --   these attachments reference by id.
+ *     mapping jsonb not null default '[]'::jsonb,           -- [{ oldKey, oldName, newName, level, action, status, targetingProfileId, budget }]
  *     created_by uuid,
  *     created_at timestamptz not null default now(),
  *     updated_at timestamptz not null default now()
  *   );
  *   create index if not exists idx_account_plans_workspace on core.account_plans(workspace_id);
  *
+ *   -- Migrating an existing account_plans table (2026-08-06, adding Targeting):
+ *   alter table core.account_plans add column if not exists targeting jsonb not null default '[]'::jsonb;
+ *
  * GET    /account-plans                 — list, metadata only (no context/taxonomy/audit_decisions/
- *        mapping bodies — same "cheap list, full fetch on demand" shape as vault-entries.js's GET).
+ *        targeting/mapping bodies — same "cheap list, full fetch on demand" shape as
+ *        vault-entries.js's GET).
  * GET    /account-plans?planId=<id>     — one plan, full body.
  * POST   /account-plans                 — create. Body: { name }. Everything else starts empty.
  * PATCH  /account-plans                 — update. Body: { planId, name?, status?, activeStep?,
- *        context?, taxonomy?, auditDecisions?, mapping? } — partial, COALESCE'd, only send what
- *        changed (mirrors vault-entries.js PATCH).
+ *        context?, taxonomy?, auditDecisions?, targeting?, mapping? } — partial, COALESCE'd, only
+ *        send what changed (mirrors vault-entries.js PATCH).
  * DELETE /account-plans?planId=<id>     — delete a plan.
  */
 import { sql } from "../../lib/db.js";
@@ -64,6 +78,7 @@ const toFull = (r) => ({
   context: r.context || {},
   taxonomy: r.taxonomy || {},
   auditDecisions: r.audit_decisions || {},
+  targeting: r.targeting || [],
   mapping: r.mapping || [],
   createdBy: r.created_by,
   createdAt: r.created_at,
@@ -106,7 +121,7 @@ export default withApi(async (req, res) => {
   if (req.method === "PATCH") {
     requireEditAccess(myRole);
     const {
-      planId: bodyPlanId, name, status, activeStep, context, taxonomy, auditDecisions, mapping,
+      planId: bodyPlanId, name, status, activeStep, context, taxonomy, auditDecisions, targeting, mapping,
     } = req.body || {};
     if (!bodyPlanId) return res.status(400).json({ error: "planId is required" });
     const [row] = await sql`
@@ -117,6 +132,7 @@ export default withApi(async (req, res) => {
         context = coalesce(${context != null ? JSON.stringify(context) : null}::jsonb, context),
         taxonomy = coalesce(${taxonomy != null ? JSON.stringify(taxonomy) : null}::jsonb, taxonomy),
         audit_decisions = coalesce(${auditDecisions != null ? JSON.stringify(auditDecisions) : null}::jsonb, audit_decisions),
+        targeting = coalesce(${targeting != null ? JSON.stringify(targeting) : null}::jsonb, targeting),
         mapping = coalesce(${mapping != null ? JSON.stringify(mapping) : null}::jsonb, mapping),
         updated_at = now()
       where id = ${bodyPlanId} and workspace_id = ${workspaceId}

@@ -166,9 +166,17 @@ export function scoreAuditGroups(groups, { minSpend = 100 } = {}) {
 
 // ─── TAXONOMY ───────────────────────────────────────────────────────────────────────────────────
 
+// segment/industry added 2026-08-06 (per Mo — "shouldn't we add company size segments (SMB, MM,
+// Enterprise) and industries") as real taxonomy dimensions, not just targeting inputs: they're
+// categorical and low-cardinality enough to be worth scanning in a name, AND the Targeting step's
+// profiles below pull their companySizes/industries option lists from these SAME dimension value
+// lists — one source of truth so "Enterprise" in a campaign name and "Enterprise" in an actual
+// LinkedIn targeting spec can never quietly drift apart.
 export const DEFAULT_TAXONOMY_DIMENSIONS = [
   { key: "product", label: "Product", values: [] },
   { key: "region", label: "Region", values: [] },
+  { key: "segment", label: "Company Size Segment", values: ["SMB", "Mid-Market", "Enterprise"] },
+  { key: "industry", label: "Industry", values: [] },
   { key: "funnel", label: "Funnel Stage", values: ["TOFU", "MOFU", "BOFU"] },
   { key: "audience", label: "Audience", values: [] },
   { key: "buytype", label: "Buy Type", values: ["Prospecting", "Retargeting", "ABM"] },
@@ -224,6 +232,24 @@ export function templateTokens(template) {
 // segments for the template's separator and that every segment is non-empty. Good enough to catch
 // "someone typed a raw campaign name with no structure at all" or "missing a segment" without
 // pretending to fully reverse-engineer an arbitrary existing name back into dimension values.
+// ─── BUDGET ROLLUP ──────────────────────────────────────────────────────────────────────────────
+
+// Sums Mapping rows' per-ad-set budgets grouped by whatever groupFn returns (a taxonomy dimension
+// value, platform, etc.) — deliberately the ONLY place budget gets entered (per ad set, on the
+// Mapping row); every other level (product/segment/channel/region) is just this grouped sum rather
+// than its own separately-typed number, per Mo — "budget... per segment, per ad set" shouldn't mean
+// four numbers that can silently stop adding up to each other.
+export function computeBudgetRollup(mappingRows, groupFn) {
+  const map = new Map();
+  for (const row of mappingRows || []) {
+    const amt = Number(row.budget) || 0;
+    if (!amt) continue;
+    const key = groupFn(row) || "Unassigned";
+    map.set(key, (map.get(key) || 0) + amt);
+  }
+  return [...map.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount);
+}
+
 export function validateName(name, template) {
   const issues = [];
   if (!name || !name.trim()) return { valid: false, issues: ["Name is empty"] };
