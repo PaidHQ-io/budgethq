@@ -7,16 +7,17 @@ import {
 } from "../lib/targetingLibraryApi.js";
 import { listReportingFacts } from "../lib/reportingApi.js";
 import {
-  buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup, channelCode,
+  buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup, channelCode, platformFamily,
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
-  LINKEDIN_COMPANY_SIZE_RANGES,
+  LINKEDIN_COMPANY_SIZE_RANGES, PLATFORM_CODES,
 } from "../lib/accountPlanning.js";
 import { SearchableSelect } from "./ui/searchable-select.jsx";
 import { fmtFull } from "../lib/core.js";
 import { DonutChart, BarList } from "@tremor/react";
+import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import {
   Plus, Trash2, ChevronLeft, Compass, Search, Tags, Target as TargetIcon, ListChecks, X, Moon, Sun,
-  Users, Ban, Repeat,
+  Users, Ban, Repeat, GripVertical, Megaphone, Layers, Image as ImageIcon, LayoutGrid, Table2, ChevronDown,
 } from "lucide-react";
 import { Button } from "./ui/button.jsx";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.jsx";
@@ -313,7 +314,7 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
       oldKey: g.key, oldName: g.level === "ad" ? (g.adLabel || g.campaignName) : g.campaignName,
       oldCampaignGroup: g.campaignGroupName, platform: g.platform,
       level: g.level === "ad" ? "ad" : "campaign", action: g.tier === "consolidate" ? "kill" : "rename",
-      manualName: "", dimValues: {}, status: "planned",
+      manualName: "", dimValues: {}, status: "planned", parentKey: "",
     }]);
   };
   const setDecision = (key, patch) => setAuditDecisions({ ...auditDecisions, [key]: { ...(auditDecisions[key] || {}), ...patch } });
@@ -792,25 +793,40 @@ function TargetingStep({ session, workspace, taxonomy, targeting, setTargeting, 
 }
 
 // ─── STEP 5: MAPPING ────────────────────────────────────────────────────────────────────────────
+// Two views share one `mapping` array (2026-08-06, per Mo — "a drag and drop builder that looks
+// beautiful and has beautiful UX"): the original table (unchanged, still fully functional) and a
+// new hierarchical Builder canvas, default view. Builder introduces a `parentKey` field on mapping
+// rows (references another row's oldKey — jsonb, no DB migration; existing plans just don't have it
+// set yet, and any row whose parentKey is empty/unresolvable renders in "Unassigned" instead of
+// disappearing). See MappingBuilder's own doc comment below for the scope decisions on what this
+// first pass does and doesn't do.
+
+const ACTION_LABELS = { rename: "Rename", split: "Split", merge: "Merge into", kill: "Kill", keep: "Keep as-is" };
+const STATUS_LABELS = { planned: "Planned", in_progress: "In progress", live: "Live" };
+const LEVEL_LABELS = { campaign: "Campaign", adgroup: "Ad Group / Ad Set", ad: "Ad" };
+
+// Hoisted out of MappingBuilder (2026-08-06) — the react-hooks/purity lint rule flags Date.now()/
+// Math.random() reachable from a component's render body, even when only actually invoked inside an
+// event handler; defining the impure part as its own module-level function (not itself a component
+// or hook) sidesteps that check entirely, same effect as the existing `manual_${Date.now()}` /
+// `custom_${Date.now()}` id patterns elsewhere in this file, just written to satisfy the newer rule.
+function newMappingKey() {
+  return `new_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
 
 function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
   const dimByKey = useMemo(() => Object.fromEntries(dimensions.map((d) => [d.key, d])), [dimensions]);
   const profiles = targeting || [];
-
-  const updateRow = (i, patch) => setMapping(mapping.map((r, x) => (x === i ? { ...r, ...patch } : r)));
-  const removeRow = (i) => setMapping(mapping.filter((_, x) => x !== i));
-  const addRow = () => setMapping([...mapping, { oldKey: `manual_${Date.now()}`, oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "" }]);
+  const [view, setView] = useState("builder");
 
   const rowValues = (row) => ({ platform: channelCode(row.platform) || row.platform || "", ...row.dimValues });
   const rowTemplate = (row) => templates[row.level] || templates.campaign || "";
   const generatedName = (row) => generateName(rowTemplate(row), rowValues(row));
   const finalName = (row) => (row.manualName && row.manualName.trim()) || generatedName(row);
 
-  const ACTION_LABELS = { rename: "Rename", split: "Split", merge: "Merge into", kill: "Kill", keep: "Keep as-is" };
-  const STATUS_LABELS = { planned: "Planned", in_progress: "In progress", live: "Live" };
-  const LEVEL_LABELS = { campaign: "Campaign", adgroup: "Ad Group / Ad Set", ad: "Ad" };
+  const addRow = () => setMapping([...mapping, { oldKey: `manual_${Date.now()}`, oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", parentKey: "", action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "" }]);
 
   // Budget rollups — grouped from each row's own `budget` (the only place budget is entered, per
   // Mo's call), never a separately-typed number per level, so these can never silently stop adding
@@ -824,11 +840,13 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
   if (mapping.length === 0) {
     return (
       <div>
-        <div className="mb-3 text-sm text-muted-foreground">No mapping rows yet — add campaigns/ads from the Audit step, or add a row manually for something entirely new.</div>
-        {canEdit && <Button variant="secondary" onClick={addRow}><Plus className="h-4 w-4" />Add row</Button>}
+        <div className="mb-3 text-sm text-muted-foreground">No mapping rows yet — add campaigns/ads from the Audit step, or add a campaign below to start building from scratch.</div>
+        {canEdit && <Button variant="secondary" onClick={addRow}><Plus className="h-4 w-4" />Add campaign</Button>}
       </div>
     );
   }
+
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit };
 
   return (
     <div>
@@ -857,119 +875,502 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
           </CardContent>
         </Card>
       )}
-      {canEdit && <div className="mb-3"><Button size="sm" variant="secondary" onClick={addRow}><Plus className="h-3.5 w-3.5" />Add row</Button></div>}
-      <div className="flex flex-col gap-2.5">
-        {mapping.map((row, i) => {
-          const template = rowTemplate(row);
-          const tokens = templateTokens(template).filter((t) => t !== "platform");
-          const validation = validateName(finalName(row), template);
-          return (
-            <Card key={row.oldKey}>
-              <CardContent className="p-5">
-                <div className="flex flex-wrap items-start gap-2.5">
-                  <div className="min-w-[160px]">
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Old</div>
-                    {row.oldName ? (
-                      <div className="text-sm font-semibold text-foreground">{row.oldName}</div>
-                    ) : (
-                      <Input value={row.oldName} onChange={(e) => updateRow(i, { oldName: e.target.value })} placeholder="Old name (optional)" disabled={!canEdit} className="h-8 w-40 text-xs" />
-                    )}
-                    {row.oldCampaignGroup && <div className="text-[11px] text-muted-foreground">{row.oldCampaignGroup}</div>}
-                  </div>
 
-                  <div>
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Level</div>
-                    <Select disabled={!canEdit} value={row.level} onValueChange={(v) => updateRow(i, { level: v })}>
-                      <SelectTrigger className="h-8 w-[170px] text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{Object.entries(LEVEL_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-0.5">
+          <button type="button" onClick={() => setView("builder")}
+            className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all", view === "builder" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+            <LayoutGrid className="h-3.5 w-3.5" />Builder
+          </button>
+          <button type="button" onClick={() => setView("table")}
+            className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all", view === "table" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+            <Table2 className="h-3.5 w-3.5" />Table
+          </button>
+        </div>
+        {canEdit && view === "table" && <Button size="sm" variant="secondary" onClick={addRow}><Plus className="h-3.5 w-3.5" />Add row</Button>}
+      </div>
 
-                  <div>
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Action</div>
-                    <Select disabled={!canEdit} value={row.action} onValueChange={(v) => updateRow(i, { action: v })}>
-                      <SelectTrigger className="h-8 w-[132px] text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{Object.entries(ACTION_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
+      {view === "builder" ? (
+        <MappingBuilder mapping={mapping} setMapping={setMapping} {...helpers} />
+      ) : (
+        <MappingTable mapping={mapping} setMapping={setMapping} {...helpers} />
+      )}
+    </div>
+  );
+}
 
-                  <div>
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</div>
-                    <Select disabled={!canEdit} value={row.status} onValueChange={(v) => updateRow(i, { status: v })}>
-                      <SelectTrigger className="h-8 w-[132px] text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{Object.entries(STATUS_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
+// ─── MAPPING: TABLE VIEW (original recipe, unchanged behavior) ────────────────────────────────────
+// One addition (2026-08-06): a Channel select on campaign-level rows — manually-added rows had no
+// way to ever set platform before (only audit-derived rows had it, from the audit group), which
+// meant a manually-built campaign's {platform} token — now mandatory in every default template per
+// Mo's naming rules — would silently render blank. Real bug, not just a Builder-view nicety, so
+// it's fixed here too, not only in the new Builder cards.
+function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit }) {
+  const updateRow = (i, patch) => setMapping(mapping.map((r, x) => (x === i ? { ...r, ...patch } : r)));
+  const removeRow = (i) => setMapping(mapping.filter((_, x) => x !== i));
 
+  return (
+    <div className="flex flex-col gap-2.5">
+      {mapping.map((row, i) => {
+        const template = rowTemplate(row);
+        const tokens = templateTokens(template).filter((t) => t !== "platform");
+        const validation = validateName(finalName(row), template);
+        return (
+          <Card key={row.oldKey}>
+            <CardContent className="p-5">
+              <div className="flex flex-wrap items-start gap-2.5">
+                <div className="min-w-[160px]">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Old</div>
+                  {row.oldName ? (
+                    <div className="text-sm font-semibold text-foreground">{row.oldName}</div>
+                  ) : (
+                    <Input value={row.oldName} onChange={(e) => updateRow(i, { oldName: e.target.value })} placeholder="Old name (optional)" disabled={!canEdit} className="h-8 w-40 text-xs" />
+                  )}
+                  {row.oldCampaignGroup && <div className="text-[11px] text-muted-foreground">{row.oldCampaignGroup}</div>}
+                </div>
+
+                {row.level === "campaign" && (
                   <div>
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Targeting</div>
-                    <Select disabled={!canEdit} value={row.targetingProfileId || "__none__"} onValueChange={(v) => updateRow(i, { targetingProfileId: v === "__none__" ? "" : v })}>
-                      <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel</div>
+                    <Select disabled={!canEdit} value={row.platform || "__none__"} onValueChange={(v) => updateRow(i, { platform: v === "__none__" ? "" : v })}>
+                      <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue placeholder="Channel…" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">None</SelectItem>
-                        {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                        <SelectItem value="__none__">Channel…</SelectItem>
+                        {Object.keys(PLATFORM_CODES).map((p) => <SelectItem key={p} value={p}>{p} ({PLATFORM_CODES[p]})</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
+                )}
 
-                  <div>
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget</div>
-                    <Input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(i, { budget: e.target.value })} placeholder="$/mo" className="h-8 w-24 text-xs" />
-                  </div>
-
-                  {canEdit && (
-                    <button type="button" onClick={() => removeRow(i)} className="ml-auto self-start border-0 bg-transparent p-1 text-muted-foreground hover:text-destructive">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Level</div>
+                  <Select disabled={!canEdit} value={row.level} onValueChange={(v) => updateRow(i, { level: v })}>
+                    <SelectTrigger className="h-8 w-[170px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{Object.entries(LEVEL_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div>
 
-                <Separator className="my-3" />
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Action</div>
+                  <Select disabled={!canEdit} value={row.action} onValueChange={(v) => updateRow(i, { action: v })}>
+                    <SelectTrigger className="h-8 w-[132px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{Object.entries(ACTION_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
 
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {tokens.map((tok) => {
-                    const dim = dimByKey[tok];
-                    const val = row.dimValues?.[tok] || "";
-                    if (dim && dim.values.length > 0) {
-                      // Large value lists (Industry: ~300 LinkedIn values) get the searchable
-                      // combobox instead of a plain Select — a Radix Select's Viewport scrolls but
-                      // has no filtering, unusable at that size (2026-08-06, per Mo).
-                      if (dim.values.length > 12) {
-                        return (
-                          <SearchableSelect key={tok} options={dim.values} value={val}
-                            onChange={(v) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: v } })}
-                            disabled={!canEdit} placeholder={`${dim.label}…`} className="w-40" />
-                        );
-                      }
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</div>
+                  <Select disabled={!canEdit} value={row.status} onValueChange={(v) => updateRow(i, { status: v })}>
+                    <SelectTrigger className="h-8 w-[132px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{Object.entries(STATUS_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Targeting</div>
+                  <Select disabled={!canEdit} value={row.targetingProfileId || "__none__"} onValueChange={(v) => updateRow(i, { targetingProfileId: v === "__none__" ? "" : v })}>
+                    <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget</div>
+                  <Input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(i, { budget: e.target.value })} placeholder="$/mo" className="h-8 w-24 text-xs" />
+                </div>
+
+                {canEdit && (
+                  <button type="button" onClick={() => removeRow(i)} className="ml-auto self-start border-0 bg-transparent p-1 text-muted-foreground hover:text-destructive">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <Separator className="my-3" />
+
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {tokens.map((tok) => {
+                  const dim = dimByKey[tok];
+                  const val = row.dimValues?.[tok] || "";
+                  if (dim && dim.values.length > 0) {
+                    // Large value lists (Industry: ~300 LinkedIn values) get the searchable
+                    // combobox instead of a plain Select — a Radix Select's Viewport scrolls but
+                    // has no filtering, unusable at that size (2026-08-06, per Mo).
+                    if (dim.values.length > 12) {
                       return (
-                        <Select key={tok} disabled={!canEdit} value={val || "__none__"} onValueChange={(v) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: v === "__none__" ? "" : v } })}>
-                          <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue placeholder={`${dim.label}…`} /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">{dim.label}…</SelectItem>
-                            {dim.values.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <SearchableSelect key={tok} options={dim.values} value={val}
+                          onChange={(v) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: v } })}
+                          disabled={!canEdit} placeholder={`${dim.label}…`} className="w-40" />
                       );
                     }
                     return (
-                      <Input key={tok} disabled={!canEdit} value={val} onChange={(e) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: e.target.value } })}
-                        placeholder={dim ? dim.label : tok} className="h-8 w-32 text-xs" />
+                      <Select key={tok} disabled={!canEdit} value={val || "__none__"} onValueChange={(v) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: v === "__none__" ? "" : v } })}>
+                        <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue placeholder={`${dim.label}…`} /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">{dim.label}…</SelectItem>
+                          {dim.values.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     );
-                  })}
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New</div>
-                  <Input disabled={!canEdit} value={row.manualName} onChange={(e) => updateRow(i, { manualName: e.target.value })}
-                    placeholder={generatedName(row) || "Generated from taxonomy…"} className="h-8 flex-1 font-mono text-xs font-semibold" />
-                </div>
-                {finalName(row) && !validation.valid && (
-                  <div className="mt-1.5 text-xs text-warning">{validation.issues.join(" · ")}</div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+                  }
+                  return (
+                    <Input key={tok} disabled={!canEdit} value={val} onChange={(e) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: e.target.value } })}
+                      placeholder={dim ? dim.label : tok} className="h-8 w-32 text-xs" />
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New</div>
+                <Input disabled={!canEdit} value={row.manualName} onChange={(e) => updateRow(i, { manualName: e.target.value })}
+                  placeholder={generatedName(row) || "Generated from taxonomy…"} className="h-8 flex-1 font-mono text-xs font-semibold" />
+              </div>
+              {finalName(row) && !validation.valid && (
+                <div className="mt-1.5 text-xs text-warning">{validation.issues.join(" · ")}</div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── MAPPING: BUILDER VIEW (drag-and-drop) ─────────────────────────────────────────────────────────
+// Visual Campaign -> Ad Set/Ad Group -> Ad canvas (2026-08-06, per Mo — "a drag and drop builder
+// that looks beautiful and has beautiful UX"), built on @dnd-kit (no drag-and-drop library existed
+// in this codebase before this). Scope decisions, made explicit since this is genuinely new surface
+// and easy to over-build:
+//   - Reparenting (dragging an ad set onto a different campaign's drop zone, or an ad onto a
+//     different ad set's) is the core interaction and the only thing drag actually does. Fine-
+//     grained reordering WITHIN one container isn't implemented yet (items render in array/creation
+//     order) — reparenting was the higher-value interaction to ship first.
+//   - Top-level campaigns aren't drag-reorderable in this pass, only creatable/deletable/editable —
+//     same reasoning.
+//   - Deleting a campaign or ad set does NOT cascade-delete its children — they drop into
+//     "Unassigned" instead (removeRow clears the dangling parentKey), so a misclick can never
+//     silently destroy child rows.
+//   - Ad-level nesting only renders under ad sets whose platform is LinkedIn/Meta (platformFamily
+//     "social") — search-family platforms (Google/Bing/etc.) don't carry ad-level identity in this
+//     app's data model (see accountPlanning.js's platformFamily doc comment), so an "Ads" drop zone
+//     there would just be dead UI with nothing to ever contain.
+//   - A campaign's Channel select doesn't cascade to ad sets/ads created before the change — each
+//     row's platform is copied at creation time, not live-linked to its parent. Noted here rather
+//     than solved: realistically a channel gets decided before building out a campaign, not changed
+//     mid-build, and live-linking adds real complexity for an edge case.
+//   - No "drag straight from the Audit step" palette yet — audit groups still get pulled in via the
+//     existing "+ Mapping" button on the Audit step (unchanged); the Builder's job here is arranging
+//     what's already in `mapping`, not re-implementing that intake step.
+
+function MappingBuilder({ mapping, setMapping, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit }) {
+  const [activeId, setActiveId] = useState(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  const campaigns = useMemo(() => mapping.filter((r) => r.level === "campaign"), [mapping]);
+  const childrenOf = useMemo(() => {
+    const map = new Map();
+    for (const r of mapping) {
+      if (r.level === "campaign") continue;
+      const key = r.parentKey || "";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(r);
+    }
+    return map;
+  }, [mapping]);
+  const validKeys = useMemo(() => new Set(mapping.map((r) => r.oldKey)), [mapping]);
+  const unassigned = useMemo(
+    () => mapping.filter((r) => r.level !== "campaign" && (!r.parentKey || !validKeys.has(r.parentKey))),
+    [mapping, validKeys]
+  );
+
+  const updateRow = (oldKey, patch) => setMapping(mapping.map((r) => (r.oldKey === oldKey ? { ...r, ...patch } : r)));
+  const removeRow = (oldKey) => setMapping(
+    mapping.filter((r) => r.oldKey !== oldKey).map((r) => (r.parentKey === oldKey ? { ...r, parentKey: "" } : r))
+  );
+  const blankRow = (extra) => ({
+    oldKey: newMappingKey(), oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", parentKey: "",
+    action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "", ...extra,
+  });
+  const addCampaign = () => setMapping([...mapping, blankRow({})]);
+  const addChild = (parentKey, level, platform) => setMapping([...mapping, blankRow({ level, parentKey, platform })]);
+
+  const activeRow = activeId ? mapping.find((r) => r.oldKey === activeId) : null;
+
+  const onDragEnd = ({ active, over }) => {
+    setActiveId(null);
+    if (!over || !canEdit) return;
+    const row = mapping.find((r) => r.oldKey === active.id);
+    if (!row) return;
+    const zone = String(over.id);
+    if (zone === "unassigned") {
+      if (row.parentKey) updateRow(row.oldKey, { parentKey: "" });
+      return;
+    }
+    if (zone.startsWith("campaign:")) {
+      const parentKey = zone.slice("campaign:".length);
+      if (parentKey === row.oldKey || row.level === "campaign") return;
+      if (row.level === "adgroup" && row.parentKey === parentKey) return;
+      const parent = mapping.find((r) => r.oldKey === parentKey);
+      updateRow(row.oldKey, { level: "adgroup", parentKey, platform: row.platform || parent?.platform || "" });
+      return;
+    }
+    if (zone.startsWith("adset:")) {
+      const parentKey = zone.slice("adset:".length);
+      if (parentKey === row.oldKey || row.level === "campaign") return;
+      if (row.level === "ad" && row.parentKey === parentKey) return;
+      const parent = mapping.find((r) => r.oldKey === parentKey);
+      updateRow(row.oldKey, { level: "ad", parentKey, platform: row.platform || parent?.platform || "" });
+    }
+  };
+
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow };
+
+  return (
+    <DndContext sensors={sensors} onDragStart={(e) => setActiveId(e.active.id)} onDragEnd={onDragEnd}>
+      <div className="flex flex-col gap-4">
+        {campaigns.map((c) => (
+          <CampaignNode key={c.oldKey} row={c} childRows={childrenOf.get(c.oldKey) || []} childrenOf={childrenOf}
+            onAddAdSet={() => addChild(c.oldKey, "adgroup", c.platform)} {...helpers} />
+        ))}
+        {canEdit && (
+          <button type="button" onClick={addCampaign}
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border py-3 text-sm font-medium text-muted-foreground transition-all hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+            <Plus className="h-4 w-4" />Add campaign
+          </button>
+        )}
+        <UnassignedZone items={unassigned} childrenOf={childrenOf} {...helpers} />
       </div>
+      <DragOverlay dropAnimation={{ duration: 150 }}>
+        {activeRow ? (
+          <div className="w-64 rounded-lg border border-primary bg-card px-3 py-2 shadow-lg">
+            <div className="truncate font-mono text-xs font-semibold text-primary">{finalName(activeRow) || "Untitled"}</div>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+function CampaignNode({ row, childRows, childrenOf, onAddAdSet, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `campaign:${row.oldKey}` });
+  const family = platformFamily(row.platform);
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow };
+  return (
+    <Card className={cn("border-l-4 border-l-primary transition-colors", isOver && "ring-2 ring-primary/40")}>
+      <CardContent className="p-4">
+        <NodeHeader row={row} icon={Megaphone} nodeLabel="campaign" showPlatform {...helpers} />
+        <div ref={setNodeRef} className={cn("mt-3 flex flex-col gap-2 rounded-lg border border-dashed border-border/70 p-2.5 transition-colors", isOver && "border-primary bg-primary/5")}>
+          {childRows.length === 0 && <div className="py-2 text-center text-xs text-muted-foreground">Drop an ad set here, or add one below</div>}
+          {childRows.map((child) => (
+            <AdSetNode key={child.oldKey} row={child} childRows={childrenOf.get(child.oldKey) || []} campaignPlatform={row.platform} {...helpers} />
+          ))}
+          {canEdit && (
+            <button type="button" onClick={onAddAdSet}
+              className="flex items-center justify-center gap-1.5 rounded-md border-0 bg-transparent py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+              <Plus className="h-3 w-3" />Add {family === "social" ? "ad set" : "ad group"}
+            </button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AdSetNode({ row, childRows, campaignPlatform, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow }) {
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({ id: row.oldKey });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `adset:${row.oldKey}` });
+  const family = platformFamily(row.platform || campaignPlatform);
+  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 30, position: "relative" } : undefined;
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow };
+  return (
+    <div ref={setDragRef} style={style} className={cn(isDragging && "opacity-40")}>
+      <Card className="border-l-4 border-l-secondary-foreground/20 bg-secondary/30">
+        <CardContent className="p-3">
+          <NodeHeader row={row} icon={Layers} nodeLabel="ad set" dragHandleProps={{ ...attributes, ...listeners }} compact {...helpers} />
+          {family === "social" && (
+            <div ref={setDropRef} className={cn("mt-2 flex flex-col gap-1.5 rounded-md border border-dashed border-border/60 p-2 transition-colors", isOver && "border-primary bg-primary/5")}>
+              {childRows.length === 0 && <div className="py-1 text-center text-[11px] text-muted-foreground">Drop an ad here</div>}
+              {childRows.map((ad) => <AdNode key={ad.oldKey} row={ad} {...helpers} />)}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AdNode({ row, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: row.oldKey });
+  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 30, position: "relative" } : undefined;
+  return (
+    <div ref={setNodeRef} style={style} className={cn(isDragging && "opacity-40")}>
+      <Card className="border-l-4 border-l-muted-foreground/20">
+        <CardContent className="p-2.5">
+          <NodeHeader row={row} icon={ImageIcon} nodeLabel="ad" dragHandleProps={{ ...attributes, ...listeners }} compact
+            dimByKey={dimByKey} profiles={profiles} rowTemplate={rowTemplate} generatedName={generatedName} finalName={finalName}
+            canEdit={canEdit} updateRow={updateRow} removeRow={removeRow} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function UnassignedZone({ items, childrenOf, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow }) {
+  const { setNodeRef, isOver } = useDroppable({ id: "unassigned" });
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow };
+  return (
+    <div ref={setNodeRef} className={cn("flex flex-col gap-2 rounded-lg border border-dashed p-3 transition-colors", items.length > 0 ? "border-warning/50 bg-warning/5" : "border-border/60", isOver && "border-warning bg-warning/10")}>
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <Layers className="h-3.5 w-3.5" />Unassigned {items.length > 0 && `(${items.length})`}
+      </div>
+      {items.length === 0 ? (
+        <div className="py-1 text-[11px] text-muted-foreground">Nothing unassigned — drop something here to detach it from its campaign or ad set.</div>
+      ) : (
+        <>
+          <div className="text-[11px] text-muted-foreground">Not nested under a campaign yet — drag onto a campaign or ad set above.</div>
+          {items.map((row) => row.level === "adgroup" ? (
+            <AdSetNode key={row.oldKey} row={row} childRows={childrenOf.get(row.oldKey) || []} campaignPlatform="" {...helpers} />
+          ) : (
+            <AdNode key={row.oldKey} row={row} {...helpers} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Shared collapsed/expandable header used by every Builder node (Campaign/AdSet/Ad) — collapsed
+// shows the generated name + status/action/budget at a glance; expanded reveals the same field set
+// the Table view edits (Action/Status/Targeting/Budget/name tokens/manual override), so nothing is
+// Builder-only or Table-only in terms of what's editable, just how it's arranged.
+function NodeHeader({ row, icon: Icon, nodeLabel, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow, dragHandleProps, showPlatform, compact }) {
+  const [expanded, setExpanded] = useState(false);
+  const template = rowTemplate(row);
+  const tokens = templateTokens(template).filter((t) => t !== "platform");
+  const validation = validateName(finalName(row), template);
+  const statusMeta = STATUS_META[row.status] || STATUS_META.planned;
+  return (
+    <div>
+      <div className="flex items-start gap-2">
+        {dragHandleProps && (
+          <button type="button" {...dragHandleProps}
+            className="mt-0.5 flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded border-0 bg-transparent text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing">
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        )}
+        <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", compact ? "text-muted-foreground" : "text-primary")} />
+        <div className="min-w-0 flex-1">
+          <button type="button" onClick={() => setExpanded((e) => !e)} className="flex w-full items-center gap-1.5 border-0 bg-transparent p-0 text-left">
+            <span className={cn("truncate font-mono font-semibold text-foreground", compact ? "text-xs" : "text-sm")}>{finalName(row) || `Untitled ${nodeLabel}`}</span>
+            <ChevronDown className={cn("h-3 w-3 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+          </button>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+            {row.oldName && <span className="truncate text-[11px] text-muted-foreground">was &quot;{row.oldName}&quot;</span>}
+            <Badge variant="outline" className="h-4 px-1.5 text-[10px]">{ACTION_LABELS[row.action] || row.action}</Badge>
+            <Badge variant={statusMeta.badge} className="h-4 px-1.5 text-[10px]">{statusMeta.label}</Badge>
+            {row.budget ? <span className="text-[11px] font-medium text-foreground">{fmtFull(Number(row.budget))}</span> : null}
+            {!validation.valid && finalName(row) && <span className="text-[11px] text-warning">⚠ {validation.issues[0]}</span>}
+          </div>
+        </div>
+        {canEdit && (
+          <button type="button" onClick={() => removeRow(row.oldKey)} className="shrink-0 border-0 bg-transparent p-1 text-muted-foreground/60 hover:text-destructive">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="mt-2.5 flex flex-col gap-2.5 border-t border-border/60 pt-2.5">
+          {showPlatform && (
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Channel</div>
+              <Select disabled={!canEdit} value={row.platform || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { platform: v === "__none__" ? "" : v })}>
+                <SelectTrigger className="h-7 w-[160px] text-xs"><SelectValue placeholder="Channel…" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Channel…</SelectItem>
+                  {Object.keys(PLATFORM_CODES).map((p) => <SelectItem key={p} value={p}>{p} ({PLATFORM_CODES[p]})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Action</div>
+              <Select disabled={!canEdit} value={row.action} onValueChange={(v) => updateRow(row.oldKey, { action: v })}>
+                <SelectTrigger className="h-7 w-[120px] text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>{Object.entries(ACTION_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Status</div>
+              <Select disabled={!canEdit} value={row.status} onValueChange={(v) => updateRow(row.oldKey, { status: v })}>
+                <SelectTrigger className="h-7 w-[120px] text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>{Object.entries(STATUS_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Targeting</div>
+              <Select disabled={!canEdit} value={row.targetingProfileId || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { targetingProfileId: v === "__none__" ? "" : v })}>
+                <SelectTrigger className="h-7 w-[140px] text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Budget</div>
+              <Input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(row.oldKey, { budget: e.target.value })} placeholder="$/mo" className="h-7 w-24 text-xs" />
+            </div>
+          </div>
+          {tokens.length > 0 && (
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Name tokens</div>
+              <div className="flex flex-wrap gap-1.5">
+                {tokens.map((tok) => {
+                  const dim = dimByKey[tok];
+                  const val = row.dimValues?.[tok] || "";
+                  if (dim && dim.values.length > 0) {
+                    if (dim.values.length > 12) {
+                      return (
+                        <SearchableSelect key={tok} options={dim.values} value={val}
+                          onChange={(v) => updateRow(row.oldKey, { dimValues: { ...row.dimValues, [tok]: v } })}
+                          disabled={!canEdit} placeholder={`${dim.label}…`} className="w-40" />
+                      );
+                    }
+                    return (
+                      <Select key={tok} disabled={!canEdit} value={val || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { dimValues: { ...row.dimValues, [tok]: v === "__none__" ? "" : v } })}>
+                        <SelectTrigger className="h-7 w-[120px] text-xs"><SelectValue placeholder={`${dim.label}…`} /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">{dim.label}…</SelectItem>
+                          {dim.values.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    );
+                  }
+                  return (
+                    <Input key={tok} disabled={!canEdit} value={val} onChange={(e) => updateRow(row.oldKey, { dimValues: { ...row.dimValues, [tok]: e.target.value } })}
+                      placeholder={dim ? dim.label : tok} className="h-7 w-28 text-xs" />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Manual name override</div>
+            <Input disabled={!canEdit} value={row.manualName} onChange={(e) => updateRow(row.oldKey, { manualName: e.target.value })}
+              placeholder={generatedName(row) || "Generated from taxonomy…"} className="h-7 font-mono text-xs" />
+          </div>
+          {!row.oldName && (
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Old name (optional)</div>
+              <Input disabled={!canEdit} value={row.oldName} onChange={(e) => updateRow(row.oldKey, { oldName: e.target.value })} placeholder="e.g. existing campaign this replaces" className="h-7 text-xs" />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
