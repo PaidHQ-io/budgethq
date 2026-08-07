@@ -443,6 +443,13 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
   const family = taxonomy.family || "search";
+  // Context's own Budgets list (Step 1, free-form label+amount, e.g. "Insight — Q4: $200k") is the
+  // overall pot; Budget Allocation below breaks that same pot down by dimension value, which can
+  // only happen here since dimension values don't exist yet at Context time. Surfacing the Context
+  // total inside each allocation card (2026-08-06, per Mo — "why is it at the bottom of taxonomy
+  // when we already have it in the context tab") is what actually connects the two steps instead of
+  // leaving them looking like two unrelated budget UIs.
+  const contextBudgetTotal = (context.budgets || []).reduce((s, b) => s + (Number(b.amount) || 0), 0);
 
   useEffect(() => {
     // One-time seed: if the product/region dimensions are still empty and Context has values, pull
@@ -542,7 +549,7 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
         </div>
       </div>
 
-      <BudgetAllocation dimensions={dimensions} updateDim={updateDim} canEdit={canEdit} />
+      <BudgetAllocation dimensions={dimensions} updateDim={updateDim} canEdit={canEdit} contextBudgetTotal={contextBudgetTotal} />
     </div>
   );
 }
@@ -562,13 +569,14 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
 // used for naming/targeting at any size; it just doesn't get a budget-allocation card here.
 const MAX_BUDGET_ALLOCATION_VALUES = 15;
 
-function BudgetAllocation({ dimensions, updateDim, canEdit }) {
+function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }) {
   const eligible = dimensions.filter((d) => d.values.length > 0 && d.values.length <= MAX_BUDGET_ALLOCATION_VALUES);
   return (
     <div>
       <SectionLabel>Budget Allocation</SectionLabel>
       <div className="mb-2.5 text-xs text-muted-foreground">
         Optional target $/mo per value, for any dimension with a manageable value list — compared against actual Mapping budgets on the Mapping step.
+        {contextBudgetTotal > 0 && ` Your Context budget totals ${fmtFull(contextBudgetTotal)}/mo — each card below shows how its own breakdown compares to that same total.`}
       </div>
       {eligible.length === 0 ? (
         <div className="text-xs text-muted-foreground">Add values to a dimension above (segment, region, product, or a custom one) to set budget targets for it.</div>
@@ -578,12 +586,17 @@ function BudgetAllocation({ dimensions, updateDim, canEdit }) {
             const budgets = d.budgets || {};
             const total = Object.values(budgets).reduce((s, v) => s + (Number(v) || 0), 0);
             const setValueBudget = (value, amount) => updateDim(d.key, { budgets: { ...budgets, [value]: amount } });
+            const remaining = contextBudgetTotal > 0 ? contextBudgetTotal - total : null;
             return (
               <Card key={d.key}>
                 <CardContent className="p-4">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold text-foreground">{d.label}</span>
-                    {total > 0 && <span className="shrink-0 text-xs font-medium text-primary">{fmtFull(total)}/mo</span>}
+                    {total > 0 && (
+                      <span className="shrink-0 text-xs font-medium text-primary">
+                        {fmtFull(total)}/mo{contextBudgetTotal > 0 && <span className="font-normal text-muted-foreground"> / {fmtFull(contextBudgetTotal)}</span>}
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     {d.values.map((v) => (
@@ -594,6 +607,11 @@ function BudgetAllocation({ dimensions, updateDim, canEdit }) {
                       </div>
                     ))}
                   </div>
+                  {remaining != null && total > 0 && (
+                    <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remaining < 0 ? "text-destructive" : remaining > 0 ? "text-warning" : "text-success")}>
+                      {remaining < 0 ? `${fmtFull(Math.abs(remaining))} over your Context budget` : remaining > 0 ? `${fmtFull(remaining)} of Context budget not yet allocated here` : "Fully allocated"}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
