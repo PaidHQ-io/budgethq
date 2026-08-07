@@ -13,7 +13,7 @@ import {
   computeDimensionBudgetComparison,
 } from "../lib/accountPlanning.js";
 import { SearchableSelect } from "./ui/searchable-select.jsx";
-import { fmtFull } from "../lib/core.js";
+import { fmtFull, campaignKey, adKey, splitFilterTerms, matchesTerms, localISODate } from "../lib/core.js";
 import { DonutChart, BarList } from "@tremor/react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import {
@@ -280,20 +280,71 @@ function ContextStep({ context, setContext, canEdit }) {
 
 // ─── STEP 2: AUDIT ──────────────────────────────────────────────────────────────────────────────
 
-function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, auditDecisions, setAuditDecisions, mapping, setMapping, canEdit }) {
+// Date-range presets for the Audit table (2026-08-07, per Mo — "a time frame filter so I can choose
+// custom dates and also the typical last 7 days, last 30 days, last 90 days, last month, this
+// month"). Mirrors the "recommended presets relative to today, custom falls back to fixed inputs"
+// shape PaidHQ.jsx's own SYNC_RANGE_PRESETS uses for the sync date picker, extended with calendar-
+// month presets since Mo asked for those specifically here. buildAuditGroups() already accepted
+// dateFrom/dateTo params (built for a future need) — this is the first UI to actually pass them.
+const AUDIT_DATE_PRESETS = [
+  { key: "all", label: "All time" },
+  { key: "last7", label: "Last 7 days" },
+  { key: "last30", label: "Last 30 days" },
+  { key: "last90", label: "Last 90 days" },
+  { key: "thisMonth", label: "This month" },
+  { key: "lastMonth", label: "Last month" },
+  { key: "custom", label: "Custom" },
+];
+function computeAuditDateRange(preset, customStart, customEnd) {
+  const now = new Date();
+  if (preset === "all") return { dateFrom: null, dateTo: null };
+  if (preset === "custom") return { dateFrom: customStart || null, dateTo: customEnd || null };
+  if (preset === "thisMonth") return { dateFrom: localISODate(new Date(now.getFullYear(), now.getMonth(), 1)), dateTo: localISODate(now) };
+  if (preset === "lastMonth") {
+    return {
+      dateFrom: localISODate(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+      dateTo: localISODate(new Date(now.getFullYear(), now.getMonth(), 0)),
+    };
+  }
+  const days = { last7: 7, last30: 30, last90: 90 }[preset] || 30;
+  const s = new Date(now);
+  s.setDate(s.getDate() - (days - 1));
+  return { dateFrom: localISODate(s), dateTo: localISODate(now) };
+}
+
+// Effective tags for an Audit group, mirroring AdTagger.jsx's own effectiveTagsFor: an ad-level
+// group's tags are its explicit adTags entry layered over its parent campaign's tags entry (falls
+// back cleanly to just the campaign's tags for campaign-level groups, since adKey lookups will
+// simply miss). This is what lets "filter by tags/dimensions" here reuse the SAME tag data Campaign
+// Tagger/Ad Tagger already produced elsewhere in the app, rather than inventing a second tagging
+// system scoped to Account Planning alone.
+function effectiveAuditTags(g, tags, adTags) {
+  const campTags = tags[campaignKey(g.campaignGroupName, g.campaignName)] || {};
+  if (g.level !== "ad") return campTags;
+  const key = adKey(g.campaignGroupName, g.campaignName, g.adLabel || "");
+  return { ...campTags, ...(adTags[key] || {}) };
+}
+
+function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, tags = {}, tagDims = [], adTags = {}, auditDecisions, setAuditDecisions, mapping, setMapping, canEdit }) {
   const [reportingFacts, setReportingFacts] = useState(null);
   const [minSpend, setMinSpend] = useState(100);
   const [tierFilter, setTierFilter] = useState("all");
+  const [fTag, setFTag] = useState("");
+  const [datePreset, setDatePreset] = useState("all");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
   useEffect(() => {
     if (!workspace?.id || !session) return;
     listReportingFacts(session, workspace.id).then(setReportingFacts).catch(() => setReportingFacts([]));
   }, [session, workspace?.id]);
 
+  const { dateFrom, dateTo } = useMemo(() => computeAuditDateRange(datePreset, customStart, customEnd), [datePreset, customStart, customEnd]);
+
   const groups = useMemo(() => {
     if (reportingFacts === null) return [];
-    const built = buildAuditGroups({ mergedNormRows: mergedNormRows || [], reportingFacts, combineGoogleChannels });
+    const built = buildAuditGroups({ mergedNormRows: mergedNormRows || [], reportingFacts, combineGoogleChannels, dateFrom, dateTo });
     return scoreAuditGroups(built, { minSpend: Number(minSpend) || 0 });
-  }, [mergedNormRows, reportingFacts, combineGoogleChannels, minSpend]);
+  }, [mergedNormRows, reportingFacts, combineGoogleChannels, minSpend, dateFrom, dateTo]);
 
   const counts = useMemo(() => {
     const c = { keep: 0, review: 0, consolidate: 0, "insufficient-data": 0, totalSpend: 0 };
@@ -307,7 +358,13 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
       .filter((d) => d.value > 0)
   ), [counts]);
 
-  const visible = tierFilter === "all" ? groups : groups.filter((g) => g.tier === tierFilter);
+  const tierFiltered = tierFilter === "all" ? groups : groups.filter((g) => g.tier === tierFilter);
+  const tagTerms = splitFilterTerms(fTag);
+  const visible = tagTerms.length === 0 ? tierFiltered : tierFiltered.filter((g) => {
+    const eff = effectiveAuditTags(g, tags, adTags);
+    const s = Object.entries(eff).map(([d, v]) => `${d}:${v}`).join(" ").toLowerCase();
+    return matchesTerms(s, tagTerms, "or");
+  });
 
   const addToMapping = (g) => {
     if (mapping.some((m) => m.oldKey === g.key)) return;
@@ -358,12 +415,38 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
         </Card>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-end gap-3">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Min spend to score</span>
           <Input type="number" value={minSpend} onChange={(e) => setMinSpend(e.target.value)} className="h-8 w-24 text-xs" />
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">
+            Filter by tag/dimension{tagDims.length > 0 && <> — {tagDims.slice(0, 4).join(", ")}</>}
+          </span>
+          <Input value={fTag} onChange={(e) => setFTag(e.target.value)}
+            placeholder={`e.g. ${(tagDims[0] || "product").toLowerCase()}:value, comma-separated`}
+            className="h-8 w-64 text-xs" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Time frame</span>
+          <div className="flex items-center gap-1.5">
+            <Select value={datePreset} onValueChange={setDatePreset}>
+              <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {AUDIT_DATE_PRESETS.map((p) => <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {datePreset === "custom" && (
+              <>
+                <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-8 w-[136px] text-xs" />
+                <span className="text-xs text-muted-foreground">to</span>
+                <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-8 w-[136px] text-xs" />
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5 pb-1.5">
           {["all", "keep", "review", "consolidate", "insufficient-data"].map((t) => (
             <Badge key={t} variant={t === "all" ? "outline" : tierFilter === t ? TIER_META[t].badge : "outline"}
               className={cn("cursor-pointer select-none", tierFilter !== t && "opacity-60")} onClick={() => setTierFilter(t)}>
@@ -377,9 +460,14 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Campaign / Ad</TableHead>
+              <TableHead className="w-10">#</TableHead>
+              <TableHead>Campaign Group</TableHead>
+              <TableHead>Campaign</TableHead>
+              <TableHead>Ad</TableHead>
               <TableHead>Platform</TableHead>
               <TableHead>Spend</TableHead>
+              <TableHead>Impressions</TableHead>
+              <TableHead>Clicks</TableHead>
               <TableHead>Signal</TableHead>
               <TableHead>Cost/unit</TableHead>
               <TableHead>Decision</TableHead>
@@ -387,17 +475,19 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visible.slice(0, 250).map((g) => {
+            {visible.slice(0, 250).map((g, i) => {
               const dec = auditDecisions[g.key] || {};
               const inMapping = mapping.some((m) => m.oldKey === g.key);
               return (
                 <TableRow key={g.key}>
-                  <TableCell className="max-w-[220px]">
-                    <div className="truncate text-sm font-medium text-foreground">{g.level === "ad" ? (g.adLabel || g.campaignName) : g.campaignName}</div>
-                    {g.level === "ad" && <div className="truncate text-xs text-muted-foreground">{g.campaignName}</div>}
-                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                  <TableCell className="max-w-[180px]"><div className="truncate text-sm text-foreground">{g.campaignGroupName}</div></TableCell>
+                  <TableCell className="max-w-[200px]"><div className="truncate text-sm font-medium text-foreground">{g.campaignName}</div></TableCell>
+                  <TableCell className="max-w-[180px]"><div className="truncate text-sm text-foreground">{g.level === "ad" ? (g.adLabel || "—") : "—"}</div></TableCell>
                   <TableCell className="text-sm text-muted-foreground">{g.platform}</TableCell>
                   <TableCell className="text-sm">{fmtFull(g.spend)}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{(g.impressions || 0).toLocaleString()}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{(g.clicks || 0).toLocaleString()}</TableCell>
                   <TableCell>
                     <div className="text-xs text-muted-foreground">{SIGNAL_LABELS[g.signalType]}</div>
                     {g.primaryMetricKey && <div className="text-[11px] text-muted-foreground/70">{g.primaryMetricKey}</div>}
@@ -1542,7 +1632,7 @@ function NodeHeader({ row, icon: Icon, nodeLabel, dimByKey, profiles, rowTemplat
 
 // ─── MAIN ───────────────────────────────────────────────────────────────────────────────────────
 
-export default function AccountPlanning({ session, workspace, mergedNormRows, combineGoogleChannels = {}, canEdit }) {
+export default function AccountPlanning({ session, workspace, mergedNormRows, combineGoogleChannels = {}, tags = {}, tagDims = [], adTags = {}, canEdit }) {
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -1677,6 +1767,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
             {activeStep === "context" && <ContextStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
             {activeStep === "audit" && (
               <AuditStep session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels}
+                tags={tags} tagDims={tagDims} adTags={adTags}
                 auditDecisions={plan.auditDecisions || {}} setAuditDecisions={(v) => setStepField("auditDecisions", v)}
                 mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} canEdit={canEdit} />
             )}

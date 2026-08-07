@@ -4677,7 +4677,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           Audit below (deliberately NOT visibleNormRows — an audit of what's working shouldn't
           silently hide a paused/excluded connector's history, same reasoning as Data Audit's own
           comment). No sidebar portal needed (self-contained page, same as Data Audit). */}
-      {view==="accountPlanning"&&<Suspense fallback={<TabLoadingFallback/>}><AccountPlanning T={T} session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels} canEdit={canEdit}/></Suspense>}
+      {view==="accountPlanning"&&<Suspense fallback={<TabLoadingFallback/>}><AccountPlanning T={T} session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels} tags={tags} tagDims={tagDims} adTags={adTags} canEdit={canEdit}/></Suspense>}
       {view==="changeHistory"&&<Suspense fallback={<TabLoadingFallback/>}><ChangeHistory T={T} session={session} workspace={workspace} canEdit={canEdit} sidebarEl={changeHistorySidebarEl}/></Suspense>}
       {view==="vault"&&<Suspense fallback={<TabLoadingFallback/>}><Vault T={T} session={session} workspace={workspace} canEdit={canEdit} sidebarEl={vaultSidebarEl}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the
