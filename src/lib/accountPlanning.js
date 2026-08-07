@@ -476,8 +476,9 @@ export function templateTokens(template) {
 // Target-vs-actual budget comparison for ONE taxonomy dimension (2026-08-06, per Mo — "I need to be
 // able to set budgets for each segment separately... MM/SMB/ENT and also by persona and by region
 // and by product and by other custom segments or dimensions I create in the process"). Targets live
-// on the dimension itself (taxonomy.dimensions[i].budgets = { [value]: amount }, set in the Taxonomy
-// step — same "one source of truth" reasoning as segment/industry values feeding Targeting's option
+// on the dimension itself (taxonomy.dimensions[i].budgets = { [value]: amount }, set in the Budget
+// step (2026-08-07, moved out of Taxonomy — see AccountPlanning.jsx's BudgetStep doc comment) — same
+// "one source of truth" reasoning as segment/industry values feeding Targeting's option
 // lists) so a target and the values it can be set against can never drift apart. Actuals are the
 // SAME computeBudgetRollup grouping logic, just per-value for this one dimension instead of a full
 // rollup list. Returns the union of every value that has a target OR actual spend (so a value with a

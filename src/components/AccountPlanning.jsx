@@ -21,7 +21,7 @@ import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, use
 import {
   Plus, Trash2, ChevronLeft, Compass, Search, Tags, Target as TargetIcon, ListChecks, X, Moon, Sun,
   Users, Ban, Repeat, GripVertical, Megaphone, Layers, Image as ImageIcon, LayoutGrid, Table2, ChevronDown,
-  Info,
+  Info, DollarSign,
 } from "lucide-react";
 import { Button } from "./ui/button.jsx";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.jsx";
@@ -54,13 +54,22 @@ import { cn } from "../lib/utils.js";
 //   - The underlying data model and engine (accountPlanning.js, accountPlanningApi.js,
 //     targetingLibraryApi.js) are COMPLETELY UNCHANGED — this is a presentation-layer rewrite only.
 //
-// A "plan" is a resumable project (list view below) that walks five steps:
-//   1. Context    — products/regions/personas + budgets, free-form inputs that seed step 3.
+// A "plan" is a resumable project (list view below) that walks six steps:
+//   1. Context    — products/regions/personas/segments/ad formats/objectives, free-form tag-list
+//                   inputs that seed step 3 and step 4.
 //   2. Audit      — "what's working" now, computed LIVE every time (see accountPlanning.js's own
 //                   doc comment for why numbers are never frozen), with a persisted decision layer.
 //   3. Taxonomy   — target naming convention across Campaign/Ad Group(Set)/Ad, generated live.
-//   4. Targeting  — shared library (lists/exclusions/remarketing) + reusable Targeting Profiles.
-//   5. Mapping    — old campaign/ad -> new generated name, the actual execution checklist.
+//   4. Budget     — the plan's monthly total + per-dimension $/% allocation (2026-08-07, per Mo —
+//                   "There should be a net new tab just for setting budgets and allocating budgets
+//                   per segment... nor do I think any budget allocation should be set in context...
+//                   we should toggle between real dollar amounts and percentages"). Split out of
+//                   Context (which previously held a free-form itemized budget list) and Taxonomy
+//                   (which previously held the per-dimension allocation cards) into its own step —
+//                   lives after Taxonomy because allocating "per segment" needs that dimension's
+//                   value list to already exist.
+//   5. Targeting  — shared library (lists/exclusions/remarketing) + reusable Targeting Profiles.
+//   6. Mapping    — old campaign/ad -> new generated name, the actual execution checklist.
 //
 // mergedNormRows/combineGoogleChannels come from PaidHQ.jsx's central workspace-data load, same
 // props DataAudit.jsx receives — reporting_facts isn't part of that central load, so this component
@@ -70,6 +79,7 @@ const STEPS = [
   { key: "context", label: "Context", Icon: TargetIcon },
   { key: "audit", label: "Audit", Icon: Search },
   { key: "taxonomy", label: "Taxonomy", Icon: Tags },
+  { key: "budget", label: "Budget", Icon: DollarSign },
   { key: "targeting", label: "Targeting", Icon: Compass },
   { key: "mapping", label: "Mapping", Icon: ListChecks },
 ];
@@ -249,28 +259,27 @@ function ContextStep({ context, setContext, canEdit }) {
   const segments = context.segments && context.segments.length ? context.segments : DEFAULT_SEGMENTS;
   const adFormats = context.adFormats && context.adFormats.length ? context.adFormats : DEFAULT_AD_FORMATS;
   const objectives = context.objectives && context.objectives.length ? context.objectives : DEFAULT_AD_SET_OBJECTIVES;
-  const budgets = context.budgets || [];
-  const [bLabel, setBLabel] = useState(""); const [bAmount, setBAmount] = useState("");
-  const addBudget = () => { const l = bLabel.trim(); const a = Number(bAmount); if (!l || !a) return; setContext({ ...context, budgets: [...budgets, { label: l, amount: a }] }); setBLabel(""); setBAmount(""); };
-  // updateBudgetAmount (2026-08-07, per Mo — "fix the budget inputs ... so I can edit budget
-  // amounts"): budget rows previously only supported delete-and-re-add to change a number, since the
-  // amount rendered as a static span. Edits the amount in place, keeping the label untouched.
-  const updateBudgetAmount = (i, amount) => setContext({ ...context, budgets: budgets.map((b, x) => (x === i ? { ...b, amount } : b)) });
   return (
     <div className="flex flex-col gap-4">
       {/* Walkthrough (2026-08-07, per Mo — "I also need an explanation or walk through of what to
-          do in this screen for the benefit of the user"): this is the FIRST step of the 5-step
-          Account Planning flow (Context -> Audit -> Taxonomy -> Targeting -> Mapping), and it's all
-          freeform inputs with no validation, so a first-time user has no signal for what "done"
-          looks like here or why it matters. Explains each field in the order it appears below and
-          how it feeds later steps, so the panel and the grid stay in sync if fields are reordered. */}
+          do in this screen for the benefit of the user"): this is the FIRST step of the 6-step
+          Account Planning flow (Context -> Audit -> Taxonomy -> Budget -> Targeting -> Mapping), and
+          it's all freeform inputs with no validation, so a first-time user has no signal for what
+          "done" looks like here or why it matters. Explains each field in the order it appears below
+          and how it feeds later steps, so the panel and the grid stay in sync if fields are
+          reordered. Budgets USED to live on this screen as a free-form itemized list — moved out
+          entirely into their own Budget step (2026-08-07, per Mo — "nor do I think any budget
+          allocation should be set in context... There should be a net new tab just for setting
+          budgets and allocating budgets per segment") since setting a total and allocating it per
+          segment/dimension is a different kind of task than the tag-list scoping fields below, and
+          deserved its own dedicated screen rather than competing for space here. */}
       <Card className="border-primary/20 bg-primary/5">
         <CardContent className="flex gap-3 pt-4">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div className="text-sm text-muted-foreground">
             <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
             <p>
-              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, <span className="font-medium text-foreground">Company Size Segments</span>, <span className="font-medium text-foreground">Ad Format</span>, and <span className="font-medium text-foreground">Ad Set Objective</span> are all simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. These describe what this plan covers and carry through as reference context in later steps (Taxonomy, Targeting, Mapping); Ad Format and Ad Set Objective in particular are what you intend to use, which is worth keeping distinct from what's actually running today (that's what the Audit step's own Ad Format/Objective columns show, pulled live from the connected accounts). <span className="font-medium text-foreground">Budgets</span> is where you break the total spend down by whatever lines make sense (by product, region, persona, segment, or anything else) — add a label and an amount, and edit an amount any time by typing directly into its field. None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be.
+              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, <span className="font-medium text-foreground">Company Size Segments</span>, <span className="font-medium text-foreground">Ad Format</span>, and <span className="font-medium text-foreground">Ad Set Objective</span> are all simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. These describe what this plan covers and carry through as reference context in later steps (Taxonomy, Targeting, Mapping); Ad Format and Ad Set Objective in particular are what you intend to use, which is worth keeping distinct from what's actually running today (that's what the Audit step's own Ad Format/Objective columns show, pulled live from the connected accounts). None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be. Setting the actual budget — total and per-segment breakdown — happens in its own Budget step, once these fields (and Taxonomy's dimensions) exist to allocate against.
             </p>
           </div>
         </CardContent>
@@ -322,37 +331,6 @@ function ContextStep({ context, setContext, canEdit }) {
             <ChipList items={objectives} canEdit={canEdit} placeholder="Add an objective…"
               onAdd={(v) => setContext({ ...context, objectives: [...objectives, v] })}
               onRemove={(i) => setContext({ ...context, objectives: objectives.filter((_, x) => x !== i) })} />
-          </CardContent>
-        </Card>
-        <Card className="sm:col-span-2">
-          <CardHeader className="pb-2"><CardTitle>Budgets</CardTitle></CardHeader>
-          <CardContent>
-            <div className={cn("flex flex-col gap-1.5", canEdit ? "mb-2" : "")}>
-              {budgets.map((b, i) => (
-                <div key={i} className="flex items-center gap-2.5 rounded-md bg-secondary px-3 py-2 text-sm">
-                  <span className="flex-1 text-foreground">{b.label}</span>
-                  {canEdit ? (
-                    <div className="flex items-center gap-1">
-                      <span className="text-muted-foreground">$</span>
-                      <Input type="number" value={b.amount}
-                        onChange={(e) => updateBudgetAmount(i, e.target.value === "" ? "" : Number(e.target.value))}
-                        className="h-7 w-28 text-right text-xs font-semibold" />
-                    </div>
-                  ) : (
-                    <span className="font-semibold text-foreground">{fmtFull(b.amount)}</span>
-                  )}
-                  {canEdit && <X className="h-3.5 w-3.5 cursor-pointer opacity-60 hover:opacity-100" onClick={() => setContext({ ...context, budgets: budgets.filter((_, x) => x !== i) })} />}
-                </div>
-              ))}
-              {budgets.length === 0 && <span className="text-xs text-muted-foreground">None yet</span>}
-            </div>
-            {canEdit && (
-              <div className="flex gap-1.5">
-                <Input value={bLabel} onChange={(e) => setBLabel(e.target.value)} placeholder="e.g. Insight — Q4" className="h-8 flex-1 text-xs" />
-                <Input value={bAmount} onChange={(e) => setBAmount(e.target.value)} placeholder="Amount" type="number" className="h-8 w-28 text-xs" />
-                <Button size="sm" variant="secondary" className="h-8" onClick={addBudget}>Add</Button>
-              </div>
-            )}
           </CardContent>
         </Card>
       </div>
@@ -686,13 +664,6 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
   const family = taxonomy.family || "search";
-  // Context's own Budgets list (Step 1, free-form label+amount, e.g. "Insight — Q4: $200k") is the
-  // overall pot; Budget Allocation below breaks that same pot down by dimension value, which can
-  // only happen here since dimension values don't exist yet at Context time. Surfacing the Context
-  // total inside each allocation card (2026-08-06, per Mo — "why is it at the bottom of taxonomy
-  // when we already have it in the context tab") is what actually connects the two steps instead of
-  // leaving them looking like two unrelated budget UIs.
-  const contextBudgetTotal = (context.budgets || []).reduce((s, b) => s + (Number(b.amount) || 0), 0);
 
   useEffect(() => {
     // One-time seed: if the product/region dimensions are still empty and Context has values, pull
@@ -791,8 +762,72 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
           {"{platform}"} always fills with a channel code (LIN/FB/BIN/SEA/GDN/DEM/PMX/YT) instead of the full platform name, and every value has spaces/punctuation stripped before joining — the only "_" or "-" in a generated name is the separator between segments.
         </div>
       </div>
+    </div>
+  );
+}
 
-      <BudgetAllocation dimensions={dimensions} updateDim={updateDim} canEdit={canEdit} contextBudgetTotal={contextBudgetTotal} />
+// ─── STEP 4: BUDGET ─────────────────────────────────────────────────────────────────────────────
+// (2026-08-07, per Mo — "I don't think the budget allocation should live in taxonomy, nor do I
+// think any budget allocation should be set in context except maybe for the whole monthly budget.
+// There should be a net new tab just for setting budgets and allocating budgets per segment. We
+// should toggle between real dollar amounts and percentages." Replaces TWO earlier homes for budget
+// data: Context's Step 1 used to have a free-form itemized "Budgets" list (label + $ per line,
+// summed for a total); Taxonomy used to have this same BudgetAllocation card at the bottom of its
+// own step. Both are gone now — this is the one place a plan's money lives.)
+//
+// budgetTotal lives on taxonomy.budgetTotal (a plain number) rather than a new top-level column —
+// same jsonb-bucket-inside-an-existing-field trick as everything else in this plan, so no DB
+// migration was needed. Kept on taxonomy (not context) specifically because BudgetAllocation below
+// needs to read it in the same object it reads dimensions from, and because per-dimension targets
+// (dim.budgets) already lived there. LEGACY_MIGRATION: a plan created before this step existed may
+// still have an itemized context.budgets list with real $ in it (e.g. "MCP: $50k, GTM Studio: $75k,
+// ...") — rather than silently losing that total, budgetTotal falls back to the SUM of that legacy
+// list until the user explicitly sets a real budgetTotal value, at which point the legacy list is
+// just inert leftover data (never deleted, never shown again).
+function BudgetStep({ taxonomy, setTaxonomy, context, canEdit }) {
+  const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
+  const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
+  const family = taxonomy.family || "search";
+  const legacyContextTotal = (context.budgets || []).reduce((s, b) => s + (Number(b.amount) || 0), 0);
+  const hasOwnTotal = taxonomy.budgetTotal != null && taxonomy.budgetTotal !== "";
+  const budgetTotal = hasOwnTotal ? Number(taxonomy.budgetTotal) || 0 : legacyContextTotal;
+  const setBudgetTotal = (v) => setTaxonomy({ ...taxonomy, dimensions, nameTemplates: templates, family, budgetTotal: v === "" ? "" : Number(v) });
+  const updateDim = (key, patch) => setTaxonomy({ ...taxonomy, dimensions: dimensions.map((d) => (d.key === key ? { ...d, ...patch } : d)), nameTemplates: templates, family, budgetTotal: taxonomy.budgetTotal });
+
+  return (
+    <div className="flex flex-col gap-5">
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="flex gap-3 pt-4">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="text-sm text-muted-foreground">
+            <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
+            <p>
+              Set the plan's overall <span className="font-medium text-foreground">Monthly Budget</span> below, then break it down per value of any Taxonomy dimension (segment, region, product, or a custom one) in <span className="font-medium text-foreground">Budget Allocation</span>. Each card has its own <span className="font-medium text-foreground">$ / %</span> toggle — enter real dollar amounts, or flip to percent and let this page do the math for you (a "Split evenly" shortcut divides 100% across a dimension's values in one click). Targets you set here get compared against what's actually mapped once you reach the Mapping step.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle>Monthly Budget</CardTitle></CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <span className="text-lg text-muted-foreground">$</span>
+            {canEdit ? (
+              <input type="number" value={hasOwnTotal ? taxonomy.budgetTotal : (legacyContextTotal || "")} onChange={(e) => setBudgetTotal(e.target.value)}
+                placeholder="0" className="h-10 w-full max-w-xs border-0 bg-transparent font-display text-2xl font-semibold text-foreground outline-none" />
+            ) : (
+              <span className="font-display text-2xl font-semibold text-foreground">{fmtFull(budgetTotal)}</span>
+            )}
+            <span className="text-sm text-muted-foreground">/mo</span>
+          </div>
+          {!hasOwnTotal && legacyContextTotal > 0 && (
+            <div className="mt-1.5 text-[11px] text-muted-foreground">Carried over from this plan's old itemized Context budgets ({fmtFull(legacyContextTotal)}/mo total) — edit the number above to set your own.</div>
+          )}
+        </CardContent>
+      </Card>
+
+      <BudgetAllocation dimensions={dimensions} updateDim={updateDim} canEdit={canEdit} budgetTotal={budgetTotal} />
     </div>
   );
 }
@@ -802,14 +837,15 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
 // also by other custom segments or dimensions I create in the process"). Targets live ON the
 // dimension itself (dim.budgets = { [value]: amount }) rather than a separate top-level structure —
 // same jsonb-bucket-inside-an-existing-field trick as everything else in this plan, so no DB
-// migration is needed (taxonomy is already a flexible jsonb column). Set here, in Taxonomy, because
-// that's where a dimension's real value list actually exists; compared against ACTUAL Mapping
+// migration is needed (taxonomy is already a flexible jsonb column). Set here, in the Budget step
+// (2026-08-07 — moved out of Taxonomy, see that step's own doc comment above), because that's where
+// budgetTotal lives and dim.budgets needs it for the % math below; compared against ACTUAL Mapping
 // budgets on the Mapping step's own Budget rollup card (computeDimensionBudgetComparison, same
 // engine function feeds both). dim.budgetMode ("dollar" | "percent") and dim.budgetPercents (2026-08-07,
 // per Mo — "set percentages for each segment instead of actual dollar values"): percent is purely an
 // input convenience — dim.budgets always holds the real dollar amount (derived from
-// contextBudgetTotal * pct/100 whenever a percent changes), so nothing downstream needs to know this
-// mode exists.
+// budgetTotal * pct/100 whenever a percent changes), so nothing downstream needs to know this mode
+// exists.
 //
 // Capped at dimensions with 1-15 values — Industry alone has 421 possible values, and a per-value $
 // input list at that size would be unusable busywork, not a real feature. A dimension can still be
@@ -824,17 +860,17 @@ const MAX_BUDGET_ALLOCATION_VALUES = 15;
 // right below it, just applied to percent instead of dollars.
 const PCT_TOLERANCE = 0.05;
 
-function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }) {
+function BudgetAllocation({ dimensions, updateDim, canEdit, budgetTotal }) {
   const eligible = dimensions.filter((d) => d.values.length > 0 && d.values.length <= MAX_BUDGET_ALLOCATION_VALUES);
   return (
     <div>
       <SectionLabel>Budget Allocation</SectionLabel>
       <div className="mb-2.5 text-xs text-muted-foreground">
         Optional target $/mo per value, for any dimension with a manageable value list — compared against actual Mapping budgets on the Mapping step.
-        {contextBudgetTotal > 0 && ` Your Context budget totals ${fmtFull(contextBudgetTotal)}/mo — each card below shows how its own breakdown compares to that same total.`}
+        {budgetTotal > 0 && ` Your Monthly Budget totals ${fmtFull(budgetTotal)}/mo — each card below shows how its own breakdown compares to that same total.`}
       </div>
       {eligible.length === 0 ? (
-        <div className="text-xs text-muted-foreground">Add values to a dimension above (segment, region, product, or a custom one) to set budget targets for it.</div>
+        <div className="text-xs text-muted-foreground">Add values to a dimension in Taxonomy (segment, region, product, or a custom one) to set budget targets for it.</div>
       ) : (
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {eligible.map((d) => {
@@ -845,7 +881,8 @@ function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }
             // mode is purely an alternate INPUT method that computes and writes the dollar amount
             // back into budgets on every keystroke, so nothing downstream has to know this mode
             // exists. budgetPercents just remembers what the user actually typed, so switching back
-            // to % mode (or the Context total changing later) doesn't lose/misrepresent their split.
+            // to % mode (or the Monthly Budget total changing later) doesn't lose/misrepresent their
+            // split.
             const mode = d.budgetMode === "percent" ? "percent" : "dollar";
             const percents = d.budgetPercents || {};
             const total = Object.values(budgets).reduce((s, v) => s + (Number(v) || 0), 0);
@@ -853,15 +890,15 @@ function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }
             const setValueBudget = (value, amount) => updateDim(d.key, { budgets: { ...budgets, [value]: amount } });
             const setValuePercent = (value, pct) => {
               const nextPercents = { ...percents, [value]: pct };
-              const dollarAmount = contextBudgetTotal > 0 ? Math.round(contextBudgetTotal * (Number(pct) || 0)) / 100 : "";
+              const dollarAmount = budgetTotal > 0 ? Math.round(budgetTotal * (Number(pct) || 0)) / 100 : "";
               updateDim(d.key, { budgetPercents: nextPercents, budgets: { ...budgets, [value]: dollarAmount } });
             };
             const setMode = (nextMode) => {
-              if (nextMode === "percent" && contextBudgetTotal > 0) {
+              if (nextMode === "percent" && budgetTotal > 0) {
                 // Seed percents from whatever dollar amounts already exist, so toggling to % for the
                 // first time on an already-filled-in card doesn't blank everything out.
                 const seeded = { ...percents };
-                d.values.forEach((v) => { if (seeded[v] == null && budgets[v]) seeded[v] = Math.round((Number(budgets[v]) / contextBudgetTotal) * 1000) / 10; });
+                d.values.forEach((v) => { if (seeded[v] == null && budgets[v]) seeded[v] = Math.round((Number(budgets[v]) / budgetTotal) * 1000) / 10; });
                 updateDim(d.key, { budgetMode: nextMode, budgetPercents: seeded });
               } else {
                 updateDim(d.key, { budgetMode: nextMode });
@@ -877,10 +914,10 @@ function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }
               const nextPercents = {};
               d.values.forEach((v, i) => { nextPercents[v] = i === n - 1 ? Math.round((100 - even * (n - 1)) * 10) / 10 : even; });
               const nextBudgets = { ...budgets };
-              d.values.forEach((v) => { nextBudgets[v] = contextBudgetTotal > 0 ? Math.round(contextBudgetTotal * (nextPercents[v] || 0)) / 100 : ""; });
+              d.values.forEach((v) => { nextBudgets[v] = budgetTotal > 0 ? Math.round(budgetTotal * (nextPercents[v] || 0)) / 100 : ""; });
               updateDim(d.key, { budgetPercents: nextPercents, budgets: nextBudgets });
             };
-            const remaining = contextBudgetTotal > 0 ? contextBudgetTotal - total : null;
+            const remaining = budgetTotal > 0 ? budgetTotal - total : null;
             const remainingPct = 100 - pctTotal;
             return (
               <Card key={d.key}>
@@ -890,16 +927,16 @@ function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }
                     <div className="flex shrink-0 items-center gap-2">
                       {total > 0 && (
                         <span className="text-xs font-medium text-primary">
-                          {fmtFull(total)}/mo{contextBudgetTotal > 0 && <span className="font-normal text-muted-foreground"> / {fmtFull(contextBudgetTotal)}</span>}
+                          {fmtFull(total)}/mo{budgetTotal > 0 && <span className="font-normal text-muted-foreground"> / {fmtFull(budgetTotal)}</span>}
                         </span>
                       )}
                       {canEdit && (
                         <div className="flex items-center gap-0.5 rounded-md border border-border bg-secondary/40 p-0.5">
                           <button type="button" onClick={() => setMode("dollar")}
                             className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium transition-all", mode === "dollar" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>$</button>
-                          <button type="button" onClick={() => setMode("percent")} disabled={!(contextBudgetTotal > 0)}
-                            title={contextBudgetTotal > 0 ? "" : "Set a Context budget total first"}
-                            className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium transition-all", mode === "percent" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground", !(contextBudgetTotal > 0) && "cursor-not-allowed opacity-40")}>%</button>
+                          <button type="button" onClick={() => setMode("percent")} disabled={!(budgetTotal > 0)}
+                            title={budgetTotal > 0 ? "" : "Set your Monthly Budget total first"}
+                            className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium transition-all", mode === "percent" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground", !(budgetTotal > 0) && "cursor-not-allowed opacity-40")}>%</button>
                         </div>
                       )}
                     </div>
@@ -918,7 +955,7 @@ function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }
                                 placeholder="0" step="0.1" className="w-full bg-transparent outline-none" />
                               <span className="text-muted-foreground">%</span>
                             </div>
-                            <span className="w-20 shrink-0 truncate text-right text-[11px] text-muted-foreground">{contextBudgetTotal > 0 ? fmtFull(budgets[v] || 0) : "—"}</span>
+                            <span className="w-20 shrink-0 truncate text-right text-[11px] text-muted-foreground">{budgetTotal > 0 ? fmtFull(budgets[v] || 0) : "—"}</span>
                           </>
                         ) : (
                           <Input type="number" disabled={!canEdit} value={budgets[v] || ""} onChange={(e) => setValueBudget(v, e.target.value)}
@@ -929,12 +966,12 @@ function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }
                   </div>
                   {mode === "percent" ? (
                     <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remainingPct < -PCT_TOLERANCE ? "text-destructive" : remainingPct > PCT_TOLERANCE ? "text-warning" : "text-success")}>
-                      {pctTotal === 0 ? "0% allocated" : remainingPct < -PCT_TOLERANCE ? `${Math.abs(remainingPct).toFixed(1)}% over 100%` : remainingPct > PCT_TOLERANCE ? `${pctTotal.toFixed(1)}% allocated — ${remainingPct.toFixed(1)}% left` : `100% allocated${contextBudgetTotal > 0 ? ` (${fmtFull(total)}/mo)` : ""}`}
+                      {pctTotal === 0 ? "0% allocated" : remainingPct < -PCT_TOLERANCE ? `${Math.abs(remainingPct).toFixed(1)}% over 100%` : remainingPct > PCT_TOLERANCE ? `${pctTotal.toFixed(1)}% allocated — ${remainingPct.toFixed(1)}% left` : `100% allocated${budgetTotal > 0 ? ` (${fmtFull(total)}/mo)` : ""}`}
                     </div>
                   ) : (
                     remaining != null && total > 0 && (
                       <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remaining < 0 ? "text-destructive" : remaining > 0 ? "text-warning" : "text-success")}>
-                        {remaining < 0 ? `${fmtFull(Math.abs(remaining))} over your Context budget` : remaining > 0 ? `${fmtFull(remaining)} of Context budget not yet allocated here` : "Fully allocated"}
+                        {remaining < 0 ? `${fmtFull(Math.abs(remaining))} over your Monthly Budget` : remaining > 0 ? `${fmtFull(remaining)} of Monthly Budget not yet allocated here` : "Fully allocated"}
                       </div>
                     )
                   )}
@@ -948,7 +985,7 @@ function BudgetAllocation({ dimensions, updateDim, canEdit, contextBudgetTotal }
   );
 }
 
-// ─── STEP 4: TARGETING ──────────────────────────────────────────────────────────────────────────
+// ─── STEP 5: TARGETING ──────────────────────────────────────────────────────────────────────────
 // (2026-08-06, per Mo — "we need to determine if we're going to use job titles OR job function +
 // seniorities... layer on contact or company lists, whether we're going to remarket, what
 // exclusions..." — confirmed via AskUserQuestion as its own step, with the reusable
@@ -1196,7 +1233,7 @@ function TargetingStep({ session, workspace, taxonomy, targeting, setTargeting, 
   );
 }
 
-// ─── STEP 5: MAPPING ────────────────────────────────────────────────────────────────────────────
+// ─── STEP 6: MAPPING ────────────────────────────────────────────────────────────────────────────
 // Two views share one `mapping` array (2026-08-06, per Mo — "a drag and drop builder that looks
 // beautiful and has beautiful UX"): the original table (unchanged, still fully functional) and a
 // new hierarchical Builder canvas, default view. Builder introduces a `parentKey` field on mapping
@@ -1237,7 +1274,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
   // up. Platform isn't a taxonomy dimension (it's derived from the audit/channel, not something with
   // user-set values), so it stays its own plain actual-only rollup; every taxonomy dimension gets a
   // target-vs-actual comparison instead (computeDimensionBudgetComparison), shown for any dimension
-  // that has either a target (set in Taxonomy's Budget Allocation) or actual spend against it — see
+  // that has either a target (set in the Budget step's Budget Allocation) or actual spend against it — see
   // that section's own doc comment for why targets live on the dimension.
   const rollupsByPlatform = useMemo(() => computeBudgetRollup(mapping, (r) => r.platform), [mapping]);
   const dimensionComparisons = useMemo(
@@ -2074,6 +2111,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
               mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} canEdit={canEdit} />
           )}
           {activeStep === "taxonomy" && <TaxonomyStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
+          {activeStep === "budget" && <BudgetStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
           {activeStep === "targeting" && (
             <TargetingStep session={session} workspace={workspace} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} setTargeting={(v) => setStepField("targeting", v)} canEdit={canEdit} />
           )}
