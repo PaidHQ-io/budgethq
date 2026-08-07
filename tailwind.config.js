@@ -61,9 +61,17 @@ export default {
         foreground: "hsl(var(--foreground))",
         primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
         secondary: { DEFAULT: "hsl(var(--secondary))", foreground: "hsl(var(--secondary-foreground))" },
-        destructive: { DEFAULT: "hsl(var(--destructive))", foreground: "hsl(var(--destructive-foreground))" },
-        success: { DEFAULT: "hsl(var(--success))", foreground: "hsl(var(--success-foreground))" },
-        warning: { DEFAULT: "hsl(var(--warning))", foreground: "hsl(var(--warning-foreground))" },
+        destructive: { DEFAULT: "hsl(var(--destructive))", foreground: "hsl(var(--destructive-foreground))", bg: "hsl(var(--destructive-bg))" },
+        success: { DEFAULT: "hsl(var(--success))", foreground: "hsl(var(--success-foreground))", bg: "hsl(var(--success-bg))" },
+        warning: { DEFAULT: "hsl(var(--warning))", foreground: "hsl(var(--warning-foreground))", bg: "hsl(var(--warning-bg))" },
+        // info/tag (2026-08-07, Venture retheme): the kit's Badge component has 7 colors
+        // (Blue/Green/Red/Orange/Purple/Yellow/Grey) but this token set only had 3 semantic slots
+        // (destructive=Red, success=Green, warning=Orange) before now. info=Blue and tag=Purple fill
+        // the two that were missing a home; Yellow and Grey didn't get dedicated tokens since
+        // nothing in the app needs them yet — add on demand the same way, from Color Tokens/
+        // Interaction/Yellow and the existing muted/neutral tokens respectively.
+        info: { DEFAULT: "hsl(var(--info))", bg: "hsl(var(--info-bg))" },
+        tag: { DEFAULT: "hsl(var(--tag))", bg: "hsl(var(--tag-bg))" },
         muted: { DEFAULT: "hsl(var(--muted))", foreground: "hsl(var(--muted-foreground))" },
         accent: { DEFAULT: "hsl(var(--accent))", foreground: "hsl(var(--accent-foreground))" },
         card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" },

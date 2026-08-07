@@ -83,6 +83,20 @@ html, body {
      unrelated accent in its own right). */
   --warning: 33 62% 53%;
   --warning-foreground: 0 0% 100%;
+  /* *-bg tints (2026-08-07, added for the Venture full-app retheme's Badge component): Venture's
+     "Contained" Badge (Small Components frame) pairs each Interaction/X/Base text color with its
+     OWN independently-defined Background/X tint — not a CSS opacity trick on the base color (which
+     is what the old badge.jsx did with e.g. bg-destructive/10). These are those real Background/X
+     values, plus `--info` (Blue) and `--tag` (Purple) for the two Venture badge colors that don't
+     already have a semantic slot in this token set. Grey uses the existing neutral --muted/
+     --muted-foreground pair rather than a new token, since Venture's Grey badge is just that. */
+  --info: 224 89% 62%;
+  --info-bg: 222 89% 96%;
+  --destructive-bg: 0 38% 95%;
+  --success-bg: 137 26% 95%;
+  --warning-bg: 32 65% 95%;
+  --tag: 284 40% 49%;
+  --tag-bg: 282 38% 95%;
   /* radius: Venture uses ONE flat radius everywhere — confirmed identical
      (border-radius/4-px = 4px) on buttons, cards, AND text field inputs, not a graduated scale.
      lg/md/sm below no longer derive via calc() subtraction (that would make sm literally 0px) —
@@ -120,6 +134,15 @@ html, body {
   --success-foreground: 0 0% 8%;
   --warning: 33 65% 60%;
   --warning-foreground: 0 0% 8%;
+  /* *-bg tints: same "not from the kit" caveat as the rest of .dark — darkened proportionally from
+     the :root tints rather than sourced, since Venture has no dark mode. */
+  --info: 224 89% 68%;
+  --info-bg: 224 40% 18%;
+  --destructive-bg: 0 30% 18%;
+  --success-bg: 133 25% 16%;
+  --warning-bg: 33 30% 18%;
+  --tag: 284 45% 68%;
+  --tag-bg: 284 30% 18%;
   --radius: 0.25rem;
 }
 
