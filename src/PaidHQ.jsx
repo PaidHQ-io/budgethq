@@ -40,6 +40,7 @@ import { Badge } from "./components/ui/badge.jsx";
 import { Button } from "./components/ui/button.jsx";
 import { Checkbox } from "./components/ui/checkbox.jsx";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "./components/ui/select.jsx";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "./components/ui/table.jsx";
 import { Plus, X, File, PencilSimple, DownloadSimple, PaperPlaneTilt, Trash, Check } from "@phosphor-icons/react";
 
 // Lazy-loaded tab components (2026-07-25 split, per Mo — "there should be a global forecasting
@@ -1320,6 +1321,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // opens back up mid-browse.
   const[dataSourcesSubView,setDataSourcesSubView]=useState("connections");
   const[dataSourceSearch,setDataSourceSearch]=useState("");
+  // Status filter for the "Add data source" grid's left rail (2026-08-07, Venture retheme) — matches
+  // Venture's Integration page's CATEGORIES rail structurally, but BudgetHQ's connectors don't carry
+  // real categories, so this filters by connection status instead (All/Connected/Not connected).
+  const[dataSourceStatusFilter,setDataSourceStatusFilter]=useState("all");
   useEffect(()=>{if(view!=="data")setDataSourcesSubView("connections");},[view]);
   const[lastSyncRange,setLastSyncRange]=useState(()=>{
     try{const s=localStorage.getItem("paidhq_sync_range");return s?JSON.parse(s):null;}catch(e){return null;}
@@ -3851,362 +3856,417 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                 per Mo — he's planning to add more connectors over time and wants a dedicated,
                 searchable page for browsing/adding them, separate from the table that manages
                 what's already connected. CSV/Screenshot/Budget file are cards here too, alongside
-                the live connectors, per his call when scoping this.) */
-            <div style={{flex:1,padding:isMobile?16:"24px 32px",overflow:"auto"}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,fontSize:12*(T.fsScale||1),fontFamily:T.font}}>
-                <span onClick={()=>setDataSourcesSubView("connections")} style={{color:T.accent,cursor:"pointer",fontWeight:600}}>Data Sources</span>
-                <span style={{color:T.textMuted}}>/</span>
-                <span style={{color:T.textSub}}>Add data source</span>
+                the live connectors, per his call when scoping this.)
+                Rebuilt 2026-08-07 on Tailwind/shadcn, matching Venture's Integration page (Figma
+                node 291:5558): a left filter rail + card grid, each card icon/name/desc with a
+                top-right action pill (black "Install"-style button) or status badge ("Installed"-
+                style, matching our Connected/Needs attention states). Venture's own rail groups by
+                category (Advertising/Analytics/Payment/...) — BudgetHQ's connectors don't carry
+                real categories, so this rail filters by connection status instead (All/Connected/
+                Not connected) — same rail structure, BudgetHQ-relevant grouping. */
+            <div className="flex-1 overflow-auto px-8 py-6">
+              <div className="mb-1 flex items-center gap-1.5 text-xs">
+                <button onClick={()=>setDataSourcesSubView("connections")} className="font-semibold text-foreground hover:underline">Data Sources</button>
+                <span className="text-muted-foreground">/</span>
+                <span className="text-muted-foreground">Add data source</span>
               </div>
-              <h1 style={{fontSize:isMobile?20:24,fontWeight:700,color:T.text,letterSpacing:"-0.4px",margin:"6px 0 14px"}}>Add data source</h1>
-              <input value={dataSourceSearch} onChange={e=>setDataSourceSearch(e.target.value)} placeholder="Search data sources…"
-                style={{width:"100%",maxWidth:360,boxSizing:"border-box",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r8,color:T.text,padding:"8px 12px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font,marginBottom:20}}/>
+              <h1 className="my-2 text-h4 font-medium text-foreground">Add data source</h1>
 
-              {/* Classify-then-confirm banner for the unified uploader (2026-08-01, per Mo) — shows
-                  between file selection and actually routing/parsing, so a wrong auto-detect (e.g.
-                  a budget file that reads a lot like a spend export) can be corrected before it
-                  lands in the wrong tab. */}
               {unifiedClassifyError&&(
-                <div style={{marginBottom:16,padding:"10px 14px",borderRadius:T.r8,fontSize:12*(T.fsScale||1),background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger}}>{unifiedClassifyError}</div>
+                <div className="mb-4 rounded-sm border border-destructive/30 bg-destructive-bg px-3.5 py-2.5 text-xs text-destructive">{unifiedClassifyError}</div>
               )}
               {unifiedRouteError&&(
-                <div style={{marginBottom:16,padding:"10px 14px",borderRadius:T.r8,fontSize:12*(T.fsScale||1),background:T.dangerBg,border:`1px solid ${T.dangerBorder}`,color:T.danger}}>{unifiedRouteError}</div>
+                <div className="mb-4 rounded-sm border border-destructive/30 bg-destructive-bg px-3.5 py-2.5 text-xs text-destructive">{unifiedRouteError}</div>
               )}
               {unifiedRouting&&(
-                <div style={{marginBottom:16,padding:"10px 14px",borderRadius:T.r8,fontSize:12*(T.fsScale||1),background:T.accentBg,border:`1px solid ${T.accentBorder}`,color:T.text}}>Reading file…</div>
+                <div className="mb-4 rounded-sm border border-border bg-secondary px-3.5 py-2.5 text-xs text-foreground">Reading file…</div>
               )}
               {pendingClassification&&(
-                <PixelPanel T={T} contentStyle={{padding:16,marginBottom:20}}>
-                  <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                    <div style={{flex:1,minWidth:220}}>
-                      <div style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:2}}>"{pendingClassification.file.name}"</div>
-                      <div style={{fontSize:12*(T.fsScale||1),color:T.textSub}}>
+                <Card className="mb-5">
+                  <CardContent className="flex flex-wrap items-center gap-3 p-4">
+                    <div className="min-w-[220px] flex-1">
+                      <div className="mb-0.5 text-sm font-semibold text-foreground">"{pendingClassification.file.name}"</div>
+                      <div className="text-xs text-muted-foreground">
                         We think this is a <strong>{IMPORT_TYPE_LABELS[pendingClassification.type]}</strong> file
                         {pendingClassification.confidence==="low"&&" (not very confident — please double-check)"}.
                         {pendingClassification.reasoning?` ${pendingClassification.reasoning}`:""}
                       </div>
                     </div>
-                    <Sel value={pendingClassification.type} onChange={v=>setPendingClassification(p=>({...p,type:v}))} T={T} style={{width:190}}>
-                      {Object.entries(IMPORT_TYPE_LABELS).map(([v,l])=>(<option key={v} value={v}>{l}</option>))}
-                    </Sel>
-                    <Btn T={T} variant="primary" size="md" onClick={confirmUnifiedUpload}>Continue →</Btn>
-                    <Btn T={T} variant="ghost" size="md" onClick={()=>setPendingClassification(null)}>Cancel</Btn>
-                  </div>
-                </PixelPanel>
+                    <Select value={pendingClassification.type} onValueChange={v=>setPendingClassification(p=>({...p,type:v}))}>
+                      <SelectTrigger className="w-[190px]"><SelectValue/></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(IMPORT_TYPE_LABELS).map(([v,l])=>(<SelectItem key={v} value={v}>{l}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                    <Button onClick={confirmUnifiedUpload}>Continue →</Button>
+                    <Button onClick={()=>setPendingClassification(null)} variant="ghost">Cancel</Button>
+                  </CardContent>
+                </Card>
               )}
 
-              {(()=>{
-                const cards=[
-                  ...PLATFORMS.map(pl=>{
-                    const conn=pl.perWorkspaceAuth?connectionDetails.find(c=>c.provider===pl.key):null;
-                    const isConnected=!!conn;
-                    const warn=isConnected&&(conn.needsReconnect||conn.needsAccountSelection);
-                    let actionLabel,onAction;
-                    if(pl.isSheets){actionLabel="Connect now";onAction=()=>setGsheetSpendOpen(true);}
-                    else if(pl.status==="csv"){actionLabel="Upload CSV";onAction=()=>fileRef.current?.click();}
-                    else if(isConnected&&conn.needsReconnect){actionLabel="Reconnect";onAction=()=>startProviderOAuth(pl.key);}
-                    else if(isConnected&&conn.needsAccountSelection){actionLabel="Pick account";onAction=()=>openAccountPicker(pl.key);}
-                    else if(isConnected){actionLabel="✓ Connected";onAction=()=>setDataSourcesSubView("connections");}
-                    else if(pl.oauth){actionLabel="Connect now";onAction=()=>startProviderOAuth(pl.key);}
-                    else{actionLabel="Connect now";onAction=()=>openConnectPanel(pl.key);}
-                    return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,domain:pl.domain,mark:pl.mark,isConnected,warn,actionLabel,onAction};
-                  }),
-                  {key:"_csv",label:"Spend, Budget or Performance file",desc:"CSV, Excel or PDF — we detect whether it's spend, budget, pipeline performance or goals data",color:T.textMuted,mark:CsvMark,actionLabel:unifiedClassifying?(unifiedClassifyingIsPdf?"Reading PDF (takes longer)…":"Reading…"):"Upload file",onAction:()=>!unifiedClassifying&&unifiedFileRef.current?.click()},
-                  {key:"_screenshot",label:"Screenshot",desc:"Share a screenshot of a spend report — AI reads it into data",color:T.textMuted,mark:ScreenshotMark,actionLabel:"Upload image",onAction:()=>!screenshotProcessing&&screenshotRef.current?.click()},
-                ].filter(c=>c.label.toLowerCase().includes(dataSourceSearch.trim().toLowerCase()));
-                return(
-                  <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(230px,1fr))",gap:14}}>
-                    {cards.map(c=>{
-                      // CSV/Screenshot cards double as drop targets — same handleDrop/
-                      // handleScreenshotDrop the old upload zone used, so dragging a file straight
-                      // onto the card works exactly like clicking it and picking one.
-                      const isDropTarget=c.key==="_csv"||c.key==="_screenshot";
-                      const dropProps=isDropTarget?{
-                        onDragOver:e=>{e.preventDefault();setDragOver(true);},
-                        onDragLeave:()=>setDragOver(false),
-                        onDrop:c.key==="_csv"?handleDrop:handleScreenshotDrop,
-                      }:{};
-                      return(
-                      <div key={c.key} onClick={c.onAction} className="bhq-row" {...dropProps}
-                        style={{border:`1px solid ${isDropTarget&&dragOver?T.accent:T.border}`,borderRadius:T.r10,background:isDropTarget&&dragOver?T.accentBg:T.surface,padding:"16px",cursor:"pointer",transition:"all 0.15s"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
-                          <PlatformLogo domain={c.domain} color={c.color} mark={c.mark} T={T}/>
-                          <span style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>{c.label}</span>
-                          {c.isConnected&&!c.warn&&<Pill color={T.success} bg={T.successBg} border={T.successBorder} style={{fontSize:9*(T.fsScale||1)}}>Connected</Pill>}
-                          {c.warn&&<Pill color={T.warning} bg={T.warningBg} border={T.warningBorder} style={{fontSize:9*(T.fsScale||1)}}>Needs attention</Pill>}
-                        </div>
-                        <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,lineHeight:1.5,marginBottom:c.key==="_screenshot"&&screenshotError?6:14,minHeight:32}}>{c.desc}</div>
-                        {c.key==="_screenshot"&&screenshotError&&<div style={{fontSize:11*(T.fsScale||1),color:T.danger,marginBottom:8}}>{screenshotError}</div>}
-                        <div style={{fontSize:12*(T.fsScale||1),fontWeight:600,color:T.accent}}>{c.key==="_screenshot"&&screenshotProcessing?"Reading screenshot…":`${c.actionLabel} →`}</div>
-                      </div>
-                      );
-                    })}
-                    {cards.length===0&&(
-                      <div style={{gridColumn:"1/-1",fontSize:13*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,padding:"20px 0"}}>No data sources match "{dataSourceSearch}".</div>
-                    )}
+              <div className="flex gap-8">
+                <nav className="hidden w-[160px] shrink-0 flex-col gap-3 lg:flex">
+                  <div>
+                    <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Filter</div>
+                    <div className="flex flex-col gap-0.5">
+                      {[
+                        {key:"all",label:"All"},
+                        {key:"connected",label:"Connected"},
+                        {key:"not-connected",label:"Not connected"},
+                      ].map(f=>(
+                        <button key={f.key} type="button" onClick={()=>setDataSourceStatusFilter(f.key)}
+                          className={cn("rounded-sm px-2 py-1.5 text-left text-sm font-medium",dataSourceStatusFilter===f.key?"bg-secondary text-foreground":"text-muted-foreground hover:bg-secondary/60 hover:text-foreground")}>
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                );
-              })()}
+                  <input value={dataSourceSearch} onChange={e=>setDataSourceSearch(e.target.value)} placeholder="Search…"
+                    className="h-9 rounded-sm border border-input bg-background px-2.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"/>
+                </nav>
+
+                <div className="min-w-0 flex-1">
+                  <div className="mb-4 lg:hidden">
+                    <input value={dataSourceSearch} onChange={e=>setDataSourceSearch(e.target.value)} placeholder="Search data sources…"
+                      className="h-10 w-full max-w-[360px] rounded-sm border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"/>
+                  </div>
+                  {(()=>{
+                    const cards=[
+                      ...PLATFORMS.map(pl=>{
+                        const conn=pl.perWorkspaceAuth?connectionDetails.find(c=>c.provider===pl.key):null;
+                        const isConnected=!!conn;
+                        const warn=isConnected&&(conn.needsReconnect||conn.needsAccountSelection);
+                        let actionLabel,onAction;
+                        if(pl.isSheets){actionLabel="Connect now";onAction=()=>setGsheetSpendOpen(true);}
+                        else if(pl.status==="csv"){actionLabel="Upload CSV";onAction=()=>fileRef.current?.click();}
+                        else if(isConnected&&conn.needsReconnect){actionLabel="Reconnect";onAction=()=>startProviderOAuth(pl.key);}
+                        else if(isConnected&&conn.needsAccountSelection){actionLabel="Pick account";onAction=()=>openAccountPicker(pl.key);}
+                        else if(isConnected){actionLabel="Connected";onAction=()=>setDataSourcesSubView("connections");}
+                        else if(pl.oauth){actionLabel="Connect now";onAction=()=>startProviderOAuth(pl.key);}
+                        else{actionLabel="Connect now";onAction=()=>openConnectPanel(pl.key);}
+                        return{key:pl.key,label:pl.label,desc:pl.desc,color:pl.color,domain:pl.domain,mark:pl.mark,isConnected,warn,actionLabel,onAction};
+                      }),
+                      {key:"_csv",label:"Spend, Budget or Performance file",desc:"CSV, Excel or PDF — we detect whether it's spend, budget, pipeline performance or goals data",color:"hsl(var(--muted-foreground))",mark:CsvMark,isConnected:false,warn:false,actionLabel:unifiedClassifying?(unifiedClassifyingIsPdf?"Reading PDF…":"Reading…"):"Upload file",onAction:()=>!unifiedClassifying&&unifiedFileRef.current?.click()},
+                      {key:"_screenshot",label:"Screenshot",desc:"Share a screenshot of a spend report — AI reads it into data",color:"hsl(var(--muted-foreground))",mark:ScreenshotMark,isConnected:false,warn:false,actionLabel:screenshotProcessing?"Reading…":"Upload image",onAction:()=>!screenshotProcessing&&screenshotRef.current?.click()},
+                    ]
+                      .filter(c=>c.label.toLowerCase().includes(dataSourceSearch.trim().toLowerCase()))
+                      .filter(c=>dataSourceStatusFilter==="all"||(dataSourceStatusFilter==="connected"?c.isConnected:!c.isConnected));
+                    return(
+                      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
+                        {cards.map(c=>{
+                          const isDropTarget=c.key==="_csv"||c.key==="_screenshot";
+                          const dropProps=isDropTarget?{
+                            onDragOver:e=>{e.preventDefault();setDragOver(true);},
+                            onDragLeave:()=>setDragOver(false),
+                            onDrop:c.key==="_csv"?handleDrop:handleScreenshotDrop,
+                          }:{};
+                          return(
+                            <Card key={c.key} onClick={c.onAction} {...dropProps}
+                              className={cn("cursor-pointer transition-colors hover:bg-secondary/30",isDropTarget&&dragOver&&"border-foreground bg-secondary/40")}>
+                              <CardContent className="p-4">
+                                <div className="mb-3 flex items-start justify-between gap-2">
+                                  <PlatformLogo domain={c.domain} color={c.color} mark={c.mark} T={T}/>
+                                  {c.isConnected&&!c.warn&&<Badge variant="success">Connected</Badge>}
+                                  {c.warn&&<Badge variant="warning">Needs attention</Badge>}
+                                  {!c.isConnected&&!c.warn&&(
+                                    <span className="shrink-0 rounded-sm bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">{c.actionLabel}</span>
+                                  )}
+                                </div>
+                                <div className="mb-1 text-sm font-semibold text-foreground">{c.label}</div>
+                                <div className="text-xs leading-relaxed text-muted-foreground">{c.desc}</div>
+                                {c.key==="_screenshot"&&screenshotError&&<div className="mt-1.5 text-xs text-destructive">{screenshotError}</div>}
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                        {cards.length===0&&(
+                          <div className="col-span-full py-6 text-sm text-muted-foreground">No data sources match "{dataSourceSearch}".</div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
             </div>
           ):(
             /* ── CONNECTIONS ── (default landing — table of already-connected sources only; browsing/
-                adding new ones now happens on the "add" subview above) */
-            <div style={{padding:"16px 24px",background:T.surface,flexShrink:0}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:10}}>
-                <SectionLabel T={T} style={{marginBottom:0}}>Connections</SectionLabel>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{position:"relative"}}>
+                adding new ones now happens on the "add" subview above). Rebuilt 2026-08-07 on the
+                Table primitive (Table/TableHeader/TableRow/TableHead/TableCell) rather than Venture's
+                single-app Integration Details page (Figma node 368:32769) — that frame is a per-app
+                marketing/detail page (hero, description, "Related Apps" carousel) with no multi-row
+                list anatomy, so it doesn't actually fit "manage every connected source at a glance."
+                Venture's own Table component (which Mo named separately as its own adoption target)
+                is the correct match for this content shape, so that's what this uses. */
+            <div className="flex-1 overflow-auto px-8 py-6">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <h1 className="text-h4 font-medium text-foreground">Connections</h1>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
                     <button onClick={()=>setSyncRangePickerOpen(o=>!o)}
-                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 9px",borderRadius:T.r6,border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font}}>
-                      <span style={{color:T.textMuted}}>Range:</span> {syncDateRange.start} → {syncDateRange.end}
+                      className="flex items-center gap-1.5 rounded-sm border border-input bg-background px-2.5 py-1.5 text-xs text-foreground">
+                      <span className="text-muted-foreground">Range:</span> {syncDateRange.start} → {syncDateRange.end}
                     </button>
                     {syncRangePickerOpen&&(
-                      <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:50,width:340,padding:"12px 14px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd}}>
-                        <div style={{display:"flex",gap:14,marginBottom:12,borderBottom:`1px solid ${T.border}`}}>
+                      <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-[340px] rounded-sm border border-border bg-background p-3.5 shadow-card">
+                        <div className="mb-3 flex gap-3.5 border-b border-border">
                           {["recommended","custom"].map(tab=>(
-                            <span key={tab} onClick={()=>setSyncRangeTab(tab)}
-                              style={{fontSize:12*(T.fsScale||1),fontWeight:600,paddingBottom:8,cursor:"pointer",color:syncRangeTab===tab?T.accent:T.textMuted,borderBottom:syncRangeTab===tab?`2px solid ${T.accent}`:"2px solid transparent",textTransform:"capitalize",fontFamily:T.font}}>{tab}</span>
+                            <button key={tab} type="button" onClick={()=>setSyncRangeTab(tab)}
+                              className={cn("pb-2 text-xs font-semibold capitalize",syncRangeTab===tab?"border-b-2 border-foreground text-foreground":"text-muted-foreground")}>
+                              {tab}
+                            </button>
                           ))}
                         </div>
                         {syncRangeTab==="recommended"?(
-                          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                          <div className="flex flex-wrap gap-1.5">
                             {SYNC_RANGE_PRESETS.map(p=>(
-                              <button key={p.label} onClick={()=>applySyncRangePreset(p)}
-                                style={{padding:"5px 10px",borderRadius:T.r20,border:`1px solid ${T.border}`,background:T.surfaceEl,color:T.text,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font}}>{p.label}</button>
+                              <button key={p.label} type="button" onClick={()=>applySyncRangePreset(p)}
+                                className="rounded-full border border-border bg-secondary px-2.5 py-1 text-xs text-foreground">{p.label}</button>
                             ))}
                           </div>
                         ):(
                           <div>
-                            <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginBottom:8,fontFamily:T.font}}>Pick an exact start and end date — useful for redoing a specific past window a preset doesn't cover.</div>
-                            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                            <div className="mb-2 text-xs text-muted-foreground">Pick an exact start and end date — useful for redoing a specific past window a preset doesn't cover.</div>
+                            <div className="flex items-center gap-1.5">
                               <input type="date" value={syncDateRange.start} onChange={e=>setSyncDateRange(p=>({...p,start:e.target.value}))}
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,padding:"5px 7px",fontSize:11*(T.fsScale||1),outline:"none"}}/>
-                              <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>→</span>
+                                className="rounded-sm border border-input bg-background px-1.5 py-1 text-xs text-foreground outline-none"/>
+                              <span className="text-xs text-muted-foreground">→</span>
                               <input type="date" value={syncDateRange.end} max={localISODate(new Date())}
                                 title="Can't pull spend data for dates that haven't happened yet"
                                 onChange={e=>{
                                   const todayStr=localISODate(new Date());
                                   setSyncDateRange(p=>({...p,end:e.target.value>todayStr?todayStr:e.target.value}));
                                 }}
-                                style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r5,color:T.text,padding:"5px 7px",fontSize:11*(T.fsScale||1),outline:"none"}}/>
+                                className="rounded-sm border border-input bg-background px-1.5 py-1 text-xs text-foreground outline-none"/>
                             </div>
-                            <Btn onClick={()=>setSyncRangePickerOpen(false)} variant="primary" size="sm" T={T} style={{marginTop:10}}>Done</Btn>
+                            <Button onClick={()=>setSyncRangePickerOpen(false)} size="sm" className="mt-2.5">Done</Button>
                           </div>
                         )}
                       </div>
                     )}
                   </div>
-                  <Btn onClick={()=>setDataSourcesSubView("add")} variant="primary" size="sm" T={T}>
-                    <Icon name="plus" size={12} color={T.onAccent}/> Add data source
-                  </Btn>
+                  <Button onClick={()=>setDataSourcesSubView("add")} size="sm">
+                    <Plus className="h-3.5 w-3.5"/> Add data source
+                  </Button>
                 </div>
               </div>
-              <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:620,marginBottom:10}}>
+              <div className="mb-4 max-w-[620px] text-xs leading-relaxed text-muted-foreground">
                 Every ad account this workspace pulls live spend from — see who connected each one, when it last imported, and manage it from the ⋯ menu.
               </div>
               {Object.entries(syncState).filter(([,s])=>s.startsWith("error:")).map(([k,s])=>(
-                <div key={k} style={{marginBottom:6,fontSize:11*(T.fsScale||1),color:T.danger}}>{k}: {s.replace("error:","")}</div>
+                <div key={k} className="mb-1.5 text-xs text-destructive">{k}: {s.replace("error:","")}</div>
               ))}
               {(()=>{
-                const GRID="150px minmax(140px,1.4fr) minmax(140px,1fr) 130px 96px 100px 92px 92px 32px";
                 const connectedPlatforms=PLATFORMS.filter(pl=>pl.perWorkspaceAuth&&connectionDetails.find(c=>c.provider===pl.key));
                 if(connectedPlatforms.length===0){
                   return(
-                    <div style={{border:`1px dashed ${T.borderStrong}`,borderRadius:T.r10,padding:"28px 20px",textAlign:"center",backgroundColor:T.surfaceEl}}>
-                      <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,marginBottom:4}}>No data sources connected yet</div>
-                      <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,marginBottom:14}}>Connect LinkedIn, Bing, Funnel.io and more — or upload a CSV/screenshot directly.</div>
-                      <Btn onClick={()=>setDataSourcesSubView("add")} variant="primary" size="sm" T={T}>+ Add data source</Btn>
+                    <Card className="border-dashed">
+                      <CardContent className="flex flex-col items-center gap-1 p-8 text-center">
+                        <div className="text-sm font-semibold text-foreground">No data sources connected yet</div>
+                        <div className="mb-2.5 text-xs text-muted-foreground">Connect LinkedIn, Bing, Funnel.io and more — or upload a CSV/screenshot directly.</div>
+                        <Button onClick={()=>setDataSourcesSubView("add")} size="sm">
+                          <Plus className="h-3.5 w-3.5"/> Add data source
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                }
+
+                const rows=connectedPlatforms.map(pl=>{
+                  const conn=connectionDetails.find(c=>c.provider===pl.key);
+                  const connectedByEmail=conn.connectedBy?(teamMembers.find(m=>m.userId===conn.connectedBy)?.email||conn.connectedBy):null;
+                  const summary=conn.summary||{};
+                  const summaryText=
+                    pl.oauth?(summary.accountName?`${summary.accountName} (${summary.accountId||"—"})`:(summary.accountId||"No account selected yet")):
+                    pl.key==="funnel"?(summary.accountId?`Account ${summary.accountId}${summary.projectId?` · Project ${summary.projectId}`:""}`:"—"):
+                    pl.key==="supermetrics"?(summary.dsId?`${summary.dsId}${summary.dsAccounts?` · ${summary.dsAccounts}`:""}`:"—"):
+                    pl.key==="capterra"?(summary.products?.length?summary.products.join(", "):"—"):
+                    "—";
+                  const statusLabel=conn.needsReconnect?"Reconnect needed":conn.needsAccountSelection?"Pick account":conn.paused?"Paused":"Connected";
+                  const warn=conn.needsReconnect||conn.needsAccountSelection;
+                  const statusVariant=warn?"warning":conn.paused?"secondary":"success";
+                  const syncRolling=conn.syncMode==="rolling";
+                  const syncFailed=syncRolling&&conn.lastAutoSyncStatus==="error";
+                  const syncLabel=syncRolling?(conn.syncFrequency==="weekly"?"Weekly":"Daily"):"Manual";
+                  const syncVariant=syncFailed?"destructive":syncRolling?"default":"secondary";
+                  const syncTitle=syncRolling?`Rolling sync — ${syncLabel.toLowerCase()}, last ${conn.rollingWindowDays||14} days. Set from the ⋯ menu's Sync schedule.`:"Manual only — data only updates when someone clicks Sync now, or from the ⋯ menu's Sync schedule.";
+                  const importRange=importDateRangeByProvider[pl.key];
+                  const fmtShort=d=>d?fmtCalendarDate(d,{month:"short",day:"numeric",year:"numeric"}):"—";
+                  const menuOpen=connActionsMenuProvider===pl.key;
+                  const syncing=(syncState[pl.key]||"idle")==="loading";
+                  const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key||syncing;
+                  return{pl,conn,connectedByEmail,summaryText,statusLabel,warn,statusVariant,syncLabel,syncVariant,syncFailed,syncTitle,importRange,fmtShort,menuOpen,syncing,saving};
+                });
+
+                const ActionsMenu=({r})=>r.menuOpen&&connActionsMenuAnchorRect&&createPortal(
+                  <>
+                    <div onClick={closeConnActionsMenu} className="fixed inset-0 z-[999]"/>
+                    <div className="fixed z-[1000] flex min-w-[220px] flex-col rounded-sm border border-border bg-background p-1.5 shadow-card"
+                      style={{top:connActionsMenuAnchorRect.bottom+6,left:Math.max(8,connActionsMenuAnchorRect.right-220)}}>
+                      {!r.conn.paused&&!r.conn.needsReconnect&&!r.conn.needsAccountSelection&&(
+                        <button onClick={()=>{closeConnActionsMenu();syncPlatform(r.pl.key);}} disabled={!canEdit||r.syncing}
+                          className="rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary disabled:opacity-50">{r.syncing?"Syncing…":"Sync now"}</button>
+                      )}
+                      {!r.conn.paused&&!r.conn.needsReconnect&&!r.conn.needsAccountSelection&&(
+                        <button onClick={()=>{closeConnActionsMenu();syncPlatform(r.pl.key,{forceFull:true});}} disabled={!canEdit||r.syncing}
+                          title="Re-pulls the entire selected date range from scratch, even days already synced — for backfills/repairs, not routine use."
+                          className="rounded-sm px-2.5 py-1.5 text-left text-sm text-muted-foreground hover:bg-secondary disabled:opacity-50">{r.syncing?"Syncing…":"Full resync"}</button>
+                      )}
+                      {r.conn.needsAccountSelection&&(
+                        <button onClick={()=>{closeConnActionsMenu();openAccountPicker(r.pl.key);}} disabled={!canEdit}
+                          className="rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary disabled:opacity-50">Pick account</button>
+                      )}
+                      {r.conn.needsReconnect&&(
+                        <button onClick={()=>{closeConnActionsMenu();startProviderOAuth(r.pl.key);}} disabled={!canEdit}
+                          className="rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary disabled:opacity-50">Reconnect</button>
+                      )}
+                      {!r.conn.needsAccountSelection&&!r.conn.needsReconnect&&(
+                        <button onClick={()=>{closeConnActionsMenu();r.pl.oauth?openAccountPicker(r.pl.key):openConnectPanel(r.pl.key);}} disabled={!canEdit}
+                          className="rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary disabled:opacity-50">{r.pl.oauth?"Switch account":"Edit connection"}</button>
+                      )}
+                      {r.pl.key==="googlesheets"&&!r.conn.needsAccountSelection&&!r.conn.needsReconnect&&(
+                        <button onClick={()=>{closeConnActionsMenu();openAdjustMapping(r.conn);}} disabled={!canEdit}
+                          className="rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary disabled:opacity-50">Adjust mapping</button>
+                      )}
+                      {!r.warn&&(
+                        <div className="px-2.5 pb-1 pt-1.5" onClick={e=>e.stopPropagation()}>
+                          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Sync schedule</div>
+                          <div className="flex flex-col gap-1.5">
+                            <Select value={r.conn.syncMode==="rolling"?r.conn.syncFrequency:"manual"}
+                              onValueChange={v=>{if(!canEdit||savingSchedule===r.pl.key)return;v==="manual"
+                                ?updateSyncSchedule(r.pl.key,{syncMode:"manual"})
+                                :updateSyncSchedule(r.pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:r.conn.rollingWindowDays||14});}}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue/></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="manual">Manual only</SelectItem>
+                                <SelectItem value="daily">Daily</SelectItem>
+                                <SelectItem value="weekly">Weekly</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {r.conn.syncMode==="rolling"&&(
+                              <Select value={String(r.conn.rollingWindowDays||14)}
+                                onValueChange={v=>{if(!canEdit||savingSchedule===r.pl.key)return;updateSyncSchedule(r.pl.key,{syncMode:"rolling",syncFrequency:r.conn.syncFrequency,rollingWindowDays:Number(v)});}}>
+                                <SelectTrigger className="h-8 text-xs"><SelectValue/></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="7">Last 7 days</SelectItem>
+                                  <SelectItem value="14">Last 14 days</SelectItem>
+                                  <SelectItem value="30">Last 30 days</SelectItem>
+                                  <SelectItem value="60">Last 60 days</SelectItem>
+                                  <SelectItem value="90">Last 90 days</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                          {r.conn.syncMode==="rolling"&&r.conn.lastAutoSyncAt&&(
+                            <div className={cn("mt-1.5 text-[10px]",r.conn.lastAutoSyncStatus==="error"?"text-destructive":"text-muted-foreground")}>
+                              {r.conn.lastAutoSyncStatus==="error"
+                                ?`Auto-sync failed ${new Date(r.conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${r.conn.lastAutoSyncError||"unknown error"}`
+                                :`Auto-synced ${new Date(r.conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="my-1 h-px bg-border"/>
+                      <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(r.pl.key,{paused:!r.conn.paused});}} disabled={!canEdit||r.saving}
+                        className="rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary disabled:opacity-50">{r.conn.paused?"Resume import":"Pause import"}</button>
+                      <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(r.pl.key,{excludedFromData:!r.conn.excludedFromData});}} disabled={!canEdit||r.saving}
+                        className="rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary disabled:opacity-50">{r.conn.excludedFromData?"Use this data in PaidHQ":"Don't use this data in PaidHQ"}</button>
+                      <div className="my-1 h-px bg-border"/>
+                      <button onClick={()=>{closeConnActionsMenu();disconnectConnection(r.pl.key);}} disabled={!canEdit||r.saving}
+                        className="rounded-sm px-2.5 py-1.5 text-left text-sm text-destructive hover:bg-secondary disabled:opacity-50">Disconnect</button>
+                    </div>
+                  </>,
+                  document.body
+                );
+
+                const DotsButton=({r})=>(
+                  <div className="relative flex justify-end">
+                    <button onClick={e=>{
+                        if(r.menuOpen){closeConnActionsMenu();return;}
+                        setConnActionsMenuAnchorRect(e.currentTarget.getBoundingClientRect());
+                        setConnActionsMenuProvider(r.pl.key);
+                      }} title="Actions" disabled={r.saving}
+                      className={cn("flex h-6 w-6 items-center justify-center rounded-sm border border-border text-muted-foreground disabled:opacity-50",r.menuOpen&&"bg-secondary")}>⋯</button>
+                    <ActionsMenu r={r}/>
+                  </div>
+                );
+
+                if(isMobile){
+                  return(
+                    <div className="rounded-sm border border-border">
+                      {rows.map((r,i)=>(
+                        <div key={r.pl.key} className={cn("px-2.5 py-2.5",i>0&&"border-t border-border")}>
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <PlatformLogo domain={r.pl.domain} color={r.pl.color} mark={r.pl.mark} size={18} T={T}/>
+                              <span className="text-sm font-semibold text-foreground">{r.pl.label}</span>
+                              <Badge variant={r.statusVariant}>{r.statusLabel}</Badge>
+                              <Badge variant={r.syncVariant} title={r.syncTitle}>{r.syncLabel}</Badge>
+                              {r.syncFailed&&(
+                                <WarnTip T={T} text={`Auto-sync failed ${r.conn.lastAutoSyncAt?new Date(r.conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"}):"recently"}: ${r.conn.lastAutoSyncError||"unknown error"}`}/>
+                              )}
+                            </div>
+                            <DotsButton r={r}/>
+                          </div>
+                          <div className="text-sm text-muted-foreground">{r.summaryText}</div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {r.connectedByEmail||"—"} · connected {r.fmtShort(r.conn.connectedAt)} · imported {r.fmtShort(r.importRange?.start)}–{r.fmtShort(r.importRange?.end)}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   );
                 }
+
                 return(
-                <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,overflow:"hidden"}}>
-                  {!isMobile&&(
-                    <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"7px 10px",background:T.headerBg,borderBottom:`1px solid ${T.border}`}}>
-                      {["Connector","Data source name","Credentials","Status","Sync","Connected","Import start","Import end",""].map(h=>(
-                        <SectionLabel key={h} T={T} style={{marginBottom:0,fontSize:13*(T.fsScale||1),fontWeight:700,color:T.text,textAlign:"center"}}>{h}</SectionLabel>
-                      ))}
-                    </div>
-                  )}
-                  {connectedPlatforms.map((pl,i)=>{
-                    const conn=connectionDetails.find(c=>c.provider===pl.key);
-                    const connectedByEmail=conn.connectedBy?(teamMembers.find(m=>m.userId===conn.connectedBy)?.email||conn.connectedBy):null;
-                    const summary=conn.summary||{};
-                    const summaryText=
-                      pl.oauth?(summary.accountName?`${summary.accountName} (${summary.accountId||"—"})`:(summary.accountId||"No account selected yet")):
-                      pl.key==="funnel"?(summary.accountId?`Account ${summary.accountId}${summary.projectId?` · Project ${summary.projectId}`:""}`:"—"):
-                      pl.key==="supermetrics"?(summary.dsId?`${summary.dsId}${summary.dsAccounts?` · ${summary.dsAccounts}`:""}`:"—"):
-                      pl.key==="capterra"?(summary.products?.length?summary.products.join(", "):"—"):
-                      "—";
-                    const statusLabel=conn.needsReconnect?"Reconnect needed":conn.needsAccountSelection?"Pick account":conn.paused?"Paused":"Connected";
-                    const warn=conn.needsReconnect||conn.needsAccountSelection;
-                    const statusColor=warn?T.warning:conn.paused?T.textMuted:T.success;
-                    const statusBg=warn?T.warningBg:conn.paused?T.surfaceEl:T.successBg;
-                    const statusBorder=warn?T.warningBorder:conn.paused?T.border:T.successBorder;
-                    // Sync frequency (2026-07-25, per Mo) — shared by both the desktop grid column
-                    // and the mobile card below, so "is this on rolling sync or still manual" is
-                    // answerable at a glance instead of needing the ⋯ menu opened per connector.
-                    const syncRolling=conn.syncMode==="rolling";
-                    const syncFailed=syncRolling&&conn.lastAutoSyncStatus==="error";
-                    const syncLabel=syncRolling?(conn.syncFrequency==="weekly"?"Weekly":"Daily"):"Manual";
-                    const syncColor=syncFailed?T.danger:syncRolling?T.accent:T.textMuted;
-                    const syncBg=syncFailed?T.dangerBg:syncRolling?T.accentBg:T.surfaceEl;
-                    const syncBorder=syncFailed?T.dangerBorder:syncRolling?T.accentBorder:T.border;
-                    const syncTitle=syncRolling?`Rolling sync — ${syncLabel.toLowerCase()}, last ${conn.rollingWindowDays||14} days. Set from the ⋯ menu's Sync schedule.`:"Manual only — data only updates when someone clicks Sync now, or from the ⋯ menu's Sync schedule.";
-                    const importRange=importDateRangeByProvider[pl.key];
-                    // fmtCalendarDate (lib/core.js) parses via parseSpendDate, which handles every
-                    // date format this app produces (plain "YYYY-MM-DD", full ISO timestamp, etc.)
-                    // and constructs its Date in local time, so it's safe for both conn.connectedAt
-                    // and importRange.start/end without needing to branch on format here.
-                    const fmtShort=d=>d?fmtCalendarDate(d,{month:"short",day:"numeric",year:"numeric"}):"—";
-                    const menuOpen=connActionsMenuProvider===pl.key;
-                    const syncing=(syncState[pl.key]||"idle")==="loading";
-                    const saving=savingConnectionFlag===pl.key||disconnectingProvider===pl.key||syncing;
-                    const cell=(content,extra)=><div style={{fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",...extra}}>{content}</div>;
-                    const actionsMenu=menuOpen&&connActionsMenuAnchorRect&&createPortal(
-                      <>
-                        <div onClick={closeConnActionsMenu} style={{position:"fixed",inset:0,zIndex:999}}/>
-                        <div style={{position:"fixed",top:connActionsMenuAnchorRect.bottom+6,left:Math.max(8,connActionsMenuAnchorRect.right-220),zIndex:1000,minWidth:220,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                          {!conn.paused&&!conn.needsReconnect&&!conn.needsAccountSelection&&(
-                            <button onClick={()=>{closeConnActionsMenu();syncPlatform(pl.key);}} disabled={!canEdit||syncing} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit&&!syncing?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!syncing?1:0.5}}>{syncing?"Syncing…":"Sync now"}</button>
-                          )}
-                          {/* Full resync (2026-08-05, per Mo) — bypasses syncPlatform's new default
-                              incremental clamp (see that function's doc comment) and re-walks the
-                              WHOLE picker range from scratch, even days already synced. For a
-                              genuine backfill/repair, not routine use — "Sync now" above covers
-                              every normal case now that it only pulls what's actually new. */}
-                          {!conn.paused&&!conn.needsReconnect&&!conn.needsAccountSelection&&(
-                            <button onClick={()=>{closeConnActionsMenu();syncPlatform(pl.key,{forceFull:true});}} disabled={!canEdit||syncing} className="bhq-row" title="Re-pulls the entire selected date range from scratch, even days already synced — for backfills/repairs, not routine use." style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.textSub,fontSize:13*(T.fsScale||1),cursor:canEdit&&!syncing?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!syncing?1:0.5}}>{syncing?"Syncing…":"Full resync"}</button>
-                          )}
-                          {conn.needsAccountSelection&&(
-                            <button onClick={()=>{closeConnActionsMenu();openAccountPicker(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Pick account</button>
-                          )}
-                          {conn.needsReconnect&&(
-                            <button onClick={()=>{closeConnActionsMenu();startProviderOAuth(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Reconnect</button>
-                          )}
-                          {!conn.needsAccountSelection&&!conn.needsReconnect&&(
-                            <button onClick={()=>{closeConnActionsMenu();pl.oauth?openAccountPicker(pl.key):openConnectPanel(pl.key);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>{pl.oauth?"Switch account":"Edit connection"}</button>
-                          )}
-                          {/* Google Sheets-only (2026-07-31, per Mo) — re-opens the connect panel
-                              pre-filled with this sheet's URL and re-fetches its headers, so a
-                              sheet whose columns changed (or a mapping picked wrong the first time)
-                              can be fixed without disconnecting and reconnecting from scratch. */}
-                          {pl.key==="googlesheets"&&!conn.needsAccountSelection&&!conn.needsReconnect&&(
-                            <button onClick={()=>{closeConnActionsMenu();openAdjustMapping(conn);}} disabled={!canEdit} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit?1:0.5}}>Adjust mapping</button>
-                          )}
-                          {!warn&&(
-                            <div style={{padding:"6px 10px 4px"}} onClick={e=>e.stopPropagation()}>
-                              <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,marginBottom:5}}>Sync schedule</div>
-                              <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                                <Sel value={conn.syncMode==="rolling"?conn.syncFrequency:"manual"} T={T} style={{fontSize:11*(T.fsScale||1),padding:"4px 7px"}}
-                                  onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;v==="manual"
-                                    ?updateSyncSchedule(pl.key,{syncMode:"manual"})
-                                    :updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:v,rollingWindowDays:conn.rollingWindowDays||14});}}>
-                                  <option value="manual">Manual only</option>
-                                  <option value="daily">Daily</option>
-                                  <option value="weekly">Weekly</option>
-                                </Sel>
-                                {conn.syncMode==="rolling"&&(
-                                  <Sel value={String(conn.rollingWindowDays||14)} T={T} style={{fontSize:11*(T.fsScale||1),padding:"4px 7px"}}
-                                    onChange={v=>{if(!canEdit||savingSchedule===pl.key)return;updateSyncSchedule(pl.key,{syncMode:"rolling",syncFrequency:conn.syncFrequency,rollingWindowDays:Number(v)});}}>
-                                    <option value="7">Last 7 days</option>
-                                    <option value="14">Last 14 days</option>
-                                    <option value="30">Last 30 days</option>
-                                    <option value="60">Last 60 days</option>
-                                    <option value="90">Last 90 days</option>
-                                  </Sel>
+                  <Card className="overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Connector</TableHead>
+                          <TableHead>Data source name</TableHead>
+                          <TableHead>Credentials</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Sync</TableHead>
+                          <TableHead>Connected</TableHead>
+                          <TableHead>Import start</TableHead>
+                          <TableHead>Import end</TableHead>
+                          <TableHead/>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {rows.map(r=>(
+                          <TableRow key={r.pl.key}>
+                            <TableCell>
+                              <div className="flex items-center gap-1.5">
+                                <PlatformLogo domain={r.pl.domain} color={r.pl.color} mark={r.pl.mark} size={18} T={T}/>
+                                <span className="font-medium text-foreground">{r.pl.label}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="max-w-[200px] truncate">{r.summaryText}</TableCell>
+                            <TableCell className="max-w-[160px] truncate">{r.connectedByEmail||"—"}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap items-center gap-1">
+                                <Badge variant={r.statusVariant}>{r.statusLabel}</Badge>
+                                {r.conn.excludedFromData&&<Badge variant="secondary">Hidden</Badge>}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Badge variant={r.syncVariant} title={r.syncTitle}>{r.syncLabel}</Badge>
+                                {r.syncFailed&&(
+                                  <WarnTip T={T} text={`Auto-sync failed ${r.conn.lastAutoSyncAt?new Date(r.conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"}):"recently"}: ${r.conn.lastAutoSyncError||"unknown error"}`}/>
                                 )}
                               </div>
-                              {conn.syncMode==="rolling"&&conn.lastAutoSyncAt&&(
-                                <div style={{fontSize:10*(T.fsScale||1),color:conn.lastAutoSyncStatus==="error"?T.danger:T.textMuted,fontFamily:T.font,marginTop:5}}>
-                                  {conn.lastAutoSyncStatus==="error"
-                                    ?`Auto-sync failed ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}: ${conn.lastAutoSyncError||"unknown error"}`
-                                    :`Auto-synced ${new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}`}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{paused:!conn.paused});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit&&!saving?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.paused?"Resume import":"Pause import"}</button>
-                          <button onClick={()=>{closeConnActionsMenu();updateConnectionFlags(pl.key,{excludedFromData:!conn.excludedFromData});}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:canEdit&&!saving?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>{conn.excludedFromData?"Use this data in PaidHQ":"Don't use this data in PaidHQ"}</button>
-                          <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                          <button onClick={()=>{closeConnActionsMenu();disconnectConnection(pl.key);}} disabled={!canEdit||saving} className="bhq-row" style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.danger,fontSize:13*(T.fsScale||1),cursor:canEdit&&!saving?"pointer":"default",fontFamily:T.font,textAlign:"left",opacity:canEdit&&!saving?1:0.5}}>Disconnect</button>
-                        </div>
-                      </>,
-                      document.body
-                    );
-                    const dotsButton=(
-                      <div style={{position:"relative",display:"flex",justifyContent:"flex-end"}}>
-                        <button onClick={e=>{
-                            if(menuOpen){closeConnActionsMenu();return;}
-                            setConnActionsMenuAnchorRect(e.currentTarget.getBoundingClientRect());
-                            setConnActionsMenuProvider(pl.key);
-                          }} title="Actions" disabled={saving}
-                          style={{width:24,height:24,borderRadius:T.r6,background:menuOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:saving?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.5:1,fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font,lineHeight:1}}>⋯</button>
-                        {actionsMenu}
-                      </div>
-                    );
-                    if(isMobile){
-                      return(
-                        <div key={pl.key} style={{padding:"11px 10px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
-                            <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
-                              <PlatformLogo domain={pl.domain} color={pl.color} mark={pl.mark} size={18} T={T}/>
-                              <span style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font}}>{pl.label}</span>
-                              <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10*(T.fsScale||1)}}>{statusLabel}</Pill>
-                              <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10*(T.fsScale||1)}} title={syncTitle}>{syncLabel}</Pill>
-                              {syncFailed&&(
-                                <WarnTip T={T} text={`Auto-sync failed ${conn.lastAutoSyncAt?new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"}):"recently"}: ${conn.lastAutoSyncError||"unknown error"}`}/>
-                              )}
-                            </div>
-                            {dotsButton}
-                          </div>
-                          <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>{summaryText}</div>
-                          <div style={{fontSize:13*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,marginTop:3}}>
-                            {connectedByEmail||"—"} · connected {fmtShort(conn.connectedAt)} · imported {fmtShort(importRange?.start)}–{fmtShort(importRange?.end)}
-                          </div>
-                        </div>
-                      );
-                    }
-                    return(
-                      <div key={pl.key} style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 10px",alignItems:"center",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
-                          <PlatformLogo domain={pl.domain} color={pl.color} mark={pl.mark} size={18} T={T}/>
-                          <span style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pl.label}</span>
-                        </div>
-                        {cell(summaryText,{color:T.text})}
-                        {cell(connectedByEmail||"—")}
-                        <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-                          <Pill color={statusColor} bg={statusBg} border={statusBorder} style={{fontSize:10*(T.fsScale||1)}}>{statusLabel}</Pill>
-                          {conn.excludedFromData&&<Pill color={T.textMuted} bg={T.surfaceEl} border={T.border} style={{fontSize:10*(T.fsScale||1)}}>Hidden</Pill>}
-                        </div>
-                        {/* Sync frequency column (2026-07-25, per Mo — this was previously only
-                            visible by opening the ⋯ menu's "Sync schedule" section, which meant the
-                            "is this actually on rolling sync or still just manual" question needed
-                            a click per connector to answer, and was the direct cause of confusion
-                            around item 41's cron fix (rolling sync being off by default read as
-                            "the cron still isn't working" until the ⋯ menu was checked). Manual
-                            (the default for every connector until someone opts in) reads as a muted
-                            neutral pill, matching "Paused"'s treatment elsewhere — it's not an
-                            error state, just the default. Daily/Weekly on rolling sync gets the
-                            same accent treatment as "Connected" in the Status column. A failed
-                            auto-sync (lastAutoSyncStatus==="error") overrides to a danger pill with
-                            a WarnTip carrying the actual error message and date, same copy already
-                            used in the ⋯ menu's own failure note. */}
-                        <div style={{display:"flex",alignItems:"center",gap:4}}>
-                          <Pill color={syncColor} bg={syncBg} border={syncBorder} style={{fontSize:10*(T.fsScale||1)}} title={syncTitle}>{syncLabel}</Pill>
-                          {syncFailed&&(
-                            <WarnTip T={T} text={`Auto-sync failed ${conn.lastAutoSyncAt?new Date(conn.lastAutoSyncAt).toLocaleDateString(undefined,{month:"short",day:"numeric"}):"recently"}: ${conn.lastAutoSyncError||"unknown error"}`}/>
-                          )}
-                        </div>
-                        {cell(fmtShort(conn.connectedAt))}
-                        {cell(fmtShort(importRange?.start))}
-                        {cell(fmtShort(importRange?.end))}
-                        {dotsButton}
-                      </div>
-                    );
-                  })}
-                </div>
+                            </TableCell>
+                            <TableCell>{r.fmtShort(r.conn.connectedAt)}</TableCell>
+                            <TableCell>{r.fmtShort(r.importRange?.start)}</TableCell>
+                            <TableCell>{r.fmtShort(r.importRange?.end)}</TableCell>
+                            <TableCell><DotsButton r={r}/></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Card>
                 );
               })()}
             </div>
