@@ -80,6 +80,10 @@ export function buildAuditGroups({ mergedNormRows = [], reportingFacts = [], com
         // awareness objective"): stable per campaign, so the first non-null value seen for this
         // group is authoritative — see scoreAuditGroups' cohorting below for how this is used.
         objective: null,
+        // adFormat (2026-08-07, per Mo — "we should include an ad format column for the same reason
+        // we're using the ad set objective field"): same stable-per-campaign, first-non-null-wins
+        // pattern as objective above.
+        adFormat: null,
         spend: 0, impressions: 0, clicks: 0, conversions: 0,
       });
     }
@@ -90,6 +94,10 @@ export function buildAuditGroups({ mergedNormRows = [], reportingFacts = [], com
     const em = r.extra_metrics || {};
     g.conversions += Number(em.conversions ?? em.all_conversions ?? 0) || 0;
     if (!g.objective && em.objective) g.objective = em.objective;
+    // adFormat (2026-08-07, per Mo — "we should include an ad format column for the same reason
+    // we're using the ad set objective field"): same stable-per-campaign, first-non-null-wins
+    // pattern as objective above.
+    if (!g.adFormat && em.ad_format) g.adFormat = em.ad_format;
 
     campaignSpendTotals.set(campaignNameKey, (campaignSpendTotals.get(campaignNameKey) || 0) + (r.spend || 0));
   }

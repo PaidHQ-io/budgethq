@@ -27,6 +27,17 @@
 
 const BASE = "https://api.linkedin.com/v2";
 
+// REST_BASE (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's linkedin.js
+// for the fuller doc comment). LinkedIn's Account Structure APIs (Campaigns/Campaign Groups/
+// Creatives) are on a SEPARATE deprecation timeline from the analytics/reporting APIs (adAnalyticsV2
+// stays on BASE, unaffected). resolveCampaignNames and resolveCreativeNames below were still calling
+// the deprecated /v2/adCampaignsV2 and /v2/adCreativesV2 endpoints, which is why creative names came
+// back blank or ID-only and objective came back blank — the current, documented replacements are the
+// versioned REST endpoints under /rest/adAccounts/{accountId}/... . resolveCampaignGroupNames is
+// deliberately left on the old BASE/v2 endpoint — Mo's own screenshot showed campaign group names
+// resolving correctly already, so only what was demonstrably broken gets touched.
+const REST_BASE = "https://api.linkedin.com/rest";
+
 const analyticsHeaders = (token) => ({
   Authorization: `Bearer ${token}`,
   "Content-Type": "application/json",
@@ -86,22 +97,24 @@ async function resolveCached(token, urns, fetchOne) {
 // supported on Advertising API tier. Note: LinkedIn's "Campaign" object is PaidHQ's leaf-level
 // campaign_name (equivalent to an ad set/ad group on other platforms); LinkedIn's "Campaign Group"
 // is PaidHQ's campaign_group_name (equivalent to what other platforms simply call "Campaign").
-// objectiveType (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's linkedin.js
-// for the fuller doc comment): piggybacks on this same per-campaign fetch rather than a separate API
-// call. UNVERIFIED against a real account's actual JSON response — worth a quick check against the
-// first live sync.
-async function resolveCampaignNames(token, urns) {
+// objectiveType + format (2026-08-07, mirrored from paidhq-core's identical copy — see that repo's
+// linkedin.js for the fuller doc comment). Now on REST_BASE's versioned /adAccounts/{accountId}/
+// adCampaigns/{id} endpoint (was the deprecated /v2/adCampaignsV2/{id}) — confirmed via LinkedIn's
+// official docs that this is a bare numeric ID in the path, not a URN. format is the campaignFormat
+// enum (STANDARD_UPDATE, CAROUSEL, SINGLE_VIDEO, etc.) — reused as the Ad Format column's source
+// since LinkedIn constrains creatives under a campaign to match that campaign's format.
+async function resolveCampaignNames(token, accountId, urns) {
   return resolveCached(token, urns, async (urn, tok) => {
     const id = urn.split(":").pop();
     try {
-      const res = await fetch(`${BASE}/adCampaignsV2/${id}`, { headers: restHeaders(tok) });
+      const res = await fetch(`${REST_BASE}/adAccounts/${accountId}/adCampaigns/${id}`, { headers: restHeaders(tok) });
       if (res.ok) {
         const data = await res.json();
-        return { id: String(id), name: data.name || `Campaign ${id}`, groupUrn: data.campaignGroup || null, objectiveType: data.objectiveType || null };
+        return { id: String(id), name: data.name || `Campaign ${id}`, groupUrn: data.campaignGroup || null, objectiveType: data.objectiveType || null, format: data.format || null };
       }
-      return { id: String(id), name: `Campaign ${id}`, groupUrn: null, objectiveType: null };
+      return { id: String(id), name: `Campaign ${id}`, groupUrn: null, objectiveType: null, format: null };
     } catch {
-      return { id: String(id), name: `Campaign ${id}`, groupUrn: null, objectiveType: null };
+      return { id: String(id), name: `Campaign ${id}`, groupUrn: null, objectiveType: null, format: null };
     }
   });
 }
@@ -124,27 +137,21 @@ async function resolveCampaignGroupNames(token, urns) {
 }
 
 // Resolve creative names + their parent campaign URN individually by ID (mirrors
-// resolveCampaignNames' batching — same "bulk fetch not supported" constraint applies to
-// adCreativesV2). ad-level pull (2026-08-19, per Mo — bringing ad-level granularity into paid
-// social so ads can be tagged by dimension). Unlike campaigns/campaign groups, LinkedIn ad
-// creatives don't always carry a human-set "name" the way an advertiser names a Campaign or
-// Campaign Group — a creative is usually identified by its underlying content (a Sponsored Content
-// post, a Text Ad, an inline Direct Sponsored Content unit), not a separate name field an
-// advertiser fills in. This falls back through a few plausible shapes (top-level name, inline
-// variable text) before giving up and using "Creative {id}", same never-throw-on-a-missing-name
-// posture as resolveCampaignNames/resolveCampaignGroupNames. Verify the actual ad_name values that
-// come through on the first live sync — if LinkedIn's account has creatives worth relabeling here
-// with something more specific, that's a follow-up, not guessed at blind.
-async function resolveCreativeNames(token, urns) {
+// resolveCampaignNames' batching). Now on REST_BASE's versioned /adAccounts/{accountId}/creatives/
+// {creativeUrn} endpoint (was the deprecated /v2/adCreativesV2/{id}) — mirrored from paidhq-core's
+// identical copy, see that repo's linkedin.js for the fuller doc comment on why this was broken
+// (blank/ID-fallback ad names). Per LinkedIn's official docs, this endpoint takes the FULL
+// URL-encoded creative URN in the path (not a bare numeric ID like campaigns), and returns a real
+// advertiser-set `name` field directly — no more falling back to inline content-text scraping, that
+// was the old v2-only schema's workaround and is no longer needed.
+async function resolveCreativeNames(token, accountId, urns) {
   return resolveCached(token, urns, async (urn, tok) => {
     const id = urn.split(":").pop();
     try {
-      const res = await fetch(`${BASE}/adCreativesV2/${id}`, { headers: restHeaders(tok) });
+      const res = await fetch(`${REST_BASE}/adAccounts/${accountId}/creatives/${encodeURIComponent(urn)}`, { headers: restHeaders(tok) });
       if (res.ok) {
         const data = await res.json();
-        const inlineText = data.variables?.data?.["com.linkedin.ads.SponsoredUpdateCreativeVariables"]?.share?.text
-          || data.variables?.data?.["com.linkedin.ads.TextAdCreativeVariables"]?.headline;
-        return { id: String(id), name: data.name || inlineText || `Creative ${id}`, campaignUrn: data.campaign || null };
+        return { id: String(id), name: data.name || `Creative ${id}`, campaignUrn: data.campaign || null };
       }
       return { id: String(id), name: `Creative ${id}`, campaignUrn: null };
     } catch {
@@ -208,10 +215,10 @@ export async function getSpend({ startDate, endDate, credential }) {
   // pivotValues[0] is now a creative URN (see fetchAnalytics), so this adds one more hop below the
   // pre-existing campaign -> campaign group resolution.
   const creativeUrns = [...new Set(withSpend.map((el) => (el.pivotValues || [])[0]).filter(Boolean))];
-  const creatives = await resolveCreativeNames(token, creativeUrns);
+  const creatives = await resolveCreativeNames(token, accountId, creativeUrns);
 
   const campaignUrns = [...new Set(Object.values(creatives).map((c) => c.campaignUrn).filter(Boolean))];
-  const campaigns = campaignUrns.length ? await resolveCampaignNames(token, campaignUrns) : {};
+  const campaigns = campaignUrns.length ? await resolveCampaignNames(token, accountId, campaignUrns) : {};
 
   const groupUrns = [...new Set(Object.values(campaigns).map((c) => c.groupUrn).filter(Boolean))];
   const groups = groupUrns.length ? await resolveCampaignGroupNames(token, groupUrns) : {};
@@ -233,7 +240,10 @@ export async function getSpend({ startDate, endDate, credential }) {
         spend: Math.round(parseFloat(el.costInLocalCurrency) * 100) / 100,
         impressions: el.impressions || 0,
         clicks: el.clicks || 0,
-        extra_metrics: { objective: c.objectiveType || undefined },
+        // ad_format (2026-08-07, mirrored from paidhq-core's identical copy): campaign-level format
+        // is treated as the ad's format since LinkedIn constrains creatives under a campaign to
+        // match that campaign's format.
+        extra_metrics: { objective: c.objectiveType || undefined, ad_format: c.format || undefined },
       };
     })
     .filter((r) => r.date);

@@ -175,6 +175,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[goalsObjectivesSidebarEl,setGoalsObjectivesSidebarEl]=useState(null); // portal target inside <aside> for Goals & Objectives' own tagged/filtered overview (2026-08-19) — same reasoning as reportingAnalyzerSidebarEl above, just for the goals-scoped ReportingFactsTagger instance instead of the pipeline one
   const[changeHistorySidebarEl,setChangeHistorySidebarEl]=useState(null); // portal target inside <aside> for Change History's own overview (2026-08-19) — same reasoning as goalsObjectivesSidebarEl above
   const[vaultSidebarEl,setVaultSidebarEl]=useState(null); // portal target inside <aside> for Vault's own overview (2026-08-19) — same reasoning as changeHistorySidebarEl above
+  const[accountPlanningSidebarEl,setAccountPlanningSidebarEl]=useState(null); // portal target inside <aside> for Account Planning's step nav (2026-08-07, per Mo — "make it the width of campaign tagger and include the second vertical column"); previously accountPlanning was special-cased to a zero-width/no-content sidebar (see that branch's own doc comment below) — this gives it a real one, same pattern as every other Tailwind-and-legacy-alike tab
   useEffect(()=>{
     const onMove=e=>{
       if(!statsResizing.current)return;
@@ -3269,19 +3270,16 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             this generic sidebar used to show (Total spend/Campaigns/Tagged/Needs review), and a
             second, mostly-empty vertical column next to a page that's already a full layout was
             just wasted width (see 2026-07-19 UX note). Every other view keeps the normal
-            open/collapsible behavior. */}
-        {/* accountPlanning (2026-08-06) treated the same as dashboard here — a self-contained
-            Tailwind-rebuilt page with no legacy sidebar content to show, so it gets the same
-            zero-width/no-border/no-content collapse rather than falling through to the LAST
-            explicit branch below (tagger's own Tag Dimensions panel) the way an unhandled view
-            used to. That fallthrough is exactly what was happening before this fix — Account
-            Planning was rendering Campaign Tagger's "Total spend/Campaigns/Tagged/Needs review"
-            stats sidebar next to it, a totally unrelated legacy panel bleeding into the new
-            design (per Mo's screenshot, "it really doesn't look very good" — this was the single
-            biggest cause: two different design systems visibly stitched together on one screen). */}
-        <aside style={{width:(view==="dashboard"||view==="accountPlanning")?0:(statsOpen?statsWidth:0),flexShrink:0,background:T.sidebarBg,borderRight:(view==="dashboard"||view==="accountPlanning")?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:(view==="dashboard"||view==="accountPlanning")?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
+            open/collapsible behavior. accountPlanning USED to be special-cased here the same way
+            (2026-08-06) — reverted 2026-08-07 per Mo ("make it the width of campaign tagger and
+            include the second vertical column, just like the campaign tagger"): it now gets the
+            normal open/collapsible sidebar like every other tab, portalling its own step nav in
+            via accountPlanningSidebarEl below instead of the zero-width collapse. */}
+        <aside style={{width:view==="dashboard"?0:(statsOpen?statsWidth:0),flexShrink:0,background:T.sidebarBg,borderRight:view==="dashboard"?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:view==="dashboard"?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
 
-          {view==="dashboard"||view==="accountPlanning"?null:view==="budget"?(
+          {view==="dashboard"?null:view==="accountPlanning"?(
+            <div ref={setAccountPlanningSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+          ):view==="budget"?(
             <div ref={setBudgetSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="pacing"?(
             <div ref={setPacingSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
@@ -4677,7 +4675,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           Audit below (deliberately NOT visibleNormRows — an audit of what's working shouldn't
           silently hide a paused/excluded connector's history, same reasoning as Data Audit's own
           comment). No sidebar portal needed (self-contained page, same as Data Audit). */}
-      {view==="accountPlanning"&&<Suspense fallback={<TabLoadingFallback/>}><AccountPlanning T={T} session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels} tags={tags} tagDims={tagDims} adTags={adTags} canEdit={canEdit}/></Suspense>}
+      {view==="accountPlanning"&&<Suspense fallback={<TabLoadingFallback/>}><AccountPlanning T={T} session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels} tags={tags} tagDims={tagDims} adTags={adTags} canEdit={canEdit} sidebarEl={accountPlanningSidebarEl}/></Suspense>}
       {view==="changeHistory"&&<Suspense fallback={<TabLoadingFallback/>}><ChangeHistory T={T} session={session} workspace={workspace} canEdit={canEdit} sidebarEl={changeHistorySidebarEl}/></Suspense>}
       {view==="vault"&&<Suspense fallback={<TabLoadingFallback/>}><Vault T={T} session={session} workspace={workspace} canEdit={canEdit} sidebarEl={vaultSidebarEl}/></Suspense>}
       {/* Data Audit — read-only view over the full merged spend history (mergedNormRows, not the

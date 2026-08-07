@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Component, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   listAccountPlans, getAccountPlan, createAccountPlan, updateAccountPlan, deleteAccountPlan,
 } from "../lib/accountPlanningApi.js";
@@ -348,7 +349,9 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
   const [minSpend, setMinSpend] = useState(100);
   const [tierFilter, setTierFilter] = useState("all");
   const [fTag, setFTag] = useState("");
-  const [datePreset, setDatePreset] = useState("all");
+  // Defaults to "last30" (2026-08-07, per Mo — "Let's make the audit tab default to the last 30
+  // days"), was "all". Still fully overridable via the Time frame select right below.
+  const [datePreset, setDatePreset] = useState("last30");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   useEffect(() => {
@@ -533,6 +536,7 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
               <TableHead>Reach</TableHead>
               <TableHead>Frequency</TableHead>
               <TableHead>Objective</TableHead>
+              <TableHead>Ad Format</TableHead>
               <TableHead>Signal</TableHead>
               <TableHead>Cost/unit</TableHead>
               <TableHead>Decision</TableHead>
@@ -556,6 +560,7 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
                   <TableCell className="text-sm text-muted-foreground">{g.reachMetrics?.reach != null ? g.reachMetrics.reach.toLocaleString() : "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{g.reachMetrics?.frequency != null ? g.reachMetrics.frequency.toFixed(2) : "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{humanizeObjective(g.objective) || "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{humanizeObjective(g.adFormat) || "—"}</TableCell>
                   <TableCell>
                     <div className="text-xs text-muted-foreground">{SIGNAL_LABELS[g.signalType]}</div>
                     {g.primaryMetricKey && <div className="text-[11px] text-muted-foreground/70">{g.primaryMetricKey}</div>}
@@ -1698,9 +1703,43 @@ function NodeHeader({ row, icon: Icon, nodeLabel, dimByKey, profiles, rowTemplat
   );
 }
 
+// This whole app has no error boundary anywhere (2026-08-07, found debugging Mo's report — "the
+// mapping tab is empty, i'm taken to a white screen each time I go to it"), which means an uncaught
+// render error in ANY step blanks the entire page with zero diagnostic info, in the browser or in
+// Vercel's logs (a client-side render crash never touches a serverless function, so it's invisible
+// to get_runtime_errors/get_runtime_logs too). Scoped to just the active step's content rather than
+// the whole AccountPlanning tree, so a bug in one step can't take out the plan list/step nav around
+// it, and keyed by activeStep (below) so switching tabs away from a broken step and back always
+// gets a fresh mount instead of staying stuck showing the old error. Surfaces the real error message
+// so the next report is actually actionable instead of just "it's blank."
+class StepErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("[AccountPlanning] step render error:", error, info?.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <div className="text-sm font-semibold text-destructive">Something went wrong rendering this step.</div>
+          <div className="mt-1.5 font-mono text-xs text-muted-foreground">{this.state.error.message || String(this.state.error)}</div>
+          <Button size="sm" variant="outline" className="mt-3" onClick={() => this.setState({ error: null })}>Try again</Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── MAIN ───────────────────────────────────────────────────────────────────────────────────────
 
-export default function AccountPlanning({ session, workspace, mergedNormRows, combineGoogleChannels = {}, tags = {}, tagDims = [], adTags = {}, canEdit }) {
+export default function AccountPlanning({ session, workspace, mergedNormRows, combineGoogleChannels = {}, tags = {}, tagDims = [], adTags = {}, canEdit, sidebarEl }) {
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -1782,72 +1821,103 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
   const activeStep = plan.activeStep || "context";
   const setStepField = (field, value) => setPlan({ ...plan, [field]: value });
 
+  // Step nav lives in the app's shared sidebar rail now (2026-08-07, per Mo — "make it the width of
+  // campaign tagger and include the second vertical column, just like the campaign tagger"), the
+  // same portal-into-a-ref pattern every other Tailwind-and-legacy-tab-alike uses (ChangeHistory.jsx,
+  // Vault.jsx, PipelineTagger.jsx, ...) — see PaidHQ.jsx's STATS SIDEBAR block for the ref/aside this
+  // portals into. Previously this rendered as an inline 190px-wide column INSIDE a max-w-5xl-capped
+  // page, which is what was actually squeezing the Audit/Mapping tables so hard — moving it out and
+  // dropping that width cap (see the wrapper below) are the same fix, not two unrelated changes.
+  const sidebarPortal = sidebarEl && createPortal(
+    <div className="bhq-scroll flex h-full flex-col gap-1 overflow-auto">
+      <div className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Steps</div>
+      {STEPS.map((s, i) => {
+        const active = activeStep === s.key;
+        const StepIcon = s.Icon;
+        return (
+          <button type="button" key={s.key} onClick={() => setStepField("activeStep", s.key)}
+            className={cn("flex items-center gap-2 whitespace-nowrap rounded-lg border-0 px-3 py-2 text-left transition-all active:scale-[0.97]", active ? "bg-accent" : "bg-transparent hover:bg-secondary")}>
+            <span className={cn("flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors", active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground")}>
+              {i + 1}
+            </span>
+            <StepIcon className={cn("h-3.5 w-3.5", active ? "text-primary" : "text-muted-foreground")} />
+            <span className={cn("text-sm", active ? "font-semibold text-primary" : "font-medium text-muted-foreground")}>{s.label}</span>
+          </button>
+        );
+      })}
+    </div>,
+    sidebarEl
+  );
+
   return (
     <div className="flex-1 overflow-auto bg-muted p-6 sm:p-10">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <button type="button" onClick={backToList} className="mb-2 flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground">
-              <ChevronLeft className="h-3.5 w-3.5" /> All plans
+      {sidebarPortal}
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <button type="button" onClick={backToList} className="mb-2 flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground">
+            <ChevronLeft className="h-3.5 w-3.5" /> All plans
+          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {canEdit ? (
+              <input value={plan.name} onChange={(e) => setStepField("name", e.target.value)}
+                className="font-display min-w-[200px] border-none bg-transparent p-0 text-2xl font-semibold text-foreground outline-none" />
+            ) : (
+              <h2 className="font-display text-2xl font-semibold text-foreground">{plan.name}</h2>
+            )}
+            {canEdit && (
+              <Select value={plan.status || "draft"} onValueChange={(v) => setStepField("status", v)}>
+                <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="in_progress">In progress</SelectItem>
+                  <SelectItem value="complete">Complete</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            <SavedIndicator saving={saving} savedAt={savedAt} />
+          </div>
+        </div>
+        <ThemeToggle dark={dark} onToggle={toggleDark} />
+      </div>
+
+      {/* Small-screen fallback — PaidHQ.jsx hides the whole sidebar rail below its own isMobile
+          cutoff (width<768, i.e. Tailwind's md breakpoint), so the step nav needs an inline copy
+          there or narrow windows lose it entirely. md:hidden here matches that exact cutoff so it
+          never renders twice alongside the portalled sidebar copy above. */}
+      <div className="mb-4 flex flex-row gap-1 overflow-x-auto md:hidden">
+        {STEPS.map((s, i) => {
+          const active = activeStep === s.key;
+          const StepIcon = s.Icon;
+          return (
+            <button type="button" key={s.key} onClick={() => setStepField("activeStep", s.key)}
+              className={cn("flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border-0 px-3 py-2 text-left transition-all active:scale-[0.97]", active ? "bg-accent" : "bg-transparent hover:bg-secondary")}>
+              <span className={cn("flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors", active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground")}>
+                {i + 1}
+              </span>
+              <StepIcon className={cn("h-3.5 w-3.5", active ? "text-primary" : "text-muted-foreground")} />
+              <span className={cn("text-sm", active ? "font-semibold text-primary" : "font-medium text-muted-foreground")}>{s.label}</span>
             </button>
-            <div className="flex flex-wrap items-center gap-2.5">
-              {canEdit ? (
-                <input value={plan.name} onChange={(e) => setStepField("name", e.target.value)}
-                  className="font-display min-w-[200px] border-none bg-transparent p-0 text-2xl font-semibold text-foreground outline-none" />
-              ) : (
-                <h2 className="font-display text-2xl font-semibold text-foreground">{plan.name}</h2>
-              )}
-              {canEdit && (
-                <Select value={plan.status || "draft"} onValueChange={(v) => setStepField("status", v)}>
-                  <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="in_progress">In progress</SelectItem>
-                    <SelectItem value="complete">Complete</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-              <SavedIndicator saving={saving} savedAt={savedAt} />
-            </div>
-          </div>
-          <ThemeToggle dark={dark} onToggle={toggleDark} />
-        </div>
+          );
+        })}
+      </div>
 
-        <div className="flex flex-col items-start gap-5 lg:flex-row">
-          <div className="flex w-full shrink-0 flex-row gap-1 overflow-x-auto lg:w-[190px] lg:flex-col lg:overflow-visible">
-            {STEPS.map((s, i) => {
-              const active = activeStep === s.key;
-              const StepIcon = s.Icon;
-              return (
-                <button type="button" key={s.key} onClick={() => setStepField("activeStep", s.key)}
-                  className={cn("flex items-center gap-2 whitespace-nowrap rounded-lg border-0 px-3 py-2 text-left transition-all active:scale-[0.97]", active ? "bg-accent" : "bg-transparent hover:bg-secondary")}>
-                  <span className={cn("flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors", active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground")}>
-                    {i + 1}
-                  </span>
-                  <StepIcon className={cn("h-3.5 w-3.5", active ? "text-primary" : "text-muted-foreground")} />
-                  <span className={cn("text-sm", active ? "font-semibold text-primary" : "font-medium text-muted-foreground")}>{s.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div key={activeStep} className="min-w-0 flex-1 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {activeStep === "context" && <ContextStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
-            {activeStep === "audit" && (
-              <AuditStep session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels}
-                tags={tags} tagDims={tagDims} adTags={adTags}
-                auditDecisions={plan.auditDecisions || {}} setAuditDecisions={(v) => setStepField("auditDecisions", v)}
-                mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} canEdit={canEdit} />
-            )}
-            {activeStep === "taxonomy" && <TaxonomyStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
-            {activeStep === "targeting" && (
-              <TargetingStep session={session} workspace={workspace} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} setTargeting={(v) => setStepField("targeting", v)} canEdit={canEdit} />
-            )}
-            {activeStep === "mapping" && (
-              <MappingStep mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} canEdit={canEdit} />
-            )}
-          </div>
-        </div>
+      <div key={activeStep} className="min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <StepErrorBoundary key={activeStep}>
+          {activeStep === "context" && <ContextStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
+          {activeStep === "audit" && (
+            <AuditStep session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels}
+              tags={tags} tagDims={tagDims} adTags={adTags}
+              auditDecisions={plan.auditDecisions || {}} setAuditDecisions={(v) => setStepField("auditDecisions", v)}
+              mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} canEdit={canEdit} />
+          )}
+          {activeStep === "taxonomy" && <TaxonomyStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
+          {activeStep === "targeting" && (
+            <TargetingStep session={session} workspace={workspace} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} setTargeting={(v) => setStepField("targeting", v)} canEdit={canEdit} />
+          )}
+          {activeStep === "mapping" && (
+            <MappingStep mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} canEdit={canEdit} />
+          )}
+        </StepErrorBoundary>
       </div>
     </div>
   );
