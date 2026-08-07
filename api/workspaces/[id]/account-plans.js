@@ -24,7 +24,7 @@
  *     name text not null,
  *     status text not null default 'draft',              -- draft | in_progress | complete
  *     active_step text not null default 'context',        -- context | audit | taxonomy | budget | targeting | mapping
- *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, segments, adFormats, objectives, budgets? }
+ *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, segments, adFormats, objectives, funnelStages, budgets? }
  *       -- segments (2026-08-07, per Mo — "we're missing company size segments of SMB, MM and
  *       -- Enterprise in this screen"): free-text ChipList like products/regions/personas, defaults
  *       -- to ["SMB","MM","Enterprise"] client-side when unset (see DEFAULT_SEGMENTS in
@@ -35,6 +35,10 @@
  *       -- DEFAULT_AD_FORMATS/DEFAULT_AD_SET_OBJECTIVES in AccountPlanning.jsx) — what this PLAN
  *       -- intends to use, deliberately separate from the Audit step's live objective/ad_format
  *       -- columns which reflect what's actually running on the connected account today.
+ *       -- funnelStages (2026-08-07, per Mo — "let's add the funnel options for TOFU, MOFU, BOFU
+ *       -- (Remarketing)"): same client-side-default pattern (DEFAULT_FUNNEL_STAGES), defaults to
+ *       -- ["TOFU","MOFU","BOFU (Remarketing)"] — free text, not the enum-constrained Taxonomy
+ *       -- "funnel" dimension (which keeps the plain TOFU/MOFU/BOFU codes for generated names).
  *       -- budgets (LEGACY, 2026-08-07 — per Mo, "nor do I think any budget allocation should be set
  *       -- in context"): the old itemized label+$ list this UI no longer shows or writes to. Left
  *       -- as-is on old rows rather than migrated/deleted, but NOT summed into a default for the new

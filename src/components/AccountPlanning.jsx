@@ -252,6 +252,13 @@ const DEFAULT_SEGMENTS = ["SMB", "MM", "Enterprise"];
 const DEFAULT_AD_FORMATS = ["Single Image", "Video", "CTV", "In Message", "Text", "Conversation", "Document", "Spotlight"];
 const DEFAULT_AD_SET_OBJECTIVES = ["Conversions", "Brand Awareness", "Website Traffic", "Lead Generation", "Engagement"];
 
+// DEFAULT_FUNNEL_STAGES (2026-08-07, per Mo — "let's add the funnel options for TOFU, MOFU, BOFU
+// (Remarketing)"): same seeded-ChipList pattern as the cards above. BOFU is labeled "BOFU
+// (Remarketing)" rather than a separate 4th chip, matching how Mo phrased the request — this is a
+// free-text tag, not the enum-constrained Taxonomy "funnel" dimension (DEFAULT_TAXONOMY_DIMENSIONS'
+// funnel values stay the plain TOFU/MOFU/BOFU codes it puts into generated names).
+const DEFAULT_FUNNEL_STAGES = ["TOFU", "MOFU", "BOFU (Remarketing)"];
+
 function ContextStep({ context, setContext, canEdit }) {
   const products = context.products || [];
   const regions = context.regions || [];
@@ -259,6 +266,7 @@ function ContextStep({ context, setContext, canEdit }) {
   const segments = context.segments && context.segments.length ? context.segments : DEFAULT_SEGMENTS;
   const adFormats = context.adFormats && context.adFormats.length ? context.adFormats : DEFAULT_AD_FORMATS;
   const objectives = context.objectives && context.objectives.length ? context.objectives : DEFAULT_AD_SET_OBJECTIVES;
+  const funnelStages = context.funnelStages && context.funnelStages.length ? context.funnelStages : DEFAULT_FUNNEL_STAGES;
   return (
     <div className="flex flex-col gap-4">
       {/* Walkthrough (2026-08-07, per Mo — "I also need an explanation or walk through of what to
@@ -279,7 +287,7 @@ function ContextStep({ context, setContext, canEdit }) {
           <div className="text-sm text-muted-foreground">
             <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
             <p>
-              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, <span className="font-medium text-foreground">Company Size Segments</span>, <span className="font-medium text-foreground">Ad Format</span>, and <span className="font-medium text-foreground">Ad Set Objective</span> are all simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. These describe what this plan covers and carry through as reference context in later steps (Taxonomy, Targeting, Mapping); Ad Format and Ad Set Objective in particular are what you intend to use, which is worth keeping distinct from what's actually running today (that's what the Audit step's own Ad Format/Objective columns show, pulled live from the connected accounts). None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be. Setting the actual budget — total and per-segment breakdown — happens in its own Budget step, once these fields (and Taxonomy's dimensions) exist to allocate against.
+              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, <span className="font-medium text-foreground">Company Size Segments</span>, <span className="font-medium text-foreground">Ad Format</span>, <span className="font-medium text-foreground">Ad Set Objective</span>, and <span className="font-medium text-foreground">Funnel Stage</span> are all simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. These describe what this plan covers and carry through as reference context in later steps (Taxonomy, Targeting, Mapping); Ad Format and Ad Set Objective in particular are what you intend to use, which is worth keeping distinct from what's actually running today (that's what the Audit step's own Ad Format/Objective columns show, pulled live from the connected accounts). None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be. Setting the actual budget — total and per-segment breakdown — happens in its own Budget step, once these fields (and Taxonomy's dimensions) exist to allocate against.
             </p>
           </div>
         </CardContent>
@@ -331,6 +339,14 @@ function ContextStep({ context, setContext, canEdit }) {
             <ChipList items={objectives} canEdit={canEdit} placeholder="Add an objective…"
               onAdd={(v) => setContext({ ...context, objectives: [...objectives, v] })}
               onRemove={(i) => setContext({ ...context, objectives: objectives.filter((_, x) => x !== i) })} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Funnel Stage</CardTitle></CardHeader>
+          <CardContent>
+            <ChipList items={funnelStages} canEdit={canEdit} placeholder="Add a funnel stage…"
+              onAdd={(v) => setContext({ ...context, funnelStages: [...funnelStages, v] })}
+              onRemove={(i) => setContext({ ...context, funnelStages: funnelStages.filter((_, x) => x !== i) })} />
           </CardContent>
         </Card>
       </div>
