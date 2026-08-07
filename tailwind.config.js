@@ -93,25 +93,45 @@ export default {
         },
       },
       borderRadius: {
+        // Flattened 2026-08-07 (per Mo — Venture CRM retheme, "implement it exactly as it is"):
+        // the kit uses one flat radius everywhere (buttons/cards/inputs all sampled at the same
+        // border-radius/4-px token), not a graduated scale. lg/md/sm all just equal --radius now —
+        // no more calc() subtraction, which would have made `rounded-sm` literally 0px once
+        // --radius dropped from 0.75rem to 0.25rem.
         lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        md: "var(--radius)",
+        sm: "var(--radius)",
       },
       fontFamily: {
         sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
-        // Display face (2026-08-06, per Mo's "beautiful typography" ask) — Space Grotesk for
-        // headings/big KPI numbers only, loaded via @import in index.css. Kept separate from
-        // `sans` on purpose: a geometric display face reads as confident at large sizes but hurts
-        // legibility in dense tables/forms, so body/UI text stays on Inter.
-        display: ["Space Grotesk", "Inter", "-apple-system", "sans-serif"],
+        // display (2026-08-07, per Mo — Venture CRM retheme): Venture's Style Guide uses Inter for
+        // headings too, no separate display face — Space Grotesk retired (see index.css's @import
+        // comment). Pointed at the same stack as `sans` rather than deleting the `display` key
+        // outright, so the ~9 existing font-display usages across AccountPlanning.jsx/
+        // CampaignAudit.jsx don't need to be hunted down and edited — they just render in Inter now.
+        display: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+      },
+      // Heading scale (2026-08-07, added for the Venture CRM retheme): Venture's Typography frame
+      // names these Heading/Desktop/H2-H6, all Inter Medium (500), 1.2 line-height. Tailwind's
+      // default text-4xl/3xl/etc. don't line up with the kit's actual px sizes (48/32/28/24/20), so
+      // these are new named sizes (text-h2..text-h6) rather than a remap of Tailwind's built-ins.
+      // Venture's Body scale (12/14/16/18) already matches Tailwind's default text-xs/sm/base/lg
+      // almost exactly, so body text needed no changes — just use the existing text-sm/text-base/etc.
+      fontSize: {
+        h2: ["48px", { lineHeight: "1.2", fontWeight: "500" }],
+        h3: ["32px", { lineHeight: "1.2", fontWeight: "500" }],
+        h4: ["28px", { lineHeight: "1.2", fontWeight: "500" }],
+        h5: ["24px", { lineHeight: "1.2", fontWeight: "500" }],
+        h6: ["20px", { lineHeight: "1.2", fontWeight: "500" }],
       },
       boxShadow: {
-        // Bumped 2026-08-06 (per Mo — "it really doesn't look very good") — the original values
-        // were nearly invisible against a white page background, which combined with a raw
-        // white-on-white page (see the p-4/p-7 wrapper divs in AccountPlanning.jsx, now bg-muted/40
-        // instead of bg-background) made every card read as flat/undesigned rather than a raised
-        // surface. Still subtle, just no longer imperceptible.
-        card: "0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.08)",
+        // Changed to `none` 2026-08-07 (per Mo — Venture CRM retheme, "implement it exactly as it
+        // is"): every card sampled from the kit (Cards frame's Integrations/Contact/Task cards) uses
+        // a 1px Border/Primary border with NO drop shadow — a flatter, more minimal look than the
+        // 2026-08-06 "world class" pass's raised-card treatment. Safe to zero out rather than delete
+        // the `shadow-card` class entirely: ui/card.jsx already pairs it with `border border-border`
+        // (see that file), so cards keep their visual definition from the border alone.
+        card: "none",
       },
     },
   },

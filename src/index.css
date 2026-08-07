@@ -1,9 +1,12 @@
-/* Display/body typeface (2026-08-06, per Mo — "I need something world class... beautiful
-   typography" after seeing Omnilab's OmniOS marketing site): a bold geometric display face for
-   headings/big numbers gives the app a point of view instead of reading as an unstyled default —
-   Inter stays as the body/UI face since a data-dense app (tables, forms, wizards) needs a face
-   built for small-size legibility, not a display face stretched into paragraph duty. */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+/* Typeface (2026-08-07, per Mo — retheme the whole app from the "Venture CRM" UI8 kit, "implement
+   it exactly as it is"): Venture's Style Guide (Typography frame) uses Inter for everything —
+   headings included, no separate display face — so the Space Grotesk import (2026-08-06's "world
+   class... beautiful typography" pass) is retired. fontFamily.display in tailwind.config.js now
+   points at the same Inter stack as fontFamily.sans, so the ~9 existing `font-display` usages
+   (AccountPlanning.jsx/CampaignAudit.jsx headings/KPI numbers) don't need touching — they just
+   render in Inter now instead of Space Grotesk. Weight range widened to include 500 (Medium),
+   which is the weight Venture's H2-H6 heading styles use (see fontSize.h2-h6 in tailwind.config.js). */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -26,74 +29,98 @@ html, body {
   flex-direction: column;
 }
 
-/* ─── Tailwind + shadcn/ui + Tremor design tokens (2026-08-06, per Mo — UI rebuild, starting with
-   Account Planning) ───────────────────────────────────────────────────────────────────────────
-   Both a light and a dark theme now live here (see .dark below), per Mo's "world class" push
-   after the OmniOS reference — darkMode:["class"] was already wired in tailwind.config.js but had
-   no actual override block until now. HSL triplets (no hsl() wrapper) so both plain Tailwind
-   classes (via tailwind.config.js's color extension) and Tremor's tremor-* classes can read them
-   with a Tailwind alpha modifier (hsl(var(--x) / <alpha>)). */
+/* ─── Tailwind + shadcn/ui + Tremor design tokens (2026-08-07, per Mo — retheme the app from the
+   "Venture CRM" UI8 kit he bought, "implement it exactly as it is") ─────────────────────────────
+   Every light-mode value below is read straight from the kit's own Figma Variables (pulled via the
+   Figma MCP from the file's 🎨 Styleguide page — Global Colors + Color Tokens frames), not
+   eyeballed from a screenshot. HSL triplets (no hsl() wrapper) so both plain Tailwind classes (via
+   tailwind.config.js's color extension) and Tremor's tremor-* classes can read them with a
+   Tailwind alpha modifier (hsl(var(--x) / <alpha>)). Superseded the 2026-08-06 violet/rounded
+   theme entirely per Mo's 3 confirmations: full switch to Venture's black primary (no violet),
+   flat 4px radius (see --radius), Inter everywhere (no Space Grotesk — see the @import above). */
 :root {
-  /* Primary swapped from Tremor's stock blue to violet (2026-08-06, per Mo — "I need something
-     world class... beautiful typography and colours" after the OmniOS screenshots). Reasoning:
-     blue-500 is Tremor's own out-of-the-box brand color, so keeping it makes PaidHQ read as an
-     unstyled Tremor template rather than a product with its own identity — violet is distinct from
-     both that default blue and from OmniOS's own hot pink, while still reading as premium/modern
-     (the color most current AI-native SaaS products converge on). Tailwind violet-600 for buttons/
-     links on light surfaces, violet-500 in dark mode below where a slightly lighter, more
-     saturated value holds contrast against a near-black background. */
+  /* background/foreground/card: Venture's Background/Primary (#fff) + Content/Dark/Primary
+     (#000000, pure black — not a near-black slate like the old theme used). */
   --background: 0 0% 100%;
-  --foreground: 240 10% 12%;
+  --foreground: 0 0% 0%;
   --card: 0 0% 100%;
-  --card-foreground: 240 10% 12%;
-  --border: 240 6% 90%;
-  --input: 240 6% 90%;
-  --ring: 262 83% 58%;
-  --primary: 262 83% 58%;
+  --card-foreground: 0 0% 0%;
+  /* border/input: Venture actually uses two different grays here, not one — Border/Primary
+     (#e4e4e4) for card/divider borders, but Interaction/Outline/Base (#afafaf, darker) specifically
+     for form-control borders (confirmed on the Text Field component's rendered CSS). Kept that
+     distinction rather than flattening both to the same value. */
+  --border: 0 0% 89%;
+  --input: 0 0% 69%;
+  /* ring: NOT a literal kit value — the Style Guide has no dedicated "focus ring" token, and an
+     all-black focus ring would be indistinguishable from the primary/active states in this
+     monochrome system. Defaulted to Color Tokens/Interaction/Blue/Base (#4976f4), the kit's
+     "informative" hue, so focus is visually distinct from hover/active grays. Flag if you'd rather
+     this be black or something else. */
+  --ring: 224 89% 62%;
+  /* primary: Color Tokens/Action/Primary/Base — literally black, confirmed on the Button Styles
+     frame's Primary/Medium/Default button (bg black, white text) and reused as the Cards frame's
+     "Install" button fill. This is Venture's actual brand color, not a placeholder. */
+  --primary: 0 0% 0%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 240 5% 96%;
-  --secondary-foreground: 240 10% 14%;
-  --muted: 240 5% 97%;
-  --muted-foreground: 240 4% 46%;
-  --accent: 262 90% 97%;
-  --accent-foreground: 262 83% 40%;
-  --destructive: 0 72% 51%;
+  /* secondary: Action/Secondary/Base 2 (#f2f2f2) — the light-gray secondary button/surface fill. */
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 0%;
+  /* muted: Background/Secondary (#f9f9f9) + Content/Dark/Secondary (#727272). */
+  --muted: 0 0% 98%;
+  --muted-foreground: 0 0% 45%;
+  /* accent: Background/Blue (#edf2fe) + Interaction/Blue/Active (#253b7a) — Venture's tinted
+     "informative" surface, same role BudgetHQ's old violet-tinted accent played (selected/
+     highlighted state backgrounds). */
+  --accent: 222 89% 96%;
+  --accent-foreground: 224 53% 31%;
+  /* destructive/success: Interaction/Red/Base (#af4b4b) and Interaction/Green/Base (#589e67). */
+  --destructive: 0 40% 49%;
   --destructive-foreground: 0 0% 100%;
-  --success: 142 71% 33%;
+  --success: 133 28% 48%;
   --success-foreground: 0 0% 100%;
-  --warning: 38 92% 45%;
+  /* warning: Interaction/Orange/Base (#d28e3d) — Venture's Border/Warning token (#edd2b1) is an
+     orange tone, not yellow, so Orange is this kit's actual warning hue (Yellow is a separate,
+     unrelated accent in its own right). */
+  --warning: 33 62% 53%;
   --warning-foreground: 0 0% 100%;
-  --radius: 0.75rem;
+  /* radius: Venture uses ONE flat radius everywhere — confirmed identical
+     (border-radius/4-px = 4px) on buttons, cards, AND text field inputs, not a graduated scale.
+     lg/md/sm below no longer derive via calc() subtraction (that would make sm literally 0px) —
+     all three now just equal --radius directly, matching the kit's flat-radius system. */
+  --radius: 0.25rem;
 }
 
-/* Dark mode (2026-08-06, per Mo's "world class" push) — toggled via a `dark` class on <html>,
-   set from AccountPlanning.jsx's header toggle and persisted to localStorage. Near-black slate
-   (not pure black, which flattens depth and makes card elevation invisible) with a brighter,
-   more saturated violet-500 primary — violet-600 (the light-mode value) loses too much contrast
-   read against a dark background at small UI sizes (buttons, focus rings, links). */
+/* Dark mode — toggled via a `dark` class on <html>, set from AccountPlanning.jsx's header toggle
+   and persisted to localStorage. IMPORTANT: unlike every value in :root above, this block is NOT
+   sourced from the kit — Venture's Style Guide has no dark-mode page/token set at all (it's a
+   light-only kit). These values are inferred to keep the existing dark-mode toggle working: same
+   neutral-gray hue (0°, matching Venture's actual grays) instead of the old theme's slate-blue-
+   tinted dark grays, primary flipped to near-white (pure black would vanish on a dark background),
+   and the same accent hues from :root re-balanced for dark-background contrast. Revisit if Mo buys/
+   finds an official dark variant of this kit. */
 .dark {
-  --background: 240 10% 6%;
-  --foreground: 240 10% 96%;
-  --card: 240 9% 9%;
-  --card-foreground: 240 10% 96%;
-  --border: 240 6% 18%;
-  --input: 240 6% 18%;
-  --ring: 258 90% 66%;
-  --primary: 258 90% 66%;
-  --primary-foreground: 240 10% 6%;
-  --secondary: 240 6% 14%;
-  --secondary-foreground: 240 5% 92%;
-  --muted: 240 6% 12%;
-  --muted-foreground: 240 5% 64%;
-  --accent: 258 50% 20%;
-  --accent-foreground: 258 90% 82%;
-  --destructive: 0 84% 63%;
-  --destructive-foreground: 0 0% 100%;
-  --success: 142 66% 46%;
-  --success-foreground: 240 10% 6%;
-  --warning: 38 92% 58%;
-  --warning-foreground: 240 10% 6%;
-  --radius: 0.75rem;
+  --background: 0 0% 7%;
+  --foreground: 0 0% 96%;
+  --card: 0 0% 10%;
+  --card-foreground: 0 0% 96%;
+  --border: 0 0% 18%;
+  --input: 0 0% 30%;
+  --ring: 224 89% 68%;
+  --primary: 0 0% 96%;
+  --primary-foreground: 0 0% 6%;
+  --secondary: 0 0% 14%;
+  --secondary-foreground: 0 0% 92%;
+  --muted: 0 0% 12%;
+  --muted-foreground: 0 0% 64%;
+  --accent: 224 40% 18%;
+  --accent-foreground: 224 80% 82%;
+  --destructive: 0 45% 63%;
+  --destructive-foreground: 0 0% 8%;
+  --success: 133 40% 55%;
+  --success-foreground: 0 0% 8%;
+  --warning: 33 65% 60%;
+  --warning-foreground: 0 0% 8%;
+  --radius: 0.25rem;
 }
 
 body {
