@@ -429,6 +429,36 @@ export function templateTokens(template) {
 // Mapping row); every other level (product/segment/channel/region) is just this grouped sum rather
 // than its own separately-typed number, per Mo — "budget... per segment, per ad set" shouldn't mean
 // four numbers that can silently stop adding up to each other.
+// Target-vs-actual budget comparison for ONE taxonomy dimension (2026-08-06, per Mo — "I need to be
+// able to set budgets for each segment separately... MM/SMB/ENT and also by persona and by region
+// and by product and by other custom segments or dimensions I create in the process"). Targets live
+// on the dimension itself (taxonomy.dimensions[i].budgets = { [value]: amount }, set in the Taxonomy
+// step — same "one source of truth" reasoning as segment/industry values feeding Targeting's option
+// lists) so a target and the values it can be set against can never drift apart. Actuals are the
+// SAME computeBudgetRollup grouping logic, just per-value for this one dimension instead of a full
+// rollup list. Returns the union of every value that has a target OR actual spend (so a value with a
+// target but zero mapped budget yet still shows up, and vice versa), sorted by whichever is larger.
+export function computeDimensionBudgetComparison(mappingRows, dimension) {
+  if (!dimension) return [];
+  const targets = dimension.budgets || {};
+  const actualMap = new Map();
+  for (const row of mappingRows || []) {
+    const amt = Number(row.budget) || 0;
+    if (!amt) continue;
+    const val = row.dimValues?.[dimension.key];
+    if (!val) continue;
+    actualMap.set(val, (actualMap.get(val) || 0) + amt);
+  }
+  const keys = new Set([...Object.keys(targets), ...actualMap.keys()]);
+  return [...keys]
+    .map((value) => {
+      const target = Number(targets[value]) || 0;
+      const actual = actualMap.get(value) || 0;
+      return { value, target, actual, variance: actual - target };
+    })
+    .sort((a, b) => Math.max(b.target, b.actual) - Math.max(a.target, a.actual));
+}
+
 export function computeBudgetRollup(mappingRows, groupFn) {
   const map = new Map();
   for (const row of mappingRows || []) {

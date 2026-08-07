@@ -10,6 +10,7 @@ import {
   buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup, channelCode, platformFamily,
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
   LINKEDIN_COMPANY_SIZE_RANGES, PLATFORM_CODES, computeFlightDays, computeDailyBudget, computeFlightTotalBudget,
+  computeDimensionBudgetComparison,
 } from "../lib/accountPlanning.js";
 import { SearchableSelect } from "./ui/searchable-select.jsx";
 import { fmtFull } from "../lib/core.js";
@@ -540,6 +541,65 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
           {"{platform}"} always fills with a channel code (LIN/FB/BIN/SEA/GDN/DEM/PMX/YT) instead of the full platform name, and every value has spaces/punctuation stripped before joining — the only "_" or "-" in a generated name is the separator between segments.
         </div>
       </div>
+
+      <BudgetAllocation dimensions={dimensions} updateDim={updateDim} canEdit={canEdit} />
+    </div>
+  );
+}
+
+// Per-dimension budget targets (2026-08-06, per Mo — "I need to be able to set budgets for each
+// segment separately. That means MM/SMB/ENT and also by persona and by region and by product and
+// also by other custom segments or dimensions I create in the process"). Targets live ON the
+// dimension itself (dim.budgets = { [value]: amount }) rather than a separate top-level structure —
+// same jsonb-bucket-inside-an-existing-field trick as everything else in this plan, so no DB
+// migration is needed (taxonomy is already a flexible jsonb column). Set here, in Taxonomy, because
+// that's where a dimension's real value list actually exists; compared against ACTUAL Mapping
+// budgets on the Mapping step's own Budget rollup card (computeDimensionBudgetComparison, same
+// engine function feeds both).
+//
+// Capped at dimensions with 1-15 values — Industry alone has 421 possible values, and a per-value $
+// input list at that size would be unusable busywork, not a real feature. A dimension can still be
+// used for naming/targeting at any size; it just doesn't get a budget-allocation card here.
+const MAX_BUDGET_ALLOCATION_VALUES = 15;
+
+function BudgetAllocation({ dimensions, updateDim, canEdit }) {
+  const eligible = dimensions.filter((d) => d.values.length > 0 && d.values.length <= MAX_BUDGET_ALLOCATION_VALUES);
+  return (
+    <div>
+      <SectionLabel>Budget Allocation</SectionLabel>
+      <div className="mb-2.5 text-xs text-muted-foreground">
+        Optional target $/mo per value, for any dimension with a manageable value list — compared against actual Mapping budgets on the Mapping step.
+      </div>
+      {eligible.length === 0 ? (
+        <div className="text-xs text-muted-foreground">Add values to a dimension above (segment, region, product, or a custom one) to set budget targets for it.</div>
+      ) : (
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          {eligible.map((d) => {
+            const budgets = d.budgets || {};
+            const total = Object.values(budgets).reduce((s, v) => s + (Number(v) || 0), 0);
+            const setValueBudget = (value, amount) => updateDim(d.key, { budgets: { ...budgets, [value]: amount } });
+            return (
+              <Card key={d.key}>
+                <CardContent className="p-4">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-foreground">{d.label}</span>
+                    {total > 0 && <span className="shrink-0 text-xs font-medium text-primary">{fmtFull(total)}/mo</span>}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {d.values.map((v) => (
+                      <div key={v} className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-xs text-foreground">{v}</span>
+                        <Input type="number" disabled={!canEdit} value={budgets[v] || ""} onChange={(e) => setValueBudget(v, e.target.value)}
+                          placeholder="$/mo" className="h-7 w-28 shrink-0 text-xs" />
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -830,10 +890,16 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
 
   // Budget rollups — grouped from each row's own `budget` (the only place budget is entered, per
   // Mo's call), never a separately-typed number per level, so these can never silently stop adding
-  // up.
-  const rollupsByProduct = useMemo(() => computeBudgetRollup(mapping, (r) => r.dimValues?.product), [mapping]);
-  const rollupsBySegment = useMemo(() => computeBudgetRollup(mapping, (r) => r.dimValues?.segment), [mapping]);
+  // up. Platform isn't a taxonomy dimension (it's derived from the audit/channel, not something with
+  // user-set values), so it stays its own plain actual-only rollup; every taxonomy dimension gets a
+  // target-vs-actual comparison instead (computeDimensionBudgetComparison), shown for any dimension
+  // that has either a target (set in Taxonomy's Budget Allocation) or actual spend against it — see
+  // that section's own doc comment for why targets live on the dimension.
   const rollupsByPlatform = useMemo(() => computeBudgetRollup(mapping, (r) => r.platform), [mapping]);
+  const dimensionComparisons = useMemo(
+    () => dimensions.map((d) => ({ dim: d, rows: computeDimensionBudgetComparison(mapping, d) })).filter((x) => x.rows.length > 0),
+    [dimensions, mapping]
+  );
   const totalBudget = mapping.reduce((s, r) => s + (Number(r.budget) || 0), 0);
   const asBarList = (rows) => rows.map((r) => ({ name: r.label, value: r.amount }));
 
@@ -853,25 +919,22 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
       {totalBudget > 0 && (
         <Card className="mb-4">
           <CardHeader className="pb-2"><CardTitle>Budget rollup</CardTitle></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               <div>
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</div>
                 <div className="font-display text-2xl font-bold text-primary">{fmtFull(totalBudget)}</div>
-              </div>
-              <div>
-                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By product</div>
-                {rollupsByProduct.length ? <BarList data={asBarList(rollupsByProduct)} valueFormatter={fmtFull} className="text-xs" /> : <span className="text-xs text-muted-foreground">—</span>}
-              </div>
-              <div>
-                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By segment</div>
-                {rollupsBySegment.length ? <BarList data={asBarList(rollupsBySegment)} valueFormatter={fmtFull} className="text-xs" /> : <span className="text-xs text-muted-foreground">—</span>}
               </div>
               <div>
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">By platform</div>
                 {rollupsByPlatform.length ? <BarList data={asBarList(rollupsByPlatform)} valueFormatter={fmtFull} className="text-xs" /> : <span className="text-xs text-muted-foreground">—</span>}
               </div>
             </div>
+            {dimensionComparisons.length > 0 && (
+              <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2">
+                {dimensionComparisons.map(({ dim, rows }) => <DimensionBudgetBlock key={dim.key} dim={dim} rows={rows} />)}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -935,6 +998,43 @@ function FlightFields({ row, onChange, canEdit, compact }) {
         ) : (
           daily != null && <span className="text-[11px] text-muted-foreground">≈ {fmtFull(daily)}/day</span>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Target-vs-actual display for one taxonomy dimension in Mapping's Budget rollup card (2026-08-06,
+// per Mo — budget-by-segment/persona/region/product/custom dimensions). Rows come from
+// computeDimensionBudgetComparison — a value can have a target with no actual spend yet (still
+// early in Mapping), actual spend with no target set (nobody bothered setting one for that
+// dimension — matches the old rollup's behavior exactly), or both, in which case going over target
+// is called out in the destructive color rather than silently shown as just a bigger number.
+function DimensionBudgetBlock({ dim, rows }) {
+  const totalTarget = rows.reduce((s, r) => s + r.target, 0);
+  const totalActual = rows.reduce((s, r) => s + r.actual, 0);
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">By {dim.label}</div>
+        {totalTarget > 0 && (
+          <div className={cn("text-[11px]", totalActual > totalTarget ? "text-destructive" : "text-muted-foreground")}>
+            {fmtFull(totalActual)} / {fmtFull(totalTarget)} target
+          </div>
+        )}
+      </div>
+      <div className="flex flex-col gap-1">
+        {rows.map((r) => {
+          const over = r.target > 0 && r.actual > r.target;
+          return (
+            <div key={r.value} className="flex items-center justify-between gap-2 rounded-md bg-secondary/40 px-2.5 py-1.5 text-xs">
+              <span className="truncate text-foreground">{r.value}</span>
+              <span className={cn("shrink-0 font-medium", over ? "text-destructive" : "text-foreground")}>
+                {fmtFull(r.actual)}
+                {r.target > 0 && <span className="font-normal text-muted-foreground"> / {fmtFull(r.target)}</span>}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
