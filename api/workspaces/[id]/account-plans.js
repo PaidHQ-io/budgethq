@@ -37,9 +37,11 @@
  *       -- columns which reflect what's actually running on the connected account today.
  *       -- budgets (LEGACY, 2026-08-07 — per Mo, "nor do I think any budget allocation should be set
  *       -- in context"): the old itemized label+$ list this UI no longer shows or writes to. Left
- *       -- as-is on old rows rather than migrated/deleted — the new Budget step's budgetTotal (below)
- *       -- falls back to summing whatever's still here for plans that had it, one time, until the
- *       -- user sets their own total.
+ *       -- as-is on old rows rather than migrated/deleted, but NOT summed into a default for the new
+ *       -- Budget step's budgetTotal either (tried that briefly; per Mo, "those shouldn't be
+ *       -- totalled, those are overlapping segments" — the old list mixed products/regions/personas
+ *       -- with no guarantee any two lines were mutually exclusive spend, so summing it produced a
+ *       -- plausible-looking but wrong number). budgetTotal just starts empty on these plans.
  *     taxonomy jsonb not null default '{}'::jsonb,          -- { dimensions, nameTemplates, utmNotes, budgetTotal }
  *       -- budgetTotal (2026-08-07, per Mo — "a net new tab just for setting budgets and allocating
  *       -- budgets per segment... we should toggle between real dollar amounts and percentages"): the

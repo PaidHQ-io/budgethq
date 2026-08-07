@@ -779,18 +779,17 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
 // same jsonb-bucket-inside-an-existing-field trick as everything else in this plan, so no DB
 // migration was needed. Kept on taxonomy (not context) specifically because BudgetAllocation below
 // needs to read it in the same object it reads dimensions from, and because per-dimension targets
-// (dim.budgets) already lived there. LEGACY_MIGRATION: a plan created before this step existed may
-// still have an itemized context.budgets list with real $ in it (e.g. "MCP: $50k, GTM Studio: $75k,
-// ...") — rather than silently losing that total, budgetTotal falls back to the SUM of that legacy
-// list until the user explicitly sets a real budgetTotal value, at which point the legacy list is
-// just inert leftover data (never deleted, never shown again).
-function BudgetStep({ taxonomy, setTaxonomy, context, canEdit }) {
+// (dim.budgets) already lived there. NOT auto-seeded from the old Context budgets list on plans that
+// had one (2026-08-07, per Mo — "those shouldn't be totalled. those are overlapping segments"): that
+// list mixed products/regions/personas/etc. with no guarantee any two lines were mutually exclusive
+// (a campaign counted under "US" could be the SAME spend already counted under "Marketing"), so
+// summing it was never a valid total — just a plausible-looking wrong number. Starts genuinely
+// empty; the user types the real figure.
+function BudgetStep({ taxonomy, setTaxonomy, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
   const family = taxonomy.family || "search";
-  const legacyContextTotal = (context.budgets || []).reduce((s, b) => s + (Number(b.amount) || 0), 0);
-  const hasOwnTotal = taxonomy.budgetTotal != null && taxonomy.budgetTotal !== "";
-  const budgetTotal = hasOwnTotal ? Number(taxonomy.budgetTotal) || 0 : legacyContextTotal;
+  const budgetTotal = Number(taxonomy.budgetTotal) || 0;
   const setBudgetTotal = (v) => setTaxonomy({ ...taxonomy, dimensions, nameTemplates: templates, family, budgetTotal: v === "" ? "" : Number(v) });
   const updateDim = (key, patch) => setTaxonomy({ ...taxonomy, dimensions: dimensions.map((d) => (d.key === key ? { ...d, ...patch } : d)), nameTemplates: templates, family, budgetTotal: taxonomy.budgetTotal });
 
@@ -814,16 +813,13 @@ function BudgetStep({ taxonomy, setTaxonomy, context, canEdit }) {
           <div className="flex items-center gap-2">
             <span className="text-lg text-muted-foreground">$</span>
             {canEdit ? (
-              <input type="number" value={hasOwnTotal ? taxonomy.budgetTotal : (legacyContextTotal || "")} onChange={(e) => setBudgetTotal(e.target.value)}
+              <input type="number" value={taxonomy.budgetTotal ?? ""} onChange={(e) => setBudgetTotal(e.target.value)}
                 placeholder="0" className="h-10 w-full max-w-xs border-0 bg-transparent font-display text-2xl font-semibold text-foreground outline-none" />
             ) : (
               <span className="font-display text-2xl font-semibold text-foreground">{fmtFull(budgetTotal)}</span>
             )}
             <span className="text-sm text-muted-foreground">/mo</span>
           </div>
-          {!hasOwnTotal && legacyContextTotal > 0 && (
-            <div className="mt-1.5 text-[11px] text-muted-foreground">Carried over from this plan's old itemized Context budgets ({fmtFull(legacyContextTotal)}/mo total) — edit the number above to set your own.</div>
-          )}
         </CardContent>
       </Card>
 
@@ -2111,7 +2107,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
               mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} canEdit={canEdit} />
           )}
           {activeStep === "taxonomy" && <TaxonomyStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
-          {activeStep === "budget" && <BudgetStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
+          {activeStep === "budget" && <BudgetStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} canEdit={canEdit} />}
           {activeStep === "targeting" && (
             <TargetingStep session={session} workspace={workspace} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} setTargeting={(v) => setStepField("targeting", v)} canEdit={canEdit} />
           )}
