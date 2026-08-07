@@ -3270,9 +3270,18 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             second, mostly-empty vertical column next to a page that's already a full layout was
             just wasted width (see 2026-07-19 UX note). Every other view keeps the normal
             open/collapsible behavior. */}
-        <aside style={{width:view==="dashboard"?0:(statsOpen?statsWidth:0),flexShrink:0,background:T.sidebarBg,borderRight:view==="dashboard"?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:view==="dashboard"?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
+        {/* accountPlanning (2026-08-06) treated the same as dashboard here — a self-contained
+            Tailwind-rebuilt page with no legacy sidebar content to show, so it gets the same
+            zero-width/no-border/no-content collapse rather than falling through to the LAST
+            explicit branch below (tagger's own Tag Dimensions panel) the way an unhandled view
+            used to. That fallthrough is exactly what was happening before this fix — Account
+            Planning was rendering Campaign Tagger's "Total spend/Campaigns/Tagged/Needs review"
+            stats sidebar next to it, a totally unrelated legacy panel bleeding into the new
+            design (per Mo's screenshot, "it really doesn't look very good" — this was the single
+            biggest cause: two different design systems visibly stitched together on one screen). */}
+        <aside style={{width:(view==="dashboard"||view==="accountPlanning")?0:(statsOpen?statsWidth:0),flexShrink:0,background:T.sidebarBg,borderRight:(view==="dashboard"||view==="accountPlanning")?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:(view==="dashboard"||view==="accountPlanning")?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
 
-          {view==="dashboard"?null:view==="budget"?(
+          {view==="dashboard"||view==="accountPlanning"?null:view==="budget"?(
             <div ref={setBudgetSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="pacing"?(
             <div ref={setPacingSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>

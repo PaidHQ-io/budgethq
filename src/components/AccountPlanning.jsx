@@ -178,8 +178,8 @@ function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete }) {
                   </div>
                   <Badge variant={status.badge}>{status.label}</Badge>
                   {canEdit && (
-                    <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${p.name}"? This can't be undone.`)) onDelete(p.id); }}
-                      className="flex p-1 text-muted-foreground hover:text-destructive">
+                    <button type="button" onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${p.name}"? This can't be undone.`)) onDelete(p.id); }}
+                      className="flex border-0 bg-transparent p-1 text-muted-foreground hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   )}
@@ -461,7 +461,7 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
               <CardContent className="p-3">
                 <div className="mb-2 flex items-center gap-2">
                   {canEdit ? (
-                    <Input value={d.label} onChange={(e) => updateDim(d.key, { label: e.target.value })} className="h-8 max-w-[220px] flex-1 font-semibold" />
+                    <Input value={d.label} onChange={(e) => updateDim(d.key, { label: e.target.value })} className="h-8 w-full max-w-xs flex-1 font-semibold" />
                   ) : (
                     <span className="font-semibold text-foreground">{d.label}</span>
                   )}
@@ -861,7 +861,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
                   </div>
 
                   {canEdit && (
-                    <button onClick={() => removeRow(i)} className="ml-auto self-start p-1 text-muted-foreground hover:text-destructive">
+                    <button type="button" onClick={() => removeRow(i)} className="ml-auto self-start border-0 bg-transparent p-1 text-muted-foreground hover:text-destructive">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -965,7 +965,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
 
   if (!selectedId || !plan) {
     return (
-      <div className="flex-1 overflow-auto bg-background p-4 sm:p-7">
+      <div className="flex-1 overflow-auto bg-muted p-4 sm:p-7">
         <PlanList plans={plans} loading={plansLoading} canEdit={canEdit} onOpen={openPlan} onCreate={createPlan} onDelete={removePlan} />
       </div>
     );
@@ -975,10 +975,10 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
   const setStepField = (field, value) => setPlan({ ...plan, [field]: value });
 
   return (
-    <div className="flex-1 overflow-auto bg-background p-4 sm:p-7">
+    <div className="flex-1 overflow-auto bg-muted p-4 sm:p-7">
       <div className="mx-auto max-w-5xl">
         <div className="mb-5">
-          <button onClick={backToList} className="mb-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <button type="button" onClick={backToList} className="mb-2 flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground">
             <ChevronLeft className="h-3.5 w-3.5" /> All plans
           </button>
           <div className="flex flex-wrap items-center gap-2.5">
@@ -1008,8 +1008,8 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
               const active = activeStep === s.key;
               const StepIcon = s.Icon;
               return (
-                <button key={s.key} onClick={() => setStepField("activeStep", s.key)}
-                  className={cn("flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-left transition-colors", active ? "bg-accent" : "hover:bg-secondary")}>
+                <button type="button" key={s.key} onClick={() => setStepField("activeStep", s.key)}
+                  className={cn("flex items-center gap-2 whitespace-nowrap rounded-lg border-0 px-3 py-2 text-left transition-colors", active ? "bg-accent" : "bg-transparent hover:bg-secondary")}>
                   <span className={cn("flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold", active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground")}>
                     {i + 1}
                   </span>

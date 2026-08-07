@@ -88,7 +88,12 @@ export default {
         sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
       },
       boxShadow: {
-        card: "0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.06)",
+        // Bumped 2026-08-06 (per Mo — "it really doesn't look very good") — the original values
+        // were nearly invisible against a white page background, which combined with a raw
+        // white-on-white page (see the p-4/p-7 wrapper divs in AccountPlanning.jsx, now bg-muted/40
+        // instead of bg-background) made every card read as flat/undesigned rather than a raised
+        // surface. Still subtle, just no longer imperceptible.
+        card: "0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.08)",
       },
     },
   },
