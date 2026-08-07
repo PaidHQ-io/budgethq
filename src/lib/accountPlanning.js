@@ -174,6 +174,13 @@ export function scoreAuditGroups(groups, { minSpend = 100 } = {}) {
 // LinkedIn targeting spec can never quietly drift apart.
 export const DEFAULT_TAXONOMY_DIMENSIONS = [
   { key: "product", label: "Product", values: [] },
+  // businessType added 2026-08-06 (per Mo — "we need to include NB for new business and/or EB for
+  // existing business... part of the flow and part of the taxonomy"): kept separate from buytype
+  // below on purpose — NB/EB is a GTM-motion split (whose logo is being pursued), buytype is a
+  // funnel-tactic split (how they're being pursued); a real campaign can be any combination of the
+  // two (e.g. NB + Prospecting, or EB + Retargeting for an expansion/renewal push), so collapsing
+  // them into one dimension would lose information a client will actually want to filter/report on.
+  { key: "businessType", label: "New / Existing Business", values: ["NB", "EB"] },
   { key: "region", label: "Region", values: [] },
   { key: "segment", label: "Company Size Segment", values: ["SMB", "Mid-Market", "Enterprise"] },
   { key: "industry", label: "Industry", values: [] },
@@ -181,6 +188,31 @@ export const DEFAULT_TAXONOMY_DIMENSIONS = [
   { key: "audience", label: "Audience", values: [] },
   { key: "buytype", label: "Buy Type", values: ["Prospecting", "Retargeting", "ABM"] },
 ];
+
+// Channel code prefix (2026-08-06, per Mo — "always include the channel name at both levels...
+// LIN- or LI-... FB-... BIN-... GOO-"): confirmed via AskUserQuestion to match the SEA-/GDN- split
+// (not one shared GOO-) since that's what derivePlatform() in core.js already parses when
+// auto-detecting platform from an existing campaign name — using the same codes here means a
+// campaign renamed to this taxonomy stays auto-detectable by every audit/reporting feature that
+// already reads that prefix convention, instead of introducing a second, incompatible one. Mo's
+// own note that "it's going to differ per client" is real — this is a sensible default for now,
+// not a hard rule; if a future client needs different codes, this is the one place to add a
+// per-workspace override.
+export const PLATFORM_CODES = {
+  LinkedIn: "LIN",
+  Meta: "FB",
+  Bing: "BIN",
+  "Google Search": "SEA",
+  "Google Display": "GDN",
+  "Demand Gen": "DEM",
+  "Performance Max": "PMX",
+  YouTube: "YT",
+  Capterra: "CAP",
+};
+export function channelCode(platform) {
+  if (!platform) return "";
+  return PLATFORM_CODES[platform] || platform.replace(/[^a-zA-Z0-9]+/g, "").slice(0, 3).toUpperCase();
+}
 
 // Level labels per platform family, per Mo's call: "Campaign, Ad set/Ad group and Ad naming (for
 // paid social)" — search-family platforms use "Ad Group" (Google/Bing/YouTube/Demand Gen/Performance
@@ -194,10 +226,17 @@ export function levelLabel(levelKey, family) {
   return LEVEL_DEFS.find((l) => l.key === levelKey)?.label[family] || levelKey;
 }
 
+// Templates updated 2026-08-06 (per Mo's naming-convention rules, confirmed via AskUserQuestion):
+// {platform} leads EVERY level (campaign, adgroup/ad set, and ad) as the channel code — not just
+// campaign, per Mo's explicit "always include the channel name at both levels" — and {businessType}
+// (NB/EB) sits right after {product}, matching the order Mo described (channel, then product, then
+// the rest). {platform} resolves to the abbreviated channelCode() (LIN/FB/BIN/SEA/GDN/...), not the
+// full platform name — see channelCode()'s own doc comment above and its call sites in
+// AccountPlanning.jsx (MappingStep's rowValues, TaxonomyStep's example preview).
 const defaultTemplateForLevel = {
-  campaign: "{platform}_{buytype}_{product}_{region}_{funnel}",
-  adgroup: "{audience}_{funnel}",
-  ad: "{product}_{funnel}_{format}",
+  campaign: "{platform}_{product}_{businessType}_{region}_{segment}_{funnel}",
+  adgroup: "{platform}_{businessType}_{audience}_{funnel}",
+  ad: "{platform}_{product}_{funnel}_{format}",
 };
 export function buildDefaultNameTemplates() {
   return { ...defaultTemplateForLevel };
@@ -208,6 +247,14 @@ export function buildDefaultNameTemplates() {
 // token doesn't leave a double-underscore. Separator is auto-detected from the template (whatever
 // non-alnum/non-brace character sits between the first two tokens) so a taxonomy that prefers "-"
 // over "_" works unchanged.
+//
+// Sanitization added 2026-08-06 (per Mo — "not to use spaces or special characters for campaign, ad
+// group/ad set or even ad names. Choose either an underscore or a hyphen in between content"): every
+// filled value has non-alphanumeric characters stripped before being joined, so the ONLY underscore
+// or hyphen that can ever appear in a generated name is the one separator between segments — a
+// dimension value like "Mid-Market" or "North America" (typed with a space) can never leak its own
+// internal punctuation/whitespace into the name (becomes "MidMarket", "NorthAmerica"). This runs
+// even on the {platform} token, though channelCode()'s output is already alphanumeric-only.
 export function generateName(template, values = {}) {
   if (!template) return "";
   const sepMatch = template.match(/}([^{a-zA-Z0-9])\{/);
@@ -217,7 +264,8 @@ export function generateName(template, values = {}) {
   const filled = [];
   for (let i = 1; i < parts.length; i += 2) {
     const token = parts[i];
-    const v = (values[token] || "").toString().trim();
+    const raw = (values[token] || "").toString().trim();
+    const v = raw.replace(/[^a-zA-Z0-9]+/g, "");
     if (v) filled.push(v);
   }
   return filled.join(sep);

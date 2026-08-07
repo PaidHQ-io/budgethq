@@ -7,7 +7,7 @@ import {
 } from "../lib/targetingLibraryApi.js";
 import { listReportingFacts } from "../lib/reportingApi.js";
 import {
-  buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup,
+  buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup, channelCode,
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
 } from "../lib/accountPlanning.js";
 import { fmtFull } from "../lib/core.js";
@@ -515,7 +515,7 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
             const template = templates[levelKey] || "";
             const exampleValues = {};
             dimensions.forEach((d) => { exampleValues[d.key] = d.values[0] || ""; });
-            exampleValues.platform = family === "social" ? "LinkedIn" : "Google Search";
+            exampleValues.platform = channelCode(family === "social" ? "LinkedIn" : "Google Search");
             const example = generateName(template, exampleValues);
             return (
               <Card key={levelKey}>
@@ -533,6 +533,9 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
           })}
         </div>
         <div className="mt-2 text-xs text-muted-foreground">Available tokens: {availableTokens.map((t) => `{${t}}`).join(", ")}</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {"{platform}"} always fills with a channel code (LIN/FB/BIN/SEA/GDN/DEM/PMX/YT) instead of the full platform name, and every value has spaces/punctuation stripped before joining — the only "_" or "-" in a generated name is the separator between segments.
+        </div>
       </div>
     </div>
   );
@@ -790,7 +793,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
   const removeRow = (i) => setMapping(mapping.filter((_, x) => x !== i));
   const addRow = () => setMapping([...mapping, { oldKey: `manual_${Date.now()}`, oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "" }]);
 
-  const rowValues = (row) => ({ platform: row.platform || "", ...row.dimValues });
+  const rowValues = (row) => ({ platform: channelCode(row.platform) || row.platform || "", ...row.dimValues });
   const rowTemplate = (row) => templates[row.level] || templates.campaign || "";
   const generatedName = (row) => generateName(rowTemplate(row), rowValues(row));
   const finalName = (row) => (row.manualName && row.manualName.trim()) || generatedName(row);
