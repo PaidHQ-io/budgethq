@@ -14,6 +14,7 @@ import { fmtFull } from "../lib/core.js";
 import { DonutChart, BarList } from "@tremor/react";
 import {
   Plus, Trash2, ChevronLeft, Compass, Search, Tags, Target as TargetIcon, ListChecks, X, Moon, Sun,
+  Users, Ban, Repeat,
 } from "lucide-react";
 import { Button } from "./ui/button.jsx";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.jsx";
@@ -84,6 +85,7 @@ const STATUS_META = {
   complete: { badge: "success", label: "Complete" },
 };
 const DONUT_COLORS = ["emerald", "amber", "rose", "slate"];
+const TIER_DOT = { keep: "bg-success", review: "bg-warning", consolidate: "bg-destructive", "insufficient-data": "bg-muted-foreground" };
 
 // ─── SMALL SHARED PIECES ───────────────────────────────────────────────────────────────────────
 
@@ -324,14 +326,17 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
           <CardHeader className="pb-2"><CardTitle>Scope</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-              <div>
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
                 <div className="text-xs font-medium text-muted-foreground">In scope</div>
-                <div className="font-display text-2xl font-bold text-primary">{fmtFull(counts.totalSpend)}</div>
+                <div className="font-display text-xl font-bold text-primary">{fmtFull(counts.totalSpend)}</div>
               </div>
               {["keep", "review", "consolidate", "insufficient-data"].map((t) => (
-                <div key={t}>
-                  <div className="text-xs font-medium text-muted-foreground">{TIER_META[t].label}</div>
-                  <div className="text-2xl font-bold text-foreground">{counts[t] || 0}</div>
+                <div key={t} className="rounded-lg border border-border bg-secondary/40 p-3">
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", TIER_DOT[t])} />
+                    <span className="truncate text-xs font-medium text-muted-foreground">{TIER_META[t].label}</span>
+                  </div>
+                  <div className="font-display text-xl font-bold text-foreground">{counts[t] || 0}</div>
                 </div>
               ))}
             </div>
@@ -341,7 +346,7 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
           <CardHeader className="pb-2"><CardTitle>Tier distribution</CardTitle></CardHeader>
           <CardContent>
             {donutData.length > 0 ? (
-              <DonutChart data={donutData} category="value" index="name" colors={DONUT_COLORS} className="h-32" showAnimation={false} />
+              <DonutChart data={donutData} category="value" index="name" colors={DONUT_COLORS} className="h-32" showAnimation={false} showLabel />
             ) : (
               <div className="text-xs text-muted-foreground">No scored groups yet</div>
             )}
@@ -399,7 +404,7 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
                       <Badge variant={TIER_META[g.tier].badge}>{TIER_META[g.tier].label}</Badge>
                       {canEdit && (
                         <Select value={dec.decision || "__tier__"} onValueChange={(v) => setDecision(g.key, { decision: v === "__tier__" ? "" : v })}>
-                          <SelectTrigger className="h-7 w-[100px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="h-7 w-[112px] text-xs"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__tier__">Use tier</SelectItem>
                             <SelectItem value="keep">Keep</SelectItem>
@@ -552,16 +557,27 @@ function MultiToggle({ options, selected, onChange, canEdit }) {
   );
 }
 
-function LibrarySection({ label, type, items, onAdd, onRemove, canEdit }) {
+// Reveal-on-click add form (2026-08-06, per Mo — "the open text fields... look terrible"): the
+// original recipe kept a Name + Description input pair permanently visible per column, so an empty
+// library rendered as nine bare, always-empty form fields side by side — the single ugliest part of
+// the Targeting step. Now it matches PlanList's own "+ New plan" pattern: a compact button until
+// the user actually wants to add something. Items also get a type-colored left accent + icon so the
+// three columns read as distinct categories at a glance instead of three identical gray boxes.
+function LibrarySection({ label, type, items, onAdd, onRemove, canEdit, icon: SectionIcon, dotClass, borderClass }) {
   const filtered = items.filter((it) => it.type === type);
+  const [adding, setAdding] = useState(false);
   const [name, setName] = useState(""); const [desc, setDesc] = useState("");
-  const add = () => { if (!name.trim()) return; onAdd({ type, name: name.trim(), description: desc.trim() }); setName(""); setDesc(""); };
+  const add = () => { if (!name.trim()) return; onAdd({ type, name: name.trim(), description: desc.trim() }); setName(""); setDesc(""); setAdding(false); };
+  const cancel = () => { setAdding(false); setName(""); setDesc(""); };
   return (
     <div>
-      <SectionLabel>{label}</SectionLabel>
-      <div className={cn("flex flex-col gap-1.5", canEdit ? "mb-2" : "")}>
+      <div className="mb-2 flex items-center gap-1.5">
+        <SectionIcon className={cn("h-3.5 w-3.5", dotClass)} />
+        <SectionLabel className="mb-0">{label}</SectionLabel>
+      </div>
+      <div className={cn("flex flex-col gap-1.5", filtered.length > 0 ? "mb-2" : "")}>
         {filtered.map((it) => (
-          <div key={it.id} className="flex items-center gap-2 rounded-md bg-secondary px-2.5 py-1.5 text-sm">
+          <div key={it.id} className={cn("flex items-center gap-2 rounded-md border-l-2 bg-secondary/50 px-2.5 py-1.5 text-sm", borderClass)}>
             <div className="min-w-0 flex-1">
               <div className="font-medium text-foreground">{it.name}</div>
               {it.description && <div className="text-[11px] text-muted-foreground">{it.description}</div>}
@@ -569,17 +585,24 @@ function LibrarySection({ label, type, items, onAdd, onRemove, canEdit }) {
             {canEdit && <X className="h-3.5 w-3.5 shrink-0 cursor-pointer opacity-60 hover:opacity-100" onClick={() => onRemove(it.id)} />}
           </div>
         ))}
-        {filtered.length === 0 && <span className="text-xs text-muted-foreground">None yet</span>}
+        {filtered.length === 0 && !adding && <span className="text-xs text-muted-foreground">None yet</span>}
       </div>
-      {canEdit && (
-        <div className="flex flex-col gap-1.5">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name…" className="h-8 text-xs" />
+      {canEdit && (adding ? (
+        <div className="flex flex-col gap-1.5 rounded-md border border-border bg-background p-2 shadow-sm animate-in fade-in slide-in-from-top-1 duration-150">
+          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") add(); if (e.key === "Escape") cancel(); }}
+            placeholder="Name…" className="h-8 text-xs" />
+          <Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (optional)" className="h-8 text-xs" />
           <div className="flex gap-1.5">
-            <Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (optional)" className="h-8 flex-1 text-xs" />
-            <Button size="sm" variant="secondary" className="h-8" onClick={add}>Add</Button>
+            <Button size="sm" className="h-7 flex-1" onClick={add}>Add</Button>
+            <Button size="sm" variant="ghost" className="h-7" onClick={cancel}>Cancel</Button>
           </div>
         </div>
-      )}
+      ) : (
+        <Button size="sm" variant="outline" className="h-7 w-full text-xs text-muted-foreground" onClick={() => setAdding(true)}>
+          <Plus className="h-3 w-3" />Add {label.toLowerCase()}
+        </Button>
+      ))}
     </div>
   );
 }
@@ -621,9 +644,9 @@ function TargetingStep({ session, workspace, taxonomy, targeting, setTargeting, 
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <LibrarySection label="Contact / Company Lists" type="list" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
-            <LibrarySection label="Exclusion Lists" type="exclusion" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
-            <LibrarySection label="Remarketing Pools" type="remarketing" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} />
+            <LibrarySection label="Contact / Company Lists" type="list" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} icon={Users} dotClass="text-primary" borderClass="border-primary" />
+            <LibrarySection label="Exclusion Lists" type="exclusion" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} icon={Ban} dotClass="text-destructive" borderClass="border-destructive" />
+            <LibrarySection label="Remarketing Pools" type="remarketing" items={library} canEdit={canEdit} onAdd={addLibraryItem} onRemove={removeLibraryItem} icon={Repeat} dotClass="text-success" borderClass="border-success" />
           </div>
         </CardContent>
       </Card>
@@ -634,8 +657,11 @@ function TargetingStep({ session, workspace, taxonomy, targeting, setTargeting, 
           {canEdit && <Button size="sm" variant="secondary" onClick={addProfile}><Plus className="h-3.5 w-3.5" />Add profile</Button>}
         </div>
         {profiles.length === 0 && (
-          <div className="mb-2 text-sm text-muted-foreground">
-            Each profile is a reusable audience definition (e.g. "Enterprise IT Buyers") — assign one to any ad set in Mapping instead of re-specifying targeting from scratch every time.
+          <div className="mb-2 rounded-lg border border-dashed border-border p-5 text-center">
+            <TargetIcon className="mx-auto mb-2 h-5 w-5 text-muted-foreground/60" />
+            <div className="mx-auto max-w-sm text-sm text-muted-foreground">
+              Each profile is a reusable audience definition (e.g. "Enterprise IT Buyers") — assign one to any ad set in Mapping instead of re-specifying targeting from scratch every time.
+            </div>
           </div>
         )}
         <div className="flex flex-col gap-3">
@@ -841,7 +867,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
                   <div>
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Level</div>
                     <Select disabled={!canEdit} value={row.level} onValueChange={(v) => updateRow(i, { level: v })}>
-                      <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-8 w-[170px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>{Object.entries(LEVEL_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
@@ -849,7 +875,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
                   <div>
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Action</div>
                     <Select disabled={!canEdit} value={row.action} onValueChange={(v) => updateRow(i, { action: v })}>
-                      <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-8 w-[132px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>{Object.entries(ACTION_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
@@ -857,7 +883,7 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
                   <div>
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</div>
                     <Select disabled={!canEdit} value={row.status} onValueChange={(v) => updateRow(i, { status: v })}>
-                      <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-8 w-[132px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>{Object.entries(STATUS_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
@@ -1026,7 +1052,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
               )}
               {canEdit && (
                 <Select value={plan.status || "draft"} onValueChange={(v) => setStepField("status", v)}>
-                  <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="draft">Draft</SelectItem>
                     <SelectItem value="in_progress">In progress</SelectItem>

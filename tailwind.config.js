@@ -36,6 +36,19 @@ export default {
     "./node_modules/@tremor/**/*.{js,ts,jsx,tsx}",
   ],
   corePlugins: { preflight: false },
+  // Tremor color safelist (2026-08-06, per Mo — "the pie chart" looking wrong/monochrome in
+  // production): @tremor/react's chart components (DonutChart, BarList, etc.) build their color
+  // classes at runtime via string concatenation (e.g. `fill-${color}-500`), not as literal strings
+  // in their source — Tailwind's content scanner can only ever find literal class-name strings, so
+  // it was purging every one of these as unused and the donut/bar charts fell back to no fill at
+  // all (rendering as flat black/grey). This is Tremor's own documented fix: safelist the color x
+  // shade matrix their components can generate. Scoped to just the colors this app actually passes
+  // to Tremor (DONUT_COLORS in AccountPlanning.jsx, plus Tremor's own default brand blue) rather
+  // than every Tailwind color — the full 21-color matrix works too but roughly triples index.css's
+  // output size for shades this app will never reference.
+  safelist: [
+    { pattern: /^(bg|text|border|ring|stroke|fill)-(emerald|amber|rose|slate|blue)-(300|400|500|600|700)$/ },
+  ],
   theme: {
     transparent: "transparent",
     current: "currentColor",
