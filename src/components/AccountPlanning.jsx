@@ -10,7 +10,7 @@ import {
   levelLabel, computeBudgetRollup, channelCode, platformFamily,
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
   LINKEDIN_COMPANY_SIZE_RANGES, PLATFORM_CODES, CHANNEL_FAMILY_GROUPS, computeFlightDays, computeDailyBudget, computeFlightTotalBudget,
-  computeDimensionBudgetComparison, computeChannelBudgetComparison,
+  computeDimensionBudgetComparison, computeChannelBudgetComparison, buildAdSetCombos, computeAdSetAutoBudget,
 } from "../lib/accountPlanning.js";
 import { SearchableSelect } from "./ui/searchable-select.jsx";
 import { fmtFull } from "../lib/core.js";
@@ -19,7 +19,7 @@ import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, use
 import {
   Plus, Trash2, ChevronLeft, Compass, Tags, Target as TargetIcon, ListChecks, X, Moon, Sun,
   Users, Ban, Repeat, GripVertical, Megaphone, Layers, Image as ImageIcon, LayoutGrid, Table2, ChevronDown,
-  Info, DollarSign, CalendarClock,
+  Info, DollarSign,
 } from "lucide-react";
 import { Button } from "./ui/button.jsx";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.jsx";
@@ -72,16 +72,19 @@ import { cn } from "../lib/utils.js";
 // props DataAudit.jsx receives — reporting_facts isn't part of that central load, so this component
 // fetches it independently, same pattern DataAudit.jsx's own reportingFacts effect uses.
 
-// Order (2026-08-07, per Mo — "I don't understand what to do here... let's figure out the flow of
-// this workflow": channel selection first, then flighting, then budget-by-channel, THEN the old
-// context fields, then taxonomy/targeting/mapping as before). Audit is REMOVED from this array
-// entirely — per Mo, "let's get rid of that altogether... it shouldn't live under campaign
-// planning" — it's now its own standalone top-level tab, see CampaignAudit.jsx.
+// Order (2026-08-07, per Mo, in two passes — first "let's figure out the flow of this workflow":
+// channel+flighting strategy first, then the old context fields, then budget, then taxonomy/
+// targeting/mapping; then a follow-up correction: "let's combine the channel and flight strategy in
+// one, then move the context screen before the budget" — so Channel Strategy and Flighting Strategy
+// merged into a single "strategy" step (see ChannelStrategyStep's own doc comment), and Context moved
+// ahead of Budget so Budget's per-Context-field allocation cards (BudgetStep) have real values to
+// allocate against by the time the user gets there). Audit is REMOVED from this array entirely — per
+// Mo, "let's get rid of that altogether... it shouldn't live under campaign planning" — it's now its
+// own standalone top-level tab, see CampaignAudit.jsx.
 const STEPS = [
-  { key: "channelStrategy", label: "Channel Strategy", Icon: Compass },
-  { key: "flightingStrategy", label: "Flighting Strategy", Icon: CalendarClock },
-  { key: "budget", label: "Budget", Icon: DollarSign },
+  { key: "strategy", label: "Channel & Flighting", Icon: Compass },
   { key: "context", label: "Context", Icon: TargetIcon },
+  { key: "budget", label: "Budget", Icon: DollarSign },
   { key: "taxonomy", label: "Taxonomy", Icon: Tags },
   { key: "targeting", label: "Targeting", Icon: Users },
   { key: "mapping", label: "Mapping", Icon: ListChecks },
@@ -241,14 +244,33 @@ function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete, dark, o
 // in the Search section per Mo's explicit answer ("pick Google products up front") rather than one
 // "Google" checkbox — that answer also means there's no single "Google" toggle to special-case here,
 // each product is picked (or not) independently, same granularity Mapping's channel tabs already use.
+// Persisted as context.channelStrategy = { channels: string[] } — a flat list of PLATFORM_CODES
+// keys, not a nested { social: [...], search: [...] } shape, even though the UI below groups them
+// into Social/Search sections for clarity. Flat storage means every other step that reads "which
+// channels is this plan building for" (Budget, Mapping) only has to look in one place, not two.
+// Google's 4 sub-products (Search/Display/Demand Gen/Performance Max) are each their own checkbox
+// in the Search section per Mo's explicit answer ("pick Google products up front") rather than one
+// "Google" checkbox — that answer also means there's no single "Google" toggle to special-case here,
+// each product is picked (or not) independently, same granularity Mapping's channel tabs already use.
+const FLIGHTING_STRATEGY_OPTIONS = [
+  { key: "evergreen", label: "Evergreen", desc: "Every campaign in this plan runs continuously, no end date." },
+  { key: "flighted", label: "Time-based", desc: "Every campaign in this plan runs on a specific start/end window." },
+  { key: "mix", label: "Mix of both", desc: "This plan combines evergreen and time-based campaigns — common for a new or revised account structure." },
+];
+
+// Merged into ONE step (2026-08-07, per Mo — "let's combine the channel and flight strategy in
+// one"), previously two separate steps. Still writes two independent context keys
+// (channelStrategy.channels, flightingStrategy.type — both unchanged in shape) since they're read
+// independently downstream (Budget/Mapping read channels; Budget's cadence picker is the main
+// consumer of flightingStrategy) — only the UI presentation merged, not the data model.
 function ChannelStrategyStep({ context, setContext, canEdit }) {
   const channels = context.channelStrategy?.channels || [];
-  const toggle = (platform) => {
+  const toggleChannel = (platform) => {
     if (!canEdit) return;
     const next = channels.includes(platform) ? channels.filter((p) => p !== platform) : [...channels, platform];
     setContext({ ...context, channelStrategy: { ...(context.channelStrategy || {}), channels: next } });
   };
-  const renderGroup = (title, platforms) => (
+  const renderChannelGroup = (title, platforms) => (
     <Card>
       <CardHeader className="pb-2"><CardTitle>{title}</CardTitle></CardHeader>
       <CardContent>
@@ -256,7 +278,7 @@ function ChannelStrategyStep({ context, setContext, canEdit }) {
           {platforms.map((p) => (
             <Badge key={p} variant={channels.includes(p) ? "default" : "outline"}
               className={cn("select-none", canEdit && "cursor-pointer", !channels.includes(p) && "opacity-60")}
-              onClick={() => toggle(p)}>
+              onClick={() => toggleChannel(p)}>
               {p} <span className="ml-1 font-normal opacity-70">({PLATFORM_CODES[p]})</span>
             </Badge>
           ))}
@@ -264,48 +286,10 @@ function ChannelStrategyStep({ context, setContext, canEdit }) {
       </CardContent>
     </Card>
   );
-  return (
-    <div className="flex flex-col gap-4">
-      <Card className="border-primary/20 bg-primary/5">
-        <CardContent className="flex gap-3 pt-4">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <div className="text-sm text-muted-foreground">
-            <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
-            <p>
-              Decide WHERE this plan is building campaigns before anything else — everything after
-              this (Budget, Context, Taxonomy, Targeting, Mapping) works off the channels picked
-              here. Click a channel to select or deselect it; select as many or as few as this plan
-              actually covers. <span className="font-medium text-foreground">Social</span> and{" "}
-              <span className="font-medium text-foreground">Search</span> are separate groups so you
-              can build a search-only plan, a social-only plan, or a true multi-channel plan without
-              the two ever being conflated — Budget's channel split and Mapping's channel tabs will
-              only offer the channels selected here.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-      {renderGroup("Social", CHANNEL_FAMILY_GROUPS.social)}
-      {renderGroup("Search", CHANNEL_FAMILY_GROUPS.search)}
-    </div>
-  );
-}
 
-// ─── STEP 2: FLIGHTING STRATEGY ─────────────────────────────────────────────────────────────────
-// New second step (2026-08-07, same approval as Channel Strategy above — "From there, they should
-// decide on whether this is an evergreen campaign/set of campaigns or if this is time-based or maybe
-// they have a mix of evergreen and time based"). Purely a stated INTENT for the plan as a whole —
-// it doesn't set anything on individual Mapping rows. Each row's actual evergreen/flighted choice
-// (and, if flighted, its real start/end dates) still gets set per-row in Mapping's own FlightFields,
-// unchanged; "mix" here just means the user expects to use both, which FlightFields already supports
-// row-by-row. Persisted as context.flightingStrategy = { type: "evergreen" | "flighted" | "mix" }.
-const FLIGHTING_STRATEGY_OPTIONS = [
-  { key: "evergreen", label: "Evergreen", desc: "Every campaign in this plan runs continuously, no end date." },
-  { key: "flighted", label: "Time-based", desc: "Every campaign in this plan runs on a specific start/end window." },
-  { key: "mix", label: "Mix of both", desc: "This plan combines evergreen and time-based campaigns — common for a new or revised account structure." },
-];
-function FlightingStrategyStep({ context, setContext, canEdit }) {
-  const type = context.flightingStrategy?.type || "";
-  const setType = (t) => canEdit && setContext({ ...context, flightingStrategy: { ...(context.flightingStrategy || {}), type: t } });
+  const flightType = context.flightingStrategy?.type || "";
+  const setFlightType = (t) => canEdit && setContext({ ...context, flightingStrategy: { ...(context.flightingStrategy || {}), type: t } });
+
   return (
     <div className="flex flex-col gap-4">
       <Card className="border-primary/20 bg-primary/5">
@@ -314,20 +298,29 @@ function FlightingStrategyStep({ context, setContext, canEdit }) {
           <div className="text-sm text-muted-foreground">
             <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
             <p>
-              Set the overall flighting posture for this plan — evergreen, time-based, or a mix of
-              both. This is a stated intent, not a hard constraint: each campaign's own evergreen/
-              flight-date choice still gets made individually in Mapping, this just sets expectations
-              up front (and matters most when picking a budget cadence next).
+              Decide WHERE and HOW this plan runs before anything else — everything after this
+              (Context, Budget, Taxonomy, Targeting, Mapping) works off the choices made here. First,
+              pick <span className="font-medium text-foreground">channels</span>: click to select or
+              deselect as many or as few as this plan actually covers — <span className="font-medium text-foreground">Social</span> and <span className="font-medium text-foreground">Search</span> are
+              separate groups so you can build a search-only, social-only, or true multi-channel plan
+              without the two being conflated (Budget's channel split and Mapping's channel tabs only
+              offer what's selected here). Then set a <span className="font-medium text-foreground">flighting</span> posture — evergreen, time-based, or a mix — a stated
+              intent for the plan as a whole; each campaign's actual evergreen/flight-date choice
+              still gets made individually in Mapping.
             </p>
           </div>
         </CardContent>
       </Card>
+      <SectionLabel>Channels</SectionLabel>
+      {renderChannelGroup("Social", CHANNEL_FAMILY_GROUPS.social)}
+      {renderChannelGroup("Search", CHANNEL_FAMILY_GROUPS.search)}
+      <SectionLabel className="mt-2">Flighting</SectionLabel>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {FLIGHTING_STRATEGY_OPTIONS.map((o) => (
-          <Card key={o.key} onClick={() => setType(o.key)}
-            className={cn("transition-colors", canEdit && "cursor-pointer", type === o.key ? "border-primary ring-1 ring-primary/40" : "hover:border-primary/30")}>
+          <Card key={o.key} onClick={() => setFlightType(o.key)}
+            className={cn("transition-colors", canEdit && "cursor-pointer", flightType === o.key ? "border-primary ring-1 ring-primary/40" : "hover:border-primary/30")}>
             <CardHeader className="pb-2">
-              <CardTitle className={cn("text-sm", type === o.key && "text-primary")}>{o.label}</CardTitle>
+              <CardTitle className={cn("text-sm", flightType === o.key && "text-primary")}>{o.label}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-xs text-muted-foreground">{o.desc}</p>
@@ -675,6 +668,26 @@ const BUDGET_CADENCE_OPTIONS = [
   { key: "custom", label: "Time-bound", desc: "Budget covers one specific window with its own start/end dates." },
 ];
 
+// CONTEXT_BUDGET_FIELDS (2026-08-07, per Mo — "make sure that whatever is selected in the context is
+// reflected so all of the products, personas, regions, etc. that are selected in the context screen
+// should have a budget input section"): the FOUR Context ChipList fields that double as budget-
+// allocation buckets AND as the dimensions the new Ad Set permutation table below multiplies
+// together (see buildAdSetCombos in accountPlanning.js — this exact same field list, same order,
+// feeds both). Deliberately reads straight from `context` (products/regions/personas/segments), NOT
+// from taxonomy.dimensions — those are a separate, independently-edited value list that a plan could
+// easily forget to keep in sync with what's actually set on the Context screen; reading Context
+// directly means there's only ONE place these lists live, no double-entry. segment applies the same
+// DEFAULT_SEGMENTS fallback ContextStep itself uses, so what's allocated here always matches what
+// Context is actually showing. Order (product, region, persona, segment) is just declaration order —
+// buildAdSetCombos below reorders these for ad set NAMING specifically (persona_segment_region_product,
+// matching Mo's own example), unrelated to this array's order.
+const CONTEXT_BUDGET_FIELDS = [
+  { key: "product", label: "Product", getValues: (ctx) => ctx.products || [] },
+  { key: "region", label: "Region", getValues: (ctx) => ctx.regions || [] },
+  { key: "persona", label: "Persona", getValues: (ctx) => ctx.personas || [] },
+  { key: "segment", label: "Company Size Segment", getValues: (ctx) => (ctx.segments && ctx.segments.length ? ctx.segments : DEFAULT_SEGMENTS) },
+];
+
 function BudgetStep({ taxonomy, setTaxonomy, context, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
@@ -683,10 +696,16 @@ function BudgetStep({ taxonomy, setTaxonomy, context, canEdit }) {
   const channels = context?.channelStrategy?.channels || [];
   const cadence = taxonomy.budgetCadence || { type: "monthly" };
   const channelBudget = taxonomy.channelBudget || {};
+  const contextBudgets = taxonomy.contextBudgets || {};
+  const contextFields = useMemo(
+    () => CONTEXT_BUDGET_FIELDS.map((f) => ({ ...f, values: f.getValues(context || {}) })).filter((f) => f.values.length > 0),
+    [context]
+  );
   const setBudgetTotal = (v) => setTaxonomy({ ...taxonomy, dimensions, nameTemplates: templates, family, budgetTotal: v === "" ? "" : Number(v) });
   const updateDim = (key, patch) => setTaxonomy({ ...taxonomy, dimensions: dimensions.map((d) => (d.key === key ? { ...d, ...patch } : d)), nameTemplates: templates, family, budgetTotal: taxonomy.budgetTotal });
   const setCadence = (patch) => setTaxonomy({ ...taxonomy, budgetCadence: { ...cadence, ...patch } });
   const updateChannelBudget = (patch) => setTaxonomy({ ...taxonomy, channelBudget: { ...channelBudget, ...patch } });
+  const updateContextBudget = (key, patch) => setTaxonomy({ ...taxonomy, contextBudgets: { ...contextBudgets, [key]: { ...(contextBudgets[key] || {}), ...patch } } });
 
   return (
     <div className="flex flex-col gap-5">
@@ -696,7 +715,7 @@ function BudgetStep({ taxonomy, setTaxonomy, context, canEdit }) {
           <div className="text-sm text-muted-foreground">
             <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
             <p>
-              Set the plan's overall budget, pick a <span className="font-medium text-foreground">Cadence</span> for it, then split it two ways: first across the <span className="font-medium text-foreground">channels</span> picked in Channel Strategy, then (optionally) per value of any Taxonomy dimension — segment, region, product, or a custom one — in <span className="font-medium text-foreground">Budget Allocation</span>. Every split shares the same <span className="font-medium text-foreground">$ / %</span> toggle — enter real dollar amounts, or flip to percent and let this page do the math for you (a "Split evenly" shortcut divides 100% across a card's rows in one click). Targets you set here get compared against what's actually mapped once you reach the Mapping step.
+              Set the plan's overall budget, pick a <span className="font-medium text-foreground">Cadence</span> for it, then split it three ways: first across the <span className="font-medium text-foreground">channels</span> picked in the Channel & Flighting step, then across whatever <span className="font-medium text-foreground">Products / Regions / Personas / Company Size Segments</span> were set on Context in <span className="font-medium text-foreground">Budget by Segment</span>, then (optionally) per value of any other Taxonomy dimension in <span className="font-medium text-foreground">Budget Allocation</span>. Every split shares the same <span className="font-medium text-foreground">$ / %</span> toggle — enter real dollar amounts, or flip to percent and let this page do the math for you (a "Split evenly" shortcut divides 100% across a card's rows in one click). The <span className="font-medium text-foreground">Ad Set Budget Allocation</span> table at the bottom auto-builds one row per Persona × Segment × Region × Product combination and computes each one's 30-day budget straight from the Budget by Segment splits above — override any row's budget, objective, ad format, or audience size by hand. Targets you set here get compared against what's actually mapped once you reach the Mapping step.
             </p>
           </div>
         </CardContent>
@@ -754,7 +773,34 @@ function BudgetStep({ taxonomy, setTaxonomy, context, canEdit }) {
         )}
       </div>
 
+      <div>
+        <SectionLabel>Budget by Segment</SectionLabel>
+        <div className="mb-2.5 text-xs text-muted-foreground">
+          One card per Context field that has values — Products, Regions, Personas, Company Size
+          Segment. These are what the Ad Set Budget Allocation table at the bottom of this page
+          multiplies together and pulls its automated budgets from.
+        </div>
+        {contextFields.length === 0 ? (
+          <div className="text-xs text-muted-foreground">Add values to Products, Regions, Personas, or Company Size Segments on the Context screen to set budget targets for them here.</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            {contextFields.map((f) => {
+              const b = contextBudgets[f.key] || {};
+              return (
+                <BudgetSplitCard key={f.key} label={f.label} values={f.values} budgets={b.budgets || {}}
+                  budgetMode={b.budgetMode} budgetPercents={b.budgetPercents || {}} budgetTotal={budgetTotal}
+                  canEdit={canEdit} onUpdate={(patch) => updateContextBudget(f.key, patch)} />
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <BudgetAllocation dimensions={dimensions} updateDim={updateDim} canEdit={canEdit} budgetTotal={budgetTotal} />
+
+      <AdSetBudgetTable contextFields={contextFields} contextBudgets={contextBudgets}
+        budgetTotal={budgetTotal} adSetBudgets={taxonomy.adSetBudgets || {}}
+        setAdSetBudgets={(v) => setTaxonomy({ ...taxonomy, adSetBudgets: v })} canEdit={canEdit} />
     </div>
   );
 }
@@ -910,6 +956,107 @@ function BudgetAllocation({ dimensions, updateDim, canEdit, budgetTotal }) {
               budgetMode={d.budgetMode} budgetPercents={d.budgetPercents || {}} budgetTotal={budgetTotal}
               canEdit={canEdit} onUpdate={(patch) => updateDim(d.key, patch)} />
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── AD SET BUDGET ALLOCATION (Budget step) ────────────────────────────────────────────────────
+// (2026-08-07, per Mo — "have a section for ad set budget allocation at the bottom [of Budget]...
+// these rows should have a 30 day budget that then divides down into a daily budget... the $ budget
+// that they get is taken from the segment budget allocation... each row's budget should have an
+// override input beside the automated one... an excel like table with column and row numbers").
+// Rows are the live Cartesian product of Budget by Segment's active fields (buildAdSetCombos,
+// accountPlanning.js) — NOT a manually-typed list, so this table stays in sync with Context/Budget
+// by Segment automatically as either changes. A row's automated 30-day budget is
+// computeAdSetAutoBudget's percentage-share-multiplication result (confirmed via AskUserQuestion —
+// see that function's own doc comment for the exact formula); an override, when set, wins instead,
+// and the Daily Budget column is always derived from whichever of those two is currently in effect,
+// divided by 30 — never a third typed number, same "one source number, everything else derived"
+// convention FlightFields uses for evergreen/flighted budgets elsewhere in this file.
+// Per-row state (audienceSize/objective/adFormat/budgetOverride/deleted) persists in
+// taxonomy.adSetBudgets, keyed by the SAME combo.key buildAdSetCombos generates — deleting a row
+// just flips `deleted` rather than removing it from this bucket, so a permutation that briefly
+// disappears and reappears (e.g. a Context value removed and re-added) doesn't silently un-delete.
+// Single table, not scoped per channel (confirmed via AskUserQuestion) — Ad Set Objective and Ad
+// Format are both plain manual text inputs here rather than Selects pulled from a specific
+// platform's Ad Format/Objective list (those live per-platform on Context and get used at the
+// actual Mapping/Ad-node level, which DOES have a channel to key off of); this table has no channel
+// context, so there's no single platform's list that would even apply.
+function AdSetBudgetTable({ contextFields, contextBudgets, budgetTotal, adSetBudgets, setAdSetBudgets, canEdit }) {
+  const combos = useMemo(() => buildAdSetCombos(contextFields), [contextFields]);
+  const visible = combos.filter((c) => !adSetBudgets[c.key]?.deleted);
+  const updateRow = (key, patch) => setAdSetBudgets({ ...adSetBudgets, [key]: { ...(adSetBudgets[key] || {}), ...patch } });
+  const deleteRow = (key) => updateRow(key, { deleted: true });
+
+  return (
+    <div>
+      <SectionLabel>Ad Set Budget Allocation</SectionLabel>
+      <div className="mb-2.5 text-xs text-muted-foreground">
+        One row per {contextFields.length > 0 ? contextFields.map((f) => f.label).join(" × ") : "—"} combination, built automatically from Budget by Segment above. Override any field by hand; remove a row with the trash icon.
+      </div>
+      {contextFields.length === 0 ? (
+        <div className="text-xs text-muted-foreground">Add values to Products, Regions, Personas, or Company Size Segments on Context to generate ad sets here.</div>
+      ) : visible.length === 0 ? (
+        <div className="text-xs text-muted-foreground">No ad sets to show — every combination has been removed. Add another Context value to generate more.</div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="bg-secondary/60">
+                <th className="border-b border-r border-border px-2 py-1.5 text-center font-semibold text-muted-foreground">#</th>
+                <th className="border-b border-r border-border px-2.5 py-1.5 text-left font-semibold text-foreground">1. Ad Set Name</th>
+                <th className="border-b border-r border-border px-2.5 py-1.5 text-left font-semibold text-foreground">2. Audience Size</th>
+                <th className="border-b border-r border-border px-2.5 py-1.5 text-left font-semibold text-foreground">3. Ad Set Objective</th>
+                <th className="border-b border-r border-border px-2.5 py-1.5 text-left font-semibold text-foreground">4. Ad Format</th>
+                <th className="border-b border-r border-border px-2.5 py-1.5 text-left font-semibold text-foreground">5. 30-Day Budget</th>
+                <th className="border-b border-r border-border px-2.5 py-1.5 text-left font-semibold text-foreground">6. Override</th>
+                <th className="border-b border-r border-border px-2.5 py-1.5 text-left font-semibold text-foreground">7. Daily Budget</th>
+                <th className="border-b border-border px-2 py-1.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((combo, i) => {
+                const row = adSetBudgets[combo.key] || {};
+                const autoBudget = computeAdSetAutoBudget(combo, contextFields, contextBudgets, budgetTotal);
+                const hasOverride = row.budgetOverride !== undefined && row.budgetOverride !== "";
+                const effectiveBudget = hasOverride ? Number(row.budgetOverride) || 0 : autoBudget;
+                const dailyBudget = effectiveBudget > 0 ? effectiveBudget / 30 : 0;
+                return (
+                  <tr key={combo.key} className={cn(i % 2 === 1 && "bg-secondary/20")}>
+                    <td className="border-b border-r border-border px-2 py-1.5 text-center text-muted-foreground">{i + 1}</td>
+                    <td className="border-b border-r border-border px-2.5 py-1.5 font-mono font-medium text-foreground">{combo.name}</td>
+                    <td className="border-b border-r border-border px-1.5 py-1">
+                      <input type="number" disabled={!canEdit} value={row.audienceSize ?? ""} onChange={(e) => updateRow(combo.key, { audienceSize: e.target.value })}
+                        placeholder="—" className="h-7 w-24 border-0 bg-transparent px-1 text-xs outline-none" />
+                    </td>
+                    <td className="border-b border-r border-border px-1.5 py-1">
+                      <input disabled={!canEdit} value={row.objective || ""} onChange={(e) => updateRow(combo.key, { objective: e.target.value })}
+                        placeholder="e.g. Conversions" className="h-7 w-32 border-0 bg-transparent px-1 text-xs outline-none" />
+                    </td>
+                    <td className="border-b border-r border-border px-1.5 py-1">
+                      <input disabled={!canEdit} value={row.adFormat || ""} onChange={(e) => updateRow(combo.key, { adFormat: e.target.value })}
+                        placeholder="e.g. Single Image" className="h-7 w-32 border-0 bg-transparent px-1 text-xs outline-none" />
+                    </td>
+                    <td className="border-b border-r border-border px-2.5 py-1.5 text-muted-foreground">{fmtFull(autoBudget)}</td>
+                    <td className="border-b border-r border-border px-1.5 py-1">
+                      <input type="number" disabled={!canEdit} value={row.budgetOverride ?? ""} onChange={(e) => updateRow(combo.key, { budgetOverride: e.target.value })}
+                        placeholder="$/30d" className="h-7 w-24 border-0 bg-transparent px-1 text-xs outline-none" />
+                    </td>
+                    <td className="border-b border-r border-border px-2.5 py-1.5 font-medium text-foreground">{dailyBudget > 0 ? fmtFull(dailyBudget) : "—"}</td>
+                    <td className="border-b border-border px-1.5 py-1 text-center">
+                      {canEdit && (
+                        <button type="button" onClick={() => deleteRow(combo.key)} className="border-0 bg-transparent p-1 text-muted-foreground/60 hover:text-destructive">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -2188,8 +2335,7 @@ export default function AccountPlanning({ session, workspace, canEdit, sidebarEl
 
       <div key={activeStep} className="min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <StepErrorBoundary key={activeStep}>
-          {activeStep === "channelStrategy" && <ChannelStrategyStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
-          {activeStep === "flightingStrategy" && <FlightingStrategyStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
+          {activeStep === "strategy" && <ChannelStrategyStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
           {activeStep === "context" && <ContextStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
           {activeStep === "taxonomy" && <TaxonomyStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
           {activeStep === "budget" && <BudgetStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}

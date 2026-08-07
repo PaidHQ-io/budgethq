@@ -552,6 +552,68 @@ export function computeChannelBudgetComparison(mappingRows, targets) {
     .sort((a, b) => Math.max(b.target, b.actual) - Math.max(a.target, a.actual));
 }
 
+// ─── AD SET BUDGET ALLOCATION ──────────────────────────────────────────────────────────────────
+// (2026-08-07, per Mo — "have a section for ad set budget allocation at the bottom [of Budget]...
+// the Ad sets should be permutations of the context segments above.") buildAdSetCombos takes
+// AccountPlanning.jsx's CONTEXT_BUDGET_FIELDS (already filtered to only fields with values — an
+// empty field simply doesn't multiply in, confirmed via AskUserQuestion: "every input from the
+// context should factor in the ad set list creation") and returns every combination as one row.
+//
+// AD_SET_COMBO_ORDER fixes naming order regardless of what order the caller's fields array happens
+// to be in — Mo's own example ("Marketing_MM_NA" = persona_segment_region) put persona first, then
+// company size segment, then region; product wasn't in that example (his context had none set), so
+// it's appended last here as the only reasonable extrapolation.
+const AD_SET_COMBO_ORDER = ["persona", "segment", "region", "product"];
+
+export function buildAdSetCombos(fields) {
+  const ordered = AD_SET_COMBO_ORDER.map((k) => fields.find((f) => f.key === k)).filter(Boolean);
+  if (ordered.length === 0) return [];
+  let combos = [{}];
+  for (const f of ordered) {
+    const next = [];
+    for (const combo of combos) {
+      for (const v of f.values) next.push({ ...combo, [f.key]: v });
+    }
+    combos = next;
+  }
+  return combos.map((values) => {
+    const parts = ordered.map((f) => values[f.key]);
+    return { key: parts.join("::"), name: parts.join("_"), values };
+  });
+}
+
+// dimensionShare — one field's percentage share for one of its values, computed from whatever's
+// actually been entered in that field's Budget by Segment card ($ amounts, dividing by that field's
+// own total — NOT the plan's overall budgetTotal, since a field's $ entries don't have to sum to
+// 100% of it). Falls back to an even 1/n split when the field has no $ allocated yet at all, so an
+// untouched Budget by Segment card doesn't zero out every ad set that depends on it — same "sensible
+// default until the user sets something more specific" posture as computeDimensionBudgetComparison's
+// own "no target = 0, not an error" behavior.
+function dimensionShare(field, contextBudgets, value) {
+  const budgets = (contextBudgets?.[field.key] || {}).budgets || {};
+  const total = field.values.reduce((s, v) => s + (Number(budgets[v]) || 0), 0);
+  if (total > 0) return (Number(budgets[value]) || 0) / total;
+  return field.values.length > 0 ? 1 / field.values.length : 0;
+}
+
+// computeAdSetAutoBudget — confirmed via AskUserQuestion ("you need to look at what was allocated
+// for each segment, company size, region, persona, product, etc. And build an ad set budget that
+// reflects the allocation for each of those different segments"): an ad set's automated 30-day
+// budget is the plan's total budget times the PRODUCT of each active field's percentage share for
+// this ad set's specific value in that field — e.g. if Marketing is 40% of the Persona split, MM is
+// 60% of the Segment split, and NA is 100% of the Region split (only one region selected), the
+// Marketing/MM/NA ad set gets 40% * 60% * 100% = 24% of the plan's total budget. Each field is an
+// independent weight on the SAME total pie, not a cascading subdivision of one "primary" field — so
+// adding a new field to Context (e.g. a first Product) reshapes every existing ad set's budget
+// proportionally rather than requiring the other fields' allocations to be redone.
+export function computeAdSetAutoBudget(combo, fields, contextBudgets, planBudgetTotal) {
+  const total = Number(planBudgetTotal) || 0;
+  if (!(total > 0) || fields.length === 0) return 0;
+  let amount = total;
+  for (const f of fields) amount *= dimensionShare(f, contextBudgets, combo.values[f.key]);
+  return Math.round(amount * 100) / 100;
+}
+
 export function computeBudgetRollup(mappingRows, groupFn) {
   const map = new Map();
   for (const row of mappingRows || []) {
