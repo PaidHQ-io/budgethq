@@ -1,4 +1,12 @@
-// src/components/ui/table.jsx — standard shadcn/ui Table recipe.
+// src/components/ui/table.jsx — Venture CRM retheme, 2026-08-07 (per Mo's "100% adoption"
+// directive, Table explicitly named). Matches the kit's Table > Base > Header cell
+// (get_design_context, node 471:23930: p-3, 14px regular text in Content/Dark/Tertiary #afafaf —
+// a lighter gray than --muted-foreground, which is Content/Dark/Secondary #727272; no separate
+// token for this exists yet, so it's applied as a direct arbitrary value here rather than adding a
+// third muted-foreground tier for one usage) and List row cell (node 471:24047: px-3 py-2.5,
+// gap-3, 14px regular Content/Dark/Primary/black text). Dropped the previous stock-shadcn
+// uppercase/tracking-wide/text-xs header treatment — Venture's own "NAME" example is literal typed
+// content, not a text-transform; the kit's real header style is plain 14px regular.
 import { forwardRef } from "react";
 import { cn } from "../../lib/utils.js";
 
@@ -24,18 +32,21 @@ export const TableFooter = forwardRef(({ className, ...props }, ref) => (
 ));
 TableFooter.displayName = "TableFooter";
 
+// Row hover/selected use --secondary (Interaction/Secondary/Hover #f2f2f2), not --muted (Background/
+// Secondary #f9f9f9) — matching the same hover treatment Venture uses consistently elsewhere
+// (Selector's Menu Item hover, nav item hover), rather than the stock shadcn muted/50 default.
 export const TableRow = forwardRef(({ className, ...props }, ref) => (
-  <tr ref={ref} className={cn("border-b border-border transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted", className)} {...props} />
+  <tr ref={ref} className={cn("border-b border-border transition-colors hover:bg-secondary/60 data-[state=selected]:bg-secondary", className)} {...props} />
 ));
 TableRow.displayName = "TableRow";
 
 export const TableHead = forwardRef(({ className, ...props }, ref) => (
-  <th ref={ref} className={cn("h-9 px-3 text-left align-middle text-xs font-semibold uppercase tracking-wide text-muted-foreground [&:has([role=checkbox])]:pr-0", className)} {...props} />
+  <th ref={ref} className={cn("h-11 p-3 text-left align-middle text-sm font-normal text-[#afafaf] [&:has([role=checkbox])]:pr-0", className)} {...props} />
 ));
 TableHead.displayName = "TableHead";
 
 export const TableCell = forwardRef(({ className, ...props }, ref) => (
-  <td ref={ref} className={cn("p-3 align-middle [&:has([role=checkbox])]:pr-0", className)} {...props} />
+  <td ref={ref} className={cn("px-3 py-2.5 align-middle text-sm text-foreground [&:has([role=checkbox])]:pr-0", className)} {...props} />
 ));
 TableCell.displayName = "TableCell";
 
