@@ -384,6 +384,13 @@ export const DEFAULT_TAXONOMY_DIMENSIONS = [
 // own note that "it's going to differ per client" is real — this is a sensible default for now,
 // not a hard rule; if a future client needs different codes, this is the one place to add a
 // per-workspace override.
+// Reddit / TikTok (2026-08-07, per Mo — Channel Strategy step: "is it just linkedin or just meta or
+// just reddit or just youtube or just tiktok"): added here purely as PLANNING options — neither has
+// a live connector in this app yet (unlike every other key above, which all have a real sync/import
+// path), so a plan can be scoped to include them and Mapping can build campaign structure for them,
+// but there's no live spend/audit data to ever show for them until a connector exists. Codes (RDT/
+// TT) are my best guess, not confirmed by Mo — same "flag it, don't silently guess wrong" posture as
+// the per-platform Ad Format/Objective seed data in AccountPlanning.jsx.
 export const PLATFORM_CODES = {
   LinkedIn: "LIN",
   Meta: "FB",
@@ -393,7 +400,24 @@ export const PLATFORM_CODES = {
   "Demand Gen": "DEM",
   "Performance Max": "PMX",
   YouTube: "YT",
+  Reddit: "RDT", // best guess, unverified — no live connector yet
+  TikTok: "TT", // best guess, unverified — no live connector yet
   Capterra: "CAP",
+};
+
+// CHANNEL_FAMILY_GROUPS (2026-08-07, per Mo's Channel Strategy description — "is it both search and
+// social or just search or just social"): a SEPARATE grouping from platformFamily() above, on
+// purpose. platformFamily() answers a data-model question (does this platform carry ad-level
+// identity for naming/targeting mechanics? only LinkedIn/Meta do today, per that function's own doc
+// comment). This answers a channel-planning question (how does Mo talk about these channels when
+// scoping a plan?) — Mo explicitly grouped YouTube as "social" here even though platformFamily()
+// treats it as "search" for ad-level-nesting purposes; that's not a contradiction, it's two
+// different axes. Used only by ChannelStrategyStep's UI grouping, never by anything ad-level/
+// targeting-related. Capterra isn't offered in Channel Strategy at all (not a paid social or search
+// channel), so it's deliberately absent from both lists.
+export const CHANNEL_FAMILY_GROUPS = {
+  social: ["LinkedIn", "Meta", "Reddit", "YouTube", "TikTok"],
+  search: ["Bing", "Google Search", "Google Display", "Demand Gen", "Performance Max"],
 };
 export function channelCode(platform) {
   if (!platform) return "";
@@ -498,6 +522,30 @@ export function computeDimensionBudgetComparison(mappingRows, dimension) {
   return [...keys]
     .map((value) => {
       const target = Number(targets[value]) || 0;
+      const actual = actualMap.get(value) || 0;
+      return { value, target, actual, variance: actual - target };
+    })
+    .sort((a, b) => Math.max(b.target, b.actual) - Math.max(a.target, a.actual));
+}
+
+// computeChannelBudgetComparison (2026-08-07, per Mo's Budget-step redesign — "how does the budget
+// map to the channel as a first step"): same target-vs-actual shape as
+// computeDimensionBudgetComparison above, but keyed off row.platform directly instead of
+// row.dimValues[dimension.key] — channel isn't a taxonomy dimension (it's its own locked field on
+// every mapping row, see MappingStep's doc comment), so it needed its own comparison function rather
+// than being shoehorned into a synthetic "dimension" object.
+export function computeChannelBudgetComparison(mappingRows, targets) {
+  const t = targets || {};
+  const actualMap = new Map();
+  for (const row of mappingRows || []) {
+    const amt = Number(row.budget) || 0;
+    if (!amt || !row.platform) continue;
+    actualMap.set(row.platform, (actualMap.get(row.platform) || 0) + amt);
+  }
+  const keys = new Set([...Object.keys(t), ...actualMap.keys()]);
+  return [...keys]
+    .map((value) => {
+      const target = Number(t[value]) || 0;
       const actual = actualMap.get(value) || 0;
       return { value, target, actual, variance: actual - target };
     })

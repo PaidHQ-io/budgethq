@@ -2,20 +2,31 @@
  * /api/workspaces/[id]/account-plans — Account Planning (2026-08-06, per Mo — "I need a way of
  * figuring out how to restructure and rebuild an account that already has existing ads and
  * campaigns... looking at what's working and porting that over to a new structure"). A named,
- * resumable project that walks Context -> Audit -> Taxonomy -> Budget -> Targeting -> Mapping (see
- * src/components/AccountPlanning.jsx for the wizard UI and src/lib/accountPlanning.js for the
- * scoring/naming engine).
+ * resumable project that walks Channel Strategy -> Flighting Strategy -> Budget -> Context ->
+ * Taxonomy -> Targeting -> Mapping (see src/components/AccountPlanning.jsx for the wizard UI and
+ * src/lib/accountPlanning.js for the naming/budget engine).
  *
- * Deliberately does NOT persist audit numbers (spend/CPL/pipeline scores) — those are always
- * recomputed live from core.spend_rows/core.reporting_facts when a plan is opened, same reasoning
- * as DataAudit.jsx never freezing its own numbers: a stale "what's working" snapshot from a plan
- * opened three weeks ago would be actively misleading. What DOES persist is the human judgment on
- * top of those numbers (auditDecisions: keep/consolidate/kill per campaign, with a note) plus every
- * other step's own input (context, taxonomy, mapping) — none of that is re-derivable from spend
- * data, so it has to be saved. Same "flexible bucket" jsonb-per-section convention as
- * vault_entries/ai_chats/reporting_column_views (see this codebase's other SCHEMA doc comments) —
- * each step's shape is still being figured out in practice, and jsonb means that never needs a
- * migration to evolve.
+ * REORDERED + AUDIT REMOVED (2026-08-07, per Mo — "I don't understand what to do here... let's
+ * figure out the flow of this workflow" -> "the audit section, let's get rid of that altogether...
+ * it shouldn't live under campaign planning"). Two changes from the original design:
+ *   1. The step order now front-loads the decisions that actually gate everything else — which
+ *      channels this plan covers, evergreen vs. flighted, and how budget maps to those channels —
+ *      before the old Context/Taxonomy/Targeting/Mapping steps (unchanged in substance, just later
+ *      in the flow). See AccountPlanning.jsx's STEPS array doc comment for Mo's own words on why.
+ *   2. Audit (the keep/consolidate/kill campaign-performance tiering) is no longer part of this
+ *      wizard or this table at all — it's now CampaignAudit.jsx, a standalone top-level PaidHQ tab
+ *      with no plan association. audit_decisions below is LEGACY as a result: still a real column
+ *      (no migration to drop it), but nothing reads or writes it anymore. auditDecisions is also
+ *      gone from this API's request/response shape (see PATCH/toFull below) for the same reason.
+ *
+ * Deliberately does NOT persist any spend/performance numbers — those were always (when Audit still
+ * lived here) recomputed live from core.spend_rows/core.reporting_facts, same reasoning as
+ * DataAudit.jsx/CampaignAudit.jsx never freezing their own numbers: a stale "what's working"
+ * snapshot would be actively misleading. What persists here is every OTHER step's own input
+ * (context, taxonomy, targeting, mapping) — none of that is re-derivable from spend data, so it has
+ * to be saved. Same "flexible bucket" jsonb-per-section convention as vault_entries/ai_chats/
+ * reporting_column_views (see this codebase's other SCHEMA doc comments) — each step's shape is
+ * still being figured out in practice, and jsonb means that never needs a migration to evolve.
  *
  * SCHEMA (paidhq-core, not in this checkout):
  *   create table if not exists core.account_plans (
@@ -23,8 +34,26 @@
  *     workspace_id uuid not null references core.workspaces(id) on delete cascade,
  *     name text not null,
  *     status text not null default 'draft',              -- draft | in_progress | complete
- *     active_step text not null default 'context',        -- context | audit | taxonomy | budget | targeting | mapping
- *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, segments, adFormatsByPlatform, objectivesByPlatform, funnelStages, adFormats?, objectives?, budgets? }
+ *     active_step text not null default 'channelStrategy', -- channelStrategy | flightingStrategy | budget | context | taxonomy | targeting | mapping
+ *       -- "audit" used to be a valid active_step value (between context and taxonomy) — no longer
+ *       -- written by this wizard, but an old plan saved mid-Audit will just land back on "context"
+ *       -- the next time STEPS is walked (AccountPlanning.jsx has no special handling needed here,
+ *       -- since an unrecognized activeStep simply matches none of the step-switch cases and the
+ *       -- step nav itself still renders — same graceful-fallback behavior as any other stale value).
+ *     context jsonb not null default '{}'::jsonb,          -- { channelStrategy, flightingStrategy, products, regions, personas, segments, adFormatsByPlatform, objectivesByPlatform, funnelStages, adFormats?, objectives?, budgets? }
+ *       -- channelStrategy (2026-08-07, per Mo — the new first step: "he needs to decide if this is
+ *       -- multi channel, and if so, is it both search and social or just search or just social...").
+ *       -- { channels: string[] } — a flat list of PLATFORM_CODES platform names (LinkedIn/Meta/
+ *       -- Reddit/YouTube/TikTok for social, Bing/Google Search/Google Display/Demand Gen/
+ *       -- Performance Max for search — see CHANNEL_FAMILY_GROUPS in accountPlanning.js), picked via
+ *       -- ChannelStrategyStep's Social/Search checkbox groups. Read by BudgetStep (what to offer in
+ *       -- the Budget by Channel split) and MappingStep (what to offer in the "+Channel"/empty-state
+ *       -- channel picker) — both fall back to every PLATFORM_CODES platform when this is unset,
+ *       -- same backward-compatible posture as every other new-field addition in this schema.
+ *       -- flightingStrategy (2026-08-07, same approval): { type: "evergreen" | "flighted" | "mix" }.
+ *       -- Purely a stated plan-level intent — Mapping's own per-row FlightFields (flightType/
+ *       -- startDate/endDate on each mapping row, unchanged) is still where the real, enforced
+ *       -- flighting choice gets made for each campaign.
  *       -- segments (2026-08-07, per Mo — "we're missing company size segments of SMB, MM and
  *       -- Enterprise in this screen"): free-text ChipList like products/regions/personas, defaults
  *       -- to ["SMB","MM","Enterprise"] client-side when unset (see DEFAULT_SEGMENTS in
@@ -57,14 +86,35 @@
  *       -- totalled, those are overlapping segments" — the old list mixed products/regions/personas
  *       -- with no guarantee any two lines were mutually exclusive spend, so summing it produced a
  *       -- plausible-looking but wrong number). budgetTotal just starts empty on these plans.
- *     taxonomy jsonb not null default '{}'::jsonb,          -- { dimensions, nameTemplates, utmNotes, budgetTotal }
+ *     taxonomy jsonb not null default '{}'::jsonb,          -- { dimensions, nameTemplates, utmNotes, budgetTotal, budgetCadence, channelBudget }
  *       -- budgetTotal (2026-08-07, per Mo — "a net new tab just for setting budgets and allocating
  *       -- budgets per segment... we should toggle between real dollar amounts and percentages"): the
- *       -- plan's overall monthly budget, set on the new Budget step. dimensions[i].budgets/
- *       -- budgetMode/budgetPercents (per-value $ targets, unchanged since 2026-08-06/07) also live
- *       -- here, now edited from the Budget step instead of Taxonomy — see
+ *       -- plan's overall budget, set on the Budget step. dimensions[i].budgets/budgetMode/
+ *       -- budgetPercents (per-value $ targets, unchanged since 2026-08-06/07) also live here, edited
+ *       -- from the Budget step's Budget Allocation section — see
  *       -- src/components/AccountPlanning.jsx's BudgetStep/BudgetAllocation doc comments.
- *     audit_decisions jsonb not null default '{}'::jsonb,  -- { [groupKey]: { decision, note } }
+ *       -- budgetCadence (2026-08-07, per Mo — "are they going to be time-bound, are they going to
+ *       -- be monthly, are they going to be quarterly"): { type: "monthly" | "quarterly" | "custom",
+ *       -- startDate?, endDate? } — startDate/endDate only meaningful when type is "custom" (a
+ *       -- specific time-bound window). Purely descriptive of how budgetTotal should be read (per
+ *       -- month, per quarter, or for one fixed window) — doesn't change how any $ figure elsewhere
+ *       -- in this schema is stored or computed.
+ *       -- channelBudget (2026-08-07, same approval — "how does the budget map to the channel as a
+ *       -- first step"): { budgets: { [platform]: amount }, budgetMode, budgetPercents } — the SAME
+ *       -- $/%-toggle shape a taxonomy dimension's budgets/budgetMode/budgetPercents already use (see
+ *       -- BudgetSplitCard in AccountPlanning.jsx, the shared component both now render through),
+ *       -- just keyed by platform name instead of a dimension value. Compared against actual Mapping
+ *       -- spend on the Mapping step's Budget rollup card via computeChannelBudgetComparison
+ *       -- (accountPlanning.js) — same target-vs-actual pattern dimensions[i].budgets already had,
+ *       -- extended to channel since channel isn't a taxonomy dimension.
+ *     audit_decisions jsonb not null default '{}'::jsonb,  -- LEGACY (2026-08-07) — { [groupKey]: { decision, note } }.
+ *       -- Real column, still readable/writable via this API's PATCH/GET (auditDecisions, unchanged
+ *       -- below) — deliberately NOT removed from the API surface, just from the wizard: Audit moved
+ *       -- out of AccountPlanning.jsx entirely (see this file's top doc comment) to CampaignAudit.jsx,
+ *       -- which has no plan association and never calls this endpoint with auditDecisions anymore.
+ *       -- A plan saved before this change keeps whatever it already had in this column; nothing new
+ *       -- will ever be written to it client-side, but the column/API path stay intact rather than
+ *       -- being ripped out for a value nobody currently sends.
  *     targeting jsonb not null default '[]'::jsonb,         -- [{ id, name, method, titles, functions,
  *                                                            --   seniorities, companySizes, industries,
  *                                                            --   listAttachments, exclusionAttachments,

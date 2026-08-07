@@ -551,7 +551,16 @@ export const TAG_DIM_COLORS=["#36565F","#5F8190","#141414","#4A7080","#23414A","
 // Goals & Objectives — it's a planning/strategy tab like that one, not a data-review tab like
 // Change History/Vault, so it groups with the "decide what to do" tabs rather than the
 // "look at what happened" ones. See AccountPlanning.jsx.
-export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Pipeline Tagger",icon:"tag"},{key:"pipelineTagger",label:"Performance Intelligence",icon:"search"},{key:"goalsObjectives",label:"Goals & Objectives",icon:"target"},{key:"accountPlanning",label:"Account Planning",icon:"compass"},{key:"changeHistory",label:"Change History",icon:"history"},{key:"vault",label:"Vault",icon:"lock"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
+// "campaignAudit" (2026-08-07, per Mo — "let's get rid of that altogether [as an Account Planning
+// step]... we can move the audit to another section of PaidHQ but it shouldn't live under campaign
+// planning"): this is the keep/consolidate/kill campaign-performance tiering that used to be Account
+// Planning's Audit step (buildAuditGroups/scoreAuditGroups, accountPlanning.js — unchanged) — now its
+// own standalone, plan-agnostic tab (see CampaignAudit.jsx), no longer gated behind starting a plan.
+// Distinct from "dataAudit" (data completeness/gaps/overlaps, a different question entirely — see
+// DataAudit.jsx's own doc comment) despite the similar name; placed right before accountPlanning
+// since "see what's working" naturally precedes "decide what to build," matching how this tab
+// actually got used when it lived inside the wizard.
+export const NAV=[{key:"dashboard",label:"Dashboard",icon:"bolt"},{key:"data",label:"Data Sources",icon:"download"},{key:"dataAudit",label:"Data Audit",icon:"check"},{key:"tagger",label:"Campaign Tagger",icon:"tag"},{key:"budget",label:"Budget Panel",icon:"wallet"},{key:"pacing",label:"Budget Pacing",icon:"chart"},{key:"reportingAnalyzer",label:"Pipeline Tagger",icon:"tag"},{key:"pipelineTagger",label:"Performance Intelligence",icon:"search"},{key:"goalsObjectives",label:"Goals & Objectives",icon:"target"},{key:"campaignAudit",label:"Campaign Audit",icon:"filter"},{key:"accountPlanning",label:"Account Planning",icon:"compass"},{key:"changeHistory",label:"Change History",icon:"history"},{key:"vault",label:"Vault",icon:"lock"},{key:"ask",label:"Ask AI",icon:"sparkle"}];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 export function autoDetect(h){

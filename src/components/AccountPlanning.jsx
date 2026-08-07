@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useRef, useState } from "react";
+import { Component, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   listAccountPlans, getAccountPlan, createAccountPlan, updateAccountPlan, deleteAccountPlan,
@@ -6,29 +6,26 @@ import {
 import {
   listTargetingLibraryItems, createTargetingLibraryItem, deleteTargetingLibraryItem,
 } from "../lib/targetingLibraryApi.js";
-import { listReportingFacts } from "../lib/reportingApi.js";
-import { getReachMetrics } from "../lib/coreApi.js";
 import {
-  buildAuditGroups, scoreAuditGroups, levelLabel, computeBudgetRollup, channelCode, platformFamily,
+  levelLabel, computeBudgetRollup, channelCode, platformFamily,
   DEFAULT_TAXONOMY_DIMENSIONS, buildDefaultNameTemplates, generateName, validateName, templateTokens,
-  LINKEDIN_COMPANY_SIZE_RANGES, PLATFORM_CODES, computeFlightDays, computeDailyBudget, computeFlightTotalBudget,
-  computeDimensionBudgetComparison, humanizeObjective,
+  LINKEDIN_COMPANY_SIZE_RANGES, PLATFORM_CODES, CHANNEL_FAMILY_GROUPS, computeFlightDays, computeDailyBudget, computeFlightTotalBudget,
+  computeDimensionBudgetComparison, computeChannelBudgetComparison,
 } from "../lib/accountPlanning.js";
 import { SearchableSelect } from "./ui/searchable-select.jsx";
-import { fmtFull, campaignKey, adKey, splitFilterTerms, matchesTerms, localISODate } from "../lib/core.js";
-import { DonutChart, BarList } from "@tremor/react";
+import { fmtFull } from "../lib/core.js";
+import { BarList } from "@tremor/react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import {
-  Plus, Trash2, ChevronLeft, Compass, Search, Tags, Target as TargetIcon, ListChecks, X, Moon, Sun,
+  Plus, Trash2, ChevronLeft, Compass, Tags, Target as TargetIcon, ListChecks, X, Moon, Sun,
   Users, Ban, Repeat, GripVertical, Megaphone, Layers, Image as ImageIcon, LayoutGrid, Table2, ChevronDown,
-  Info, DollarSign,
+  Info, DollarSign, CalendarClock,
 } from "lucide-react";
 import { Button } from "./ui/button.jsx";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.jsx";
 import { Badge } from "./ui/badge.jsx";
 import { Input } from "./ui/input.jsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./ui/select.jsx";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "./ui/table.jsx";
 import { Separator } from "./ui/separator.jsx";
 import { cn } from "../lib/utils.js";
 
@@ -75,34 +72,30 @@ import { cn } from "../lib/utils.js";
 // props DataAudit.jsx receives — reporting_facts isn't part of that central load, so this component
 // fetches it independently, same pattern DataAudit.jsx's own reportingFacts effect uses.
 
+// Order (2026-08-07, per Mo — "I don't understand what to do here... let's figure out the flow of
+// this workflow": channel selection first, then flighting, then budget-by-channel, THEN the old
+// context fields, then taxonomy/targeting/mapping as before). Audit is REMOVED from this array
+// entirely — per Mo, "let's get rid of that altogether... it shouldn't live under campaign
+// planning" — it's now its own standalone top-level tab, see CampaignAudit.jsx.
 const STEPS = [
-  { key: "context", label: "Context", Icon: TargetIcon },
-  { key: "audit", label: "Audit", Icon: Search },
-  { key: "taxonomy", label: "Taxonomy", Icon: Tags },
+  { key: "channelStrategy", label: "Channel Strategy", Icon: Compass },
+  { key: "flightingStrategy", label: "Flighting Strategy", Icon: CalendarClock },
   { key: "budget", label: "Budget", Icon: DollarSign },
-  { key: "targeting", label: "Targeting", Icon: Compass },
+  { key: "context", label: "Context", Icon: TargetIcon },
+  { key: "taxonomy", label: "Taxonomy", Icon: Tags },
+  { key: "targeting", label: "Targeting", Icon: Users },
   { key: "mapping", label: "Mapping", Icon: ListChecks },
 ];
 
-const TIER_META = {
-  keep: { badge: "success", label: "Keep" },
-  review: { badge: "warning", label: "Review" },
-  consolidate: { badge: "destructive", label: "Consolidate/Kill" },
-  "insufficient-data": { badge: "secondary", label: "Insufficient data" },
-};
-const SIGNAL_LABELS = {
-  pipeline: "Pipeline/funnel",
-  "platform-conversions": "Platform conversions",
-  "platform-engagement": "Platform (CPC)",
-  "insufficient-volume": "Not enough spend",
-};
+// TIER_META/SIGNAL_LABELS/DONUT_COLORS/TIER_DOT moved to CampaignAudit.jsx (2026-08-07, per Mo —
+// Audit is no longer part of this wizard) along with the rest of the Audit step. STATUS_META below
+// is unrelated (a mapping ROW's planned/in_progress/live status, and this plan's own draft/in_
+// progress/complete status) and stays here — it's genuinely shared, not audit-specific.
 const STATUS_META = {
   draft: { badge: "secondary", label: "Draft" },
   in_progress: { badge: "warning", label: "In progress" },
   complete: { badge: "success", label: "Complete" },
 };
-const DONUT_COLORS = ["emerald", "amber", "rose", "slate"];
-const TIER_DOT = { keep: "bg-success", review: "bg-warning", consolidate: "bg-destructive", "insufficient-data": "bg-muted-foreground" };
 
 // ─── SMALL SHARED PIECES ───────────────────────────────────────────────────────────────────────
 
@@ -230,7 +223,123 @@ function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete, dark, o
   );
 }
 
-// ─── STEP 1: CONTEXT ────────────────────────────────────────────────────────────────────────────
+// ─── STEP 1: CHANNEL STRATEGY ───────────────────────────────────────────────────────────────────
+// New, first step in the flow (2026-08-07, per Mo — "I don't understand what to do here... we need
+// to figure out the context first... [the user] needs to decide if this is multi channel, and if
+// so, is it both search and social or just search or just social... if it's social, is it just
+// linkedin or just meta or just reddit or just youtube or just tiktok or is it a combination... if
+// it's search, is it just google or is it just bing or is it both"). This is the very first
+// decision a plan makes, before any of the old Context fields — everything downstream (Budget's
+// channel split, Mapping's channel tabs) reads context.channelStrategy.channels, so an empty
+// selection here just means those later steps fall back to showing every PLATFORM_CODES platform
+// (same backward-compatible behavior as a plan created before this step existed).
+// Persisted as context.channelStrategy = { channels: string[] } — a flat list of PLATFORM_CODES
+// keys, not a nested { social: [...], search: [...] } shape, even though the UI below groups them
+// into Social/Search sections for clarity. Flat storage means every other step that reads "which
+// channels is this plan building for" (Budget, Mapping) only has to look in one place, not two.
+// Google's 4 sub-products (Search/Display/Demand Gen/Performance Max) are each their own checkbox
+// in the Search section per Mo's explicit answer ("pick Google products up front") rather than one
+// "Google" checkbox — that answer also means there's no single "Google" toggle to special-case here,
+// each product is picked (or not) independently, same granularity Mapping's channel tabs already use.
+function ChannelStrategyStep({ context, setContext, canEdit }) {
+  const channels = context.channelStrategy?.channels || [];
+  const toggle = (platform) => {
+    if (!canEdit) return;
+    const next = channels.includes(platform) ? channels.filter((p) => p !== platform) : [...channels, platform];
+    setContext({ ...context, channelStrategy: { ...(context.channelStrategy || {}), channels: next } });
+  };
+  const renderGroup = (title, platforms) => (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle>{title}</CardTitle></CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-1.5">
+          {platforms.map((p) => (
+            <Badge key={p} variant={channels.includes(p) ? "default" : "outline"}
+              className={cn("select-none", canEdit && "cursor-pointer", !channels.includes(p) && "opacity-60")}
+              onClick={() => toggle(p)}>
+              {p} <span className="ml-1 font-normal opacity-70">({PLATFORM_CODES[p]})</span>
+            </Badge>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="flex gap-3 pt-4">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="text-sm text-muted-foreground">
+            <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
+            <p>
+              Decide WHERE this plan is building campaigns before anything else — everything after
+              this (Budget, Context, Taxonomy, Targeting, Mapping) works off the channels picked
+              here. Click a channel to select or deselect it; select as many or as few as this plan
+              actually covers. <span className="font-medium text-foreground">Social</span> and{" "}
+              <span className="font-medium text-foreground">Search</span> are separate groups so you
+              can build a search-only plan, a social-only plan, or a true multi-channel plan without
+              the two ever being conflated — Budget's channel split and Mapping's channel tabs will
+              only offer the channels selected here.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+      {renderGroup("Social", CHANNEL_FAMILY_GROUPS.social)}
+      {renderGroup("Search", CHANNEL_FAMILY_GROUPS.search)}
+    </div>
+  );
+}
+
+// ─── STEP 2: FLIGHTING STRATEGY ─────────────────────────────────────────────────────────────────
+// New second step (2026-08-07, same approval as Channel Strategy above — "From there, they should
+// decide on whether this is an evergreen campaign/set of campaigns or if this is time-based or maybe
+// they have a mix of evergreen and time based"). Purely a stated INTENT for the plan as a whole —
+// it doesn't set anything on individual Mapping rows. Each row's actual evergreen/flighted choice
+// (and, if flighted, its real start/end dates) still gets set per-row in Mapping's own FlightFields,
+// unchanged; "mix" here just means the user expects to use both, which FlightFields already supports
+// row-by-row. Persisted as context.flightingStrategy = { type: "evergreen" | "flighted" | "mix" }.
+const FLIGHTING_STRATEGY_OPTIONS = [
+  { key: "evergreen", label: "Evergreen", desc: "Every campaign in this plan runs continuously, no end date." },
+  { key: "flighted", label: "Time-based", desc: "Every campaign in this plan runs on a specific start/end window." },
+  { key: "mix", label: "Mix of both", desc: "This plan combines evergreen and time-based campaigns — common for a new or revised account structure." },
+];
+function FlightingStrategyStep({ context, setContext, canEdit }) {
+  const type = context.flightingStrategy?.type || "";
+  const setType = (t) => canEdit && setContext({ ...context, flightingStrategy: { ...(context.flightingStrategy || {}), type: t } });
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="flex gap-3 pt-4">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="text-sm text-muted-foreground">
+            <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
+            <p>
+              Set the overall flighting posture for this plan — evergreen, time-based, or a mix of
+              both. This is a stated intent, not a hard constraint: each campaign's own evergreen/
+              flight-date choice still gets made individually in Mapping, this just sets expectations
+              up front (and matters most when picking a budget cadence next).
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {FLIGHTING_STRATEGY_OPTIONS.map((o) => (
+          <Card key={o.key} onClick={() => setType(o.key)}
+            className={cn("transition-colors", canEdit && "cursor-pointer", type === o.key ? "border-primary ring-1 ring-primary/40" : "hover:border-primary/30")}>
+            <CardHeader className="pb-2">
+              <CardTitle className={cn("text-sm", type === o.key && "text-primary")}>{o.label}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-muted-foreground">{o.desc}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── STEP: CONTEXT ──────────────────────────────────────────────────────────────────────────────
 
 // DEFAULT_SEGMENTS (2026-08-07, per Mo — "we're missing company size segments of SMB, MM and
 // Enterprise in this screen"): seeds the new Company Size Segments card below with the same
@@ -270,6 +379,8 @@ const DEFAULT_AD_FORMATS_BY_PLATFORM = {
   "Demand Gen": ["Single Image", "Carousel", "Video"], // best guess, unverified
   "Performance Max": ["Responsive Ad", "Image", "Video", "Text", "Product Feed"], // best guess, unverified
   YouTube: ["Skippable In-Stream", "Non-Skippable In-Stream", "Bumper", "In-Feed Video", "Shorts", "Masthead"], // best guess, unverified
+  Reddit: ["Single Image", "Video", "Carousel", "Text Post", "Community Takeover"], // best guess, unverified
+  TikTok: ["In-Feed Video", "Spark Ad", "TopView", "Branded Effect", "Collection"], // best guess, unverified
   Capterra: ["Sponsored Listing", "Category Leader", "Display Ad"], // best guess, unverified
 };
 const DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM = {
@@ -281,6 +392,8 @@ const DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM = {
   "Demand Gen": ["Conversions", "Website Traffic", "Brand Awareness"], // best guess, unverified
   "Performance Max": ["Sales", "Leads", "Website Traffic", "Store Visits"], // best guess, unverified
   YouTube: ["Brand Awareness", "Video Views", "Consideration", "Conversions"], // best guess, unverified
+  Reddit: ["Brand Awareness", "Traffic", "Conversions", "Lead Generation", "App Installs"], // best guess, unverified
+  TikTok: ["Brand Awareness", "Traffic", "Conversions", "App Installs", "Lead Generation", "Community Interaction"], // best guess, unverified
   Capterra: ["Lead Generation", "Website Traffic"], // best guess, unverified
 };
 
@@ -429,327 +542,6 @@ function ContextStep({ context, setContext, canEdit }) {
   );
 }
 
-// ─── STEP 2: AUDIT ──────────────────────────────────────────────────────────────────────────────
-
-// Date-range presets for the Audit table (2026-08-07, per Mo — "a time frame filter so I can choose
-// custom dates and also the typical last 7 days, last 30 days, last 90 days, last month, this
-// month"). Mirrors the "recommended presets relative to today, custom falls back to fixed inputs"
-// shape PaidHQ.jsx's own SYNC_RANGE_PRESETS uses for the sync date picker, extended with calendar-
-// month presets since Mo asked for those specifically here. buildAuditGroups() already accepted
-// dateFrom/dateTo params (built for a future need) — this is the first UI to actually pass them.
-const AUDIT_DATE_PRESETS = [
-  { key: "all", label: "All time" },
-  { key: "last7", label: "Last 7 days" },
-  { key: "last30", label: "Last 30 days" },
-  { key: "last90", label: "Last 90 days" },
-  { key: "thisMonth", label: "This month" },
-  { key: "lastMonth", label: "Last month" },
-  { key: "custom", label: "Custom" },
-];
-function computeAuditDateRange(preset, customStart, customEnd) {
-  const now = new Date();
-  if (preset === "all") return { dateFrom: null, dateTo: null };
-  if (preset === "custom") return { dateFrom: customStart || null, dateTo: customEnd || null };
-  if (preset === "thisMonth") return { dateFrom: localISODate(new Date(now.getFullYear(), now.getMonth(), 1)), dateTo: localISODate(now) };
-  if (preset === "lastMonth") {
-    return {
-      dateFrom: localISODate(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-      dateTo: localISODate(new Date(now.getFullYear(), now.getMonth(), 0)),
-    };
-  }
-  const days = { last7: 7, last30: 30, last90: 90 }[preset] || 30;
-  const s = new Date(now);
-  s.setDate(s.getDate() - (days - 1));
-  return { dateFrom: localISODate(s), dateTo: localISODate(now) };
-}
-
-// Effective tags for an Audit group, mirroring AdTagger.jsx's own effectiveTagsFor: an ad-level
-// group's tags are its explicit adTags entry layered over its parent campaign's tags entry (falls
-// back cleanly to just the campaign's tags for campaign-level groups, since adKey lookups will
-// simply miss). This is what lets "filter by tags/dimensions" here reuse the SAME tag data Campaign
-// Tagger/Ad Tagger already produced elsewhere in the app, rather than inventing a second tagging
-// system scoped to Account Planning alone.
-function effectiveAuditTags(g, tags, adTags) {
-  const campTags = tags[campaignKey(g.campaignGroupName, g.campaignName)] || {};
-  if (g.level !== "ad") return campTags;
-  const key = adKey(g.campaignGroupName, g.campaignName, g.adLabel || "");
-  return { ...campTags, ...(adTags[key] || {}) };
-}
-
-// LinkedIn's own hard cap on the reach query — see paidhq-core's connectors/linkedin.js
-// getReachMetrics doc comment. Applied to both platforms for one predictable rule rather than reach
-// working for Meta but not LinkedIn on the same wide date selection.
-const REACH_MAX_DAYS = 92;
-
-// Looks up a group's live-fetched reach/frequency by platform + adId — see coreApi.js's
-// getReachMetrics doc comment for the shape of reachData. Only ad-level LinkedIn/Meta groups can
-// ever have reach data (search platforms and campaign-level rows never will) — everything else
-// quietly returns null, which the table renders as "—".
-function reachForGroup(g, reachData) {
-  if (!reachData || g.level !== "ad" || !g.adId) return null;
-  const platformKey = g.platform === "LinkedIn" ? "linkedin" : g.platform === "Meta" ? "meta" : null;
-  if (!platformKey) return null;
-  const data = reachData[platformKey];
-  return data ? data[g.adId] || null : null;
-}
-
-function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, tags = {}, tagDims = [], adTags = {}, auditDecisions, setAuditDecisions, mapping, setMapping, canEdit }) {
-  const [reportingFacts, setReportingFacts] = useState(null);
-  const [minSpend, setMinSpend] = useState(100);
-  const [tierFilter, setTierFilter] = useState("all");
-  const [fTag, setFTag] = useState("");
-  // Defaults to "last30" (2026-08-07, per Mo — "Let's make the audit tab default to the last 30
-  // days"), was "all". Still fully overridable via the Time frame select right below.
-  const [datePreset, setDatePreset] = useState("last30");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
-  useEffect(() => {
-    if (!workspace?.id || !session) return;
-    listReportingFacts(session, workspace.id).then(setReportingFacts).catch(() => setReportingFacts([]));
-  }, [session, workspace?.id]);
-
-  const { dateFrom, dateTo } = useMemo(() => computeAuditDateRange(datePreset, customStart, customEnd), [datePreset, customStart, customEnd]);
-
-  // Reach/frequency (2026-08-07, per Mo — "we need reach and frequency"): a LIVE, on-demand fetch
-  // scoped to the exact selected window, NOT part of the regular synced spend data — see
-  // coreApi.js's getReachMetrics doc comment for why (reach is deduplicated/non-additive across
-  // days, so it can't be summed the way spend/impressions/clicks are). REACH_MAX_DAYS mirrors
-  // LinkedIn's own hard cap on this query (92 days) — Meta doesn't share that specific limit, but
-  // capping both platforms to the same window keeps the UI's behavior simple and predictable rather
-  // than reach silently working for one platform and not the other on the same selection.
-  const [reachData, setReachData] = useState(null); // { linkedin, meta, errors } | null — null also reads as "loading" (see below), same convention AdTagger.jsx's own load effect uses for `rows`
-  const reachRequestRef = useRef(0); // guards against an older, slower request overwriting a newer one's result — see effect below
-  const reachWindowDays = dateFrom && dateTo ? Math.round((new Date(dateTo) - new Date(dateFrom)) / 86400000) + 1 : null;
-  const reachWindowTooWide = reachWindowDays == null || reachWindowDays > REACH_MAX_DAYS;
-  const reachLoading = !reachWindowTooWide && reachData === null;
-  useEffect(() => {
-    // No synchronous setState in the effect body itself (react-hooks/set-state-in-effect) — when
-    // the window is too wide (or workspace/session isn't ready), this just skips fetching entirely
-    // rather than resetting reachData to null here; groupsWithReach below already ignores any stale
-    // reachData once reachWindowTooWide flips true, so there's nothing to clean up. setReachData is
-    // only ever called inside the promise callbacks below, same "reset only inside a promise
-    // callback" posture AdTagger.jsx's own load effect uses. reachRequestRef (a ref, not state) is
-    // fine to mutate synchronously here — it just tags this fetch so a slower, superseded request
-    // can't clobber a newer one's result if the date range changes again before it resolves.
-    if (!workspace?.id || !session || reachWindowTooWide) return;
-    const requestId = ++reachRequestRef.current;
-    getReachMetrics(session, workspace.id, { startDate: dateFrom, endDate: dateTo })
-      .then((data) => { if (reachRequestRef.current === requestId) setReachData(data); })
-      .catch((e) => { if (reachRequestRef.current === requestId) setReachData({ errors: { _general: e.message } }); });
-  }, [session, workspace?.id, dateFrom, dateTo, reachWindowTooWide]);
-
-  const groups = useMemo(() => {
-    if (reportingFacts === null) return [];
-    const built = buildAuditGroups({ mergedNormRows: mergedNormRows || [], reportingFacts, combineGoogleChannels, dateFrom, dateTo });
-    return scoreAuditGroups(built, { minSpend: Number(minSpend) || 0 });
-  }, [mergedNormRows, reportingFacts, combineGoogleChannels, minSpend, dateFrom, dateTo]);
-
-  const counts = useMemo(() => {
-    const c = { keep: 0, review: 0, consolidate: 0, "insufficient-data": 0, totalSpend: 0 };
-    groups.forEach((g) => { c[g.tier] = (c[g.tier] || 0) + 1; c.totalSpend += g.spend; });
-    return c;
-  }, [groups]);
-
-  const donutData = useMemo(() => (
-    ["keep", "review", "consolidate", "insufficient-data"]
-      .map((t) => ({ name: TIER_META[t].label, value: counts[t] || 0 }))
-      .filter((d) => d.value > 0)
-  ), [counts]);
-
-  const groupsWithReach = useMemo(
-    () => groups.map((g) => ({ ...g, reachMetrics: reachWindowTooWide ? null : reachForGroup(g, reachData) })),
-    [groups, reachData, reachWindowTooWide]
-  );
-
-  const tierFiltered = tierFilter === "all" ? groupsWithReach : groupsWithReach.filter((g) => g.tier === tierFilter);
-  const tagTerms = splitFilterTerms(fTag);
-  const visible = tagTerms.length === 0 ? tierFiltered : tierFiltered.filter((g) => {
-    const eff = effectiveAuditTags(g, tags, adTags);
-    const s = Object.entries(eff).map(([d, v]) => `${d}:${v}`).join(" ").toLowerCase();
-    return matchesTerms(s, tagTerms, "or");
-  });
-
-  const addToMapping = (g) => {
-    if (mapping.some((m) => m.oldKey === g.key)) return;
-    setMapping([...mapping, {
-      oldKey: g.key, oldName: g.level === "ad" ? (g.adLabel || g.campaignName) : g.campaignName,
-      oldCampaignGroup: g.campaignGroupName, platform: g.platform,
-      level: g.level === "ad" ? "ad" : "campaign", action: g.tier === "consolidate" ? "kill" : "rename",
-      manualName: "", dimValues: {}, status: "planned", parentKey: "", flightType: "evergreen", startDate: "", endDate: "",
-      adFormat: "", objective: "",
-    }]);
-  };
-  const setDecision = (key, patch) => setAuditDecisions({ ...auditDecisions, [key]: { ...(auditDecisions[key] || {}), ...patch } });
-
-  if (reportingFacts === null) return <div className="text-sm text-muted-foreground">Loading account data…</div>;
-  if (groups.length === 0) return <div className="text-sm text-muted-foreground">No spend data to audit yet — bring in data via Data Sources first.</div>;
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2"><CardTitle>Scope</CardTitle></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
-                <div className="text-xs font-medium text-muted-foreground">In scope</div>
-                <div className="font-display text-xl font-bold text-primary">{fmtFull(counts.totalSpend)}</div>
-              </div>
-              {["keep", "review", "consolidate", "insufficient-data"].map((t) => (
-                <div key={t} className="rounded-lg border border-border bg-secondary/40 p-3">
-                  <div className="mb-1 flex items-center gap-1.5">
-                    <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", TIER_DOT[t])} />
-                    <span className="truncate text-xs font-medium text-muted-foreground">{TIER_META[t].label}</span>
-                  </div>
-                  <div className="font-display text-xl font-bold text-foreground">{counts[t] || 0}</div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle>Tier distribution</CardTitle></CardHeader>
-          <CardContent>
-            {donutData.length > 0 ? (
-              <DonutChart data={donutData} category="value" index="name" colors={DONUT_COLORS} className="h-32" showAnimation={false} showLabel />
-            ) : (
-              <div className="text-xs text-muted-foreground">No scored groups yet</div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Min spend to score</span>
-          <Input type="number" value={minSpend} onChange={(e) => setMinSpend(e.target.value)} className="h-8 w-24 text-xs" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">
-            Filter by tag/dimension{tagDims.length > 0 && <> — {tagDims.slice(0, 4).join(", ")}</>}
-          </span>
-          <Input value={fTag} onChange={(e) => setFTag(e.target.value)}
-            placeholder={`e.g. ${(tagDims[0] || "product").toLowerCase()}:value, comma-separated`}
-            className="h-8 w-64 text-xs" />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Time frame</span>
-          <div className="flex items-center gap-1.5">
-            <Select value={datePreset} onValueChange={setDatePreset}>
-              <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {AUDIT_DATE_PRESETS.map((p) => <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {datePreset === "custom" && (
-              <>
-                <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-8 w-[136px] text-xs" />
-                <span className="text-xs text-muted-foreground">to</span>
-                <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-8 w-[136px] text-xs" />
-              </>
-            )}
-          </div>
-          {reachWindowTooWide && (
-            <div className="text-[11px] text-muted-foreground/80">Reach/Frequency need a range of {REACH_MAX_DAYS} days or less to show.</div>
-          )}
-          {!reachWindowTooWide && reachLoading && (
-            <div className="text-[11px] text-muted-foreground/80">Loading reach/frequency…</div>
-          )}
-          {!reachWindowTooWide && !reachLoading && reachData?.errors && Object.keys(reachData.errors).length > 0 && (
-            <div className="text-[11px] text-warning">
-              {Object.entries(reachData.errors).map(([k, v]) => `${k === "_general" ? "Reach" : k}: ${v}`).join(" · ")}
-            </div>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-1.5 pb-1.5">
-          {["all", "keep", "review", "consolidate", "insufficient-data"].map((t) => (
-            <Badge key={t} variant={t === "all" ? "outline" : tierFilter === t ? TIER_META[t].badge : "outline"}
-              className={cn("cursor-pointer select-none", tierFilter !== t && "opacity-60")} onClick={() => setTierFilter(t)}>
-              {t === "all" ? "All" : TIER_META[t].label} {t !== "all" && `(${counts[t] || 0})`}
-            </Badge>
-          ))}
-        </div>
-      </div>
-
-      <Card className="overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">#</TableHead>
-              <TableHead>Campaign Group</TableHead>
-              <TableHead>Campaign</TableHead>
-              <TableHead>Ad</TableHead>
-              <TableHead>Platform</TableHead>
-              <TableHead>Spend</TableHead>
-              <TableHead>Impressions</TableHead>
-              <TableHead>Clicks</TableHead>
-              <TableHead>Reach</TableHead>
-              <TableHead>Frequency</TableHead>
-              <TableHead>Objective</TableHead>
-              <TableHead>Ad Format</TableHead>
-              <TableHead>Signal</TableHead>
-              <TableHead>Cost/unit</TableHead>
-              <TableHead>Decision</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visible.slice(0, 250).map((g, i) => {
-              const dec = auditDecisions[g.key] || {};
-              const inMapping = mapping.some((m) => m.oldKey === g.key);
-              return (
-                <TableRow key={g.key}>
-                  <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
-                  <TableCell className="max-w-[180px]"><div className="truncate text-sm text-foreground">{g.campaignGroupName}</div></TableCell>
-                  <TableCell className="max-w-[200px]"><div className="truncate text-sm font-medium text-foreground">{g.campaignName}</div></TableCell>
-                  <TableCell className="max-w-[180px]"><div className="truncate text-sm text-foreground">{g.level === "ad" ? (g.adLabel || "—") : "—"}</div></TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{g.platform}</TableCell>
-                  <TableCell className="text-sm">{fmtFull(g.spend)}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{(g.impressions || 0).toLocaleString()}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{(g.clicks || 0).toLocaleString()}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{g.reachMetrics?.reach != null ? g.reachMetrics.reach.toLocaleString() : "—"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{g.reachMetrics?.frequency != null ? g.reachMetrics.frequency.toFixed(2) : "—"}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{humanizeObjective(g.objective) || "—"}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{humanizeObjective(g.adFormat) || "—"}</TableCell>
-                  <TableCell>
-                    <div className="text-xs text-muted-foreground">{SIGNAL_LABELS[g.signalType]}</div>
-                    {g.primaryMetricKey && <div className="text-[11px] text-muted-foreground/70">{g.primaryMetricKey}</div>}
-                  </TableCell>
-                  <TableCell className="text-sm">{g.costPerUnit != null ? `$${g.costPerUnit.toFixed(2)}` : "—"}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={TIER_META[g.tier].badge}>{TIER_META[g.tier].label}</Badge>
-                      {canEdit && (
-                        <Select value={dec.decision || "__tier__"} onValueChange={(v) => setDecision(g.key, { decision: v === "__tier__" ? "" : v })}>
-                          <SelectTrigger className="h-7 w-[112px] text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__tier__">Use tier</SelectItem>
-                            <SelectItem value="keep">Keep</SelectItem>
-                            <SelectItem value="consolidate">Consolidate</SelectItem>
-                            <SelectItem value="kill">Kill</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {canEdit && (
-                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={inMapping} onClick={() => addToMapping(g)}>
-                        {inMapping ? "In mapping" : "+ Mapping"}
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </Card>
-      {visible.length > 250 && <div className="text-xs text-muted-foreground">Showing first 250 of {visible.length} — narrow the filter above to see more.</div>}
-    </div>
-  );
-}
-
 // ─── STEP 3: TAXONOMY ───────────────────────────────────────────────────────────────────────────
 
 function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
@@ -877,13 +669,24 @@ function TaxonomyStep({ taxonomy, setTaxonomy, context, canEdit }) {
 // (a campaign counted under "US" could be the SAME spend already counted under "Marketing"), so
 // summing it was never a valid total — just a plausible-looking wrong number. Starts genuinely
 // empty; the user types the real figure.
-function BudgetStep({ taxonomy, setTaxonomy, canEdit }) {
+const BUDGET_CADENCE_OPTIONS = [
+  { key: "monthly", label: "Monthly", desc: "Budget is entered and paced as a recurring monthly figure." },
+  { key: "quarterly", label: "Quarterly", desc: "Budget is entered and paced per quarter." },
+  { key: "custom", label: "Time-bound", desc: "Budget covers one specific window with its own start/end dates." },
+];
+
+function BudgetStep({ taxonomy, setTaxonomy, context, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
   const family = taxonomy.family || "search";
   const budgetTotal = Number(taxonomy.budgetTotal) || 0;
+  const channels = context?.channelStrategy?.channels || [];
+  const cadence = taxonomy.budgetCadence || { type: "monthly" };
+  const channelBudget = taxonomy.channelBudget || {};
   const setBudgetTotal = (v) => setTaxonomy({ ...taxonomy, dimensions, nameTemplates: templates, family, budgetTotal: v === "" ? "" : Number(v) });
   const updateDim = (key, patch) => setTaxonomy({ ...taxonomy, dimensions: dimensions.map((d) => (d.key === key ? { ...d, ...patch } : d)), nameTemplates: templates, family, budgetTotal: taxonomy.budgetTotal });
+  const setCadence = (patch) => setTaxonomy({ ...taxonomy, budgetCadence: { ...cadence, ...patch } });
+  const updateChannelBudget = (patch) => setTaxonomy({ ...taxonomy, channelBudget: { ...channelBudget, ...patch } });
 
   return (
     <div className="flex flex-col gap-5">
@@ -893,27 +696,63 @@ function BudgetStep({ taxonomy, setTaxonomy, canEdit }) {
           <div className="text-sm text-muted-foreground">
             <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
             <p>
-              Set the plan's overall <span className="font-medium text-foreground">Monthly Budget</span> below, then break it down per value of any Taxonomy dimension (segment, region, product, or a custom one) in <span className="font-medium text-foreground">Budget Allocation</span>. Each card has its own <span className="font-medium text-foreground">$ / %</span> toggle — enter real dollar amounts, or flip to percent and let this page do the math for you (a "Split evenly" shortcut divides 100% across a dimension's values in one click). Targets you set here get compared against what's actually mapped once you reach the Mapping step.
+              Set the plan's overall budget, pick a <span className="font-medium text-foreground">Cadence</span> for it, then split it two ways: first across the <span className="font-medium text-foreground">channels</span> picked in Channel Strategy, then (optionally) per value of any Taxonomy dimension — segment, region, product, or a custom one — in <span className="font-medium text-foreground">Budget Allocation</span>. Every split shares the same <span className="font-medium text-foreground">$ / %</span> toggle — enter real dollar amounts, or flip to percent and let this page do the math for you (a "Split evenly" shortcut divides 100% across a card's rows in one click). Targets you set here get compared against what's actually mapped once you reach the Mapping step.
             </p>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-2"><CardTitle>Monthly Budget</CardTitle></CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2">
-            <span className="text-lg text-muted-foreground">$</span>
-            {canEdit ? (
-              <input type="number" value={taxonomy.budgetTotal ?? ""} onChange={(e) => setBudgetTotal(e.target.value)}
-                placeholder="0" className="h-10 w-full max-w-xs border-0 bg-transparent font-display text-2xl font-semibold text-foreground outline-none" />
-            ) : (
-              <span className="font-display text-2xl font-semibold text-foreground">{fmtFull(budgetTotal)}</span>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Budget</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <span className="text-lg text-muted-foreground">$</span>
+              {canEdit ? (
+                <input type="number" value={taxonomy.budgetTotal ?? ""} onChange={(e) => setBudgetTotal(e.target.value)}
+                  placeholder="0" className="h-10 w-full max-w-xs border-0 bg-transparent font-display text-2xl font-semibold text-foreground outline-none" />
+              ) : (
+                <span className="font-display text-2xl font-semibold text-foreground">{fmtFull(budgetTotal)}</span>
+              )}
+              <span className="text-sm text-muted-foreground">/{cadence.type === "monthly" ? "mo" : cadence.type === "quarterly" ? "qtr" : "window"}</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Cadence</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-1.5">
+              {BUDGET_CADENCE_OPTIONS.map((o) => (
+                <Badge key={o.key} variant={cadence.type === o.key ? "default" : "outline"}
+                  className={cn("select-none", canEdit && "cursor-pointer", cadence.type !== o.key && "opacity-60")}
+                  title={o.desc} onClick={() => canEdit && setCadence({ type: o.key })}>
+                  {o.label}
+                </Badge>
+              ))}
+            </div>
+            {cadence.type === "custom" && (
+              <div className="mt-2.5 flex items-center gap-1.5">
+                <Input type="date" disabled={!canEdit} value={cadence.startDate || ""} onChange={(e) => setCadence({ startDate: e.target.value })} className="h-8 w-[140px] text-xs" />
+                <span className="text-xs text-muted-foreground">to</span>
+                <Input type="date" disabled={!canEdit} value={cadence.endDate || ""} onChange={(e) => setCadence({ endDate: e.target.value })} className="h-8 w-[140px] text-xs" />
+              </div>
             )}
-            <span className="text-sm text-muted-foreground">/mo</span>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div>
+        <SectionLabel>Budget by Channel</SectionLabel>
+        {channels.length === 0 ? (
+          <div className="text-xs text-muted-foreground">No channels selected yet — pick at least one in Channel Strategy to split budget across channels here.</div>
+        ) : (
+          <div className="max-w-md">
+            <BudgetSplitCard label="Channel" values={channels} budgets={channelBudget.budgets || {}}
+              budgetMode={channelBudget.budgetMode} budgetPercents={channelBudget.budgetPercents || {}}
+              budgetTotal={budgetTotal} canEdit={canEdit} onUpdate={updateChannelBudget} />
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
 
       <BudgetAllocation dimensions={dimensions} updateDim={updateDim} canEdit={canEdit} budgetTotal={budgetTotal} />
     </div>
@@ -948,125 +787,129 @@ const MAX_BUDGET_ALLOCATION_VALUES = 15;
 // right below it, just applied to percent instead of dollars.
 const PCT_TOLERANCE = 0.05;
 
+// BudgetSplitCard (2026-08-07, factored out of BudgetAllocation's per-dimension map body when the
+// Budget step gained a second, non-taxonomy split — Channel): the exact same $/%-toggle,
+// split-evenly, target-vs-remaining card either caller needs, generalized to take a plain `values`
+// list and a `budgets`/`budgetMode`/`budgetPercents` bag instead of a taxonomy dimension object
+// directly. BudgetAllocation below (per-dimension split) and BudgetStep's new Channel split both
+// render one of these; onUpdate(patch) is however the caller wants to persist the merged patch
+// (updateDim(key, patch) for a dimension, a plain setChannelBudget merge for Channel).
+function BudgetSplitCard({ label, values, budgets, budgetMode, budgetPercents, budgetTotal, canEdit, onUpdate }) {
+  const mode = budgetMode === "percent" ? "percent" : "dollar";
+  const percents = budgetPercents || {};
+  const total = Object.values(budgets).reduce((s, v) => s + (Number(v) || 0), 0);
+  const pctTotal = Object.values(percents).reduce((s, v) => s + (Number(v) || 0), 0);
+  const setValueBudget = (value, amount) => onUpdate({ budgets: { ...budgets, [value]: amount } });
+  const setValuePercent = (value, pct) => {
+    const nextPercents = { ...percents, [value]: pct };
+    const dollarAmount = budgetTotal > 0 ? Math.round(budgetTotal * (Number(pct) || 0)) / 100 : "";
+    onUpdate({ budgetPercents: nextPercents, budgets: { ...budgets, [value]: dollarAmount } });
+  };
+  const setMode = (nextMode) => {
+    if (nextMode === "percent" && budgetTotal > 0) {
+      // Seed percents from whatever dollar amounts already exist, so toggling to % for the
+      // first time on an already-filled-in card doesn't blank everything out.
+      const seeded = { ...percents };
+      values.forEach((v) => { if (seeded[v] == null && budgets[v]) seeded[v] = Math.round((Number(budgets[v]) / budgetTotal) * 1000) / 10; });
+      onUpdate({ budgetMode: nextMode, budgetPercents: seeded });
+    } else {
+      onUpdate({ budgetMode: nextMode });
+    }
+  };
+  // Split evenly (2026-08-07, per Mo's own example — "33.3% in MM, 33.3% in SMB and 33.4%
+  // in ENT"): last value absorbs the rounding remainder so the split always sums to exactly
+  // 100.0, never 99.9 or 100.1 from naive equal division.
+  const splitEvenly = () => {
+    const n = values.length;
+    if (n === 0) return;
+    const even = Math.round((100 / n) * 10) / 10;
+    const nextPercents = {};
+    values.forEach((v, i) => { nextPercents[v] = i === n - 1 ? Math.round((100 - even * (n - 1)) * 10) / 10 : even; });
+    const nextBudgets = { ...budgets };
+    values.forEach((v) => { nextBudgets[v] = budgetTotal > 0 ? Math.round(budgetTotal * (nextPercents[v] || 0)) / 100 : ""; });
+    onUpdate({ budgetPercents: nextPercents, budgets: nextBudgets });
+  };
+  const remaining = budgetTotal > 0 ? budgetTotal - total : null;
+  const remainingPct = 100 - pctTotal;
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-foreground">{label}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            {total > 0 && (
+              <span className="text-xs font-medium text-primary">
+                {fmtFull(total)}{budgetTotal > 0 && <span className="font-normal text-muted-foreground"> / {fmtFull(budgetTotal)}</span>}
+              </span>
+            )}
+            {canEdit && (
+              <div className="flex items-center gap-0.5 rounded-md border border-border bg-secondary/40 p-0.5">
+                <button type="button" onClick={() => setMode("dollar")}
+                  className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium transition-all", mode === "dollar" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>$</button>
+                <button type="button" onClick={() => setMode("percent")} disabled={!(budgetTotal > 0)}
+                  title={budgetTotal > 0 ? "" : "Set your Budget total first"}
+                  className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium transition-all", mode === "percent" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground", !(budgetTotal > 0) && "cursor-not-allowed opacity-40")}>%</button>
+              </div>
+            )}
+          </div>
+        </div>
+        {mode === "percent" && canEdit && (
+          <button type="button" onClick={splitEvenly} className="mb-1.5 text-[11px] font-medium text-primary hover:underline">Split evenly</button>
+        )}
+        <div className="flex flex-col gap-1.5">
+          {values.map((v) => (
+            <div key={v} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground">{v}</span>
+              {mode === "percent" ? (
+                <>
+                  <div className="flex h-7 w-20 shrink-0 items-center gap-1 rounded-md border border-input bg-background px-2 text-xs">
+                    <input type="number" disabled={!canEdit} value={percents[v] ?? ""} onChange={(e) => setValuePercent(v, e.target.value)}
+                      placeholder="0" step="0.1" className="w-full bg-transparent outline-none" />
+                    <span className="text-muted-foreground">%</span>
+                  </div>
+                  <span className="w-20 shrink-0 truncate text-right text-[11px] text-muted-foreground">{budgetTotal > 0 ? fmtFull(budgets[v] || 0) : "—"}</span>
+                </>
+              ) : (
+                <Input type="number" disabled={!canEdit} value={budgets[v] || ""} onChange={(e) => setValueBudget(v, e.target.value)}
+                  placeholder="$" className="h-7 w-28 shrink-0 text-xs" />
+              )}
+            </div>
+          ))}
+        </div>
+        {mode === "percent" ? (
+          <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remainingPct < -PCT_TOLERANCE ? "text-destructive" : remainingPct > PCT_TOLERANCE ? "text-warning" : "text-success")}>
+            {pctTotal === 0 ? "0% allocated" : remainingPct < -PCT_TOLERANCE ? `${Math.abs(remainingPct).toFixed(1)}% over 100%` : remainingPct > PCT_TOLERANCE ? `${pctTotal.toFixed(1)}% allocated — ${remainingPct.toFixed(1)}% left` : `100% allocated${budgetTotal > 0 ? ` (${fmtFull(total)})` : ""}`}
+          </div>
+        ) : (
+          remaining != null && total > 0 && (
+            <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remaining < 0 ? "text-destructive" : remaining > 0 ? "text-warning" : "text-success")}>
+              {remaining < 0 ? `${fmtFull(Math.abs(remaining))} over your Budget` : remaining > 0 ? `${fmtFull(remaining)} of Budget not yet allocated here` : "Fully allocated"}
+            </div>
+          )
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function BudgetAllocation({ dimensions, updateDim, canEdit, budgetTotal }) {
   const eligible = dimensions.filter((d) => d.values.length > 0 && d.values.length <= MAX_BUDGET_ALLOCATION_VALUES);
   return (
     <div>
       <SectionLabel>Budget Allocation</SectionLabel>
       <div className="mb-2.5 text-xs text-muted-foreground">
-        Optional target $/mo per value, for any dimension with a manageable value list — compared against actual Mapping budgets on the Mapping step.
-        {budgetTotal > 0 && ` Your Monthly Budget totals ${fmtFull(budgetTotal)}/mo — each card below shows how its own breakdown compares to that same total.`}
+        Optional target $ per value, for any dimension with a manageable value list — compared against actual Mapping budgets on the Mapping step.
+        {budgetTotal > 0 && ` Your Budget totals ${fmtFull(budgetTotal)} — each card below shows how its own breakdown compares to that same total.`}
       </div>
       {eligible.length === 0 ? (
         <div className="text-xs text-muted-foreground">Add values to a dimension in Taxonomy (segment, region, product, or a custom one) to set budget targets for it.</div>
       ) : (
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-          {eligible.map((d) => {
-            const budgets = d.budgets || {};
-            // budgetMode/budgetPercents (2026-08-07, per Mo's percent-split ask): budgets (dollar
-            // amounts) stays the single source of truth every downstream consumer already reads
-            // (Mapping's computeDimensionBudgetComparison, this same card's dollar-mode math) — %
-            // mode is purely an alternate INPUT method that computes and writes the dollar amount
-            // back into budgets on every keystroke, so nothing downstream has to know this mode
-            // exists. budgetPercents just remembers what the user actually typed, so switching back
-            // to % mode (or the Monthly Budget total changing later) doesn't lose/misrepresent their
-            // split.
-            const mode = d.budgetMode === "percent" ? "percent" : "dollar";
-            const percents = d.budgetPercents || {};
-            const total = Object.values(budgets).reduce((s, v) => s + (Number(v) || 0), 0);
-            const pctTotal = Object.values(percents).reduce((s, v) => s + (Number(v) || 0), 0);
-            const setValueBudget = (value, amount) => updateDim(d.key, { budgets: { ...budgets, [value]: amount } });
-            const setValuePercent = (value, pct) => {
-              const nextPercents = { ...percents, [value]: pct };
-              const dollarAmount = budgetTotal > 0 ? Math.round(budgetTotal * (Number(pct) || 0)) / 100 : "";
-              updateDim(d.key, { budgetPercents: nextPercents, budgets: { ...budgets, [value]: dollarAmount } });
-            };
-            const setMode = (nextMode) => {
-              if (nextMode === "percent" && budgetTotal > 0) {
-                // Seed percents from whatever dollar amounts already exist, so toggling to % for the
-                // first time on an already-filled-in card doesn't blank everything out.
-                const seeded = { ...percents };
-                d.values.forEach((v) => { if (seeded[v] == null && budgets[v]) seeded[v] = Math.round((Number(budgets[v]) / budgetTotal) * 1000) / 10; });
-                updateDim(d.key, { budgetMode: nextMode, budgetPercents: seeded });
-              } else {
-                updateDim(d.key, { budgetMode: nextMode });
-              }
-            };
-            // Split evenly (2026-08-07, per Mo's own example — "33.3% in MM, 33.3% in SMB and 33.4%
-            // in ENT"): last value absorbs the rounding remainder so the split always sums to exactly
-            // 100.0, never 99.9 or 100.1 from naive equal division.
-            const splitEvenly = () => {
-              const n = d.values.length;
-              if (n === 0) return;
-              const even = Math.round((100 / n) * 10) / 10;
-              const nextPercents = {};
-              d.values.forEach((v, i) => { nextPercents[v] = i === n - 1 ? Math.round((100 - even * (n - 1)) * 10) / 10 : even; });
-              const nextBudgets = { ...budgets };
-              d.values.forEach((v) => { nextBudgets[v] = budgetTotal > 0 ? Math.round(budgetTotal * (nextPercents[v] || 0)) / 100 : ""; });
-              updateDim(d.key, { budgetPercents: nextPercents, budgets: nextBudgets });
-            };
-            const remaining = budgetTotal > 0 ? budgetTotal - total : null;
-            const remainingPct = 100 - pctTotal;
-            return (
-              <Card key={d.key}>
-                <CardContent className="p-4">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-foreground">{d.label}</span>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {total > 0 && (
-                        <span className="text-xs font-medium text-primary">
-                          {fmtFull(total)}/mo{budgetTotal > 0 && <span className="font-normal text-muted-foreground"> / {fmtFull(budgetTotal)}</span>}
-                        </span>
-                      )}
-                      {canEdit && (
-                        <div className="flex items-center gap-0.5 rounded-md border border-border bg-secondary/40 p-0.5">
-                          <button type="button" onClick={() => setMode("dollar")}
-                            className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium transition-all", mode === "dollar" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>$</button>
-                          <button type="button" onClick={() => setMode("percent")} disabled={!(budgetTotal > 0)}
-                            title={budgetTotal > 0 ? "" : "Set your Monthly Budget total first"}
-                            className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium transition-all", mode === "percent" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground", !(budgetTotal > 0) && "cursor-not-allowed opacity-40")}>%</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {mode === "percent" && canEdit && (
-                    <button type="button" onClick={splitEvenly} className="mb-1.5 text-[11px] font-medium text-primary hover:underline">Split evenly</button>
-                  )}
-                  <div className="flex flex-col gap-1.5">
-                    {d.values.map((v) => (
-                      <div key={v} className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate text-xs text-foreground">{v}</span>
-                        {mode === "percent" ? (
-                          <>
-                            <div className="flex h-7 w-20 shrink-0 items-center gap-1 rounded-md border border-input bg-background px-2 text-xs">
-                              <input type="number" disabled={!canEdit} value={percents[v] ?? ""} onChange={(e) => setValuePercent(v, e.target.value)}
-                                placeholder="0" step="0.1" className="w-full bg-transparent outline-none" />
-                              <span className="text-muted-foreground">%</span>
-                            </div>
-                            <span className="w-20 shrink-0 truncate text-right text-[11px] text-muted-foreground">{budgetTotal > 0 ? fmtFull(budgets[v] || 0) : "—"}</span>
-                          </>
-                        ) : (
-                          <Input type="number" disabled={!canEdit} value={budgets[v] || ""} onChange={(e) => setValueBudget(v, e.target.value)}
-                            placeholder="$/mo" className="h-7 w-28 shrink-0 text-xs" />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {mode === "percent" ? (
-                    <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remainingPct < -PCT_TOLERANCE ? "text-destructive" : remainingPct > PCT_TOLERANCE ? "text-warning" : "text-success")}>
-                      {pctTotal === 0 ? "0% allocated" : remainingPct < -PCT_TOLERANCE ? `${Math.abs(remainingPct).toFixed(1)}% over 100%` : remainingPct > PCT_TOLERANCE ? `${pctTotal.toFixed(1)}% allocated — ${remainingPct.toFixed(1)}% left` : `100% allocated${budgetTotal > 0 ? ` (${fmtFull(total)}/mo)` : ""}`}
-                    </div>
-                  ) : (
-                    remaining != null && total > 0 && (
-                      <div className={cn("mt-2 border-t border-border/60 pt-1.5 text-[11px]", remaining < 0 ? "text-destructive" : remaining > 0 ? "text-warning" : "text-success")}>
-                        {remaining < 0 ? `${fmtFull(Math.abs(remaining))} over your Monthly Budget` : remaining > 0 ? `${fmtFull(remaining)} of Monthly Budget not yet allocated here` : "Fully allocated"}
-                      </div>
-                    )
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+          {eligible.map((d) => (
+            <BudgetSplitCard key={d.key} label={d.label} values={d.values} budgets={d.budgets || {}}
+              budgetMode={d.budgetMode} budgetPercents={d.budgetPercents || {}} budgetTotal={budgetTotal}
+              canEdit={canEdit} onUpdate={(patch) => updateDim(d.key, patch)} />
+          ))}
         </div>
       )}
     </div>
@@ -1332,6 +1175,13 @@ function TargetingStep({ session, workspace, taxonomy, targeting, setTargeting, 
 
 const ACTION_LABELS = { rename: "Rename", split: "Split", merge: "Merge into", kill: "Kill", keep: "Keep as-is" };
 const STATUS_LABELS = { planned: "Planned", in_progress: "In progress", live: "Live" };
+// ROW_STATUS_META (2026-08-07, bug fix found while removing Audit — a mapping ROW's status
+// (planned/in_progress/live, STATUS_LABELS above) and a PLAN's own status (draft/in_progress/
+// complete, STATUS_META near the top of this file) are two different vocabularies that only overlap
+// on "in_progress". NodeHeader below was reading row status out of the PLAN's STATUS_META, which has
+// no "planned" entry at all — every freshly-created mapping row (status defaults to "planned") would
+// have thrown rendering its badge. Split into its own lookup so the two never collide again.
+const ROW_STATUS_META = { planned: { badge: "secondary", label: "Planned" }, in_progress: { badge: "warning", label: "In progress" }, live: { badge: "success", label: "Live" } };
 const LEVEL_LABELS = { campaign: "Campaign", adgroup: "Ad Group / Ad Set", ad: "Ad" };
 
 // Hoisted out of MappingBuilder (2026-08-06) — the react-hooks/purity lint rule flags Date.now()/
@@ -1386,7 +1236,17 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, context, canEdi
     if (present.has("")) ordered.push(""); // legacy rows saved before channel locking
     return ordered;
   }, [mapping]);
-  const availableToAdd = Object.keys(PLATFORM_CODES).filter((p) => !channelsPresent.includes(p));
+  // channelChoices (2026-08-07, per Mo's Channel Strategy step): what's OFFERED for "+Channel"/the
+  // empty-state picker is the plan's own channelStrategy.channels selection, not every PLATFORM_CODES
+  // platform — the whole point of deciding channels up front is that Mapping shouldn't re-litigate
+  // it. Falls back to every platform when channelStrategy is unset (a plan created before this step
+  // existed, or one where nothing was picked there yet), same backward-compatible posture as
+  // channelsPresent's own "Unspecified" fallback above.
+  const plannedChannels = context?.channelStrategy?.channels;
+  const channelChoices = plannedChannels && plannedChannels.length
+    ? Object.keys(PLATFORM_CODES).filter((p) => plannedChannels.includes(p))
+    : Object.keys(PLATFORM_CODES);
+  const availableToAdd = channelChoices.filter((p) => !channelsPresent.includes(p));
 
   // Derived, not effect-synced (2026-08-07) — selectedChannel just remembers the last tab the user
   // clicked; activeChannel falls back to the first available channel whenever that selection isn't
@@ -1413,6 +1273,17 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, context, canEdi
   // WHOLE plan (all channels), not just the active tab — this card is a plan-level summary, the tabs
   // below it are purely for building/editing structure.
   const rollupsByPlatform = useMemo(() => computeBudgetRollup(mapping, (r) => r.platform), [mapping]);
+  // Channel target-vs-actual (2026-08-07, per Mo's Budget-step redesign — "how does the budget map
+  // to the channel as a first step"): same DimensionBudgetBlock display dimensionComparisons below
+  // already uses, fed by computeChannelBudgetComparison instead (keyed off row.platform, not a
+  // taxonomy dimension — see that function's own doc comment in accountPlanning.js). Only shows once
+  // a target's actually been set in the Budget step's Budget by Channel card; an empty
+  // taxonomy.channelBudget.budgets just yields an empty rows array here, same "shown for any
+  // dimension that has either a target or actual spend" rule dimensionComparisons follows.
+  const channelComparison = useMemo(
+    () => computeChannelBudgetComparison(mapping, taxonomy.channelBudget?.budgets || {}),
+    [mapping, taxonomy.channelBudget]
+  );
   const dimensionComparisons = useMemo(
     () => dimensions.map((d) => ({ dim: d, rows: computeDimensionBudgetComparison(mapping, d) })).filter((x) => x.rows.length > 0),
     [dimensions, mapping]
@@ -1423,10 +1294,13 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, context, canEdi
   if (mapping.length === 0) {
     return (
       <div>
-        <div className="mb-3 text-sm text-muted-foreground">No mapping rows yet — add campaigns/ads from the Audit step, or pick a channel below to start building a campaign structure from scratch.</div>
+        <div className="mb-3 text-sm text-muted-foreground">
+          No mapping rows yet — pick a channel below to start building a campaign structure from scratch.
+          {(!plannedChannels || !plannedChannels.length) && " (Set Channel Strategy first to narrow this list to just the channels this plan covers.)"}
+        </div>
         {canEdit && (
           <div className="flex flex-wrap gap-2">
-            {Object.keys(PLATFORM_CODES).map((p) => (
+            {channelChoices.map((p) => (
               <button key={p} type="button" onClick={() => addCampaignForChannel(p)}
                 className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
                 <Plus className="h-3.5 w-3.5" />{p} <span className="text-xs text-muted-foreground">({PLATFORM_CODES[p]})</span>
@@ -1456,8 +1330,9 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, context, canEdi
                 {rollupsByPlatform.length ? <BarList data={asBarList(rollupsByPlatform)} valueFormatter={fmtFull} className="text-xs" /> : <span className="text-xs text-muted-foreground">—</span>}
               </div>
             </div>
-            {dimensionComparisons.length > 0 && (
+            {(channelComparison.length > 0 || dimensionComparisons.length > 0) && (
               <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2">
+                {channelComparison.length > 0 && <DimensionBudgetBlock dim={{ key: "channel", label: "Channel" }} rows={channelComparison} />}
                 {dimensionComparisons.map(({ dim, rows }) => <DimensionBudgetBlock key={dim.key} dim={dim} rows={rows} />)}
               </div>
             )}
@@ -1965,7 +1840,7 @@ function NodeHeader({ row, icon: Icon, nodeLabel, dimByKey, profiles, rowTemplat
   const template = rowTemplate(row);
   const tokens = templateTokens(template).filter((t) => t !== "platform");
   const validation = validateName(finalName(row), template);
-  const statusMeta = STATUS_META[row.status] || STATUS_META.planned;
+  const statusMeta = ROW_STATUS_META[row.status] || ROW_STATUS_META.planned;
   return (
     <div>
       <div className="flex items-start gap-2">
@@ -2149,7 +2024,7 @@ class StepErrorBoundary extends Component {
 
 // ─── MAIN ───────────────────────────────────────────────────────────────────────────────────────
 
-export default function AccountPlanning({ session, workspace, mergedNormRows, combineGoogleChannels = {}, tags = {}, tagDims = [], adTags = {}, canEdit, sidebarEl }) {
+export default function AccountPlanning({ session, workspace, canEdit, sidebarEl }) {
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -2313,15 +2188,11 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
 
       <div key={activeStep} className="min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <StepErrorBoundary key={activeStep}>
+          {activeStep === "channelStrategy" && <ChannelStrategyStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
+          {activeStep === "flightingStrategy" && <FlightingStrategyStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
           {activeStep === "context" && <ContextStep context={plan.context || {}} setContext={(v) => setStepField("context", v)} canEdit={canEdit} />}
-          {activeStep === "audit" && (
-            <AuditStep session={session} workspace={workspace} mergedNormRows={mergedNormRows} combineGoogleChannels={combineGoogleChannels}
-              tags={tags} tagDims={tagDims} adTags={adTags}
-              auditDecisions={plan.auditDecisions || {}} setAuditDecisions={(v) => setStepField("auditDecisions", v)}
-              mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} canEdit={canEdit} />
-          )}
           {activeStep === "taxonomy" && <TaxonomyStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
-          {activeStep === "budget" && <BudgetStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} canEdit={canEdit} />}
+          {activeStep === "budget" && <BudgetStep taxonomy={plan.taxonomy || {}} setTaxonomy={(v) => setStepField("taxonomy", v)} context={plan.context || {}} canEdit={canEdit} />}
           {activeStep === "targeting" && (
             <TargetingStep session={session} workspace={workspace} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} setTargeting={(v) => setStepField("targeting", v)} canEdit={canEdit} />
           )}
