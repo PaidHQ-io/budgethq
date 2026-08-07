@@ -24,7 +24,12 @@
  *     name text not null,
  *     status text not null default 'draft',              -- draft | in_progress | complete
  *     active_step text not null default 'context',        -- context | audit | taxonomy | targeting | mapping
- *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, budgets }
+ *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, segments, budgets }
+ *       -- segments (2026-08-07, per Mo — "we're missing company size segments of SMB, MM and
+ *       -- Enterprise in this screen"): free-text ChipList like products/regions/personas, defaults
+ *       -- to ["SMB","MM","Enterprise"] client-side when unset (see DEFAULT_SEGMENTS in
+ *       -- AccountPlanning.jsx) rather than needing a migration/default here — jsonb has no fixed
+ *       -- shape, so older rows without this key just fall back at read time.
  *     taxonomy jsonb not null default '{}'::jsonb,          -- { dimensions, nameTemplates, utmNotes }
  *     audit_decisions jsonb not null default '{}'::jsonb,  -- { [groupKey]: { decision, note } }
  *     targeting jsonb not null default '[]'::jsonb,         -- [{ id, name, method, titles, functions,

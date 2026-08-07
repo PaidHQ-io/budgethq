@@ -21,6 +21,7 @@ import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, use
 import {
   Plus, Trash2, ChevronLeft, Compass, Search, Tags, Target as TargetIcon, ListChecks, X, Moon, Sun,
   Users, Ban, Repeat, GripVertical, Megaphone, Layers, Image as ImageIcon, LayoutGrid, Table2, ChevronDown,
+  Info,
 } from "lucide-react";
 import { Button } from "./ui/button.jsx";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.jsx";
@@ -221,61 +222,111 @@ function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete, dark, o
 
 // ─── STEP 1: CONTEXT ────────────────────────────────────────────────────────────────────────────
 
+// DEFAULT_SEGMENTS (2026-08-07, per Mo — "we're missing company size segments of SMB, MM and
+// Enterprise in this screen"): seeds the new Company Size Segments card below with the same
+// three values Taxonomy's fixed "segment" dimension already uses everywhere else in this app (see
+// DEFAULT_TAXONOMY_DIMENSIONS in accountPlanning.js), spelled out in full rather than the ENT
+// shorthand since this card is a free-text ChipList like Products/Regions/Personas, not the
+// enum-constrained taxonomy dimension. Only used as a fallback when a plan hasn't saved its own
+// segments list yet — editing/removing a chip persists context.segments like any other field here.
+const DEFAULT_SEGMENTS = ["SMB", "MM", "Enterprise"];
+
 function ContextStep({ context, setContext, canEdit }) {
   const products = context.products || [];
   const regions = context.regions || [];
   const personas = context.personas || [];
+  const segments = context.segments && context.segments.length ? context.segments : DEFAULT_SEGMENTS;
   const budgets = context.budgets || [];
   const [bLabel, setBLabel] = useState(""); const [bAmount, setBAmount] = useState("");
   const addBudget = () => { const l = bLabel.trim(); const a = Number(bAmount); if (!l || !a) return; setContext({ ...context, budgets: [...budgets, { label: l, amount: a }] }); setBLabel(""); setBAmount(""); };
+  // updateBudgetAmount (2026-08-07, per Mo — "fix the budget inputs ... so I can edit budget
+  // amounts"): budget rows previously only supported delete-and-re-add to change a number, since the
+  // amount rendered as a static span. Edits the amount in place, keeping the label untouched.
+  const updateBudgetAmount = (i, amount) => setContext({ ...context, budgets: budgets.map((b, x) => (x === i ? { ...b, amount } : b)) });
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <Card>
-        <CardHeader className="pb-2"><CardTitle>Products</CardTitle></CardHeader>
-        <CardContent>
-          <ChipList items={products} canEdit={canEdit} placeholder="Add a product…"
-            onAdd={(v) => setContext({ ...context, products: [...products, v] })}
-            onRemove={(i) => setContext({ ...context, products: products.filter((_, x) => x !== i) })} />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2"><CardTitle>Regions</CardTitle></CardHeader>
-        <CardContent>
-          <ChipList items={regions} canEdit={canEdit} placeholder="Add a region…"
-            onAdd={(v) => setContext({ ...context, regions: [...regions, v] })}
-            onRemove={(i) => setContext({ ...context, regions: regions.filter((_, x) => x !== i) })} />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2"><CardTitle>Audiences / Personas</CardTitle></CardHeader>
-        <CardContent>
-          <ChipList items={personas} canEdit={canEdit} placeholder="Add an audience or persona…"
-            onAdd={(v) => setContext({ ...context, personas: [...personas, v] })}
-            onRemove={(i) => setContext({ ...context, personas: personas.filter((_, x) => x !== i) })} />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2"><CardTitle>Budgets</CardTitle></CardHeader>
-        <CardContent>
-          <div className={cn("flex flex-col gap-1.5", canEdit ? "mb-2" : "")}>
-            {budgets.map((b, i) => (
-              <div key={i} className="flex items-center gap-2.5 rounded-md bg-secondary px-3 py-2 text-sm">
-                <span className="flex-1 text-foreground">{b.label}</span>
-                <span className="font-semibold text-foreground">{fmtFull(b.amount)}</span>
-                {canEdit && <X className="h-3.5 w-3.5 cursor-pointer opacity-60 hover:opacity-100" onClick={() => setContext({ ...context, budgets: budgets.filter((_, x) => x !== i) })} />}
-              </div>
-            ))}
-            {budgets.length === 0 && <span className="text-xs text-muted-foreground">None yet</span>}
+    <div className="flex flex-col gap-4">
+      {/* Walkthrough (2026-08-07, per Mo — "I also need an explanation or walk through of what to
+          do in this screen for the benefit of the user"): this is the FIRST step of the 5-step
+          Account Planning flow (Context -> Audit -> Taxonomy -> Targeting -> Mapping), and it's all
+          freeform inputs with no validation, so a first-time user has no signal for what "done"
+          looks like here or why it matters. Explains each field in the order it appears below and
+          how it feeds later steps, so the panel and the grid stay in sync if fields are reordered. */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="flex gap-3 pt-4">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="text-sm text-muted-foreground">
+            <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
+            <p>
+              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, and <span className="font-medium text-foreground">Company Size Segments</span> are all simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. These describe what this plan covers and carry through as reference context in later steps (Taxonomy, Targeting, Mapping). <span className="font-medium text-foreground">Budgets</span> is where you break the total spend down by whatever lines make sense (by product, region, persona, segment, or anything else) — add a label and an amount, and edit an amount any time by typing directly into its field. None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be.
+            </p>
           </div>
-          {canEdit && (
-            <div className="flex gap-1.5">
-              <Input value={bLabel} onChange={(e) => setBLabel(e.target.value)} placeholder="e.g. Insight — Q4" className="h-8 flex-1 text-xs" />
-              <Input value={bAmount} onChange={(e) => setBAmount(e.target.value)} placeholder="Amount" type="number" className="h-8 w-28 text-xs" />
-              <Button size="sm" variant="secondary" className="h-8" onClick={addBudget}>Add</Button>
-            </div>
-          )}
         </CardContent>
       </Card>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Products</CardTitle></CardHeader>
+          <CardContent>
+            <ChipList items={products} canEdit={canEdit} placeholder="Add a product…"
+              onAdd={(v) => setContext({ ...context, products: [...products, v] })}
+              onRemove={(i) => setContext({ ...context, products: products.filter((_, x) => x !== i) })} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Regions</CardTitle></CardHeader>
+          <CardContent>
+            <ChipList items={regions} canEdit={canEdit} placeholder="Add a region…"
+              onAdd={(v) => setContext({ ...context, regions: [...regions, v] })}
+              onRemove={(i) => setContext({ ...context, regions: regions.filter((_, x) => x !== i) })} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Audiences / Personas</CardTitle></CardHeader>
+          <CardContent>
+            <ChipList items={personas} canEdit={canEdit} placeholder="Add an audience or persona…"
+              onAdd={(v) => setContext({ ...context, personas: [...personas, v] })}
+              onRemove={(i) => setContext({ ...context, personas: personas.filter((_, x) => x !== i) })} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>Company Size Segments</CardTitle></CardHeader>
+          <CardContent>
+            <ChipList items={segments} canEdit={canEdit} placeholder="Add a segment…"
+              onAdd={(v) => setContext({ ...context, segments: [...segments, v] })}
+              onRemove={(i) => setContext({ ...context, segments: segments.filter((_, x) => x !== i) })} />
+          </CardContent>
+        </Card>
+        <Card className="sm:col-span-2">
+          <CardHeader className="pb-2"><CardTitle>Budgets</CardTitle></CardHeader>
+          <CardContent>
+            <div className={cn("flex flex-col gap-1.5", canEdit ? "mb-2" : "")}>
+              {budgets.map((b, i) => (
+                <div key={i} className="flex items-center gap-2.5 rounded-md bg-secondary px-3 py-2 text-sm">
+                  <span className="flex-1 text-foreground">{b.label}</span>
+                  {canEdit ? (
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground">$</span>
+                      <Input type="number" value={b.amount}
+                        onChange={(e) => updateBudgetAmount(i, e.target.value === "" ? "" : Number(e.target.value))}
+                        className="h-7 w-28 text-right text-xs font-semibold" />
+                    </div>
+                  ) : (
+                    <span className="font-semibold text-foreground">{fmtFull(b.amount)}</span>
+                  )}
+                  {canEdit && <X className="h-3.5 w-3.5 cursor-pointer opacity-60 hover:opacity-100" onClick={() => setContext({ ...context, budgets: budgets.filter((_, x) => x !== i) })} />}
+                </div>
+              ))}
+              {budgets.length === 0 && <span className="text-xs text-muted-foreground">None yet</span>}
+            </div>
+            {canEdit && (
+              <div className="flex gap-1.5">
+                <Input value={bLabel} onChange={(e) => setBLabel(e.target.value)} placeholder="e.g. Insight — Q4" className="h-8 flex-1 text-xs" />
+                <Input value={bAmount} onChange={(e) => setBAmount(e.target.value)} placeholder="Amount" type="number" className="h-8 w-28 text-xs" />
+                <Button size="sm" variant="secondary" className="h-8" onClick={addBudget}>Add</Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
