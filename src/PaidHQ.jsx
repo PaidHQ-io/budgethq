@@ -30,10 +30,17 @@ import {
 import { EXPORTABLE_VIEWS, EXPORT_FORMATS, buildReportBlob, downloadReport, blobToBase64 } from "./lib/reports.js";
 import {
   SectionLabel, Pill, GoogleAdsMark, BingMark, CsvMark, ScreenshotMark, PlatformLogo, Btn, Inp, Sel, StatRow,
-  MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip, Breadcrumb, NameFileModal,
+  MatchModeToggle, IconField, TagAutocompleteInput, Divider, Icon, PixelPanel, WarnTip, NameFileModal,
 } from "./components/shared.jsx";
 import { useGoogleSheetConnect } from "./hooks/useGoogleSheetConnect.js";
 import { usePersistentState } from "./lib/persist.js";
+import { cn } from "./lib/utils.js";
+import { Card, CardContent } from "./components/ui/card.jsx";
+import { Badge } from "./components/ui/badge.jsx";
+import { Button } from "./components/ui/button.jsx";
+import { Checkbox } from "./components/ui/checkbox.jsx";
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "./components/ui/select.jsx";
+import { Plus, X, File, PencilSimple, DownloadSimple, PaperPlaneTilt, Trash, Check } from "@phosphor-icons/react";
 
 // Lazy-loaded tab components (2026-07-25 split, per Mo — "there should be a global forecasting
 // model selector" conversation led into a broader ask to split the four tab components out of
@@ -4700,12 +4707,6 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         // Store list — they're a real record in the same table (see that constant's doc comment
         // for why), just not a "file" anyone should see, download, or delete by hand.
         const visibleFileStoreList=fileStoreList.filter(f=>f.category!==IMPORT_CONFIG_CATEGORY);
-        // lastDate below reuses computePlatformFreshness — the same "as of what date is this
-        // platform's spend current" signal the Budget Pacing tab's Data Freshness panel already
-        // shows (as_of_date-aware: a monthly CSV/screenshot's explicit "accurate through" date
-        // takes priority over its row's own date, same as everywhere else this is used) — so
-        // "last import" here always agrees with what Pacing already tells you, rather than a
-        // second, subtly different definition of "how current is this platform."
         const platformFreshness=computePlatformFreshness(visibleNormRows);
         // Deliberately does NOT run through groupGooglePlatform (2026-07-31) even though the Data
         // Sources sidebar's own "Spend by platform" widget now does — this table drives "Clear
@@ -4732,492 +4733,599 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         // disabled always also folds in !canEdit — every one of these is a destructive write
         // (clear data), so a view-only member sees the same disabled state a real 403 would force
         // anyway, rather than a button that looks clickable and then just fails.
-        const rowSection=({title,desc,stat,action,label,disabled})=>(
-          <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
-            <div>
-              <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>{title}</div>
-              <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:480}}>{desc}</div>
-              <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginTop:8,fontFamily:T.font}}>{stat}</div>
-            </div>
-            <Btn onClick={action} variant="danger" size="sm" T={T} disabled={disabled||!canEdit} title={canEdit?undefined:"View-only access"} style={{flexShrink:0}}>{label}</Btn>
-          </div>
-        );
-        return(
-          <div style={{flex:1,overflow:"auto",background:T.bg}}>
-            <div style={{maxWidth:760,margin:"0 auto",padding:"48px 32px"}}>
-              {/* 2026-08-01 (per Mo) — same T.wideLayout breadcrumb+big-title pattern as
-                  Dashboard.jsx/DataAudit.jsx; see Dashboard's header for the full reasoning.
-                  Classic/Midnight unaffected. */}
-              <div style={{marginBottom:32}}>
-                {T.wideLayout?(
-                  <Breadcrumb T={T} items={["Home","Settings"]}/>
-                ):null}
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                  {!T.wideLayout&&<div style={{width:36,height:36,borderRadius:T.r10,background:T.surfaceEl,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="gear" size={17} color={T.text}/></div>}
-                  <h1 style={{fontSize:T.wideLayout?36:22*(T.fsScale||1),fontWeight:T.wideLayout?600:800,color:T.text,letterSpacing:"-0.4px",fontFamily:T.font}}>Settings</h1>
-                </div>
-                <p style={{fontSize:13*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>Manage the data stored in this PaidHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
+        const SettingsRow=({title,desc,stat,action,label,disabled})=>(
+          <Card>
+            <CardContent className="flex items-center justify-between gap-5 p-5">
+              <div>
+                <div className="mb-1 text-sm font-semibold text-foreground">{title}</div>
+                <div className="max-w-[480px] text-xs leading-relaxed text-muted-foreground">{desc}</div>
+                <div className="mt-2 text-xs text-muted-foreground">{stat}</div>
               </div>
-              <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Appearance</div>
-                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Device-only preference — doesn't affect anyone else on this workspace, and switching back is instant.</div>
-                  <div style={{display:"flex",gap:10}}>
-                    {[
-                      {key:"classic",label:"Classic",desc:"Current look — DM Sans, compact corners",swatch:THEME_CLASSIC},
-                      {key:"aida",label:"Aida",desc:"New theme — Poppins, rounder, soft mint accent",swatch:THEME_AIDA},
-                      {key:"midnight",label:"Midnight",desc:"Dark mode — same shapes as Classic, inverted",swatch:THEME_MIDNIGHT},
-                      {key:"notion",label:"Notion",desc:"Light, flat, borders not shadows — Inter, blue accent",swatch:THEME_NOTION},
-                    ].map(opt=>{
-                      const active=themeName===opt.key;
-                      return(
-                        <div key={opt.key} onClick={()=>setThemeName(opt.key)} role="button" tabIndex={0}
-                          onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setThemeName(opt.key);}}}
-                          style={{flex:1,cursor:"pointer",border:`2px solid ${active?T.accent:T.border}`,borderRadius:T.r10,padding:14,background:opt.swatch.surface,transition:"border-color 0.12s"}}>
-                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                            <div style={{display:"flex",gap:5}}>
-                              <div style={{width:16,height:16,borderRadius:opt.swatch.r20,background:opt.swatch.bg,border:`1px solid ${opt.swatch.border}`}}/>
-                              <div style={{width:16,height:16,borderRadius:opt.swatch.r20,background:opt.swatch.accent}}/>
-                              <div style={{width:16,height:16,borderRadius:opt.swatch.r20,background:opt.swatch.accentSoft}}/>
-                            </div>
-                            {active&&<div style={{width:16,height:16,borderRadius:T.r20,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="check" size={10} color={T.onAccent}/></div>}
-                          </div>
-                          <div style={{fontSize:13*(T.fsScale||1),fontWeight:700,color:opt.swatch.text,fontFamily:opt.swatch.font,marginBottom:2}}>{opt.label}</div>
-                          <div style={{fontSize:11*(T.fsScale||1),color:opt.swatch.textMuted,fontFamily:opt.swatch.font}}>{opt.desc}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Number formatting</div>
-                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Workspace-shared — everyone sees the same decimal precision on spend, budgets, pacing %, and other reported values. Works like Excel's increase/decrease decimal buttons: raises or lowers precision beyond each value type's normal default.</div>
-                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-                    <Btn onClick={()=>setDecimalAdjust(d=>Math.max(0,d-1))} variant="ghost" size="sm" T={T} disabled={decimalAdjust<=0||!canEdit} title="Decrease decimal">.0◂</Btn>
-                    <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontFamily:T.font,minWidth:110,textAlign:"center"}}>{decimalAdjust===0?"Default precision":`+${decimalAdjust} decimal${decimalAdjust===1?"":"s"}`}</div>
-                    <Btn onClick={()=>setDecimalAdjust(d=>Math.min(6,d+1))} variant="ghost" size="sm" T={T} disabled={decimalAdjust>=6||!canEdit} title="Increase decimal">▸.00</Btn>
-                  </div>
-                  <div style={{display:"flex",gap:20,padding:"12px 14px",background:T.surfaceEl,borderRadius:T.r6,fontFamily:T.font}}>
-                    <div>
-                      <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,marginBottom:2}}>Dollar</div>
-                      <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600}}>{fmt$(48213.7)}</div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,marginBottom:2}}>Number</div>
-                      <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600}}>{(1284).toLocaleString(undefined,{minimumFractionDigits:decimalAdjust,maximumFractionDigits:decimalAdjust})}</div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,marginBottom:2}}>Percent</div>
-                      <div style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:600}}>{(87.436).toLocaleString(undefined,{minimumFractionDigits:1+decimalAdjust,maximumFractionDigits:1+decimalAdjust})}%</div>
-                    </div>
-                  </div>
-                </div>
-                <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
-                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>Custom metrics</div>
-                    <Btn onClick={openAddCustomMetric} variant="ghost" size="sm" T={T} disabled={!canEdit}>+ Add custom metric</Btn>
-                  </div>
-                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:customMetrics.length?14:0}}>Workspace-shared formulas — e.g. cost/demo, pipeline $ generated/spend, MQL → SQL rate — built from Performance Intelligence's canonical funnel fields (Spend, Leads, Demos, MQLs, SQLs, Pipeline Value, ...). Show up as toggleable columns in Performance Intelligence's metric picker.</div>
-                  {customMetrics.length>0&&(
-                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                      {customMetrics.map(cm=>(
-                        <div key={cm.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:"10px 12px",border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surfaceEl}}>
-                          <div style={{minWidth:0}}>
-                            <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font}}>{cm.label}</div>
-                            <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,marginTop:2}}>{formulaPreview(cm)} · {cm.format==="money"?"$":cm.format==="pct"?"%":"number"}</div>
-                          </div>
-                          <div style={{display:"flex",gap:6,flexShrink:0}}>
-                            <Btn onClick={()=>openEditCustomMetric(cm)} variant="ghost" size="sm" T={T} disabled={!canEdit}>Edit</Btn>
-                            <button onClick={()=>deleteCustomMetric(cm.key)} disabled={!canEdit} title="Delete this custom metric"
-                              style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.danger,cursor:canEdit?"pointer":"not-allowed",fontSize:13*(T.fsScale||1),lineHeight:1,padding:0,opacity:canEdit?1:0.5}}>✕</button>
-                          </div>
-                        </div>
+              <Button onClick={action} variant="destructive" size="sm" disabled={disabled||!canEdit} title={canEdit?undefined:"View-only access"} className="shrink-0">{label}</Button>
+            </CardContent>
+          </Card>
+        );
+
+        // Settings nav — jump-to-section links, matching Venture's General Settings two-group left
+        // rail (Figma node 562:37686: GENERAL SETTINGS / WORKSPACE SETTINGS grouped nav + content
+        // panels). BudgetHQ's settings are data-management-heavy rather than Venture's generic Apps/
+        // Account/Notification categories, so the group/item labels here are BudgetHQ's own — but the
+        // grouped-list-with-uppercase-header structure and two-column layout are a direct match.
+        // Click-to-scroll rather than true scroll-spy (no active-section tracking as you scroll) —
+        // a reasonable v1 scope cut for what's still a single long page, not real routed sub-pages.
+        const NAV_GROUPS=[
+          {label:"General",items:[
+            {id:"settings-appearance",label:"Appearance & Formatting"},
+            {id:"settings-metrics",label:"Custom Metrics"},
+            {id:"settings-connections",label:"Connections"},
+            {id:"settings-files",label:"File Store"},
+          ]},
+          {label:"Workspace",items:[
+            {id:"settings-workspace",label:"Workspace & Team"},
+            {id:"settings-data",label:"Data Management"},
+            {id:"settings-account",label:"Account"},
+          ]},
+        ];
+        const scrollToSection=id=>document.getElementById(id)?.scrollIntoView({behavior:"smooth",block:"start"});
+
+        return(
+          <div className="flex-1 overflow-auto bg-background">
+            <div className="mx-auto flex max-w-[1160px] gap-10 px-8 py-8">
+              <nav className="sticky top-8 hidden h-fit w-[180px] shrink-0 flex-col gap-6 lg:flex">
+                {NAV_GROUPS.map(group=>(
+                  <div key={group.label}>
+                    <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</div>
+                    <div className="flex flex-col gap-0.5">
+                      {group.items.map(item=>(
+                        <button key={item.id} type="button" onClick={()=>scrollToSection(item.id)}
+                          className="rounded-sm px-2 py-1.5 text-left text-sm font-medium text-muted-foreground hover:bg-secondary/60 hover:text-foreground">
+                          {item.label}
+                        </button>
                       ))}
                     </div>
-                  )}
+                  </div>
+                ))}
+              </nav>
+
+              <div className="min-w-0 flex-1">
+                <div className="mb-6 border-b border-border pb-5">
+                  <h1 className="text-h3 font-medium text-foreground">Settings</h1>
+                  <p className="mt-1.5 max-w-[560px] text-sm text-muted-foreground">Manage the data stored in this PaidHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
                 </div>
-                {canManageTeam&&(
-                  <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Workspace</div>
-                    <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Rename this workspace, or permanently delete it below.</div>
-                    <div style={{display:"flex",gap:6,marginBottom:workspaceNameError?6:0}}>
-                      <input value={workspaceNameInput} onChange={e=>{setWorkspaceNameInput(e.target.value);setWorkspaceNameError("");}}
-                        onKeyDown={e=>e.key==="Enter"&&saveWorkspaceName()}
-                        style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
-                      <Btn onClick={saveWorkspaceName} variant="primary" size="sm" T={T} disabled={workspaceNameSaving||!workspaceNameInput.trim()||workspaceNameInput.trim()===workspace?.name}>{workspaceNameSaving?"Saving…":"Save"}</Btn>
-                    </div>
-                    {workspaceNameError&&<div style={{fontSize:11*(T.fsScale||1),color:T.danger}}>{workspaceNameError}</div>}
-                    {isOwner&&(
-                      <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
-                        <div>
-                          <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font}}>Delete this workspace</div>
-                          <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginTop:2,fontFamily:T.font}}>Permanently removes all spend data, tags, budgets, files, version history, and AI chats. There's no undo.</div>
-                        </div>
-                        <Btn onClick={()=>{setDeleteWorkspaceOpen(true);setDeleteWorkspaceConfirmText("");setDeleteWorkspaceError("");}} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Delete workspace</Btn>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
-                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>Team</div>
-                    <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:11*(T.fsScale||1)}}>Your access: {myRole==="owner"?"Owner":myRole==="admin"?"Admin":"Member (view only)"}</Pill>
-                  </div>
-                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>
-                    {canManageTeam?"Invite people to this workspace and control what they can do. Members can view every tab but can't edit tags, budgets, or spend data — Admins and Owners have full edit access.":"Owners and admins manage who has access here and what they can do."}
-                  </div>
-                  {canManageTeam&&(
-                    <div style={{marginBottom:16}}>
-                      <div style={{display:"flex",gap:6}}>
-                        <input value={inviteEmail} onChange={e=>{setInviteEmail(e.target.value);setInviteError("");}}
-                          onKeyDown={e=>e.key==="Enter"&&!inviteSending&&inviteEmail.trim()&&sendInvite()}
-                          placeholder="Email address" type="email"
-                          style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
-                        <div style={{width:130}}>
-                          <Sel value={inviteRole} onChange={setInviteRole} T={T}>
-                            <option value="member">Member</option>
-                            <option value="admin">Admin</option>
-                            <option value="owner">Owner</option>
-                          </Sel>
-                        </div>
-                        <Btn onClick={sendInvite} variant="primary" size="sm" T={T} disabled={inviteSending||!inviteEmail.trim()}>{inviteSending?"Sending…":"Invite"}</Btn>
-                      </div>
-                      {inviteError&&<div style={{marginTop:6,fontSize:11*(T.fsScale||1),color:T.danger}}>{inviteError}</div>}
-                    </div>
-                  )}
-                  {teamMembersLoading?(
-                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,padding:"8px 0"}}>Loading…</div>
-                  ):(
-                    <div>
-                      {teamMembers.map((m,i)=>{
-                        const isMe=m.userId===sessionUserId;
-                        return(
-                          <div key={m.userId} className="bhq-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"9px 4px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                            <div style={{minWidth:0,display:"flex",alignItems:"center",gap:8}}>
-                              <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280}}>{m.email||m.userId}</div>
-                              {isMe&&<span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>(you)</span>}
-                              {!m.acceptedAt&&<Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{fontSize:10*(T.fsScale||1)}}>pending</Pill>}
-                            </div>
-                            <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-                              {canManageTeam&&!isMe?(
-                                <div style={{width:110}}>
-                                  <Sel value={m.role} onChange={r=>changeTeamRole(m.userId,r)} T={T} style={{fontSize:11*(T.fsScale||1),padding:"4px 8px"}}>
-                                    <option value="member">Member</option>
-                                    <option value="admin">Admin</option>
-                                    <option value="owner">Owner</option>
-                                  </Sel>
+
+                <div className="flex flex-col gap-8">
+                  {/* Appearance & Formatting */}
+                  <section id="settings-appearance" className="flex flex-col gap-4">
+                    <Card>
+                      <CardContent className="p-5">
+                        <div className="mb-1 text-sm font-semibold text-foreground">Appearance</div>
+                        <div className="mb-3.5 max-w-[520px] text-xs leading-relaxed text-muted-foreground">Device-only preference — doesn't affect anyone else on this workspace, and switching back is instant.</div>
+                        <div className="grid grid-cols-4 gap-2.5">
+                          {[
+                            {key:"classic",label:"Classic",desc:"Current look — DM Sans, compact corners",swatch:THEME_CLASSIC},
+                            {key:"aida",label:"Aida",desc:"New theme — Poppins, rounder, soft mint accent",swatch:THEME_AIDA},
+                            {key:"midnight",label:"Midnight",desc:"Dark mode — same shapes as Classic, inverted",swatch:THEME_MIDNIGHT},
+                            {key:"notion",label:"Notion",desc:"Light, flat, borders not shadows — Inter, blue accent",swatch:THEME_NOTION},
+                          ].map(opt=>{
+                            const active=themeName===opt.key;
+                            return(
+                              <div key={opt.key} onClick={()=>setThemeName(opt.key)} role="button" tabIndex={0}
+                                onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setThemeName(opt.key);}}}
+                                className={cn("cursor-pointer rounded-sm border-2 p-3 transition-colors",active?"border-foreground":"border-border")}
+                                style={{background:opt.swatch.surface}}>
+                                <div className="mb-2.5 flex items-center justify-between">
+                                  <div className="flex gap-1">
+                                    <div className="h-4 w-4 rounded-full border" style={{background:opt.swatch.bg,borderColor:opt.swatch.border}}/>
+                                    <div className="h-4 w-4 rounded-full" style={{background:opt.swatch.accent}}/>
+                                    <div className="h-4 w-4 rounded-full" style={{background:opt.swatch.accentSoft}}/>
+                                  </div>
+                                  {active&&<Check weight="bold" className="h-3.5 w-3.5 text-foreground"/>}
                                 </div>
-                              ):(
-                                <Pill color={T.text} bg={T.surfaceEl} border={T.border} style={{fontSize:11*(T.fsScale||1)}}>{m.role==="owner"?"Owner":m.role==="admin"?"Admin":"Member"}</Pill>
-                              )}
-                              {canManageTeam&&!isMe&&(
-                                <button onClick={()=>removeTeamMember(m.userId,m.email||"this person")} title="Remove"
-                                  style={{width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),padding:0}}
-                                  onMouseEnter={e=>{e.currentTarget.style.color=T.danger;}}
-                                  onMouseLeave={e=>{e.currentTarget.style.color=T.textMuted;}}>✕</button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {canManageTeam&&teamInvites.length>0&&(
-                    <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
-                      <div style={{fontSize:11*(T.fsScale||1),fontWeight:700,color:T.textMuted,letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Pending invites</div>
-                      {teamInvites.map((inv,i)=>(
-                        <div key={inv.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"7px 4px",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                          <div style={{fontSize:12*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>{inv.email} <span style={{color:T.textMuted}}>· {inv.role==="owner"?"Owner":inv.role==="admin"?"Admin":"Member"}</span></div>
-                          <span onClick={()=>revokeTeamInvite(inv.email)} style={{fontSize:11*(T.fsScale||1),color:T.textMuted,cursor:"pointer"}}>Revoke</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Connections</div>
-                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:560,marginBottom:14}}>
-                    Connecting and managing ad accounts (LinkedIn, Microsoft Advertising, Funnel.io, Supermetrics, Capterra) now lives in Data Sources — sync schedules, reconnects, and disconnects included.
-                  </div>
-                  <Btn onClick={()=>{setStep("upload");setView("data");}} variant="primary" size="sm" T={T}>Go to Data Sources →</Btn>
-                </div>
-                {canEdit&&<div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,marginBottom:4}}>
-                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,fontFamily:T.font}}>File Store</div>
-                    <Btn onClick={()=>manualFileRef.current?.click()} variant="subtle" size="sm" T={T}>
-                      <Icon name="plus" size={12} color={T.text}/> Add file
-                    </Btn>
-                    <input ref={manualFileRef} type="file" style={{display:"none"}} onChange={e=>{addManualFile(e.target.files[0]);e.target.value="";}}/>
-                  </div>
-                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Every spend, tag, budget, or pipeline file you import is automatically saved here — you're always asked to name it first, so it's easy to find again later. Click "Apply" on any of them to reload it and reopen its import screen, pre-filled with how it was mapped last time (handy after a "Clear"/"Delete" above, or just to redo an import). Add anything else you want to keep on hand — PDFs, insertion orders, whatever — with "Add file"; those are just stored for reference.</div>
-                  {fileStoreLoading?(
-                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font,padding:"12px 0"}}>Loading…</div>
-                  ):visibleFileStoreList.length===0?(
-                    <div style={{textAlign:"center",padding:"12px 0"}}>
-                      <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>No files saved yet.</div>
-                    </div>
-                  ):(
-                    <div style={{maxHeight:320,overflow:"auto"}}>
-                      {visibleFileStoreList.map((f,i)=>(
-                        <div key={f.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"9px 0",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
-                            <Icon name="file" size={14} color={T.textMuted}/>
-                            <div style={{minWidth:0,flex:1}}>
-                              {renamingFileId===f.id?(
-                                <input autoFocus value={renamingFileName} onChange={e=>setRenamingFileName(e.target.value)}
-                                  onKeyDown={e=>{if(e.key==="Enter")commitFileRename(f.id,renamingFileName);if(e.key==="Escape")setRenamingFileId(null);}}
-                                  onBlur={()=>commitFileRename(f.id,renamingFileName)}
-                                  style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,width:"100%",maxWidth:340,boxSizing:"border-box",padding:"2px 6px",borderRadius:T.r5,border:`1px solid ${T.accentBorder}`,background:T.inputBg,outline:"none"}}/>
-                              ):(
-                                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                                  <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:340}}>{f.name}</div>
-                                  {canEdit&&(
-                                    <button onClick={()=>{setRenamingFileId(f.id);setRenamingFileName(f.name);}} title="Rename"
-                                      style={{width:20,height:20,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",cursor:"pointer",padding:0,opacity:0.5}}
-                                      onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.5}>
-                                      <Icon name="pencil" size={11} color={T.textMuted}/>
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                              <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>
-                                <Pill color={T.textSub} bg={T.surfaceEl} border={T.border} style={{marginRight:6,fontSize:10*(T.fsScale||1)}}>{f.category}</Pill>
-                                {fmtFileSize(f.size)} · {new Date(f.createdAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
+                                <div className="mb-0.5 text-xs font-semibold" style={{color:opt.swatch.text,fontFamily:opt.swatch.font}}>{opt.label}</div>
+                                <div className="text-[10px]" style={{color:opt.swatch.textMuted,fontFamily:opt.swatch.font}}>{opt.desc}</div>
                               </div>
-                            </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardContent className="p-5">
+                        <div className="mb-1 text-sm font-semibold text-foreground">Number formatting</div>
+                        <div className="mb-3.5 max-w-[520px] text-xs leading-relaxed text-muted-foreground">Workspace-shared — everyone sees the same decimal precision on spend, budgets, pacing %, and other reported values. Works like Excel's increase/decrease decimal buttons: raises or lowers precision beyond each value type's normal default.</div>
+                        <div className="mb-3.5 flex items-center gap-2.5">
+                          <Button onClick={()=>setDecimalAdjust(d=>Math.max(0,d-1))} variant="ghost" size="sm" disabled={decimalAdjust<=0||!canEdit}>.0◂</Button>
+                          <div className="min-w-[110px] text-center text-sm text-foreground">{decimalAdjust===0?"Default precision":`+${decimalAdjust} decimal${decimalAdjust===1?"":"s"}`}</div>
+                          <Button onClick={()=>setDecimalAdjust(d=>Math.min(6,d+1))} variant="ghost" size="sm" disabled={decimalAdjust>=6||!canEdit}>▸.00</Button>
+                        </div>
+                        <div className="flex gap-5 rounded-sm bg-secondary px-3.5 py-3">
+                          <div>
+                            <div className="mb-0.5 text-[10px] text-muted-foreground">Dollar</div>
+                            <div className="text-sm font-semibold text-foreground">{fmt$(48213.7)}</div>
                           </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                            {canEdit&&APPLY_CATEGORIES.has(f.category)&&(
-                              <Btn onClick={()=>applyStoredFile(f)} disabled={applyingFileId===f.id} variant="subtle" size="sm" T={T}
-                                title="Reload this file and reopen its import review screen, pre-filled with how it was mapped last time">
-                                {applyingFileId===f.id?"Applying…":"Apply"}
-                              </Btn>
-                            )}
-                            <button onClick={()=>downloadFileFromStore(f)} title="Download" style={{width:26,height:26,borderRadius:T.r6,background:"transparent",border:`1px solid ${T.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                              <Icon name="download" size={12} color={T.textSub}/>
-                            </button>
-                            {copyTargetWorkspaces.length>0&&(
-                              <div style={{position:"relative"}}>
-                                <button onClick={(e)=>{
-                                    if(copyMenuOpenId===f.id){setCopyMenuOpenId(null);return;}
-                                    setCopyMenuAnchorRect(e.currentTarget.getBoundingClientRect());
-                                    setCopyMenuOpenId(f.id);
-                                  }} title="Copy to another workspace" disabled={copyingFileId===f.id}
-                                  style={{width:26,height:26,borderRadius:T.r6,background:copyMenuOpenId===f.id?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,cursor:copyingFileId===f.id?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:copyingFileId===f.id?0.5:1}}>
-                                  <Icon name="send" size={12} color={T.textSub}/>
-                                </button>
-                                {copyMenuOpenId===f.id&&copyMenuAnchorRect&&createPortal(
-                                  <>
-                                    <div onClick={()=>setCopyMenuOpenId(null)} style={{position:"fixed",inset:0,zIndex:999}}/>
-                                    <div style={{position:"fixed",top:copyMenuAnchorRect.bottom+6,left:Math.max(8,copyMenuAnchorRect.right-200),zIndex:1000,minWidth:200,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                                      <div style={{padding:"5px 10px 6px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Copy to workspace</div>
-                                      {copyTargetWorkspaces.map(w=>(
-                                        <button key={w.id} className="bhq-row" onClick={()=>copyFileToOtherWorkspace(f.id,w.id,w.name)}
-                                          style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,textAlign:"left",overflow:"hidden"}}>
-                                          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name}</span>
-                                        </button>
-                                      ))}
+                          <div>
+                            <div className="mb-0.5 text-[10px] text-muted-foreground">Number</div>
+                            <div className="text-sm font-semibold text-foreground">{(1284).toLocaleString(undefined,{minimumFractionDigits:decimalAdjust,maximumFractionDigits:decimalAdjust})}</div>
+                          </div>
+                          <div>
+                            <div className="mb-0.5 text-[10px] text-muted-foreground">Percent</div>
+                            <div className="text-sm font-semibold text-foreground">{(87.436).toLocaleString(undefined,{minimumFractionDigits:1+decimalAdjust,maximumFractionDigits:1+decimalAdjust})}%</div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </section>
+
+                  {/* Custom Metrics */}
+                  <section id="settings-metrics">
+                    <Card>
+                      <CardContent className="p-5">
+                        <div className="mb-1 flex items-center justify-between gap-3.5">
+                          <div className="text-sm font-semibold text-foreground">Custom metrics</div>
+                          <Button onClick={openAddCustomMetric} variant="ghost" size="sm" disabled={!canEdit}>
+                            <Plus className="h-3.5 w-3.5"/> Add custom metric
+                          </Button>
+                        </div>
+                        <div className={cn("max-w-[520px] text-xs leading-relaxed text-muted-foreground",customMetrics.length&&"mb-3.5")}>Workspace-shared formulas — e.g. cost/demo, pipeline $ generated/spend, MQL → SQL rate — built from Performance Intelligence's canonical funnel fields (Spend, Leads, Demos, MQLs, SQLs, Pipeline Value, ...). Show up as toggleable columns in Performance Intelligence's metric picker.</div>
+                        {customMetrics.length>0&&(
+                          <div className="flex flex-col gap-2">
+                            {customMetrics.map(cm=>(
+                              <div key={cm.key} className="flex items-center justify-between gap-3 rounded-sm border border-border bg-secondary/40 px-3 py-2.5">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium text-foreground">{cm.label}</div>
+                                  <div className="mt-0.5 text-xs text-muted-foreground">{formulaPreview(cm)} · {cm.format==="money"?"$":cm.format==="pct"?"%":"number"}</div>
+                                </div>
+                                <div className="flex shrink-0 gap-1.5">
+                                  <Button onClick={()=>openEditCustomMetric(cm)} variant="ghost" size="sm" disabled={!canEdit}>Edit</Button>
+                                  <button onClick={()=>deleteCustomMetric(cm.key)} disabled={!canEdit} title="Delete this custom metric"
+                                    className="flex h-7 w-7 items-center justify-center rounded-sm border border-border text-destructive disabled:opacity-50">
+                                    <X className="h-3.5 w-3.5"/>
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </section>
+
+                  {/* Connections */}
+                  <section id="settings-connections">
+                    <Card>
+                      <CardContent className="p-5">
+                        <div className="mb-1 text-sm font-semibold text-foreground">Connections</div>
+                        <div className="mb-3.5 max-w-[560px] text-xs leading-relaxed text-muted-foreground">
+                          Connecting and managing ad accounts (LinkedIn, Microsoft Advertising, Funnel.io, Supermetrics, Capterra) now lives in Data Sources — sync schedules, reconnects, and disconnects included.
+                        </div>
+                        <Button onClick={()=>{setStep("upload");setView("data");}} size="sm">Go to Data Sources →</Button>
+                      </CardContent>
+                    </Card>
+                  </section>
+
+                  {/* File Store */}
+                  {canEdit&&(
+                    <section id="settings-files">
+                      <Card>
+                        <CardContent className="p-5">
+                          <div className="mb-1 flex items-center justify-between gap-3.5">
+                            <div className="text-sm font-semibold text-foreground">File Store</div>
+                            <Button onClick={()=>manualFileRef.current?.click()} variant="secondary" size="sm">
+                              <Plus className="h-3.5 w-3.5"/> Add file
+                            </Button>
+                            <input ref={manualFileRef} type="file" className="hidden" onChange={e=>{addManualFile(e.target.files[0]);e.target.value="";}}/>
+                          </div>
+                          <div className="mb-3.5 max-w-[520px] text-xs leading-relaxed text-muted-foreground">Every spend, tag, budget, or pipeline file you import is automatically saved here — you're always asked to name it first, so it's easy to find again later. Click "Apply" on any of them to reload it and reopen its import screen, pre-filled with how it was mapped last time (handy after a "Clear"/"Delete" above, or just to redo an import). Add anything else you want to keep on hand — PDFs, insertion orders, whatever — with "Add file"; those are just stored for reference.</div>
+                          {fileStoreLoading?(
+                            <div className="py-3 text-xs text-muted-foreground">Loading…</div>
+                          ):visibleFileStoreList.length===0?(
+                            <div className="py-3 text-center text-xs text-muted-foreground">No files saved yet.</div>
+                          ):(
+                            <div className="max-h-[320px] overflow-auto">
+                              {visibleFileStoreList.map((f,i)=>(
+                                <div key={f.id} className={cn("flex items-center justify-between gap-3.5 py-2.5",i>0&&"border-t border-border")}>
+                                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                    <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground"/>
+                                    <div className="min-w-0 flex-1">
+                                      {renamingFileId===f.id?(
+                                        <input autoFocus value={renamingFileName} onChange={e=>setRenamingFileName(e.target.value)}
+                                          onKeyDown={e=>{if(e.key==="Enter")commitFileRename(f.id,renamingFileName);if(e.key==="Escape")setRenamingFileId(null);}}
+                                          onBlur={()=>commitFileRename(f.id,renamingFileName)}
+                                          className="w-full max-w-[340px] rounded-sm border border-ring bg-background px-1.5 py-0.5 text-sm font-medium text-foreground outline-none"/>
+                                      ):(
+                                        <div className="flex items-center gap-1.5">
+                                          <div className="max-w-[340px] truncate text-sm font-medium text-foreground">{f.name}</div>
+                                          {canEdit&&(
+                                            <button onClick={()=>{setRenamingFileId(f.id);setRenamingFileName(f.name);}} title="Rename"
+                                              className="flex h-5 w-5 shrink-0 items-center justify-center opacity-50 hover:opacity-100">
+                                              <PencilSimple className="h-3 w-3 text-muted-foreground"/>
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                      <div className="text-xs text-muted-foreground">
+                                        <Badge variant="secondary" className="mr-1.5">{f.category}</Badge>
+                                        {fmtFileSize(f.size)} · {new Date(f.createdAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
+                                      </div>
                                     </div>
-                                  </>,
-                                  document.body
-                                )}
-                              </div>
-                            )}
-                            <button onClick={()=>deleteFileFromStore(f.id,f.name)} title="Delete" disabled={deletingFileId===f.id}
-                              style={{width:26,height:26,borderRadius:T.r6,background:"transparent",border:`1px solid ${T.border}`,cursor:deletingFileId===f.id?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:deletingFileId===f.id?0.5:1}}>
-                              <Icon name="trash" size={12} color={T.danger}/>
-                            </button>
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-1.5">
+                                    {canEdit&&APPLY_CATEGORIES.has(f.category)&&(
+                                      <Button onClick={()=>applyStoredFile(f)} disabled={applyingFileId===f.id} variant="secondary" size="sm"
+                                        title="Reload this file and reopen its import review screen, pre-filled with how it was mapped last time">
+                                        {applyingFileId===f.id?"Applying…":"Apply"}
+                                      </Button>
+                                    )}
+                                    <button onClick={()=>downloadFileFromStore(f)} title="Download" className="flex h-[26px] w-[26px] items-center justify-center rounded-sm border border-border">
+                                      <DownloadSimple className="h-3.5 w-3.5 text-muted-foreground"/>
+                                    </button>
+                                    {copyTargetWorkspaces.length>0&&(
+                                      <div className="relative">
+                                        <button onClick={(e)=>{
+                                            if(copyMenuOpenId===f.id){setCopyMenuOpenId(null);return;}
+                                            setCopyMenuAnchorRect(e.currentTarget.getBoundingClientRect());
+                                            setCopyMenuOpenId(f.id);
+                                          }} title="Copy to another workspace" disabled={copyingFileId===f.id}
+                                          className={cn("flex h-[26px] w-[26px] items-center justify-center rounded-sm border border-border",copyMenuOpenId===f.id&&"bg-secondary",copyingFileId===f.id&&"opacity-50")}>
+                                          <PaperPlaneTilt className="h-3.5 w-3.5 text-muted-foreground"/>
+                                        </button>
+                                        {copyMenuOpenId===f.id&&copyMenuAnchorRect&&createPortal(
+                                          <>
+                                            <div onClick={()=>setCopyMenuOpenId(null)} className="fixed inset-0 z-[999]"/>
+                                            <div className="fixed z-[1000] flex min-w-[200px] flex-col rounded-sm border border-border bg-background p-1.5 shadow-card"
+                                              style={{top:copyMenuAnchorRect.bottom+6,left:Math.max(8,copyMenuAnchorRect.right-200)}}>
+                                              <div className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Copy to workspace</div>
+                                              {copyTargetWorkspaces.map(w=>(
+                                                <button key={w.id} onClick={()=>copyFileToOtherWorkspace(f.id,w.id,w.name)}
+                                                  className="truncate rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary">
+                                                  {w.name}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          </>,
+                                          document.body
+                                        )}
+                                      </div>
+                                    )}
+                                    <button onClick={()=>deleteFileFromStore(f.id,f.name)} title="Delete" disabled={deletingFileId===f.id}
+                                      className={cn("flex h-[26px] w-[26px] items-center justify-center rounded-sm border border-border",deletingFileId===f.id&&"opacity-50")}>
+                                      <Trash className="h-3.5 w-3.5 text-destructive"/>
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </section>
+                  )}
+
+                  {/* Workspace & Team */}
+                  <section id="settings-workspace" className="flex flex-col gap-4">
+                    {canManageTeam&&(
+                      <Card>
+                        <CardContent className="p-5">
+                          <div className="mb-1 text-sm font-semibold text-foreground">Workspace</div>
+                          <div className="mb-3.5 max-w-[520px] text-xs leading-relaxed text-muted-foreground">Rename this workspace, or permanently delete it below.</div>
+                          <div className={cn("flex gap-1.5",workspaceNameError&&"mb-1.5")}>
+                            <input value={workspaceNameInput} onChange={e=>{setWorkspaceNameInput(e.target.value);setWorkspaceNameError("");}}
+                              onKeyDown={e=>e.key==="Enter"&&saveWorkspaceName()}
+                              className="h-10 flex-1 rounded-sm border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"/>
+                            <Button onClick={saveWorkspaceName} size="sm" disabled={workspaceNameSaving||!workspaceNameInput.trim()||workspaceNameInput.trim()===workspace?.name}>{workspaceNameSaving?"Saving…":"Save"}</Button>
                           </div>
+                          {workspaceNameError&&<div className="text-xs text-destructive">{workspaceNameError}</div>}
+                          {isOwner&&(
+                            <div className="mt-4 flex items-center justify-between gap-5 border-t border-border pt-4">
+                              <div>
+                                <div className="text-sm font-medium text-foreground">Delete this workspace</div>
+                                <div className="mt-0.5 text-xs text-muted-foreground">Permanently removes all spend data, tags, budgets, files, version history, and AI chats. There's no undo.</div>
+                              </div>
+                              <Button onClick={()=>{setDeleteWorkspaceOpen(true);setDeleteWorkspaceConfirmText("");setDeleteWorkspaceError("");}} variant="destructive" size="sm" className="shrink-0">Delete workspace</Button>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    <Card>
+                      <CardContent className="p-5">
+                        <div className="mb-1 flex items-center justify-between gap-3.5">
+                          <div className="text-sm font-semibold text-foreground">Team</div>
+                          <Badge variant="secondary">Your access: {myRole==="owner"?"Owner":myRole==="admin"?"Admin":"Member (view only)"}</Badge>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>}
-                {canEdit&&rowSection({
-                  title:"Clear Tagger data",
-                  desc:"Removes every imported spend row, campaign tag, and custom tag dimension. Budget allocations are kept.",
-                  stat:`${mergedNormRows.length.toLocaleString()} spend rows · ${Object.keys(tags).length.toLocaleString()} tagged campaigns`,
-                  action:clearTaggerData,label:"Clear Tagger data",disabled:!mergedNormRows.length&&!Object.keys(tags).length,
-                })}
-                <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                  <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Combine Google channels</div>
-                  <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:560,marginBottom:12}}>
-                    {/* 2026-07-31, per Mo: "they need to have the flexibility to combine or separate
-                        whatever they want, not just a toggle on or off" — replaced the old single
-                        Separate/Combined switch (all 3 sub-channels or none) with a per-channel
-                        checkbox, so e.g. "combine everything except YouTube" or "just keep Search
-                        separate" are both one click away instead of impossible. */}
-                    Check any Google sub-channels that should report as a single "Google" line instead of their own separate line — any combination works, from all of them down to just one. Applies everywhere Platform is used for grouping or breakdowns: Campaign Tagger, Budget Panel, Reporting &amp; Pacing, and Ask AI. Forecasting stays accurate per sub-channel behind the scenes either way — only budgeting/reporting grouping is affected.
-                  </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:1}}>
-                    {GOOGLE_SUBCHANNELS.map(channel=>(
-                      <label key={channel} style={{display:"flex",alignItems:"center",gap:9,padding:"6px 4px",cursor:canEdit?"pointer":"default",opacity:canEdit?1:0.5,fontSize:13*(T.fsScale||1),color:T.text,fontFamily:T.font}} title={canEdit?undefined:"View-only access"}>
-                        <input type="checkbox" checked={!!combineGoogleChannels[channel]} disabled={!canEdit}
-                          onChange={e=>handleToggleGoogleChannel(channel,e.target.checked)}
-                          style={{width:14,height:14,cursor:canEdit?"pointer":"default",accentColor:T.accent,flexShrink:0}}/>
-                        {channel}
-                      </label>
-                    ))}
-                  </div>
-                  {GOOGLE_SUBCHANNELS.some(c=>combineGoogleChannels[c])&&budgetDims.includes("Platform")&&(
-                    <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginTop:10,fontFamily:T.font}}>Existing budget rows for a checked channel are merged into "Google" the moment it's checked — unchecking it later doesn't split them back apart.</div>
-                  )}
-                </div>
-                {canEdit&&platformBreakdown.length>0&&(
-                  <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Clear Tagger data by channel</div>
-                    <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:480,marginBottom:14}}>Remove just one platform's spend rows — handy if you imported the wrong file and need to isolate and undo it. Tags are kept; a campaign only disappears once none of its rows are left.</div>
-                    <div>
-                      {platformBreakdown.map((p,i)=>(
-                        <div key={p.platform} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,padding:"10px 0",borderTop:i>0?`1px solid ${T.border}`:"none"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-                            <span style={{width:8,height:8,borderRadius:"50%",background:PLATFORM_COLORS[p.platform]||T.textMuted,flexShrink:0}}/>
-                            <div style={{minWidth:0}}>
-                              <div style={{fontSize:13*(T.fsScale||1),fontWeight:600,color:T.text,fontFamily:T.font}}>{p.platform}</div>
-                              <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>{p.rows.toLocaleString()} row{p.rows===1?"":"s"} · {p.campaigns.toLocaleString()} campaign{p.campaigns===1?"":"s"} · {fmt$(p.spend)} · last import {fmtLastImport(p.lastDate)}</div>
+                        <div className="mb-3.5 max-w-[520px] text-xs leading-relaxed text-muted-foreground">
+                          {canManageTeam?"Invite people to this workspace and control what they can do. Members can view every tab but can't edit tags, budgets, or spend data — Admins and Owners have full edit access.":"Owners and admins manage who has access here and what they can do."}
+                        </div>
+                        {canManageTeam&&(
+                          <div className="mb-4">
+                            <div className="flex gap-1.5">
+                              <input value={inviteEmail} onChange={e=>{setInviteEmail(e.target.value);setInviteError("");}}
+                                onKeyDown={e=>e.key==="Enter"&&!inviteSending&&inviteEmail.trim()&&sendInvite()}
+                                placeholder="Email address" type="email"
+                                className="h-10 flex-1 rounded-sm border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"/>
+                              <Select value={inviteRole} onValueChange={setInviteRole}>
+                                <SelectTrigger className="w-[130px]"><SelectValue/></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="member">Member</SelectItem>
+                                  <SelectItem value="admin">Admin</SelectItem>
+                                  <SelectItem value="owner">Owner</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Button onClick={sendInvite} size="sm" disabled={inviteSending||!inviteEmail.trim()}>{inviteSending?"Sending…":"Invite"}</Button>
+                            </div>
+                            {inviteError&&<div className="mt-1.5 text-xs text-destructive">{inviteError}</div>}
+                          </div>
+                        )}
+                        {teamMembersLoading?(
+                          <div className="py-2 text-xs text-muted-foreground">Loading…</div>
+                        ):(
+                          <div>
+                            {teamMembers.map((m,i)=>{
+                              const isMe=m.userId===sessionUserId;
+                              return(
+                                <div key={m.userId} className={cn("flex items-center justify-between gap-3.5 py-2",i>0&&"border-t border-border")}>
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <div className="max-w-[280px] truncate text-sm font-medium text-foreground">{m.email||m.userId}</div>
+                                    {isMe&&<span className="text-xs text-muted-foreground">(you)</span>}
+                                    {!m.acceptedAt&&<Badge variant="secondary">pending</Badge>}
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-2">
+                                    {canManageTeam&&!isMe?(
+                                      <Select value={m.role} onValueChange={r=>changeTeamRole(m.userId,r)}>
+                                        <SelectTrigger className="h-8 w-[110px] text-xs"><SelectValue/></SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="member">Member</SelectItem>
+                                          <SelectItem value="admin">Admin</SelectItem>
+                                          <SelectItem value="owner">Owner</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    ):(
+                                      <Badge variant="secondary">{m.role==="owner"?"Owner":m.role==="admin"?"Admin":"Member"}</Badge>
+                                    )}
+                                    {canManageTeam&&!isMe&&(
+                                      <button onClick={()=>removeTeamMember(m.userId,m.email||"this person")} title="Remove"
+                                        className="flex h-[22px] w-[22px] items-center justify-center rounded-sm text-muted-foreground hover:text-destructive">
+                                        <X className="h-3 w-3"/>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {canManageTeam&&teamInvites.length>0&&(
+                          <div className="mt-3.5 border-t border-border pt-3.5">
+                            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Pending invites</div>
+                            {teamInvites.map((inv,i)=>(
+                              <div key={inv.id} className={cn("flex items-center justify-between gap-3.5 py-1.5",i>0&&"border-t border-border")}>
+                                <div className="text-xs text-muted-foreground">{inv.email} <span>· {inv.role==="owner"?"Owner":inv.role==="admin"?"Admin":"Member"}</span></div>
+                                <button onClick={()=>revokeTeamInvite(inv.email)} className="text-xs text-muted-foreground hover:text-foreground">Revoke</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </section>
+
+                  {/* Data Management */}
+                  <section id="settings-data" className="flex flex-col gap-4">
+                    {canEdit&&(
+                      <SettingsRow title="Clear Tagger data"
+                        desc="Removes every imported spend row, campaign tag, and custom tag dimension. Budget allocations are kept."
+                        stat={`${mergedNormRows.length.toLocaleString()} spend rows · ${Object.keys(tags).length.toLocaleString()} tagged campaigns`}
+                        action={clearTaggerData} label="Clear Tagger data" disabled={!mergedNormRows.length&&!Object.keys(tags).length}/>
+                    )}
+
+                    <Card>
+                      <CardContent className="p-5">
+                        <div className="mb-1 text-sm font-semibold text-foreground">Combine Google channels</div>
+                        <div className="mb-3 max-w-[560px] text-xs leading-relaxed text-muted-foreground">
+                          {/* 2026-07-31, per Mo: "they need to have the flexibility to combine or
+                              separate whatever they want, not just a toggle on or off" — replaced the
+                              old single Separate/Combined switch (all 3 sub-channels or none) with a
+                              per-channel checkbox, so e.g. "combine everything except YouTube" or
+                              "just keep Search separate" are both one click away instead of impossible. */}
+                          Check any Google sub-channels that should report as a single "Google" line instead of their own separate line — any combination works, from all of them down to just one. Applies everywhere Platform is used for grouping or breakdowns: Campaign Tagger, Budget Panel, Reporting &amp; Pacing, and Ask AI. Forecasting stays accurate per sub-channel behind the scenes either way — only budgeting/reporting grouping is affected.
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          {GOOGLE_SUBCHANNELS.map(channel=>(
+                            <label key={channel} title={canEdit?undefined:"View-only access"}
+                              className={cn("flex items-center gap-2.5 py-1.5 text-sm text-foreground",canEdit?"cursor-pointer":"cursor-default opacity-50")}>
+                              <Checkbox checked={!!combineGoogleChannels[channel]} disabled={!canEdit}
+                                onCheckedChange={v=>handleToggleGoogleChannel(channel,!!v)}/>
+                              {channel}
+                            </label>
+                          ))}
+                        </div>
+                        {GOOGLE_SUBCHANNELS.some(c=>combineGoogleChannels[c])&&budgetDims.includes("Platform")&&(
+                          <div className="mt-2.5 text-xs text-muted-foreground">Existing budget rows for a checked channel are merged into "Google" the moment it's checked — unchecking it later doesn't split them back apart.</div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {canEdit&&platformBreakdown.length>0&&(
+                      <Card>
+                        <CardContent className="p-5">
+                          <div className="mb-1 text-sm font-semibold text-foreground">Clear Tagger data by channel</div>
+                          <div className="mb-3.5 max-w-[480px] text-xs leading-relaxed text-muted-foreground">Remove just one platform's spend rows — handy if you imported the wrong file and need to isolate and undo it. Tags are kept; a campaign only disappears once none of its rows are left.</div>
+                          <div>
+                            {platformBreakdown.map((p,i)=>(
+                              <div key={p.platform} className={cn("flex items-center justify-between gap-3.5 py-2.5",i>0&&"border-t border-border")}>
+                                <div className="flex min-w-0 items-center gap-2.5">
+                                  <span className="h-2 w-2 shrink-0 rounded-full" style={{background:PLATFORM_COLORS[p.platform]||"hsl(var(--muted-foreground))"}}/>
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-medium text-foreground">{p.platform}</div>
+                                    <div className="text-xs text-muted-foreground">{p.rows.toLocaleString()} row{p.rows===1?"":"s"} · {p.campaigns.toLocaleString()} campaign{p.campaigns===1?"":"s"} · {fmt$(p.spend)} · last import {fmtLastImport(p.lastDate)}</div>
+                                  </div>
+                                </div>
+                                <Button onClick={()=>clearPlatformData(p.platform,p.rows)} variant="destructive" size="sm" className="shrink-0">Clear</Button>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {canEdit&&mergedNormRows.length>0&&(
+                      <Card>
+                        <CardContent className="p-5">
+                          <div className="mb-1 text-sm font-semibold text-foreground">Clear Tagger data by date range</div>
+                          <div className="mb-3.5 max-w-[520px] text-xs leading-relaxed text-muted-foreground">Remove spend rows within a specific date range, optionally scoped to one platform — e.g. redo or purge just one month without touching the rest. Tags are kept; a campaign only disappears once none of its rows are left.</div>
+                          <div className="mb-3.5 flex flex-wrap items-end gap-2.5">
+                            <div>
+                              <div className="mb-1 text-xs font-medium text-muted-foreground">Platform</div>
+                              <Select value={clearRangePlatform} onValueChange={setClearRangePlatform}>
+                                <SelectTrigger className="w-[180px]"><SelectValue/></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="all">All platforms</SelectItem>
+                                  {platformBreakdown.map(p=><SelectItem key={p.platform} value={p.platform}>{p.platform}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <div className="mb-1 text-xs font-medium text-muted-foreground">From</div>
+                              <input type="date" value={clearRangeStart} onChange={e=>setClearRangeStart(e.target.value)}
+                                className="h-10 rounded-sm border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"/>
+                            </div>
+                            <div>
+                              <div className="mb-1 text-xs font-medium text-muted-foreground">Through</div>
+                              <input type="date" value={clearRangeEnd} onChange={e=>setClearRangeEnd(e.target.value)}
+                                className="h-10 rounded-sm border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"/>
                             </div>
                           </div>
-                          <Btn onClick={()=>clearPlatformData(p.platform,p.rows)} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Clear</Btn>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {canEdit&&mergedNormRows.length>0&&(
-                  <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Clear Tagger data by date range</div>
-                    <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:520,marginBottom:14}}>Remove spend rows within a specific date range, optionally scoped to one platform — e.g. redo or purge just one month without touching the rest. Tags are kept; a campaign only disappears once none of its rows are left.</div>
-                    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
-                      <div>
-                        <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>Platform</div>
-                        <Sel value={clearRangePlatform} onChange={setClearRangePlatform} T={T} style={{width:180}}>
-                          <option value="all">All platforms</option>
-                          {platformBreakdown.map(p=><option key={p.platform} value={p.platform}>{p.platform}</option>)}
-                        </Sel>
-                      </div>
-                      <div>
-                        <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>From</div>
-                        <input type="date" value={clearRangeStart} onChange={e=>setClearRangeStart(e.target.value)}
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
-                      </div>
-                      <div>
-                        <div style={{fontSize:11*(T.fsScale||1),fontWeight:600,color:T.textMuted,marginBottom:4,fontFamily:T.font}}>Through</div>
-                        <input type="date" value={clearRangeEnd} onChange={e=>setClearRangeEnd(e.target.value)}
-                          style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 10px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
-                      </div>
-                    </div>
-                    {(()=>{
-                      const matches=mergedNormRows.filter(clearRangeMatch);
-                      const campaignCount=new Set(matches.map(r=>campaignKey(r.campaign_group_name,r.campaign_name))).size;
-                      const spend=matches.reduce((s,r)=>s+r.spend,0);
-                      const hasRange=clearRangeStart||clearRangeEnd;
-                      return(
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
-                          <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>
-                            {hasRange?`${matches.length.toLocaleString()} row${matches.length===1?"":"s"} · ${campaignCount.toLocaleString()} campaign${campaignCount===1?"":"s"} · ${fmt$(spend)} match this range`:"Pick a start and/or end date to see what matches"}
+                          {(()=>{
+                            const matches=mergedNormRows.filter(clearRangeMatch);
+                            const campaignCount=new Set(matches.map(r=>campaignKey(r.campaign_group_name,r.campaign_name))).size;
+                            const spend=matches.reduce((s,r)=>s+r.spend,0);
+                            const hasRange=clearRangeStart||clearRangeEnd;
+                            return(
+                              <div className="flex flex-wrap items-center justify-between gap-3.5">
+                                <div className="text-xs text-muted-foreground">
+                                  {hasRange?`${matches.length.toLocaleString()} row${matches.length===1?"":"s"} · ${campaignCount.toLocaleString()} campaign${campaignCount===1?"":"s"} · ${fmt$(spend)} match this range`:"Pick a start and/or end date to see what matches"}
+                                </div>
+                                <Button onClick={clearDateRangeData} variant="destructive" size="sm" disabled={!hasRange||!matches.length} className="shrink-0">Clear range</Button>
+                              </div>
+                            );
+                          })()}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {canEdit&&pipelineRowsLoading&&pipelineRows===null&&(
+                      <Card><CardContent className="p-5 text-xs text-muted-foreground">Loading pipeline data…</CardContent></Card>
+                    )}
+                    {canEdit&&pipelineRows&&pipelineRows.length>0&&(
+                      <Card>
+                        <CardContent className="p-5">
+                          <div className="mb-1 text-sm font-semibold text-foreground">Clear Pipeline data</div>
+                          <div className="mb-3.5 max-w-[560px] text-xs leading-relaxed text-muted-foreground">
+                            Permanently removes reporting/pipeline rows (MQLs, SQLs, Pipeline Value, and the rest of the funnel data behind Pipeline Tagger and Reporting Intelligence) from the database. Tagger spend data and Budget allocations are not affected.
                           </div>
-                          <Btn onClick={clearDateRangeData} variant="danger" size="sm" T={T} disabled={!hasRange||!matches.length} style={{flexShrink:0}}>Clear range</Btn>
+                          <div className="mb-3.5 flex flex-col gap-1.5">
+                            {[
+                              {key:"date",label:"By date range"},
+                              {key:"source",label:"By source"},
+                              {key:"tag",label:"By tag dimension (Product, Module, Brand, etc.)"},
+                              {key:"channel",label:"By channel/platform"},
+                              {key:"all",label:"Everything"},
+                            ].map(m=>(
+                              <label key={m.key} className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
+                                <input type="radio" name="pdMode" checked={pdMode===m.key} onChange={()=>setPdMode(m.key)}
+                                  className="cursor-pointer" style={{accentColor:"hsl(var(--primary))"}}/>
+                                {m.label}
+                              </label>
+                            ))}
+                          </div>
+                          {pdMode==="date"&&(
+                            <div className="mb-3.5 flex items-center gap-2">
+                              <input type="month" value={pdStart} onChange={e=>setPdStart(e.target.value)} className="h-9 rounded-sm border border-input bg-background px-2.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"/>
+                              <span className="text-muted-foreground">→</span>
+                              <input type="month" value={pdEnd} onChange={e=>setPdEnd(e.target.value)} className="h-9 rounded-sm border border-input bg-background px-2.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"/>
+                            </div>
+                          )}
+                          {pdMode==="source"&&(
+                            <div className="mb-3.5 max-w-[260px]">
+                              <Select value={pdSource} onValueChange={setPdSource}>
+                                <SelectTrigger><SelectValue placeholder="Select a source…"/></SelectTrigger>
+                                <SelectContent>
+                                  {pipelineDistinctSources.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                          {pdMode==="tag"&&(
+                            <div className="mb-3.5 flex max-w-[400px] gap-2">
+                              <Select value={pdTagDim} onValueChange={v=>{setPdTagDim(v);setPdTagValue("");}}>
+                                <SelectTrigger className="flex-1"><SelectValue placeholder="Dimension…"/></SelectTrigger>
+                                <SelectContent>
+                                  {(tagDims||[]).map(d=><SelectItem key={d} value={d}>{d}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <Select value={pdTagValue} onValueChange={setPdTagValue} disabled={!pdTagDim}>
+                                <SelectTrigger className="flex-1"><SelectValue placeholder="Value…"/></SelectTrigger>
+                                <SelectContent>
+                                  {pipelineDistinctTagValues.map(v=><SelectItem key={v} value={v}>{v}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                          {pdMode==="channel"&&(
+                            <div className="mb-3.5 max-w-[260px]">
+                              <Select value={pdChannel} onValueChange={setPdChannel}>
+                                <SelectTrigger><SelectValue placeholder="Select a channel…"/></SelectTrigger>
+                                <SelectContent>
+                                  {pipelineDistinctChannels.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                          {pdMode==="all"&&(
+                            <div className="mb-3.5 max-w-[320px]">
+                              <div className="mb-1.5 text-xs text-destructive">This deletes every pipeline row in this workspace. Type DELETE to confirm.</div>
+                              <input value={pdConfirmText} onChange={e=>setPdConfirmText(e.target.value)} placeholder="DELETE"
+                                className="w-full rounded-sm border border-input bg-background px-2.5 py-1.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"/>
+                            </div>
+                          )}
+                          <div className="flex flex-wrap items-center justify-between gap-3.5">
+                            <div className="text-xs text-muted-foreground">
+                              {pipelineDeletePreviewCount===null?"Select the criteria above.":`Matches ${pipelineDeletePreviewCount.toLocaleString()} row${pipelineDeletePreviewCount===1?"":"s"}.`}
+                            </div>
+                            <Button onClick={doPipelineDelete} disabled={!canDeletePipelineData||pdDeleting} variant="destructive" size="sm" className="shrink-0">{pdDeleting?"Deleting…":"Delete"}</Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    <SettingsRow title="Clear Budget data"
+                      desc="Removes every budget allocation, segment, and annotation dimension across all years. Tagged campaign data is kept."
+                      stat={`${budgetSegs.toLocaleString()} budget row${budgetSegs===1?"":"s"} across ${budgetYears} year${budgetYears===1?"":"s"}`}
+                      action={clearBudgetData} label="Clear Budget data" disabled={!budgetSegs}/>
+
+                    <div className="border-t border-border pt-4">
+                      <SettingsRow title="Delete all data"
+                        desc="Clears Tagger data AND Budget data at once — everything above, in one step. Theme and layout preferences are kept."
+                        stat="This is the only irreversible action on this page — there's no undo."
+                        action={clearAllData} label="Delete all data" disabled={!mergedNormRows.length&&!Object.keys(tags).length&&!budgetSegs}/>
+                    </div>
+                  </section>
+
+                  {/* Account */}
+                  <section id="settings-account" className="border-t border-border pt-4">
+                    <Card>
+                      <CardContent className="flex items-center justify-between gap-5 p-5">
+                        <div>
+                          <div className="mb-1 text-sm font-semibold text-foreground">Delete your PaidHQ account</div>
+                          <div className="max-w-[480px] text-xs leading-relaxed text-muted-foreground">Permanently deletes the login itself ({session?.user?.email}) — not just this workspace, every workspace you're in across all of PaidHQ. This is different from "Sign out," which only forgets this account in this browser.</div>
+                          <div className="mt-2 text-xs text-muted-foreground">Blocked if this account is the sole owner of any workspace — transfer ownership or delete those workspaces first.</div>
                         </div>
-                      );
-                    })()}
-                  </div>
-                )}
-                {canEdit&&pipelineRowsLoading&&pipelineRows===null&&(
-                  <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px",fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>Loading pipeline data…</div>
-                )}
-                {canEdit&&pipelineRows&&pipelineRows.length>0&&(
-                  <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px"}}>
-                    <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Clear Pipeline data</div>
-                    <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:560,marginBottom:14}}>
-                      Permanently removes reporting/pipeline rows (MQLs, SQLs, Pipeline Value, and the rest of the funnel data behind Pipeline Tagger and Reporting Intelligence) from the database. Tagger spend data and Budget allocations are not affected.
-                    </div>
-                    <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:14}}>
-                      {[
-                        {key:"date",label:"By date range"},
-                        {key:"source",label:"By source"},
-                        {key:"tag",label:"By tag dimension (Product, Module, Brand, etc.)"},
-                        {key:"channel",label:"By channel/platform"},
-                        {key:"all",label:"Everything"},
-                      ].map(m=>(
-                        <label key={m.key} style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5*(T.fsScale||1),color:T.text,cursor:"pointer"}}>
-                          <input type="radio" name="pdMode" checked={pdMode===m.key} onChange={()=>setPdMode(m.key)} style={{accentColor:T.accent,cursor:"pointer"}}/>
-                          {m.label}
-                        </label>
-                      ))}
-                    </div>
-                    {pdMode==="date"&&(
-                      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
-                        <input type="month" value={pdStart} onChange={e=>setPdStart(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),fontFamily:T.font,outline:"none"}}/>
-                        <span style={{color:T.textMuted}}>→</span>
-                        <input type="month" value={pdEnd} onChange={e=>setPdEnd(e.target.value)} style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"6px 9px",fontSize:12*(T.fsScale||1),fontFamily:T.font,outline:"none"}}/>
-                      </div>
-                    )}
-                    {pdMode==="source"&&(
-                      <div style={{marginBottom:14,maxWidth:260}}>
-                        <Sel value={pdSource} onChange={setPdSource} T={T}>
-                          <option value="">Select a source…</option>
-                          {pipelineDistinctSources.map(s=><option key={s} value={s}>{s}</option>)}
-                        </Sel>
-                      </div>
-                    )}
-                    {pdMode==="tag"&&(
-                      <div style={{display:"flex",gap:8,marginBottom:14,maxWidth:400}}>
-                        <Sel value={pdTagDim} onChange={v=>{setPdTagDim(v);setPdTagValue("");}} T={T} style={{flex:1}}>
-                          <option value="">Dimension…</option>
-                          {(tagDims||[]).map(d=><option key={d} value={d}>{d}</option>)}
-                        </Sel>
-                        <Sel value={pdTagValue} onChange={setPdTagValue} T={T} style={{flex:1}} disabled={!pdTagDim}>
-                          <option value="">Value…</option>
-                          {pipelineDistinctTagValues.map(v=><option key={v} value={v}>{v}</option>)}
-                        </Sel>
-                      </div>
-                    )}
-                    {pdMode==="channel"&&(
-                      <div style={{marginBottom:14,maxWidth:260}}>
-                        <Sel value={pdChannel} onChange={setPdChannel} T={T}>
-                          <option value="">Select a channel…</option>
-                          {pipelineDistinctChannels.map(c=><option key={c} value={c}>{c}</option>)}
-                        </Sel>
-                      </div>
-                    )}
-                    {pdMode==="all"&&(
-                      <div style={{marginBottom:14,maxWidth:320}}>
-                        <div style={{fontSize:12*(T.fsScale||1),color:T.danger,marginBottom:6}}>This deletes every pipeline row in this workspace. Type DELETE to confirm.</div>
-                        <input value={pdConfirmText} onChange={e=>setPdConfirmText(e.target.value)} placeholder="DELETE"
-                          style={{width:"100%",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"7px 9px",fontSize:12.5*(T.fsScale||1),fontFamily:T.font,outline:"none"}}/>
-                      </div>
-                    )}
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
-                      <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>
-                        {pipelineDeletePreviewCount===null?"Select the criteria above.":`Matches ${pipelineDeletePreviewCount.toLocaleString()} row${pipelineDeletePreviewCount===1?"":"s"}.`}
-                      </div>
-                      <Btn onClick={doPipelineDelete} disabled={!canDeletePipelineData||pdDeleting} variant="danger" size="sm" T={T} style={{flexShrink:0}}>{pdDeleting?"Deleting…":"Delete"}</Btn>
-                    </div>
-                  </div>
-                )}
-                {rowSection({
-                  title:"Clear Budget data",
-                  desc:"Removes every budget allocation, segment, and annotation dimension across all years. Tagged campaign data is kept.",
-                  stat:`${budgetSegs.toLocaleString()} budget row${budgetSegs===1?"":"s"} across ${budgetYears} year${budgetYears===1?"":"s"}`,
-                  action:clearBudgetData,label:"Clear Budget data",disabled:!budgetSegs,
-                })}
-                <div style={{marginTop:8,paddingTop:20,borderTop:`1px solid ${T.border}`}}>
-                  {rowSection({
-                    title:"Delete all data",
-                    desc:"Clears Tagger data AND Budget data at once — everything above, in one step. Theme and layout preferences are kept.",
-                    stat:"This is the only irreversible action on this page — there's no undo.",
-                    action:clearAllData,label:"Delete all data",disabled:!mergedNormRows.length&&!Object.keys(tags).length&&!budgetSegs,
-                  })}
-                </div>
-                <div style={{marginTop:8,paddingTop:20,borderTop:`1px solid ${T.border}`}}>
-                  <div style={{border:`1px solid ${T.border}`,borderRadius:T.r8,background:T.surface,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20}}>
-                    <div>
-                      <div style={{fontSize:14*(T.fsScale||1),fontWeight:700,color:T.text,marginBottom:4,fontFamily:T.font}}>Delete your PaidHQ account</div>
-                      <div style={{fontSize:13*(T.fsScale||1),color:T.textSub,lineHeight:1.6,fontFamily:T.font,maxWidth:480}}>Permanently deletes the login itself ({session?.user?.email}) — not just this workspace, every workspace you're in across all of PaidHQ. This is different from "Sign out," which only forgets this account in this browser.</div>
-                      <div style={{fontSize:12*(T.fsScale||1),color:T.textMuted,marginTop:8,fontFamily:T.font}}>Blocked if this account is the sole owner of any workspace — transfer ownership or delete those workspaces first.</div>
-                    </div>
-                    <Btn onClick={()=>{setDeleteAccountOpen(true);setDeleteAccountConfirmText("");setDeleteAccountError("");}} variant="danger" size="sm" T={T} style={{flexShrink:0}}>Delete account</Btn>
-                  </div>
+                        <Button onClick={()=>{setDeleteAccountOpen(true);setDeleteAccountConfirmText("");setDeleteAccountError("");}} variant="destructive" size="sm" className="shrink-0">Delete account</Button>
+                      </CardContent>
+                    </Card>
+                  </section>
                 </div>
               </div>
             </div>
