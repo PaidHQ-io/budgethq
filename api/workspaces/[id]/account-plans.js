@@ -24,17 +24,28 @@
  *     name text not null,
  *     status text not null default 'draft',              -- draft | in_progress | complete
  *     active_step text not null default 'context',        -- context | audit | taxonomy | budget | targeting | mapping
- *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, segments, adFormats, objectives, funnelStages, budgets? }
+ *     context jsonb not null default '{}'::jsonb,          -- { products, regions, personas, segments, adFormatsByPlatform, objectivesByPlatform, funnelStages, adFormats?, objectives?, budgets? }
  *       -- segments (2026-08-07, per Mo — "we're missing company size segments of SMB, MM and
  *       -- Enterprise in this screen"): free-text ChipList like products/regions/personas, defaults
  *       -- to ["SMB","MM","Enterprise"] client-side when unset (see DEFAULT_SEGMENTS in
  *       -- AccountPlanning.jsx) rather than needing a migration/default here — jsonb has no fixed
  *       -- shape, so older rows without this key just fall back at read time.
- *       -- adFormats / objectives (2026-08-07, per Mo — "add a segment for ad format... and ad set
- *       -- objective... in the context tab"): same client-side-default pattern as segments (see
- *       -- DEFAULT_AD_FORMATS/DEFAULT_AD_SET_OBJECTIVES in AccountPlanning.jsx) — what this PLAN
- *       -- intends to use, deliberately separate from the Audit step's live objective/ad_format
- *       -- columns which reflect what's actually running on the connected account today.
+ *       -- adFormatsByPlatform / objectivesByPlatform (2026-08-07, per Mo — "add a segment for ad
+ *       -- format... and ad set objective... in the context tab", then "I think we need to start
+ *       -- actually at the channel selection" -> "let's try it as is"): { [platform]: string[] },
+ *       -- keyed by the same PLATFORM_CODES platform names used in Mapping (LinkedIn/Meta/Bing/Google
+ *       -- Search/Google Display/Demand Gen/Performance Max/YouTube/Capterra). Same client-side-
+ *       -- default pattern as segments (see DEFAULT_AD_FORMATS_BY_PLATFORM/
+ *       -- DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM in AccountPlanning.jsx) — what this PLAN intends to
+ *       -- use per platform, deliberately separate from the Audit step's live objective/ad_format
+ *       -- columns which reflect what's actually running on the connected account today. Mapping's
+ *       -- Ad-level rows (see mapping shape below) source their Ad Format/Objective select options
+ *       -- from context.adFormatsByPlatform[row.platform]/objectivesByPlatform[row.platform].
+ *       -- adFormats / objectives (LEGACY, 2026-08-07): the original flat, non-platform-scoped lists
+ *       -- from the first version of this request. No longer read anywhere client-side (a single
+ *       -- flat list can't hold LinkedIn-only formats like CTV/Spotlight alongside Google/Meta/Bing
+ *       -- formats without them all bleeding across platforms) — left as-is on old rows rather than
+ *       -- migrated/deleted, same posture as the budgets key below.
  *       -- funnelStages (2026-08-07, per Mo — "let's add the funnel options for TOFU, MOFU, BOFU
  *       -- (Remarketing)"): same client-side-default pattern (DEFAULT_FUNNEL_STAGES), defaults to
  *       -- ["TOFU","MOFU","BOFU (Remarketing)"] — free text, not the enum-constrained Taxonomy
@@ -64,7 +75,21 @@
  *                                                            --   comment for the workspace-shared
  *                                                            --   list/exclusion/remarketing items
  *                                                            --   these attachments reference by id.
- *     mapping jsonb not null default '[]'::jsonb,           -- [{ oldKey, oldName, newName, level, action, status, targetingProfileId, budget }]
+ *     mapping jsonb not null default '[]'::jsonb,           -- [{ oldKey, oldName, oldCampaignGroup, platform,
+ *                                                            --   level, parentKey, action, manualName, dimValues,
+ *                                                            --   status, targetingProfileId, budget, flightType,
+ *                                                            --   startDate, endDate, adFormat, objective }]
+ *       -- platform (2026-08-07, per Mo — "I think we need to start actually at the channel
+ *       -- selection as the first part of the campaign builder"): chosen ONCE per campaign, via
+ *       -- Mapping's channel tab bar, and locked — every ad set/ad created under that campaign
+ *       -- inherits it at creation time and there's no UI to change a row's platform afterward. Old
+ *       -- rows saved before this change may still have platform: "" (the old per-row Channel
+ *       -- Select let a plan skip setting one) — Mapping still shows these under a fallback
+ *       -- "Unspecified" tab rather than hiding them.
+ *       -- adFormat / objective (2026-08-07, same approval): only meaningful on level: "ad" rows.
+ *       -- Options offered in the UI come from context.adFormatsByPlatform[platform]/
+ *       -- objectivesByPlatform[platform] (see context's own doc comment above) — free text
+ *       -- underneath, not enum-constrained, same as everywhere else in this schema.
  *     created_by uuid,
  *     created_at timestamptz not null default now(),
  *     updated_at timestamptz not null default now()

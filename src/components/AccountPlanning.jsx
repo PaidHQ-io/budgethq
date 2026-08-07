@@ -241,16 +241,64 @@ function PlanList({ plans, loading, canEdit, onOpen, onCreate, onDelete, dark, o
 // segments list yet — editing/removing a chip persists context.segments like any other field here.
 const DEFAULT_SEGMENTS = ["SMB", "MM", "Enterprise"];
 
-// DEFAULT_AD_FORMATS / DEFAULT_AD_SET_OBJECTIVES (2026-08-07, per Mo — "we need to add a segment for
-// ad format... and ad set objective... in the context tab"): same seeded-ChipList pattern as
-// DEFAULT_SEGMENTS above — free-text tag lists a plan can trim/extend, not enum-constrained taxonomy
-// dimensions. Seeded with the exact values Mo listed. Deliberately independent of the real
-// LinkedIn/Meta objective and ad_format values the Audit table now surfaces from actual connector
-// data (buildAuditGroups' g.objective/g.adFormat, see accountPlanning.js) — those describe what's
-// ACTUALLY running on the audited account; these describe what this plan intends to use, which can
-// legitimately differ (e.g. planning to add Conversation Ads that don't exist yet in the account).
-const DEFAULT_AD_FORMATS = ["Single Image", "Video", "CTV", "In Message", "Text", "Conversation", "Document", "Spotlight"];
-const DEFAULT_AD_SET_OBJECTIVES = ["Conversions", "Brand Awareness", "Website Traffic", "Lead Generation", "Engagement"];
+// The original DEFAULT_AD_FORMATS/DEFAULT_AD_SET_OBJECTIVES flat-list constants (2026-08-07, per
+// Mo — "we need to add a segment for ad format... and ad set objective... in the context tab") were
+// removed 2026-08-07 (per Mo — "I think we need to start actually at the channel selection as the
+// first part of the campaign builder") in favor of the per-platform versions below, once it became
+// clear a single flat list can't hold LinkedIn-only formats (CTV, Spotlight, In Message) alongside
+// Google/Meta/Bing formats without every platform seeing every other platform's options.
+// context.adFormats/context.objectives (old plans' saved flat data) are LEGACY — never read by
+// ContextStep anymore, left as-is on old rows rather than migrated/deleted, matching the same
+// "don't carry old data forward as a default, don't delete it either" posture as context.budgets
+// (see account-plans.js's schema doc comment).
+
+// DEFAULT_AD_FORMATS_BY_PLATFORM / DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM (2026-08-07, per Mo's
+// approval "let's try it as is" of the channel-first Mapping proposal, which included "Ad Format and
+// Ad Set Objective move from one flat list each to per-platform lists on Context"): keyed by the same
+// 9 PLATFORM_CODES keys used everywhere else (accountPlanning.js). LinkedIn keeps Mo's original,
+// verified values from the DEFAULT_AD_FORMATS/DEFAULT_AD_SET_OBJECTIVES request above unchanged. The
+// other 8 platforms are MY best-guess seed data, not confirmed by Mo — flagged here the same way the
+// channel-first proposal flagged them, so this comment is the one place to check/correct if any of
+// these turn out wrong for how Mo's clients actually run these channels. Like every other seeded
+// ChipList default in this file, these are just a starting point a plan can freely trim/extend/replace.
+const DEFAULT_AD_FORMATS_BY_PLATFORM = {
+  LinkedIn: ["Single Image", "Video", "CTV", "In Message", "Text", "Conversation", "Document", "Spotlight"],
+  Meta: ["Single Image", "Video", "Carousel", "Collection", "Stories", "Reels", "Instant Experience"], // best guess, unverified
+  Bing: ["Responsive Search Ad", "Expanded Text Ad", "Product (Shopping) Ad", "Audience Ad", "Dynamic Search Ad"], // best guess, unverified
+  "Google Search": ["Responsive Search Ad", "Expanded Text Ad", "Call-Only Ad", "Dynamic Search Ad"], // best guess, unverified
+  "Google Display": ["Responsive Display Ad", "Image Ad", "HTML5 Ad", "Native Ad"], // best guess, unverified
+  "Demand Gen": ["Single Image", "Carousel", "Video"], // best guess, unverified
+  "Performance Max": ["Responsive Ad", "Image", "Video", "Text", "Product Feed"], // best guess, unverified
+  YouTube: ["Skippable In-Stream", "Non-Skippable In-Stream", "Bumper", "In-Feed Video", "Shorts", "Masthead"], // best guess, unverified
+  Capterra: ["Sponsored Listing", "Category Leader", "Display Ad"], // best guess, unverified
+};
+const DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM = {
+  LinkedIn: ["Conversions", "Brand Awareness", "Website Traffic", "Lead Generation", "Engagement"],
+  Meta: ["Conversions", "Brand Awareness", "Traffic", "Engagement", "Leads", "App Promotion", "Sales"], // best guess, unverified
+  Bing: ["Website Traffic", "Conversions", "Brand Awareness", "Lead Generation"], // best guess, unverified
+  "Google Search": ["Conversions", "Website Traffic", "Leads", "Sales", "Calls"], // best guess, unverified
+  "Google Display": ["Brand Awareness", "Website Traffic", "Conversions", "Remarketing"], // best guess, unverified
+  "Demand Gen": ["Conversions", "Website Traffic", "Brand Awareness"], // best guess, unverified
+  "Performance Max": ["Sales", "Leads", "Website Traffic", "Store Visits"], // best guess, unverified
+  YouTube: ["Brand Awareness", "Video Views", "Consideration", "Conversions"], // best guess, unverified
+  Capterra: ["Lead Generation", "Website Traffic"], // best guess, unverified
+};
+
+// adFormatOptionsFor / objectiveOptionsFor (2026-08-07): the one shared lookup both ContextStep
+// (editing the list) and Mapping's Ad-level nodes (picking FROM the list, per Mo's "let's try it as
+// is" approval — "Ad Format/Objective selects at Ad level... sourced from
+// context.adFormatsByPlatform[row.platform]/objectivesByPlatform[row.platform]") use to resolve a
+// platform's options — a saved plan-level list if one exists, else the seeded
+// DEFAULT_*_BY_PLATFORM default, else empty (a platform with no seed data, e.g. a future addition to
+// PLATFORM_CODES, just shows no options rather than throwing).
+function adFormatOptionsFor(context, platform) {
+  const list = (context?.adFormatsByPlatform || {})[platform];
+  return list && list.length ? list : (DEFAULT_AD_FORMATS_BY_PLATFORM[platform] || []);
+}
+function adObjectiveOptionsFor(context, platform) {
+  const list = (context?.objectivesByPlatform || {})[platform];
+  return list && list.length ? list : (DEFAULT_AD_SET_OBJECTIVES_BY_PLATFORM[platform] || []);
+}
 
 // DEFAULT_FUNNEL_STAGES (2026-08-07, per Mo — "let's add the funnel options for TOFU, MOFU, BOFU
 // (Remarketing)"): same seeded-ChipList pattern as the cards above. BOFU is labeled "BOFU
@@ -264,9 +312,20 @@ function ContextStep({ context, setContext, canEdit }) {
   const regions = context.regions || [];
   const personas = context.personas || [];
   const segments = context.segments && context.segments.length ? context.segments : DEFAULT_SEGMENTS;
-  const adFormats = context.adFormats && context.adFormats.length ? context.adFormats : DEFAULT_AD_FORMATS;
-  const objectives = context.objectives && context.objectives.length ? context.objectives : DEFAULT_AD_SET_OBJECTIVES;
   const funnelStages = context.funnelStages && context.funnelStages.length ? context.funnelStages : DEFAULT_FUNNEL_STAGES;
+
+  // Ad Format / Ad Set Objective (2026-08-07, per Mo's "let's try it as is" approval — see
+  // DEFAULT_AD_FORMATS_BY_PLATFORM's doc comment above): each card now scopes to ONE platform at a
+  // time via its own picker, reading/writing context.adFormatsByPlatform[platform] /
+  // context.objectivesByPlatform[platform] instead of the old flat context.adFormats/objectives.
+  // Defaults to LinkedIn since that's the one platform whose seed values are Mo-verified rather than
+  // a best guess.
+  const [formatPlatform, setFormatPlatform] = useState("LinkedIn");
+  const [objectivePlatform, setObjectivePlatform] = useState("LinkedIn");
+  const adFormatsByPlatform = context.adFormatsByPlatform || {};
+  const objectivesByPlatform = context.objectivesByPlatform || {};
+  const adFormats = adFormatOptionsFor(context, formatPlatform);
+  const objectives = adObjectiveOptionsFor(context, objectivePlatform);
   return (
     <div className="flex flex-col gap-4">
       {/* Walkthrough (2026-08-07, per Mo — "I also need an explanation or walk through of what to
@@ -287,7 +346,7 @@ function ContextStep({ context, setContext, canEdit }) {
           <div className="text-sm text-muted-foreground">
             <p className="mb-1.5 font-medium text-foreground">What to do on this screen</p>
             <p>
-              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, <span className="font-medium text-foreground">Company Size Segments</span>, <span className="font-medium text-foreground">Ad Format</span>, <span className="font-medium text-foreground">Ad Set Objective</span>, and <span className="font-medium text-foreground">Funnel Stage</span> are all simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. These describe what this plan covers and carry through as reference context in later steps (Taxonomy, Targeting, Mapping); Ad Format and Ad Set Objective in particular are what you intend to use, which is worth keeping distinct from what's actually running today (that's what the Audit step's own Ad Format/Objective columns show, pulled live from the connected accounts). None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be. Setting the actual budget — total and per-segment breakdown — happens in its own Budget step, once these fields (and Taxonomy's dimensions) exist to allocate against.
+              Set up the scope for this account plan before moving into Audit. <span className="font-medium text-foreground">Products</span>, <span className="font-medium text-foreground">Regions</span>, <span className="font-medium text-foreground">Audiences / Personas</span>, <span className="font-medium text-foreground">Company Size Segments</span>, and <span className="font-medium text-foreground">Funnel Stage</span> are simple tag lists — type a value and hit Add or Enter, click the × on a chip to remove it. <span className="font-medium text-foreground">Ad Format</span> and <span className="font-medium text-foreground">Ad Set Objective</span> work the same way but are scoped per platform — pick a platform from the dropdown on each card first, then add the formats/objectives you intend to use on that platform, since what's available on LinkedIn (Document, Spotlight, In Message…) doesn't line up with Google or Meta. These describe what this plan intends to use, which is worth keeping distinct from what's actually running today (that's what the Audit step's own Ad Format/Objective columns show, pulled live from the connected accounts). None of this is required to move on to Audit, but the more filled in here, the more useful the later steps will be — Mapping's Ad-level rows will offer the Ad Format/Objective options you set here for that ad's platform. Setting the actual budget — total and per-segment breakdown — happens in its own Budget step, once these fields (and Taxonomy's dimensions) exist to allocate against.
             </p>
           </div>
         </CardContent>
@@ -326,19 +385,35 @@ function ContextStep({ context, setContext, canEdit }) {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle>Ad Format</CardTitle></CardHeader>
+          <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2">
+            <CardTitle>Ad Format</CardTitle>
+            <Select value={formatPlatform} onValueChange={setFormatPlatform}>
+              <SelectTrigger className="h-7 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.keys(PLATFORM_CODES).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </CardHeader>
           <CardContent>
             <ChipList items={adFormats} canEdit={canEdit} placeholder="Add an ad format…"
-              onAdd={(v) => setContext({ ...context, adFormats: [...adFormats, v] })}
-              onRemove={(i) => setContext({ ...context, adFormats: adFormats.filter((_, x) => x !== i) })} />
+              onAdd={(v) => setContext({ ...context, adFormatsByPlatform: { ...adFormatsByPlatform, [formatPlatform]: [...adFormats, v] } })}
+              onRemove={(i) => setContext({ ...context, adFormatsByPlatform: { ...adFormatsByPlatform, [formatPlatform]: adFormats.filter((_, x) => x !== i) } })} />
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle>Ad Set Objective</CardTitle></CardHeader>
+          <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2">
+            <CardTitle>Ad Set Objective</CardTitle>
+            <Select value={objectivePlatform} onValueChange={setObjectivePlatform}>
+              <SelectTrigger className="h-7 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.keys(PLATFORM_CODES).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </CardHeader>
           <CardContent>
             <ChipList items={objectives} canEdit={canEdit} placeholder="Add an objective…"
-              onAdd={(v) => setContext({ ...context, objectives: [...objectives, v] })}
-              onRemove={(i) => setContext({ ...context, objectives: objectives.filter((_, x) => x !== i) })} />
+              onAdd={(v) => setContext({ ...context, objectivesByPlatform: { ...objectivesByPlatform, [objectivePlatform]: [...objectives, v] } })}
+              onRemove={(i) => setContext({ ...context, objectivesByPlatform: { ...objectivesByPlatform, [objectivePlatform]: objectives.filter((_, x) => x !== i) } })} />
           </CardContent>
         </Card>
         <Card>
@@ -501,6 +576,7 @@ function AuditStep({ session, workspace, mergedNormRows, combineGoogleChannels, 
       oldCampaignGroup: g.campaignGroupName, platform: g.platform,
       level: g.level === "ad" ? "ad" : "campaign", action: g.tier === "consolidate" ? "kill" : "rename",
       manualName: "", dimValues: {}, status: "planned", parentKey: "", flightType: "evergreen", startDate: "", endDate: "",
+      adFormat: "", objective: "",
     }]);
   };
   const setDecision = (key, patch) => setAuditDecisions({ ...auditDecisions, [key]: { ...(auditDecisions[key] || {}), ...patch } });
@@ -1267,7 +1343,32 @@ function newMappingKey() {
   return `new_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
+// blankMappingRow (2026-08-07, factored out of the old inline addRow literal when channel locking
+// was added) — the one shared shape for a brand-new mapping row, always created WITH its platform
+// already set (see channel-first tabs below): there's no longer a path that creates a row with
+// platform: "" except pre-existing legacy data saved before this change.
+function blankMappingRow(platform, extra) {
+  return {
+    oldKey: newMappingKey(), oldName: "", oldCampaignGroup: "", platform, level: "campaign", parentKey: "",
+    action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "",
+    flightType: "evergreen", startDate: "", endDate: "", adFormat: "", objective: "", ...extra,
+  };
+}
+
+// Channel-first Mapping (2026-08-07, per Mo — "I think we need to start actually at the channel
+// selection as the first part of the campaign builder... nail that down first so we're not going
+// back and forth trying to patch", approved as-is): the channel/platform is now chosen ONCE, before
+// any campaign structure exists for it, via the tab bar below — not a per-row Select edited after
+// the fact (that's what CampaignNode/NodeHeader's old Channel Select and MappingTable's old Channel
+// Select both did, and both are now gone). Each tab scopes both Builder and Table views to just that
+// channel's rows; a new campaign/ad set/ad created while a tab is active always inherits that tab's
+// platform and can never be re-pointed at a different one afterward — "locked after creation" per
+// Mo's explicit choice among the 4 options I asked about. Tab order follows PLATFORM_CODES' key
+// order (LinkedIn first) rather than creation order, so the bar doesn't reshuffle as channels are
+// added. Rows saved before this change with platform: "" (the old blank "Add row"/"Add campaign"
+// buttons never required a channel) surface under a fallback "Unspecified" tab rather than being
+// hidden — same "don't silently drop old data" posture used throughout this file.
+function MappingStep({ mapping, setMapping, taxonomy, targeting, context, canEdit }) {
   const dimensions = taxonomy.dimensions && taxonomy.dimensions.length ? taxonomy.dimensions : DEFAULT_TAXONOMY_DIMENSIONS;
   const templates = taxonomy.nameTemplates || buildDefaultNameTemplates();
   const dimByKey = useMemo(() => Object.fromEntries(dimensions.map((d) => [d.key, d])), [dimensions]);
@@ -1279,7 +1380,28 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
   const generatedName = (row) => generateName(rowTemplate(row), rowValues(row));
   const finalName = (row) => (row.manualName && row.manualName.trim()) || generatedName(row);
 
-  const addRow = () => setMapping([...mapping, { oldKey: `manual_${Date.now()}`, oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", parentKey: "", action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "", flightType: "evergreen", startDate: "", endDate: "" }]);
+  const channelsPresent = useMemo(() => {
+    const present = new Set(mapping.map((r) => r.platform || ""));
+    const ordered = Object.keys(PLATFORM_CODES).filter((p) => present.has(p));
+    if (present.has("")) ordered.push(""); // legacy rows saved before channel locking
+    return ordered;
+  }, [mapping]);
+  const availableToAdd = Object.keys(PLATFORM_CODES).filter((p) => !channelsPresent.includes(p));
+
+  // Derived, not effect-synced (2026-08-07) — selectedChannel just remembers the last tab the user
+  // clicked; activeChannel falls back to the first available channel whenever that selection isn't
+  // (or is no longer, e.g. its last row got deleted) a valid tab. Computing this at render time
+  // avoids a setState-in-effect (flagged by this repo's react-hooks/set-state-in-effect lint rule)
+  // for what's really just a plain derived value.
+  const [selectedChannel, setSelectedChannel] = useState(null);
+  const activeChannel = selectedChannel !== null && channelsPresent.includes(selectedChannel) ? selectedChannel : (channelsPresent[0] ?? null);
+  const setActiveChannel = setSelectedChannel;
+
+  const addCampaignForChannel = (platform) => {
+    setMapping([...mapping, blankMappingRow(platform, {})]);
+    setActiveChannel(platform);
+  };
+  const addRow = () => setMapping([...mapping, blankMappingRow(activeChannel || "", {})]);
 
   // Budget rollups — grouped from each row's own `budget` (the only place budget is entered, per
   // Mo's call), never a separately-typed number per level, so these can never silently stop adding
@@ -1287,7 +1409,9 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
   // user-set values), so it stays its own plain actual-only rollup; every taxonomy dimension gets a
   // target-vs-actual comparison instead (computeDimensionBudgetComparison), shown for any dimension
   // that has either a target (set in the Budget step's Budget Allocation) or actual spend against it — see
-  // that section's own doc comment for why targets live on the dimension.
+  // that section's own doc comment for why targets live on the dimension. Rollups stay scoped to the
+  // WHOLE plan (all channels), not just the active tab — this card is a plan-level summary, the tabs
+  // below it are purely for building/editing structure.
   const rollupsByPlatform = useMemo(() => computeBudgetRollup(mapping, (r) => r.platform), [mapping]);
   const dimensionComparisons = useMemo(
     () => dimensions.map((d) => ({ dim: d, rows: computeDimensionBudgetComparison(mapping, d) })).filter((x) => x.rows.length > 0),
@@ -1299,13 +1423,22 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
   if (mapping.length === 0) {
     return (
       <div>
-        <div className="mb-3 text-sm text-muted-foreground">No mapping rows yet — add campaigns/ads from the Audit step, or add a campaign below to start building from scratch.</div>
-        {canEdit && <Button variant="secondary" onClick={addRow}><Plus className="h-4 w-4" />Add campaign</Button>}
+        <div className="mb-3 text-sm text-muted-foreground">No mapping rows yet — add campaigns/ads from the Audit step, or pick a channel below to start building a campaign structure from scratch.</div>
+        {canEdit && (
+          <div className="flex flex-wrap gap-2">
+            {Object.keys(PLATFORM_CODES).map((p) => (
+              <button key={p} type="button" onClick={() => addCampaignForChannel(p)}
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                <Plus className="h-3.5 w-3.5" />{p} <span className="text-xs text-muted-foreground">({PLATFORM_CODES[p]})</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
 
-  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit };
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, context };
 
   return (
     <div>
@@ -1332,6 +1465,25 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
         </Card>
       )}
 
+      <div className="mb-3 flex flex-wrap items-center gap-1.5 border-b border-border pb-2">
+        {channelsPresent.map((p) => (
+          <button key={p || "__unspecified__"} type="button" onClick={() => setActiveChannel(p)}
+            className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all",
+              activeChannel === p ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground")}>
+            {p ? `${p} (${PLATFORM_CODES[p]})` : "Unspecified"}
+          </button>
+        ))}
+        {canEdit && availableToAdd.length > 0 && (
+          <Select value="__add__" onValueChange={(v) => v !== "__add__" && addCampaignForChannel(v)}>
+            <SelectTrigger className="h-7 w-[110px] border-dashed text-xs"><SelectValue placeholder="+ Channel" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__add__" disabled>+ Channel</SelectItem>
+              {availableToAdd.map((p) => <SelectItem key={p} value={p}>{p} ({PLATFORM_CODES[p]})</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-0.5">
           <button type="button" onClick={() => setView("builder")}
@@ -1347,9 +1499,9 @@ function MappingStep({ mapping, setMapping, taxonomy, targeting, canEdit }) {
       </div>
 
       {view === "builder" ? (
-        <MappingBuilder mapping={mapping} setMapping={setMapping} {...helpers} />
+        <MappingBuilder mapping={mapping} setMapping={setMapping} activeChannel={activeChannel} {...helpers} />
       ) : (
-        <MappingTable mapping={mapping} setMapping={setMapping} {...helpers} />
+        <MappingTable mapping={mapping} setMapping={setMapping} activeChannel={activeChannel} {...helpers} />
       )}
     </div>
   );
@@ -1433,19 +1585,22 @@ function DimensionBudgetBlock({ dim, rows }) {
   );
 }
 
-// ─── MAPPING: TABLE VIEW (original recipe, unchanged behavior) ────────────────────────────────────
-// One addition (2026-08-06): a Channel select on campaign-level rows — manually-added rows had no
-// way to ever set platform before (only audit-derived rows had it, from the audit group), which
-// meant a manually-built campaign's {platform} token — now mandatory in every default template per
-// Mo's naming rules — would silently render blank. Real bug, not just a Builder-view nicety, so
-// it's fixed here too, not only in the new Builder cards.
-function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit }) {
-  const updateRow = (i, patch) => setMapping(mapping.map((r, x) => (x === i ? { ...r, ...patch } : r)));
-  const removeRow = (i) => setMapping(mapping.filter((_, x) => x !== i));
+// ─── MAPPING: TABLE VIEW (original recipe, mostly unchanged behavior) ─────────────────────────────
+// Scoped to one channel at a time (2026-08-07, per Mo's channel-first approval) via `activeChannel` —
+// rows are filtered here, but updateRow/removeRow still act against the FULL mapping array (by
+// oldKey, not array index) so operating on the filtered subset can never desync from the real
+// indices of other channels' rows. Channel itself is no longer editable per-row here — it's chosen
+// once via MappingStep's tab bar and locked at creation (see MappingStep's own doc comment); the
+// Channel Select this view used to have on campaign-level rows is gone, replaced by a plain read-
+// only badge.
+function MappingTable({ mapping, setMapping, activeChannel, dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit }) {
+  const updateRow = (oldKey, patch) => setMapping(mapping.map((r) => (r.oldKey === oldKey ? { ...r, ...patch } : r)));
+  const removeRow = (oldKey) => setMapping(mapping.filter((r) => r.oldKey !== oldKey));
+  const rows = mapping.filter((r) => (r.platform || "") === (activeChannel || ""));
 
   return (
     <div className="flex flex-col gap-2.5">
-      {mapping.map((row, i) => {
+      {rows.map((row) => {
         const template = rowTemplate(row);
         const tokens = templateTokens(template).filter((t) => t !== "platform");
         const validation = validateName(finalName(row), template);
@@ -1458,7 +1613,7 @@ function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, ge
                   {row.oldName ? (
                     <div className="text-sm font-semibold text-foreground">{row.oldName}</div>
                   ) : (
-                    <Input value={row.oldName} onChange={(e) => updateRow(i, { oldName: e.target.value })} placeholder="Old name (optional)" disabled={!canEdit} className="h-8 w-40 text-xs" />
+                    <Input value={row.oldName} onChange={(e) => updateRow(row.oldKey, { oldName: e.target.value })} placeholder="Old name (optional)" disabled={!canEdit} className="h-8 w-40 text-xs" />
                   )}
                   {row.oldCampaignGroup && <div className="text-[11px] text-muted-foreground">{row.oldCampaignGroup}</div>}
                 </div>
@@ -1466,19 +1621,15 @@ function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, ge
                 {row.level === "campaign" && (
                   <div>
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel</div>
-                    <Select disabled={!canEdit} value={row.platform || "__none__"} onValueChange={(v) => updateRow(i, { platform: v === "__none__" ? "" : v })}>
-                      <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue placeholder="Channel…" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Channel…</SelectItem>
-                        {Object.keys(PLATFORM_CODES).map((p) => <SelectItem key={p} value={p}>{p} ({PLATFORM_CODES[p]})</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <Badge variant="outline" className="h-8 px-2.5 text-xs font-medium">
+                      {row.platform ? `${row.platform} (${PLATFORM_CODES[row.platform] || channelCode(row.platform)})` : "No channel set"}
+                    </Badge>
                   </div>
                 )}
 
                 <div>
                   <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Level</div>
-                  <Select disabled={!canEdit} value={row.level} onValueChange={(v) => updateRow(i, { level: v })}>
+                  <Select disabled={!canEdit} value={row.level} onValueChange={(v) => updateRow(row.oldKey, { level: v })}>
                     <SelectTrigger className="h-8 w-[170px] text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>{Object.entries(LEVEL_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
                   </Select>
@@ -1486,7 +1637,7 @@ function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, ge
 
                 <div>
                   <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Action</div>
-                  <Select disabled={!canEdit} value={row.action} onValueChange={(v) => updateRow(i, { action: v })}>
+                  <Select disabled={!canEdit} value={row.action} onValueChange={(v) => updateRow(row.oldKey, { action: v })}>
                     <SelectTrigger className="h-8 w-[132px] text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>{Object.entries(ACTION_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
                   </Select>
@@ -1494,37 +1645,64 @@ function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, ge
 
                 <div>
                   <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</div>
-                  <Select disabled={!canEdit} value={row.status} onValueChange={(v) => updateRow(i, { status: v })}>
+                  <Select disabled={!canEdit} value={row.status} onValueChange={(v) => updateRow(row.oldKey, { status: v })}>
                     <SelectTrigger className="h-8 w-[132px] text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>{Object.entries(STATUS_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
 
-                <div>
-                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Targeting</div>
-                  <Select disabled={!canEdit} value={row.targetingProfileId || "__none__"} onValueChange={(v) => updateRow(i, { targetingProfileId: v === "__none__" ? "" : v })}>
-                    <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">None</SelectItem>
-                      {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {platformFamily(row.platform) === "social" && (
+                  <div>
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Targeting</div>
+                    <Select disabled={!canEdit} value={row.targetingProfileId || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { targetingProfileId: v === "__none__" ? "" : v })}>
+                      <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {row.level === "ad" && (
+                  <>
+                    <div>
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ad Format</div>
+                      <Select disabled={!canEdit} value={row.adFormat || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { adFormat: v === "__none__" ? "" : v })}>
+                        <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue placeholder="Format…" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">None</SelectItem>
+                          {adFormatOptionsFor(context, row.platform).map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Objective</div>
+                      <Select disabled={!canEdit} value={row.objective || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { objective: v === "__none__" ? "" : v })}>
+                        <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue placeholder="Objective…" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">None</SelectItem>
+                          {adObjectiveOptionsFor(context, row.platform).map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
 
                 <div>
                   <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget</div>
-                  <Input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(i, { budget: e.target.value })} placeholder="$/mo" className="h-8 w-24 text-xs" />
+                  <Input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(row.oldKey, { budget: e.target.value })} placeholder="$/mo" className="h-8 w-24 text-xs" />
                 </div>
 
                 {canEdit && (
-                  <button type="button" onClick={() => removeRow(i)} className="ml-auto self-start border-0 bg-transparent p-1 text-muted-foreground hover:text-destructive">
+                  <button type="button" onClick={() => removeRow(row.oldKey)} className="ml-auto self-start border-0 bg-transparent p-1 text-muted-foreground hover:text-destructive">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
 
               <div className="mt-2.5">
-                <FlightFields row={row} onChange={(patch) => updateRow(i, patch)} canEdit={canEdit} />
+                <FlightFields row={row} onChange={(patch) => updateRow(row.oldKey, patch)} canEdit={canEdit} />
               </div>
 
               <Separator className="my-3" />
@@ -1540,12 +1718,12 @@ function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, ge
                     if (dim.values.length > 12) {
                       return (
                         <SearchableSelect key={tok} options={dim.values} value={val}
-                          onChange={(v) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: v } })}
+                          onChange={(v) => updateRow(row.oldKey, { dimValues: { ...row.dimValues, [tok]: v } })}
                           disabled={!canEdit} placeholder={`${dim.label}…`} className="w-40" />
                       );
                     }
                     return (
-                      <Select key={tok} disabled={!canEdit} value={val || "__none__"} onValueChange={(v) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: v === "__none__" ? "" : v } })}>
+                      <Select key={tok} disabled={!canEdit} value={val || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { dimValues: { ...row.dimValues, [tok]: v === "__none__" ? "" : v } })}>
                         <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue placeholder={`${dim.label}…`} /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__none__">{dim.label}…</SelectItem>
@@ -1555,14 +1733,14 @@ function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, ge
                     );
                   }
                   return (
-                    <Input key={tok} disabled={!canEdit} value={val} onChange={(e) => updateRow(i, { dimValues: { ...row.dimValues, [tok]: e.target.value } })}
+                    <Input key={tok} disabled={!canEdit} value={val} onChange={(e) => updateRow(row.oldKey, { dimValues: { ...row.dimValues, [tok]: e.target.value } })}
                       placeholder={dim ? dim.label : tok} className="h-8 w-32 text-xs" />
                   );
                 })}
               </div>
               <div className="flex items-center gap-2">
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New</div>
-                <Input disabled={!canEdit} value={row.manualName} onChange={(e) => updateRow(i, { manualName: e.target.value })}
+                <Input disabled={!canEdit} value={row.manualName} onChange={(e) => updateRow(row.oldKey, { manualName: e.target.value })}
                   placeholder={generatedName(row) || "Generated from taxonomy…"} className="h-8 flex-1 font-mono text-xs font-semibold" />
               </div>
               {finalName(row) && !validation.valid && (
@@ -1594,19 +1772,22 @@ function MappingTable({ mapping, setMapping, dimByKey, profiles, rowTemplate, ge
 //     "social") — search-family platforms (Google/Bing/etc.) don't carry ad-level identity in this
 //     app's data model (see accountPlanning.js's platformFamily doc comment), so an "Ads" drop zone
 //     there would just be dead UI with nothing to ever contain.
-//   - A campaign's Channel select doesn't cascade to ad sets/ads created before the change — each
-//     row's platform is copied at creation time, not live-linked to its parent. Noted here rather
-//     than solved: realistically a channel gets decided before building out a campaign, not changed
-//     mid-build, and live-linking adds real complexity for an edge case.
+//   - Channel is locked, not a per-row Select (2026-08-07, per Mo's channel-first approval): the
+//     whole Builder is scoped to one `activeChannel` at a time (passed down from MappingStep's tab
+//     bar), campaigns created here always inherit it, and ad sets/ads always inherit their parent's
+//     platform at creation. There is no path to change a row's platform after it's created anymore.
 //   - No "drag straight from the Audit step" palette yet — audit groups still get pulled in via the
 //     existing "+ Mapping" button on the Audit step (unchanged); the Builder's job here is arranging
 //     what's already in `mapping`, not re-implementing that intake step.
 
-function MappingBuilder({ mapping, setMapping, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit }) {
+function MappingBuilder({ mapping, setMapping, activeChannel, dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit }) {
   const [activeId, setActiveId] = useState(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  const campaigns = useMemo(() => mapping.filter((r) => r.level === "campaign"), [mapping]);
+  const campaigns = useMemo(
+    () => mapping.filter((r) => r.level === "campaign" && (r.platform || "") === (activeChannel || "")),
+    [mapping, activeChannel]
+  );
   const childrenOf = useMemo(() => {
     const map = new Map();
     for (const r of mapping) {
@@ -1619,21 +1800,16 @@ function MappingBuilder({ mapping, setMapping, dimByKey, profiles, rowTemplate, 
   }, [mapping]);
   const validKeys = useMemo(() => new Set(mapping.map((r) => r.oldKey)), [mapping]);
   const unassigned = useMemo(
-    () => mapping.filter((r) => r.level !== "campaign" && (!r.parentKey || !validKeys.has(r.parentKey))),
-    [mapping, validKeys]
+    () => mapping.filter((r) => r.level !== "campaign" && (r.platform || "") === (activeChannel || "") && (!r.parentKey || !validKeys.has(r.parentKey))),
+    [mapping, validKeys, activeChannel]
   );
 
   const updateRow = (oldKey, patch) => setMapping(mapping.map((r) => (r.oldKey === oldKey ? { ...r, ...patch } : r)));
   const removeRow = (oldKey) => setMapping(
     mapping.filter((r) => r.oldKey !== oldKey).map((r) => (r.parentKey === oldKey ? { ...r, parentKey: "" } : r))
   );
-  const blankRow = (extra) => ({
-    oldKey: newMappingKey(), oldName: "", oldCampaignGroup: "", platform: "", level: "campaign", parentKey: "",
-    action: "rename", manualName: "", dimValues: {}, status: "planned", targetingProfileId: "", budget: "",
-    flightType: "evergreen", startDate: "", endDate: "", ...extra,
-  });
-  const addCampaign = () => setMapping([...mapping, blankRow({})]);
-  const addChild = (parentKey, level, platform) => setMapping([...mapping, blankRow({ level, parentKey, platform })]);
+  const addCampaign = () => setMapping([...mapping, blankMappingRow(activeChannel || "", {})]);
+  const addChild = (parentKey, level, platform) => setMapping([...mapping, blankMappingRow(platform, { level, parentKey })]);
 
   const activeRow = activeId ? mapping.find((r) => r.oldKey === activeId) : null;
 
@@ -1664,7 +1840,7 @@ function MappingBuilder({ mapping, setMapping, dimByKey, profiles, rowTemplate, 
     }
   };
 
-  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow };
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit, updateRow, removeRow };
 
   return (
     <DndContext sensors={sensors} onDragStart={(e) => setActiveId(e.active.id)} onDragEnd={onDragEnd}>
@@ -1692,10 +1868,10 @@ function MappingBuilder({ mapping, setMapping, dimByKey, profiles, rowTemplate, 
   );
 }
 
-function CampaignNode({ row, childRows, childrenOf, onAddAdSet, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow }) {
+function CampaignNode({ row, childRows, childrenOf, onAddAdSet, dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit, updateRow, removeRow }) {
   const { setNodeRef, isOver } = useDroppable({ id: `campaign:${row.oldKey}` });
   const family = platformFamily(row.platform);
-  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow };
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit, updateRow, removeRow };
   return (
     <Card className={cn("border-l-4 border-l-primary transition-colors", isOver && "ring-2 ring-primary/40")}>
       <CardContent className="p-4">
@@ -1717,12 +1893,12 @@ function CampaignNode({ row, childRows, childrenOf, onAddAdSet, dimByKey, profil
   );
 }
 
-function AdSetNode({ row, childRows, campaignPlatform, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow }) {
+function AdSetNode({ row, childRows, campaignPlatform, dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit, updateRow, removeRow }) {
   const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({ id: row.oldKey });
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `adset:${row.oldKey}` });
   const family = platformFamily(row.platform || campaignPlatform);
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 30, position: "relative" } : undefined;
-  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow };
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit, updateRow, removeRow };
   return (
     <div ref={setDragRef} style={style} className={cn(isDragging && "opacity-40")}>
       <Card className="border-l-4 border-l-secondary-foreground/20 bg-secondary/30">
@@ -1740,7 +1916,7 @@ function AdSetNode({ row, childRows, campaignPlatform, dimByKey, profiles, rowTe
   );
 }
 
-function AdNode({ row, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow }) {
+function AdNode({ row, dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit, updateRow, removeRow }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: row.oldKey });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 30, position: "relative" } : undefined;
   return (
@@ -1749,16 +1925,16 @@ function AdNode({ row, dimByKey, profiles, rowTemplate, generatedName, finalName
         <CardContent className="p-2.5">
           <NodeHeader row={row} icon={ImageIcon} nodeLabel="ad" dragHandleProps={{ ...attributes, ...listeners }} compact
             dimByKey={dimByKey} profiles={profiles} rowTemplate={rowTemplate} generatedName={generatedName} finalName={finalName}
-            canEdit={canEdit} updateRow={updateRow} removeRow={removeRow} />
+            context={context} canEdit={canEdit} updateRow={updateRow} removeRow={removeRow} />
         </CardContent>
       </Card>
     </div>
   );
 }
 
-function UnassignedZone({ items, childrenOf, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow }) {
+function UnassignedZone({ items, childrenOf, dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit, updateRow, removeRow }) {
   const { setNodeRef, isOver } = useDroppable({ id: "unassigned" });
-  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow };
+  const helpers = { dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit, updateRow, removeRow };
   return (
     <div ref={setNodeRef} className={cn("flex flex-col gap-2 rounded-lg border border-dashed p-3 transition-colors", items.length > 0 ? "border-warning/50 bg-warning/5" : "border-border/60", isOver && "border-warning bg-warning/10")}>
       <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1784,7 +1960,7 @@ function UnassignedZone({ items, childrenOf, dimByKey, profiles, rowTemplate, ge
 // shows the generated name + status/action/budget at a glance; expanded reveals the same field set
 // the Table view edits (Action/Status/Targeting/Budget/name tokens/manual override), so nothing is
 // Builder-only or Table-only in terms of what's editable, just how it's arranged.
-function NodeHeader({ row, icon: Icon, nodeLabel, dimByKey, profiles, rowTemplate, generatedName, finalName, canEdit, updateRow, removeRow, dragHandleProps, showPlatform, compact }) {
+function NodeHeader({ row, icon: Icon, nodeLabel, dimByKey, profiles, rowTemplate, generatedName, finalName, context, canEdit, updateRow, removeRow, dragHandleProps, showPlatform, compact }) {
   const [expanded, setExpanded] = useState(false);
   const template = rowTemplate(row);
   const tokens = templateTokens(template).filter((t) => t !== "platform");
@@ -1825,13 +2001,9 @@ function NodeHeader({ row, icon: Icon, nodeLabel, dimByKey, profiles, rowTemplat
           {showPlatform && (
             <div>
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Channel</div>
-              <Select disabled={!canEdit} value={row.platform || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { platform: v === "__none__" ? "" : v })}>
-                <SelectTrigger className="h-7 w-[160px] text-xs"><SelectValue placeholder="Channel…" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Channel…</SelectItem>
-                  {Object.keys(PLATFORM_CODES).map((p) => <SelectItem key={p} value={p}>{p} ({PLATFORM_CODES[p]})</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Badge variant="outline" className="h-6 px-2 text-xs font-medium">
+                {row.platform ? `${row.platform} (${PLATFORM_CODES[row.platform] || channelCode(row.platform)})` : "No channel set"}
+              </Badge>
             </div>
           )}
           <div className="flex flex-wrap gap-2">
@@ -1849,16 +2021,42 @@ function NodeHeader({ row, icon: Icon, nodeLabel, dimByKey, profiles, rowTemplat
                 <SelectContent>{Object.entries(STATUS_LABELS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div>
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Targeting</div>
-              <Select disabled={!canEdit} value={row.targetingProfileId || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { targetingProfileId: v === "__none__" ? "" : v })}>
-                <SelectTrigger className="h-7 w-[140px] text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None</SelectItem>
-                  {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+            {platformFamily(row.platform) === "social" && (
+              <div>
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Targeting</div>
+                <Select disabled={!canEdit} value={row.targetingProfileId || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { targetingProfileId: v === "__none__" ? "" : v })}>
+                  <SelectTrigger className="h-7 w-[140px] text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {row.level === "ad" && (
+              <>
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Ad Format</div>
+                  <Select disabled={!canEdit} value={row.adFormat || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { adFormat: v === "__none__" ? "" : v })}>
+                    <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue placeholder="Format…" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {adFormatOptionsFor(context, row.platform).map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Objective</div>
+                  <Select disabled={!canEdit} value={row.objective || "__none__"} onValueChange={(v) => updateRow(row.oldKey, { objective: v === "__none__" ? "" : v })}>
+                    <SelectTrigger className="h-7 w-[140px] text-xs"><SelectValue placeholder="Objective…" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {adObjectiveOptionsFor(context, row.platform).map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
             <div>
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Budget</div>
               <Input type="number" disabled={!canEdit} value={row.budget || ""} onChange={(e) => updateRow(row.oldKey, { budget: e.target.value })} placeholder="$/mo" className="h-7 w-24 text-xs" />
@@ -2128,7 +2326,7 @@ export default function AccountPlanning({ session, workspace, mergedNormRows, co
             <TargetingStep session={session} workspace={workspace} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} setTargeting={(v) => setStepField("targeting", v)} canEdit={canEdit} />
           )}
           {activeStep === "mapping" && (
-            <MappingStep mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} canEdit={canEdit} />
+            <MappingStep mapping={plan.mapping || []} setMapping={(v) => setStepField("mapping", v)} taxonomy={plan.taxonomy || {}} targeting={plan.targeting || []} context={plan.context || {}} canEdit={canEdit} />
           )}
         </StepErrorBoundary>
       </div>
