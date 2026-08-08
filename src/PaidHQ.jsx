@@ -3361,7 +3361,9 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             // horizontal scrollbar.
             <div ref={setBudgetSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",display:"flex",flexDirection:"column"}}/>
           ):view==="pacing"?(
-            <div ref={setPacingSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
+            // overflowX hidden (2026-08-07) so the Pacing sidebar's full-bleed section dividers
+            // (-mx past the aside's horizontal padding) don't trigger a horizontal scrollbar.
+            <div ref={setPacingSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",display:"flex",flexDirection:"column"}}/>
           ):view==="ask"?(
             <div ref={setAskSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="reportingAnalyzer"?(
