@@ -43,7 +43,7 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from ".
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "./components/ui/table.jsx";
 import {
   Plus, X, File, PencilSimple, DownloadSimple, PaperPlaneTilt, Trash, Check,
-  MagnifyingGlass, Question, CaretDown, DotsThree, Export as ExportIcon, EnvelopeSimple, FloppyDisk, ClockCounterClockwise,
+  MagnifyingGlass, Question, CaretDown, CaretRight, DotsThree, Export as ExportIcon, EnvelopeSimple, FloppyDisk, ClockCounterClockwise,
   Gauge, Database, ListChecks, Tag, Wallet, ChartBar, FunnelSimple, Target, Funnel, Compass, Sparkle, Lock, Gear, Lightning,
   SidebarSimple,
 } from "@phosphor-icons/react";
@@ -171,6 +171,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // icon-only rail — BudgetHQ's NAV items don't have an icon-only rendering mode built yet, and a
   // full hide/show is still a faithful, working version of the same affordance.
   const[primaryNavCollapsed,setPrimaryNavCollapsed]=useState(false);
+  // "Budget & Actuals" nav group (2026-08-07, per Mo) — folds Budget Panel + Budget Pacing under
+  // one expandable parent (Venture's Emails→General/Analytics pattern). Default open so both stay
+  // one click away; the two view keys ("budget"/"pacing") are unchanged.
+  const[budgetGroupOpen,setBudgetGroupOpen]=useState(true);
   const[width,setWidth]=useState(typeof window!=="undefined"?window.innerWidth:1200);
   useEffect(()=>{const h=()=>setWidth(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const isMobile=width<768;
@@ -3138,6 +3142,28 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         <nav className={cn("flex flex-1 flex-col overflow-y-auto overflow-x-hidden py-4",primaryNavCollapsed?"items-center px-2":"px-3")}>
           <div className={cn("flex w-full flex-col gap-0.5",primaryNavCollapsed&&"items-center")}>
             {NAV.map(item=>{
+              // "pacing" is rendered as a child of the Budget & Actuals group when the rail is
+              // expanded — skip its standalone row there (in the collapsed icon rail it still shows
+              // as its own icon, since a nested expandable group doesn't fit a 60px rail).
+              if(item.key==="pacing"&&!primaryNavCollapsed)return null;
+              // "budget" becomes the expandable Budget & Actuals group (parent + Budget Panel /
+              // Budget Pacing children) when expanded.
+              if(item.key==="budget"&&!primaryNavCollapsed){
+                return(
+                  <div key="budget-group" className="flex w-full flex-col gap-0.5">
+                    <NavItem icon={<Wallet size={16}/>} onClick={()=>setBudgetGroupOpen(o=>!o)}
+                      trailingIcon={budgetGroupOpen?<CaretDown size={12}/>:<CaretRight size={12}/>}>
+                      Budget &amp; Actuals
+                    </NavItem>
+                    {budgetGroupOpen&&(
+                      <div className="flex flex-col gap-0.5 pl-8">
+                        <NavItem active={view==="budget"} onClick={()=>setView("budget")}>Budget Panel</NavItem>
+                        <NavItem active={view==="pacing"} onClick={()=>setView("pacing")}>Budget Pacing</NavItem>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
               const active=view===item.key;
               const ItemIcon=NAV_ICONS[item.key]||Gauge;
               return(

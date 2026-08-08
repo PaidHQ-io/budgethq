@@ -832,7 +832,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             {[
               {label:"Total Budget",value:fmtFull(pacing.totals.budget),icon:Wallet},
               {label:"Spend to Date",value:fmtFull(pacing.totals.spend),icon:Coins},
-              {label:"Overall Pacing",value:overallPct!=null?`${Math.round(overallPct*100)}%`:"—",color:overallPct!=null&&overallPct-pacing.expectedPct>0.1?T.warning:overallPct!=null&&overallPct-pacing.expectedPct<-0.1?T.accent:T.success,icon:Gauge},
+              // Overall Pacing rendered as a Venture semantic-token bubble (per Mo) — warning when
+              // ahead of expected pace, info (blue) when behind, success when on pace.
+              {label:"Overall Pacing",value:overallPct!=null?`${Math.round(overallPct*100)}%`:"—",badge:overallPct==null?"":(overallPct-pacing.expectedPct>0.1?"bg-warning-bg text-warning":overallPct-pacing.expectedPct<-0.1?"bg-info-bg text-info":"bg-success-bg text-success"),icon:Gauge},
               {label:"Expected Pace",value:`${Math.round(pacing.expectedPct*100)}%`,icon:Clock},
               {label:"Segments",value:pacing.segments.length.toString(),icon:Stack},
               // MQL Goal/Actual (2026-08-06, per Mo) — only shown once there's actually MQL data
@@ -844,7 +846,11 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             ].map(s=>(
               <div key={s.label} className="flex items-center justify-between py-1.5 text-xs">
                 <span className="flex items-center gap-2 text-muted-foreground"><s.icon size={14}/> {s.label}</span>
-                <span className="font-medium" style={{color:s.color||undefined}}>{s.value}</span>
+                {s.badge?(
+                  <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium",s.badge)}>{s.value}</span>
+                ):(
+                  <span className="font-medium text-foreground">{s.value}</span>
+                )}
               </div>
             ))}
           </div>
@@ -871,13 +877,17 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               const fmtShort=d=>d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
               return Object.entries(merged).sort(([,a],[,b])=>b.date-a.date).map(([platform,info])=>{
                 const daysStale=Math.floor((now-info.date)/86400000);
-                const color=daysStale<=1?T.success:daysStale<=3?T.accent:daysStale<=6?T.warning:T.danger;
+                // Venture semantic-token bubbles (2026-08-07, per Mo — "colored bubbles with text
+                // darker than the bubble, all on theme"): light tint background + darker foreground
+                // from the same hue. success (green) ≤1d, info (blue) ≤3d, warning (orange) ≤6d,
+                // destructive (red) older.
+                const badge=daysStale<=1?"bg-success-bg text-success":daysStale<=3?"bg-info-bg text-info":daysStale<=6?"bg-warning-bg text-warning":"bg-destructive-bg text-destructive";
                 const label=daysStale<=0?"Today":daysStale===1?"Yesterday":`${daysStale} days ago`;
                 return(
                   <div key={platform} className="flex flex-col gap-0.5 py-1">
                     <div className="flex items-center justify-between gap-2 text-[11px]">
                       <span className="truncate text-foreground">{platform}</span>
-                      <span className="whitespace-nowrap font-medium" style={{color}}>{label}</span>
+                      <span className={cn("whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium",badge)}>{label}</span>
                     </div>
                     {info.min&&info.max&&<div className="whitespace-nowrap text-[10px] text-muted-foreground">{fmtShort(info.min)} – {fmtShort(info.max)}</div>}
                   </div>
