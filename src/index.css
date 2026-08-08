@@ -14,6 +14,30 @@
   padding: 0;
 }
 
+/* Border-style default (2026-08-07, root-caused live via getComputedStyle in the browser after Mo
+   reported missing dividers all over the shell/Settings — "no dividing line between the left column
+   and the rest of the page", "no line between the top bar and the page", "missing dividers between
+   settings-nav groups"). Root cause: Tailwind's border-width utilities (border, border-t, border-r,
+   border-b, border-l — used everywhere in the Venture rebuild) ONLY ever set border-*-width.
+   border-style has always come from Preflight's own universal reset
+   (*,::before,::after{border-width:0;border-style:solid;border-color:currentColor}), which is
+   intentionally OFF here (see tailwind.config.js's corePlugins.preflight comment). Per the CSS spec,
+   a border's USED width computes to 0 whenever its style is `none` — the browser default for every
+   element — regardless of what width value is declared. Confirmed directly: a bare <div> with only
+   `border-r border-border` applied computed borderRightWidth to "0px"/style "none"; manually forcing
+   border-right-style:solid on the same element made the declared 1px width take effect immediately.
+   This means literally every border-* utility used across the whole Tailwind rebuild (sidebar,
+   Settings nav groups, cards, header, table rows, everything) has been silently invisible. Fixed by
+   replicating just the border half of Preflight's reset — border-width:0 (so nothing has a border by
+   default) + border-style:solid + border-color:currentColor (so any element that DOES get an
+   explicit border-width utility renders it) — without pulling in Preflight's other resets
+   (headings/lists/form-control sizing/etc.) that were the actual reason preflight was left off. */
+*, *::before, *::after {
+  border-width: 0;
+  border-style: solid;
+  border-color: currentColor;
+}
+
 html, body {
   height: 100%;
   width: 100%;
