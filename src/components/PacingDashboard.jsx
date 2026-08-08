@@ -685,6 +685,10 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     const headers=isCustom
       ?[...dims,"Spend","Daily Burn","Projected"]
       :[...dims,"Budget","Spend PTD","Pacing","Expected","Daily Burn","Projected","Projected %","Variance","Status"];
+    // Export-safe signed currency: ASCII +/- and NO thousands separators (2026-08-08, per Mo — the
+    // on-screen fmtSigned uses a Unicode minus "−" that the PDF font renders as a stray comma, and he
+    // wants the variance figure comma-free). fmtSigned stays as-is for the on-screen UI.
+    const fmtVarExport=n=>n==null?"—":(n>0?"+":n<0?"-":"")+"$"+Math.round(Math.abs(n));
     const rows=segs.map(seg=>isCustom?[
       ...seg.dims,
       fmtFull(seg.spend),
@@ -699,12 +703,15 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       `${fmtFull(seg.dailyRate)}/day`,
       seg.projected!=null?fmtFull(seg.projected):"—",
       seg.projected!=null&&seg.budget>0?`${Math.round((seg.projected/seg.budget)*100)}%`:"—",
-      seg.projectedVariance!=null?fmtSigned(seg.projectedVariance):"—",
+      seg.projectedVariance!=null?fmtVarExport(seg.projectedVariance):"—",
       pacingStatusMeta(seg.status,T).label,
     ]);
-    // Attach the top pacing chart to PDF exports (2026-08-08, per Mo). Only the budget view has a
-    // budget to pace against; the chart mirrors what's on screen (same effChartDim, mode, filters).
-    const chart=(!isCustom&&chartRowsAll.length)?{
+    // Attach the top pacing chart to the export. PDF draws it as a visual (report.chart); the
+    // tabular formats (csv/xlsx/html/sheets) can't render a chart, so they get the same numbers as a
+    // data table appended BELOW the segments table (2026-08-08, per Mo). chartData:true flags that
+    // table so the PDF builder skips it (the PDF already has the visual).
+    const hasChart=!isCustom&&chartRowsAll.length>0;
+    const chart=hasChart?{
       heading:`Budget pacing — by ${effChartDim}`,
       mode:chartMode,
       expectedPct:pacing.expectedPct,
@@ -712,11 +719,24 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       headline:`Budget ${fmtFull(chartTotals.budget)}    Spend ${fmtFull(chartTotals.spend)}    Pace ${chartTotals.budget>0?Math.round(chartTotals.spend/chartTotals.budget*100):"—"}% vs ${Math.round(pacing.expectedPct*100)}% expected`,
       rows:chartRowsAll.map(r=>({name:r.name,budget:r.budget,spend:r.spend,projected:r.projected})),
     }:null;
+    const chartSection=hasChart?{
+      heading:`Pacing chart data — by ${effChartDim}`,
+      chartData:true,
+      headers:[effChartDim,"Budget","Spend","Projected","Pace %","Variance"],
+      rows:chartRowsAll.map(r=>[
+        r.name,
+        fmtFull(r.budget),
+        fmtFull(r.spend),
+        fmtFull(r.projected),
+        r.budget>0?`${Math.round(r.spend/r.budget*100)}%`:"—",
+        fmtVarExport(r.projected-r.budget),
+      ]),
+    }:null;
     return{
       title:"Budget Pacing export",
       subtitle:`${periodLabel} · ${pacing.elapsedDays} of ${pacing.totalDays} days elapsed · Generated ${new Date().toLocaleString()}`,
       chart,
-      sections:[{heading:`${isCustom?"Custom":"Budget"} segments — ${periodLabel}`,headers,rows}],
+      sections:[{heading:`${isCustom?"Custom":"Budget"} segments — ${periodLabel}`,headers,rows},...(chartSection?[chartSection]:[])],
     };
   };
   const[exportMenuOpen,setExportMenuOpen]=useState(false);

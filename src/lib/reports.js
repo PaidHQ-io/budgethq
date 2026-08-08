@@ -3,6 +3,9 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { THEME } from "./core.js";
 import { campaignKey, derivePlatform, computePacing, pacingStatusMeta } from "./core.js";
+import { registerInterFont } from "./pdfInterFont.js";
+// Every PDF text call goes through Inter (2026-08-08, per Mo — "whole pdf export in inter font").
+const PDF_FONT="Inter";
 
 // src/lib/reports.js — Export report builders (2026-07-25 split, per Mo). Every exportable
 // view (Dashboard, Campaign Tagger, Budget Panel, Reporting & Pacing) is first turned into one
@@ -189,15 +192,15 @@ function drawPacingChart(doc,chart,marginX,startY){
     ?{spend:r.budget>0?(r.spend/r.budget)*100:0,proj:r.budget>0?(r.projected/r.budget)*100:0,budget:100,expected:chart.expectedPct*100}
     :{spend:r.spend,proj:r.projected,budget:r.budget,expected:chart.expectedPct*r.budget};
   let y=startY;
-  doc.setFontSize(12);doc.setTextColor(23,23,23);doc.setFont(undefined,"bold");
-  doc.text(chart.heading,marginX,y+12);y+=20;
-  if(chart.headline){doc.setFont(undefined,"normal");doc.setFontSize(8.5);doc.setTextColor(102,102,102);doc.text(chart.headline,marginX,y);y+=12;}
+  doc.setFontSize(11);doc.setTextColor(23,23,23);doc.setFont(PDF_FONT,"bold");
+  doc.text(chart.heading,marginX,y+12);y+=24;
+  if(chart.headline){doc.setFont(PDF_FONT,"normal");doc.setFontSize(8);doc.setTextColor(102,102,102);doc.text(chart.headline,marginX,y);y+=14;}
   rows.forEach(r=>{
     if(y>720){doc.addPage();y=50;}
     const v=rv(r),over=v.proj>v.budget;
     const barY=y+2,barH=rowH-4;
     // label
-    doc.setFont(undefined,"normal");doc.setFontSize(8);doc.setTextColor(102,102,102);
+    doc.setFont(PDF_FONT,"normal");doc.setFontSize(7);doc.setTextColor(102,102,102);
     const nm=r.name.length>26?r.name.slice(0,25)+"…":r.name;
     doc.text(nm,marginX,y+rowH*0.72);
     // budget track
@@ -217,43 +220,47 @@ function drawPacingChart(doc,chart,marginX,startY){
     doc.setDrawColor(23,23,23);doc.setLineWidth(1);
     doc.line(xAt(v.budget),y,xAt(v.budget),y+rowH);
     // pace % label
-    doc.setFontSize(8);over?doc.setTextColor(214,96,86):doc.setTextColor(102,102,102);
+    doc.setFontSize(7);over?doc.setTextColor(214,96,86):doc.setTextColor(102,102,102);
     doc.text(r.budget>0?`${Math.round(r.spend/r.budget*100)}%`:"—",barRight+6,y+rowH*0.72);
     y+=rowH+gap;
   });
   // axis ticks
   const ticks=isPct?[0,50,100,xMax].filter((t,i,a)=>a.indexOf(t)===i):[0,Math.round(xMax/2),xMax];
-  doc.setFontSize(7.5);doc.setTextColor(150,144,154);
+  doc.setFontSize(7);doc.setTextColor(150,144,154);
   ticks.forEach(t=>doc.text(isPct?`${Math.round(t)}%`:money(t),xAt(t),y+6,{align:"center"}));
   return y+18;
 }
 
 export function buildReportPDFDoc(report){
   const doc=new jsPDF({unit:"pt",format:"letter"});
+  registerInterFont(doc);
   const marginX=40;let y=50;
   doc.setFillColor(0,0,0);
   doc.roundedRect(marginX,y-14,18,18,4,4,"F");
-  doc.setFontSize(13);doc.setTextColor(23,23,23);doc.setFont(undefined,"bold");
+  doc.setFontSize(13);doc.setTextColor(23,23,23);doc.setFont(PDF_FONT,"bold");
   doc.text("PaidHQ",marginX+26,y+1);
   y+=28;
   doc.setFontSize(18);doc.text(report.title,marginX,y);
   y+=15;
-  doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(143,143,143);
+  doc.setFont(PDF_FONT,"normal");doc.setFontSize(9);doc.setTextColor(143,143,143);
   doc.text(report.subtitle,marginX,y);
   y+=12;
   if(report.chart&&report.chart.rows&&report.chart.rows.length){
     y=drawPacingChart(doc,report.chart,marginX,y+8);
   }
   report.sections.forEach(sec=>{
+    // chartData sections exist only to give the tabular exports the chart's numbers — the PDF has
+    // already drawn the chart visually above, so skip them here to avoid a redundant data table.
+    if(sec.chartData)return;
     if(y>700){doc.addPage();y=50;}
-    doc.setFontSize(12);doc.setTextColor(23,23,23);doc.setFont(undefined,"bold");
+    doc.setFontSize(11);doc.setTextColor(23,23,23);doc.setFont(PDF_FONT,"bold");
     doc.text(sec.heading,marginX,y+16);
     autoTable(doc,{
       startY:y+22,margin:{left:marginX,right:marginX},
       head:[sec.headers],
       body:sec.rows.length?sec.rows:[sec.headers.map((h,i)=>i===0?"No data":"")],
-      styles:{fontSize:8.5,cellPadding:5,textColor:[23,23,23]},
-      headStyles:{fillColor:[250,250,250],textColor:[102,102,102],fontStyle:"bold",lineWidth:0.5,lineColor:[212,212,212]},
+      styles:{font:PDF_FONT,fontStyle:"normal",fontSize:6.5,cellPadding:3,textColor:[23,23,23]},
+      headStyles:{font:PDF_FONT,fillColor:[250,250,250],textColor:[102,102,102],fontStyle:"bold",lineWidth:0.5,lineColor:[212,212,212]},
       alternateRowStyles:{fillColor:[250,250,250]},
       theme:"grid",
     });
