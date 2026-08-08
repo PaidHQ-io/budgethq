@@ -297,62 +297,71 @@ const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
   );
 };
 
-// Budget-vs-Spend grouped bar chart (2026-08-07, per Mo — "a major chart at the top... one
-// dimension at a time... a series for budget and a series for spend"). Custom SVG rather than
-// Tremor so the bars can be exactly grey (Budget) + black (Spend) with a black hover + floating
-// tooltip, matching the Venture reference; Tremor's `colors` only maps to named mid-shade palette
-// entries and can't do the grey/near-black pairing. Width is measured off the container so it fills
-// responsively; bars/labels are laid out in real pixels (no viewBox scaling of text).
-function BudgetSpendChart({data,valueFormatter,T}){
+// Pacing bullet chart (2026-08-07, per Mo — "the perfect chart": one horizontal bullet bar per
+// value of the selected dimension). Each bar packs the budget (light-grey track to 100%/$budget),
+// projected end-of-period spend (medium-grey band, red where it overshoots budget), spend-to-date
+// (thin black measure bar), an expected-pace marker (dashed) and the budget line (solid). Two
+// modes: "pct" normalizes every bar to its own budget (shared 100% + expected lines — best for
+// comparing pacing across differently-sized segments); "dollar" shows true magnitudes with per-row
+// budget/expected markers. Custom SVG (Tremor can't draw bullets); width measured off the
+// container. onPick(name) links a bar-click to the table below.
+function PacingBulletChart({rows,expectedPct,mode,valueFormatter,onPick,T}){
   const wrapRef=useRef(null);
   const[w,setW]=useState(760);
   const[hoverIdx,setHoverIdx]=useState(null);
-  useEffect(()=>{
-    const el=wrapRef.current;if(!el)return;
-    const ro=new ResizeObserver(es=>setW(Math.max(340,es[0].contentRect.width)));
-    ro.observe(el);return()=>ro.disconnect();
-  },[]);
-  const H=300,padL=64,padR=12,padT=12,padB=52;
-  const innerW=Math.max(1,w-padL-padR),innerH=H-padT-padB;
-  const rawMax=Math.max(1,...data.map(d=>Math.max(d.Budget||0,d.Spend||0)));
-  const p=Math.pow(10,Math.floor(Math.log10(rawMax)));
-  const niceMax=Math.ceil(rawMax/p)*p||1;
-  const n=data.length||1;
-  const slot=innerW/n;
-  const barW=Math.max(6,Math.min(26,(slot-10)/2));
-  const yFor=v=>padT+innerH-(Math.max(0,v)/niceMax)*innerH;
+  useEffect(()=>{const el=wrapRef.current;if(!el)return;const ro=new ResizeObserver(es=>setW(Math.max(360,es[0].contentRect.width)));ro.observe(el);return()=>ro.disconnect();},[]);
+  const isPct=mode==="pct";
+  const rowH=24,gap=9,padT=6,padB=26,padL=152,padR=58;
+  const chartH=rows.length*(rowH+gap)+padT+padB;
+  const barW=Math.max(60,w-padL-padR);
+  let xMax;
+  if(isPct){const maxPct=Math.max(110,...rows.map(r=>r.budget>0?(r.projected/r.budget)*100:0));xMax=Math.min(300,Math.ceil(maxPct/10)*10);}
+  else{const rawMax=Math.max(1,...rows.map(r=>Math.max(r.budget,r.projected)));const p=Math.pow(10,Math.floor(Math.log10(rawMax)));xMax=Math.ceil(rawMax/p)*p||1;}
+  const xAt=v=>padL+(Math.max(0,Math.min(v,xMax))/xMax)*barW;
+  const rv=r=>isPct
+    ?{spend:r.budget>0?(r.spend/r.budget)*100:0,proj:r.budget>0?(r.projected/r.budget)*100:0,budget:100,expected:expectedPct*100}
+    :{spend:r.spend,proj:r.projected,budget:r.budget,expected:expectedPct*r.budget};
   const fmtK=v=>v>=1e6?`${(v/1e6).toFixed(1)}M`:v>=1e3?`${Math.round(v/1e3)}k`:`${Math.round(v)}`;
-  const ticks=[0,0.25,0.5,0.75,1].map(f=>Math.round(f*niceMax));
+  const ticks=isPct?[...new Set([0,50,100,xMax])]:[0,Math.round(xMax/2),xMax];
   return(
     <div ref={wrapRef} style={{position:"relative",width:"100%"}}>
-      <svg width={w} height={H} style={{display:"block"}}>
-        {ticks.map((t,i)=>(
-          <g key={i}>
-            <line x1={padL} x2={w-padR} y1={yFor(t)} y2={yFor(t)} stroke={T.border} strokeDasharray="3 4"/>
-            <text x={padL-8} y={yFor(t)+4} textAnchor="end" fontSize="11" fill={T.textMuted} fontFamily={T.font}>{fmtK(t)}</text>
-          </g>
-        ))}
-        {data.map((d,idx)=>{
-          const cx=padL+slot*idx+slot/2;
-          const bx=cx-barW-2,sx=cx+2;
-          const hv=hoverIdx===idx;
+      <svg width={w} height={chartH} style={{display:"block"}}>
+        {isPct&&<>
+          <line x1={xAt(100)} x2={xAt(100)} y1={padT} y2={chartH-padB} stroke={T.text} strokeWidth={1}/>
+          <line x1={xAt(expectedPct*100)} x2={xAt(expectedPct*100)} y1={padT} y2={chartH-padB} stroke={T.textMuted} strokeWidth={1} strokeDasharray="3 3"/>
+        </>}
+        {rows.map((r,i)=>{
+          const y=padT+i*(rowH+gap);const v=rv(r);const over=v.proj>v.budget;const hv=hoverIdx===i;
+          const barY=y+rowH*0.16,barH=rowH*0.68,spendH=rowH*0.4,spendY=y+(rowH-spendH)/2;
           return(
-            <g key={idx} onMouseEnter={()=>setHoverIdx(idx)} onMouseLeave={()=>setHoverIdx(null)}>
-              <rect x={padL+slot*idx} y={padT} width={slot} height={innerH} fill="transparent"/>
-              <rect x={bx} y={yFor(d.Budget)} width={barW} height={Math.max(0,padT+innerH-yFor(d.Budget))} rx={2} fill={hv?T.borderStrong:T.surfaceHover}/>
-              <rect x={sx} y={yFor(d.Spend)} width={barW} height={Math.max(0,padT+innerH-yFor(d.Spend))} rx={2} fill={hv?"#000":T.text}/>
-              <text x={cx} y={H-30} textAnchor="middle" fontSize="10" fill={hv?T.text:T.textMuted} fontFamily={T.font}>{d.name.length>11?d.name.slice(0,10)+"…":d.name}</text>
+            <g key={i} style={{cursor:onPick?"pointer":"default"}} onMouseEnter={()=>setHoverIdx(i)} onMouseLeave={()=>setHoverIdx(null)} onClick={()=>onPick&&onPick(r.name)}>
+              <rect x={0} y={y} width={w} height={rowH} fill={hv?T.surfaceHover:"transparent"} opacity={hv?0.5:0}/>
+              <text x={0} y={y+rowH*0.7} fontSize="11" fill={hv?T.text:T.textSub} fontFamily={T.font}>{r.name.length>23?r.name.slice(0,22)+"…":r.name}</text>
+              <rect x={xAt(0)} y={barY} width={Math.max(0,xAt(v.budget)-xAt(0))} height={barH} rx={3} fill={T.surfaceHover}/>
+              <rect x={xAt(0)} y={barY} width={Math.max(0,xAt(Math.min(v.proj,v.budget))-xAt(0))} height={barH} rx={3} fill={T.borderStrong}/>
+              {over&&<rect x={xAt(v.budget)} y={barY} width={Math.max(0,xAt(v.proj)-xAt(v.budget))} height={barH} rx={3} fill={T.danger} opacity={0.85}/>}
+              <rect x={xAt(0)} y={spendY} width={Math.max(0,xAt(v.spend)-xAt(0))} height={spendH} rx={2} fill={hv?"#000":T.text}/>
+              {!isPct&&<>
+                <line x1={xAt(v.budget)} x2={xAt(v.budget)} y1={y+1} y2={y+rowH-1} stroke={T.text} strokeWidth={1}/>
+                <line x1={xAt(v.expected)} x2={xAt(v.expected)} y1={y+1} y2={y+rowH-1} stroke={T.textMuted} strokeWidth={1} strokeDasharray="3 3"/>
+              </>}
+              <text x={w-padR+8} y={y+rowH*0.7} fontSize="11" fontWeight={over?700:400} fill={over?T.danger:T.textSub} fontFamily={T.font}>{r.budget>0?`${Math.round(r.spend/r.budget*100)}%`:"—"}</text>
             </g>
           );
         })}
+        {ticks.map((t,i)=><text key={i} x={xAt(t)} y={chartH-8} textAnchor="middle" fontSize="10" fill={T.textMuted} fontFamily={T.font}>{isPct?`${Math.round(t)}%`:fmtK(t)}</text>)}
       </svg>
-      {hoverIdx!=null&&data[hoverIdx]&&(
-        <div style={{position:"absolute",left:Math.min(w-180,Math.max(0,(padL+slot*hoverIdx+slot/2)-90)),top:6,pointerEvents:"none",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:"8px 10px",fontSize:12,fontFamily:T.font,minWidth:150,zIndex:5}}>
-          <div style={{fontWeight:600,marginBottom:4,color:T.text}}>{data[hoverIdx].name}</div>
-          <div style={{display:"flex",justifyContent:"space-between",gap:14,color:T.textSub,marginBottom:2}}><span>Budget</span><span style={{fontWeight:600,color:T.text}}>{valueFormatter(data[hoverIdx].Budget)}</span></div>
-          <div style={{display:"flex",justifyContent:"space-between",gap:14,color:T.textSub}}><span>Spend</span><span style={{fontWeight:600,color:T.text}}>{valueFormatter(data[hoverIdx].Spend)}</span></div>
-        </div>
-      )}
+      {hoverIdx!=null&&rows[hoverIdx]&&(()=>{
+        const r=rows[hoverIdx];const over=r.projected>r.budget;const vpos=r.projected-r.budget;
+        return(
+          <div style={{position:"absolute",left:Math.min(w-210,padL+10),top:Math.max(0,padT+hoverIdx*(rowH+gap)-2),pointerEvents:"none",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,boxShadow:T.shadowMd,padding:"8px 10px",fontSize:12,fontFamily:T.font,minWidth:190,zIndex:5}}>
+            <div style={{fontWeight:600,marginBottom:4,color:T.text}}>{r.name}</div>
+            {[["Budget",valueFormatter(r.budget),T.text],["Spend to date",valueFormatter(r.spend),T.text],["Projected",valueFormatter(r.projected),T.text],["Variance",(vpos>=0?"+":"")+valueFormatter(vpos),over?T.danger:T.success]].map(([k,val,c],j)=>(
+              <div key={j} style={{display:"flex",justifyContent:"space-between",gap:16,color:T.textSub,marginBottom:j<3?2:0}}><span>{k}</span><span style={{fontWeight:600,color:c}}>{val}</span></div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -383,6 +392,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   // row-cards floating on the grey page; grid mode = bordered white table card.
   const[cardRows,setCardRows]=usePersistentState("paidhq_pacing_cardRows",true);
   const[chartDim,setChartDim]=usePersistentState("paidhq_pacing_chartDim",""); // top chart's grouping dimension
+  const[chartMode,setChartMode]=usePersistentState("paidhq_pacing_chartMode","pct"); // "pct" | "dollar"
+  const[chartSort,setChartSort]=usePersistentState("paidhq_pacing_chartSort","risk"); // "risk" | "budget" | "spend"
   // Pagination (2026-08-07, per Mo) — paginates the top-level segments; drill-down sub-rows and the
   // totals row are unaffected. page clamps to the available range at render, no reset-effect needed.
   const[pacingPageSize,setPacingPageSize]=usePersistentState("paidhq_pacing_pageSize",10);
@@ -572,21 +583,6 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
 
   const pacing=useMemo(()=>computePacing({mergedNormRows,tags:campaignTags,budgetDims,budgets,year,periodType,month,quarter,today:now,budgetRowMeta,defaultForecastModel,combineGoogleChannels}),
     [mergedNormRows,campaignTags,budgetDims,budgets,year,periodType,month,quarter,budgetRowMeta,defaultForecastModel,combineGoogleChannels]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Top Budget-vs-Spend chart (2026-08-07, per Mo) — aggregates the period's segments by ONE
-  // budget dimension (user-selectable) into a Budget series + a Spend series.
-  const effChartDim=budgetDims.includes(chartDim)?chartDim:budgetDims[0];
-  const chartByDimData=useMemo(()=>{
-    const idx=budgetDims.indexOf(effChartDim);
-    if(idx<0)return[];
-    const map=new Map();
-    (pacing.segments||[]).forEach(s=>{
-      const v=(s.dims?.[idx])||"—";
-      const cur=map.get(v)||{name:v,Budget:0,Spend:0};
-      cur.Budget+=s.budget||0;cur.Spend+=s.spend||0;
-      map.set(v,cur);
-    });
-    return[...map.values()].sort((a,b)=>(b.Budget-a.Budget)||(b.Spend-a.Spend)).slice(0,14);
-  },[pacing.segments,effChartDim,budgetDims]);
   const platformDateRange=useMemo(()=>computePlatformDateRange(mergedNormRows),[mergedNormRows]);
   const customPacing=useMemo(()=>viewMode==="custom"&&customDims.length?computeCustomGrouping({mergedNormRows,tags:campaignTags,dims:customDims,year,periodType,month,quarter,today:now,combineGoogleChannels}):null,
     [viewMode,mergedNormRows,campaignTags,customDims,year,periodType,month,quarter,combineGoogleChannels]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -643,6 +639,27 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     })
   ),[customPacing,customDims,segFilters,numericFilters]);
   const hasSegFilters=statusFilter!=="all"||numericFilters.length>0||Object.values(segFilters).some(v=>(v||"").trim());
+  // Top pacing chart data (2026-08-07, per Mo) — aggregates the CURRENTLY FILTERED budget segments
+  // (so it tracks the filter bar and the table below) by ONE budget dimension into per-value
+  // budget / spend / projected totals, sorted per the chart's own sort control.
+  const effChartDim=budgetDims.includes(chartDim)?chartDim:budgetDims[0];
+  const chartRows=useMemo(()=>{
+    const idx=budgetDims.indexOf(effChartDim);
+    if(idx<0)return[];
+    const map=new Map();
+    filteredSegments.forEach(s=>{
+      const v=(s.dims?.[idx])||"—";
+      const cur=map.get(v)||{name:v,budget:0,spend:0,projected:0};
+      cur.budget+=s.budget||0;cur.spend+=s.spend||0;cur.projected+=(s.projected!=null?s.projected:s.spend)||0;
+      map.set(v,cur);
+    });
+    const arr=[...map.values()];
+    const cmp=chartSort==="spend"?(a,b)=>b.spend-a.spend
+      :chartSort==="risk"?(a,b)=>(b.projected-b.budget)-(a.projected-a.budget)
+      :(a,b)=>b.budget-a.budget;
+    return arr.sort(cmp).slice(0,15);
+  },[filteredSegments,effChartDim,budgetDims,chartSort]);
+  const chartTotals=useMemo(()=>chartRows.reduce((a,r)=>({budget:a.budget+r.budget,spend:a.spend+r.spend}),{budget:0,spend:0}),[chartRows]);
   const clearSegFilters=()=>{setSegFilters({});setStatusFilter("all");setNumericFilters([]);};
 
   // Export (2026-08-01, per Mo — "export function from the budget pacing tab to csv, excel, pdf,
@@ -1180,32 +1197,61 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           )}
           {aiViewError&&<span style={{fontSize:11*(T.fsScale||1),color:T.danger}}>{aiViewError}</span>}
         </div>
-        {/* Major Budget-vs-Spend chart (2026-08-07, per Mo) — order:-1 puts it directly under the
-            action-button row, above everything else. One selectable budget dimension at a time. */}
+        {/* Major pacing chart (2026-08-07, per Mo — "the perfect chart") — order:-1 puts it directly
+            under the action-button row. Reflects the current filters (chartRows aggregates
+            filteredSegments). Clicking a bar drops that value into the dimension's filter box. */}
         {budgetDims.length>0&&(
           <div style={{order:-1,marginBottom:14}}>
             <Card>
-              <CardHeader className="flex flex-row items-start justify-between pb-3">
-                <div>
-                  <CardTitle className="text-sm font-semibold text-foreground">Budget vs Spend</CardTitle>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{periodLabel} · by {effChartDim}</div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
-                    <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{background:T.surfaceHover}}/>Budget</span>
-                    <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{background:T.text}}/>Spend</span>
+              <CardHeader className="flex flex-col gap-3 pb-3">
+                <div className="flex flex-row items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-sm font-semibold text-foreground">Budget pacing</CardTitle>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{periodLabel} · by {effChartDim} · {pacing.elapsedDays} of {pacing.totalDays} days elapsed</div>
                   </div>
-                  <Select value={effChartDim} onValueChange={setChartDim}>
-                    <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue/></SelectTrigger>
-                    <SelectContent>{budgetDims.map(d=><SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {/* $ / % mode toggle */}
+                    <div className="flex items-center gap-1 rounded-sm border border-border p-0.5">
+                      {[["pct","%"],["dollar","$"]].map(([k,l])=>(
+                        <button key={k} type="button" onClick={()=>setChartMode(k)}
+                          className={cn("rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",chartMode===k?"bg-secondary text-foreground":"text-muted-foreground hover:bg-secondary/60")}>{l}</button>
+                      ))}
+                    </div>
+                    <Select value={chartSort} onValueChange={setChartSort}>
+                      <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue/></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="risk">Sort: at risk</SelectItem>
+                        <SelectItem value="budget">Sort: budget</SelectItem>
+                        <SelectItem value="spend">Sort: spend</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={effChartDim} onValueChange={setChartDim}>
+                      <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue/></SelectTrigger>
+                      <SelectContent>{budgetDims.map(d=><SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {/* Headline strip + legend */}
+                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
+                    <span className="text-muted-foreground">Budget <span className="font-semibold text-foreground">{fmtFull(chartTotals.budget)}</span></span>
+                    <span className="text-muted-foreground">Spend <span className="font-semibold text-foreground">{fmtFull(chartTotals.spend)}</span></span>
+                    <span className="text-muted-foreground">Pace <span className="font-semibold text-foreground">{chartTotals.budget>0?`${Math.round(chartTotals.spend/chartTotals.budget*100)}%`:"—"}</span> <span className="text-muted-foreground">vs {Math.round(pacing.expectedPct*100)}% expected</span></span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 rounded-sm" style={{background:T.text}}/>Spend</span>
+                    <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 rounded-sm" style={{background:T.borderStrong}}/>Projected</span>
+                    <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 rounded-sm" style={{background:T.danger,opacity:0.85}}/>Over</span>
+                    <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-px" style={{background:T.text}}/>Budget</span>
+                    <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-px border-l border-dashed" style={{borderColor:T.textMuted}}/>Expected</span>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
-                {chartByDimData.length?(
-                  <BudgetSpendChart data={chartByDimData} valueFormatter={fmtFull} T={T}/>
+                {chartRows.length?(
+                  <PacingBulletChart rows={chartRows} expectedPct={pacing.expectedPct} mode={chartMode} valueFormatter={fmtFull} onPick={name=>setSegFilters(p=>({...p,[effChartDim]:name}))} T={T}/>
                 ):(
-                  <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">No budget or spend for {periodLabel} yet.</div>
+                  <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">No segments match — adjust the filters or period.</div>
                 )}
               </CardContent>
             </Card>
