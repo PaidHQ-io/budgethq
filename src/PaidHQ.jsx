@@ -45,6 +45,7 @@ import {
   Plus, X, File, PencilSimple, DownloadSimple, PaperPlaneTilt, Trash, Check,
   MagnifyingGlass, Question, CaretDown, DotsThree, Export as ExportIcon, EnvelopeSimple, FloppyDisk, ClockCounterClockwise,
   Gauge, Database, ListChecks, Tag, Wallet, ChartBar, FunnelSimple, Target, Funnel, Compass, Sparkle, Lock, Gear, Lightning,
+  SidebarSimple,
 } from "@phosphor-icons/react";
 import { NavItem } from "./components/ui/nav-item.jsx";
 
@@ -164,6 +165,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const T=themeName==="aida"?THEME_AIDA:themeName==="midnight"?THEME_MIDNIGHT:themeName==="notion"?THEME_NOTION:THEME_CLASSIC;
   const[accountMenuOpen,setAccountMenuOpen]=useState(false);
   const[workspaceMenuOpen,setWorkspaceMenuOpen]=useState(false);
+  // 2026-08-07 (per Mo's direct comparison against Venture's reference) — Venture's sidebar Logo row
+  // has a collapse/expand toggle (the "Slider" node, a CaretDoubleHorizontal button) that this shell
+  // rebuild had dropped entirely. Collapsing fully hides the 240px rail rather than shrinking to an
+  // icon-only rail — BudgetHQ's NAV items don't have an icon-only rendering mode built yet, and a
+  // full hide/show is still a faithful, working version of the same affordance.
+  const[primaryNavCollapsed,setPrimaryNavCollapsed]=useState(false);
   const[width,setWidth]=useState(typeof window!=="undefined"?window.innerWidth:1200);
   useEffect(()=>{const h=()=>setWidth(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const isMobile=width<768;
@@ -3109,12 +3116,25 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           Venture's own Settings nav item), file/export "more" menu → a TopHeader icon button next
           to Help Center (Venture has no equivalent contextual export menu, so this is the closest
           slot for it). */}
-      <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-border bg-background">
+      {/* Floating re-expand affordance — shown only while the sidebar is collapsed, fixed-positioned
+          so it doesn't depend on being inside the (now width-0) aside below. */}
+      {primaryNavCollapsed&&(
+        <button onClick={()=>setPrimaryNavCollapsed(false)} title="Show sidebar"
+          className="fixed left-3 top-[20px] z-[60] flex h-7 w-7 items-center justify-center rounded-sm border border-border bg-background text-muted-foreground shadow-card hover:bg-secondary">
+          <SidebarSimple size={16}/>
+        </button>
+      )}
+      <aside className={cn("flex h-full shrink-0 flex-col border-border bg-background transition-[width] duration-150",
+        primaryNavCollapsed?"w-0 overflow-hidden border-r-0":"w-[240px] border-r")}>
         <div className="flex h-[64px] items-center gap-2 border-b border-border px-5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-primary">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-primary">
             <Lightning size={15} color="#fff" weight="fill"/>
           </div>
-          <span className="text-base font-semibold text-foreground">PaidHQ</span>
+          <span className="whitespace-nowrap text-base font-semibold text-foreground">PaidHQ</span>
+          <button onClick={()=>setPrimaryNavCollapsed(true)} title="Hide sidebar"
+            className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-secondary text-muted-foreground hover:bg-secondary/80">
+            <SidebarSimple size={16}/>
+          </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
@@ -3173,12 +3193,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         )}
       </aside>
 
-      {/* ── RIGHT COLUMN ── */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0,position:"relative"}}>
+      {/* ── RIGHT COLUMN ── explicit bg-background (2026-08-07, per Mo's direct comparison against
+          Venture — the header/content column was relying on inherited/body background rather than
+          an explicit white fill; making it explicit here removes any doubt). */}
+      <div className="bg-background" style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0,position:"relative"}}>
 
       {/* ── TOP HEADER ── search + file/export menu + Help Center + profile/account menu, matching
           Venture's exact header anatomy (search bar left, utility cluster right). */}
-      <div className="flex h-[64px] shrink-0 items-center justify-between border-b border-border px-6">
+      <div className="flex h-[64px] shrink-0 items-center justify-between border-b border-border bg-background px-6">
         <div className="flex h-9 w-[280px] items-center justify-between rounded-sm border border-input px-3 text-muted-foreground">
           <span className="flex items-center gap-2">
             <MagnifyingGlass className="h-4 w-4"/>
@@ -3293,10 +3315,16 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             (2026-08-06) — reverted 2026-08-07 per Mo ("make it the width of campaign tagger and
             include the second vertical column, just like the campaign tagger"): it now gets the
             normal open/collapsible sidebar like every other tab, portalling its own step nav in
-            via accountPlanningSidebarEl below instead of the zero-width collapse. */}
-        <aside style={{width:view==="dashboard"?0:(statsOpen?statsWidth:0),flexShrink:0,background:T.sidebarBg,borderRight:view==="dashboard"?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:view==="dashboard"?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
+            via accountPlanningSidebarEl below instead of the zero-width collapse.
+            Settings gets zero-width too (2026-08-07, per Mo's direct comparison against Venture's
+            General Settings reference) — that page now has its own full-height two-column nav+
+            content layout matching Venture's exact anatomy, and this generic legacy stats sidebar
+            (old T-theme PixelPanel styling, "Total spend/Campaigns/Tagged/Needs review") isn't part
+            of Venture's Settings design at all. It was rendering as an unwanted 3rd vertical column
+            — Mo counted "three vertical menus in settings instead of two." */}
+        <aside style={{width:(view==="dashboard"||view==="settings")?0:(statsOpen?statsWidth:0),flexShrink:0,background:T.sidebarBg,borderRight:(view==="dashboard"||view==="settings")?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:(view==="dashboard"||view==="settings")?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
 
-          {view==="dashboard"?null:view==="accountPlanning"?(
+          {view==="dashboard"||view==="settings"?null:view==="accountPlanning"?(
             <div ref={setAccountPlanningSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
           ):view==="budget"?(
             <div ref={setBudgetSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
@@ -4830,12 +4858,19 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         const scrollToSection=id=>document.getElementById(id)?.scrollIntoView({behavior:"smooth",block:"start"});
 
         return(
-          <div className="flex-1 overflow-auto bg-background">
-            <div className="mx-auto flex max-w-[1160px] gap-10 px-8 py-8">
-              <nav className="sticky top-8 hidden h-fit w-[180px] shrink-0 flex-col gap-6 lg:flex">
-                {NAV_GROUPS.map(group=>(
-                  <div key={group.label}>
-                    <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</div>
+          // 2026-08-07 layout fix — per Mo's direct comparison against the Venture reference: this
+          // used to be a centered max-w-[1160px] container with a floating sticky nav (no border, no
+          // background, no divider between groups) — nothing like Venture's actual anatomy, which is
+          // a full-height, edge-to-edge two-column layout: a 248px bordered/backgrounded nav column
+          // (matching the primary sidebar's own width) butted directly against the content column,
+          // with a real divider line between the GENERAL/WORKSPACE groups, not just a gap.
+          <div className="flex flex-1 overflow-hidden">
+            <nav className="flex h-full w-[248px] shrink-0 flex-col overflow-y-auto border-r border-border bg-background py-4">
+              {NAV_GROUPS.map((group,gi)=>(
+                <div key={group.label}>
+                  {gi>0&&<div className="mx-4 my-4 border-t border-border"/>}
+                  <div className="flex flex-col gap-3 px-4">
+                    <div className="px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</div>
                     <div className="flex flex-col gap-0.5">
                       {group.items.map(item=>(
                         <button key={item.id} type="button" onClick={()=>scrollToSection(item.id)}
@@ -4845,10 +4880,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       ))}
                     </div>
                   </div>
-                ))}
-              </nav>
+                </div>
+              ))}
+            </nav>
 
-              <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 overflow-auto bg-background">
+              <div className="max-w-[880px] px-8 py-8">
                 <div className="mb-6 border-b border-border pb-5">
                   <h1 className="text-h3 font-medium text-foreground">Settings</h1>
                   <p className="mt-1.5 max-w-[560px] text-sm text-muted-foreground">Manage the data stored in this PaidHQ instance. Reporting has no data of its own — it's computed live from Tagger and Budget data, so clearing either one updates Reporting automatically.</p>
