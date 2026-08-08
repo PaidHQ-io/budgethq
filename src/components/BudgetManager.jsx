@@ -2234,6 +2234,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               <th style={{...TH,textAlign:"center",minWidth:100}}>{budgetHeader("_total","Year Total")}</th>
               {showQ&&QUARTERS.map(q=><th key={"qc-"+q.key} style={{...TH,color:T.warning,minWidth:96}}>{q.label}</th>)}
               {showA&&<th style={{...TH,color:T.warning,minWidth:96}}>Annual Cap</th>}
+              {/* Trailing header cell for the per-row actions column (2026-08-07, per Mo) — without
+                  it the header/grey bar stopped one column short of the data + totals rows, which
+                  both carry this last cell. */}
+              <th style={{...TH,minWidth:52}}/>
             </tr></thead>
             <tbody>
               {filteredSegs.length===0&&segs.length>0&&(
