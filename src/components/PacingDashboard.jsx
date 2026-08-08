@@ -14,6 +14,7 @@ import { Icon, Btn, SectionLabel, Sel, PixelPanel, AISummaryCard, Pill, WarnTip,
 // Budget Panel). Used to rebuild the portal sidebar off the legacy T-theme Btn/Sel/PixelPanel.
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./ui/select.jsx";
 import { Button } from "./ui/button.jsx";
+import { Card } from "./ui/card.jsx";
 import { Wallet, Coins, Gauge, Clock, Stack, Target, CheckCircle, FloppyDisk, DownloadSimple, Sparkle, CaretDown } from "@phosphor-icons/react";
 import { cn } from "../lib/utils.js";
 import { usePersistentState } from "../lib/persist.js";
@@ -317,6 +318,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   // reset back to defaults). Purely transient UI state (row selection, expanded rows, in-place
   // editing, the notif toast) stays on plain useState below, unpersisted on purpose — see
   // usePersistentState's doc comment in shared.jsx.
+  // Card/grid rows (2026-08-07, per Mo — mirror the Budget Panel table). Card mode = white
+  // row-cards floating on the grey page; grid mode = bordered white table card.
+  const[cardRows,setCardRows]=usePersistentState("paidhq_pacing_cardRows",true);
   const[year,setYear]=usePersistentState("paidhq_pacing_year",yr.toString());
   const[periodType,setPeriodType]=usePersistentState("paidhq_pacing_periodType","monthly");
   const[month,setMonth]=usePersistentState("paidhq_pacing_month",()=>String(now.getMonth()+1).padStart(2,"0"));
@@ -1076,6 +1080,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             </div>
           )}
           <Button onClick={()=>setAiViewOpen(p=>!p)} variant="outline" size="sm"><Sparkle size={14}/> Ask AI to build a view</Button>
+          {viewMode==="budget"&&<Button onClick={()=>setCardRows(v=>!v)} variant="outline" size="sm" title={cardRows?"Switch to compact grid rows":"Switch to card-style rows"}>{cardRows?"Cards":"Grid"}</Button>}
           {aiViewOpen&&(
             <div style={{display:"flex",gap:6,alignItems:"center",flex:"1 1 320px",minWidth:260}}>
               <input autoFocus value={aiViewQuestion} onChange={e=>setAiViewQuestion(e.target.value)}
@@ -1181,7 +1186,14 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <Button onClick={bulkDeleteSegments} variant="destructive" size="sm">✕ Delete {selRows.size}</Button>
             </div>
           )}
-          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13*(T.fsScale||1),background:T.surface}}>
+          {/* Bordered table card (2026-08-07, per Mo — mirror the Budget Panel). Grid mode = white
+              bordered card; card mode = transparent so the white row-cards float on the grey page.
+              The wide table gets its own horizontal-scroll wrapper (overflowY visible so it doesn't
+              hijack sticky positioning), same as the Budget Panel. */}
+          <div style={{padding:"12px 24px 24px"}}>
+          <Card className={cn("overflow-hidden",cardRows&&"border-0 bg-transparent shadow-none")}>
+          <div className="bhq-hscroll" style={{overflowX:"auto",overflowY:"visible"}}>
+          <table className={cardRows?"bhq-cardrows":undefined} style={{borderCollapse:cardRows?"separate":"collapse",borderSpacing:cardRows?"0 8px":undefined,minWidth:"100%",fontSize:13*(T.fsScale||1),background:cardRows?"transparent":T.surface}}>
             <thead><tr>
               <th style={{...TH,width:20,paddingLeft:24}}/>
               <th style={{...TH,width:32}}>
@@ -1209,7 +1221,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const rowBg=isSel?T.rowSelected:T.surface;
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
-                  <tr key={seg.segKey} className={isSel?undefined:"bhq-tr"} style={{background:rowBg}}>
+                  <tr key={seg.segKey} className={cn("bhq-datarow",!isSel&&"bhq-tr")} style={{background:rowBg}}>
                     <td style={{padding:"5px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
@@ -1335,7 +1347,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const ftActualPct=ft.budget>0?ft.spend/ft.budget:null;
                 const ftVariance=ft.budget>0&&ft.hasProjected?ft.projected-ft.budget:null;
                 return(
-                  <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
+                  <tr className="bhq-totalrow" style={{borderTop:`2px solid ${T.border}`,background:T.surfaceHover}}>
                     <td style={{padding:"10px 4px"}}/>
                     <td style={{padding:"10px 8px"}}/>
                     {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredSegments.length})</SectionLabel>}</td>)}
@@ -1358,6 +1370,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               })()}
             </tbody>
           </table>
+          </div>
+          </Card>
+          </div>
           </>
         ))}
         {viewMode==="custom"&&(customDims.length===0?(
