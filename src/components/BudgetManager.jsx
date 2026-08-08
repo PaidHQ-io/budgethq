@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import { AreaChart } from "@tremor/react";
 import {
   buildCampaignPlatformIndex, countSegmentCampaigns, untagSegmentCampaigns, renameDimensionValue,
   resolveBudgetDimValue, DERIVED_DIMS,
@@ -9,9 +10,26 @@ import {
   splitFilterTerms, matchesTerms,
 } from "../lib/core.js";
 import {
-  SectionLabel, Pill, Btn, Inp, Sel, Tog, Chk, StatRow, Divider, Icon,
+  SectionLabel, Pill, Btn, Inp, Sel, Tog, Icon,
   PixelPanel, WarnTip, AISummaryCard, MatchModeToggle, IconField,
 } from "./shared.jsx";
+// Card/cn (2026-08-07, per Mo's reference screenshot — a bordered chart card + a bordered table
+// card, matching Venture's Analytics page). This file is still on the legacy T-theme system
+// (see PaidHQ.jsx's tailwind.config.js corePlugins.preflight comment for why), but Tailwind
+// utility classes work regardless of which styling system the REST of a component uses — these
+// two net-new cards are built Tailwind-native (same Card primitive Dashboard.jsx already uses)
+// rather than hand-rolling T-theme styles for something that needs to look exactly like the
+// Venture kit's own card anatomy.
+import { Card, CardHeader, CardTitle, CardContent } from "./ui/card.jsx";
+// Button/Checkbox/Switch/Input (2026-08-07, per Mo: "the secondary vertical menu...everything in
+// it is based on the old theme") — swapping the portal sidebar's T-theme Btn/Chk/Tog/<input> for
+// the real Venture primitives, same ones PaidHQ.jsx's shell/Settings already use.
+import { Button } from "./ui/button.jsx";
+import { Checkbox } from "./ui/checkbox.jsx";
+import { Switch } from "./ui/switch.jsx";
+import { Input } from "./ui/input.jsx";
+import { UploadSimple, DownloadSimple, ClockCounterClockwise, ArrowUUpLeft, ArrowUUpRight, X as XIcon } from "@phosphor-icons/react";
+import { cn } from "../lib/utils.js";
 import { useGoogleSheetConnect } from "../hooks/useGoogleSheetConnect.js";
 import { pickSpreadsheet, appendRowsToGoogleSheet } from "../lib/googleSheets.js";
 import { authHeader } from "../lib/workspaceApi.js";
@@ -20,6 +38,29 @@ import { usePersistentState } from "../lib/persist.js";
 // src/components/BudgetManager.jsx — Budget Panel tab (2026-07-25 split, per Mo: split the
 // four tab components out of the PaidHQ.jsx monolith into their own files so each tab's code
 // can be lazy-loaded instead of every tab shipping in one bundle on every page load).
+
+// Custom hover tooltip for the Budget chart card (2026-08-07, per Mo's reference screenshot of
+// Venture's Analytics "Sales Revenues" card — a floating card with a dot-icon + period label row,
+// then a "metric name / value" row). Tremor's built-in tooltip doesn't have a dedicated icon slot,
+// so this is a from-scratch render via AreaChart's customTooltip prop rather than a style override
+// of the stock one. Module-level (not defined inside BudgetManager) since it doesn't need any of
+// that component's state/closures — same posture as Dashboard.jsx's local TrendDelta helper.
+function BudgetChartTooltip({payload,active,label}){
+  if(!active||!payload?.length)return null;
+  const val=payload[0]?.value;
+  return(
+    <div className="rounded-md border border-border bg-background px-3 py-2 shadow-md">
+      <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-[9px] font-bold text-background">$</span>
+        {label}
+      </div>
+      <div className="flex items-center justify-between gap-6 text-sm">
+        <span className="text-muted-foreground">Budgeted</span>
+        <span className="font-semibold text-foreground">{fmtFull(val||0)}</span>
+      </div>
+    </div>
+  );
+}
 
 // Per-segment currency LABEL only (2026-07-31, per Mo — "currency label only to start", no FX
 // conversion). Every number in the grid stays exactly as typed; this just tags a row with which
@@ -652,6 +693,30 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const qOver=useCallback((sk,q)=>{const c=parseMoney(getQC(sk,q.key));return c!==null&&qTotal(sk,q)>c;},[getQC,qTotal]);
   const aOver=useCallback(sk=>{const c=parseMoney(getAC(sk));return c!==null&&rowTotal(sk)>c;},[getAC,rowTotal]);
   const totalY=useMemo(()=>segs.reduce((s,sg)=>s+rowTotal(sg.key),0),[segs,rowTotal]);
+  // Chart card data (2026-08-07, per Mo's reference screenshot — a headline-number + line-chart
+  // card above the segments table, matching Venture's "Sales Revenues" Analytics card). Budgeted
+  // $ by month/quarter across the CURRENT filtered segment set — same rows the table below shows
+  // — so the chart and table never disagree about what's included.
+  const[chartGranularity,setChartGranularity]=useState("month"); // "month" | "quarter"
+  const chartMonthlyData=useMemo(()=>MONTHS.map(m=>({
+    period:m.label,
+    Budgeted:filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0),
+  })),[filteredSegs,budgets,year]);
+  const chartQuarterlyData=useMemo(()=>QUARTERS.map(q=>({
+    period:q.key,
+    Budgeted:q.months.reduce((s,mk)=>s+filteredSegs.reduce((ss,sg)=>ss+(budgets[year]?.[sg.key]?.monthly?.[mk]||0),0),0),
+  })),[filteredSegs,budgets,year]);
+  const chartData=chartGranularity==="quarter"?chartQuarterlyData:chartMonthlyData;
+  const chartTotal=useMemo(()=>chartMonthlyData.reduce((s,d)=>s+d.Budgeted,0),[chartMonthlyData]);
+  // Prior-year comparison for the trend badge, same filtered segment set against last year's
+  // budgets — only meaningful (and only rendered) once the prior year actually has something
+  // budgeted to compare against, so a workspace's first-ever budgeted year doesn't show a
+  // nonsensical "+Infinity%" or divide-by-zero artifact.
+  const prevYearTotal=useMemo(()=>{
+    const py=String(Number(year)-1);
+    return filteredSegs.reduce((s,sg)=>s+Object.values(budgets[py]?.[sg.key]?.monthly||{}).reduce((ss,v)=>ss+(v||0),0),0);
+  },[filteredSegs,budgets,year]);
+  const chartDeltaPct=prevYearTotal>0?Math.round(((chartTotal-prevYearTotal)/prevYearTotal)*100):null;
   const dimCount=d=>d==="Platform"?platformValues.length:d==="Campaign"?campaignGroupValues.length:d==="Ad Group"?campaignNameValues.length:[...new Set(Object.values(campaignTags||{}).map(t=>t[d]).filter(Boolean))].length;
   const toggleDim=d=>{if(!canEdit)return;setBudgetDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);};
   const dcw=130;
@@ -1625,93 +1690,125 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   return(
     <div style={{display:"flex",height:"100%",background:T.bg,overflow:"hidden"}}>
       {/* Sidebar content now renders via portal into the app-shell's stats sidebar (see sidebarEl) */}
+      {/* Sidebar content (2026-08-07, per Mo: "the secondary vertical menu...everything in it is
+          based on the old theme") — rebuilt on the real Venture Tailwind primitives (Button/
+          Checkbox/Switch/Input from ./ui/) instead of shared.jsx's T-theme Btn/Chk/Tog/<input>.
+          Deliberately NOT touching shared.jsx itself — those components are still used file-wide
+          by other not-yet-migrated pages. */}
       {sidebarEl&&createPortal(
-        <div style={{display:"flex",flexDirection:"column",gap:0,fontFamily:T.font}}>
-          <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:12}}>
-          <Btn onClick={()=>setImportOpen(true)} disabled={!canEdit} title={canEdit?undefined:"View-only access"} variant="success" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:T.font}}>↑ Import CSV / Excel</Btn>
-          <Btn onClick={openExportPreview} disabled={!segs.length} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:T.font}}>↓ Export budgets + pacing</Btn>
-          <Btn onClick={()=>setImportHistoryOpen(true)} variant="ghost" size="sm" T={T} style={{width:"100%",justifyContent:"center",fontFamily:T.font}}>🕘 Import history</Btn>
-          {canEdit&&(
-            <div style={{display:"flex",gap:6}}>
-              <Btn onClick={handleUndo} disabled={!undoStack.length} title={`Undo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Z)`} variant="ghost" size="sm" T={T} style={{flex:1,justifyContent:"center",fontFamily:T.font}}>↶ Undo</Btn>
-              <Btn onClick={handleRedo} disabled={!redoStack.length} title={`Redo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Shift+Z)`} variant="ghost" size="sm" T={T} style={{flex:1,justifyContent:"center",fontFamily:T.font}}>↷ Redo</Btn>
-            </div>
-          )}
-
-          {/* Metadata dimensions */}
-          <div style={{borderTop:`1px solid ${T.border}`,marginTop:10,paddingTop:12}}>
-            <SectionLabel T={T} style={{marginBottom:8}}>Annotation Dimensions</SectionLabel>
-            <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginBottom:8,lineHeight:1.5}}>Add Pillar, Region, Funnel etc. as columns to annotate budget rows.</div>
-            {budgetMetaDims.map(d=>(
-              <div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 0"}}>
-                <span style={{fontSize:12*(T.fsScale||1),color:T.text,fontFamily:T.font}}>{d}</span>
-                <button onClick={()=>setBudgetMetaDims(p=>p.filter(x=>x!==d))} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:13*(T.fsScale||1),padding:0,lineHeight:1}}>×</button>
-              </div>
-            ))}
-            <div style={{display:"flex",gap:4,marginTop:6}}>
-              <input value={newMetaDim} onChange={e=>setNewMetaDim(e.target.value)} placeholder="e.g. Pillar, Region…" onKeyDown={e=>e.key==="Enter"&&addMetaDim()}
-                style={{flex:1,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:11*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
-              <Btn onClick={addMetaDim} disabled={!newMetaDim.trim()} variant="subtle" size="sm" T={T} style={{fontFamily:T.font}}>+ Add</Btn>
-            </div>
-            {tagDimensions?.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).length>0&&(
-              <div style={{marginTop:8}}>
-                <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,marginBottom:4}}>From your tag dimensions:</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                  {tagDimensions.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).map(d=>(
-                    <button key={d} onClick={()=>{setBudgetMetaDims(p=>[...p,d]);showNotif(`Added ${d}`);}}
-                      style={{fontSize:11*(T.fsScale||1),padding:"2px 8px",borderRadius:T.r14,background:T.surfaceEl,border:`1px solid ${T.border}`,color:T.text,cursor:"pointer",fontFamily:T.font}}>+ {d}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-          <Divider T={T}/>
-          <div style={{padding:"12px 0"}}>
-            <SectionLabel T={T}>Budget Year</SectionLabel>
-            <div style={{display:"flex",gap:4}}>{years.map(y=><button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>setYear(y)} style={{flex:1,padding:"5px 0",borderRadius:T.r6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),fontWeight:year===y?700:400,fontFamily:T.font}}>{y}</button>)}</div>
+        <div className="flex flex-col gap-0">
+          <div className="flex flex-col gap-2 pb-3">
+            <Button onClick={()=>setImportOpen(true)} disabled={!canEdit} title={canEdit?undefined:"View-only access"} size="sm" className="w-full">
+              <UploadSimple size={14}/> Import CSV / Excel
+            </Button>
+            <Button onClick={openExportPreview} disabled={!segs.length} variant="outline" size="sm" className="w-full">
+              <DownloadSimple size={14}/> Export budgets + pacing
+            </Button>
+            <Button onClick={()=>setImportHistoryOpen(true)} variant="outline" size="sm" className="w-full">
+              <ClockCounterClockwise size={14}/> Import history
+            </Button>
             {canEdit&&(
-              <div style={{marginTop:8,display:"flex",gap:4,alignItems:"center"}}>
-                <input value={cloneTargetYear} onChange={e=>setCloneTargetYear(e.target.value)} placeholder={`Clone into ${Number(year)+1}…`} onKeyDown={e=>e.key==="Enter"&&cloneYearInto(year,cloneTargetYear||String(Number(year)+1))}
-                  title={`Copy every segment's monthly/quarterly/annual budget from ${year} into another year`} style={{flex:1,minWidth:0,background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font}}/>
-                <Btn onClick={()=>cloneYearInto(year,cloneTargetYear||String(Number(year)+1))} variant="subtle" size="sm" T={T}>Clone</Btn>
+              <div className="flex gap-1.5">
+                <Button onClick={handleUndo} disabled={!undoStack.length} title={`Undo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Z)`} variant="outline" size="sm" className="flex-1">
+                  <ArrowUUpLeft size={14}/> Undo
+                </Button>
+                <Button onClick={handleRedo} disabled={!redoStack.length} title={`Redo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Shift+Z)`} variant="outline" size="sm" className="flex-1">
+                  <ArrowUUpRight size={14}/> Redo
+                </Button>
+              </div>
+            )}
+
+            {/* Metadata dimensions */}
+            <div className="mt-2.5 border-t border-border pt-3">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Annotation Dimensions</div>
+              <div className="mb-2 text-xs leading-relaxed text-muted-foreground">Add Pillar, Region, Funnel etc. as columns to annotate budget rows.</div>
+              {budgetMetaDims.map(d=>(
+                <div key={d} className="flex items-center justify-between py-1">
+                  <span className="text-xs text-foreground">{d}</span>
+                  <button onClick={()=>setBudgetMetaDims(p=>p.filter(x=>x!==d))} className="text-muted-foreground hover:text-foreground" aria-label={`Remove ${d}`}>
+                    <XIcon size={12}/>
+                  </button>
+                </div>
+              ))}
+              <div className="mt-1.5 flex gap-1.5">
+                <Input value={newMetaDim} onChange={e=>setNewMetaDim(e.target.value)} placeholder="e.g. Pillar, Region…" onKeyDown={e=>e.key==="Enter"&&addMetaDim()} className="h-8 text-xs"/>
+                <Button onClick={addMetaDim} disabled={!newMetaDim.trim()} variant="secondary" size="sm">+ Add</Button>
+              </div>
+              {tagDimensions?.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).length>0&&(
+                <div className="mt-2">
+                  <div className="mb-1 text-[10px] text-muted-foreground">From your tag dimensions:</div>
+                  <div className="flex flex-wrap gap-1">
+                    {tagDimensions.filter(d=>!budgetDims.includes(d)&&!budgetMetaDims.includes(d)).map(d=>(
+                      <button key={d} onClick={()=>{setBudgetMetaDims(p=>[...p,d]);showNotif(`Added ${d}`);}}
+                        className="rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] text-foreground hover:bg-secondary/70">+ {d}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="py-3">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Budget Year</div>
+            <div className="flex gap-1">
+              {years.map(y=>(
+                <button key={y} onClick={()=>setYear(y)}
+                  className={cn("flex-1 rounded-sm border py-1 text-xs font-medium transition-colors",
+                    year===y?"border-foreground bg-secondary text-foreground":"border-border text-muted-foreground hover:bg-secondary/60")}>
+                  {y}
+                </button>
+              ))}
+            </div>
+            {canEdit&&(
+              <div className="mt-2 flex items-center gap-1.5">
+                <Input value={cloneTargetYear} onChange={e=>setCloneTargetYear(e.target.value)} placeholder={`Clone into ${Number(year)+1}…`} onKeyDown={e=>e.key==="Enter"&&cloneYearInto(year,cloneTargetYear||String(Number(year)+1))}
+                  title={`Copy every segment's monthly/quarterly/annual budget from ${year} into another year`} className="h-8 flex-1 min-w-0 text-xs"/>
+                <Button onClick={()=>cloneYearInto(year,cloneTargetYear||String(Number(year)+1))} variant="secondary" size="sm">Clone</Button>
               </div>
             )}
           </div>
-          <Divider T={T}/>
-          <div style={{padding:"12px 0"}}>
-            <SectionLabel T={T}>Budget By</SectionLabel>
+          <div className="border-t border-border py-3">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Budget By</div>
             {["Platform","Campaign","Ad Group",...(tagDimensions||[])].map(d=>{const on=budgetDims.includes(d);return(
-              <div key={d} className={on?undefined:"bhq-row"} onClick={()=>toggleDim(d)} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:T.r6,cursor:"pointer",background:on?T.accentBg:"transparent",border:on?`1px solid ${T.accentBorder}`:"1px solid transparent",marginBottom:2}}>
-                <Chk checked={on} onChange={()=>toggleDim(d)} T={T}/>
-                <span style={{fontSize:13*(T.fsScale||1),color:T.text,fontWeight:on?700:400,fontFamily:T.font}}>{d}</span>
-                <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted,marginLeft:"auto",fontFamily:T.font}}>{dimCount(d)}</span>
+              <div key={d} onClick={()=>toggleDim(d)}
+                className={cn("mb-0.5 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",on?"bg-secondary":"hover:bg-secondary/50")}>
+                <Checkbox checked={on} onCheckedChange={()=>toggleDim(d)}/>
+                <span className={cn("text-sm text-foreground",on&&"font-semibold")}>{d}</span>
+                <span className="ml-auto text-xs text-muted-foreground">{dimCount(d)}</span>
               </div>
             );})}
           </div>
-          <Divider T={T}/>
-          <div style={{padding:"12px 0"}}>
-            <div onClick={()=>setShowRollups(x=>!x)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",marginBottom:showRollups?8:0}}>
-              <SectionLabel T={T} style={{marginBottom:0}}>Rollups</SectionLabel>
-              <Tog value={showRollups} onChange={setShowRollups} T={T}/>
+          <div className="border-t border-border py-3">
+            <div onClick={()=>setShowRollups(x=>!x)} className={cn("flex cursor-pointer items-center justify-between",showRollups&&"mb-2")}>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Rollups</span>
+              <Switch checked={showRollups} onCheckedChange={setShowRollups}/>
             </div>
-            {showRollups&&<div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,lineHeight:1.5}}>Shows budget totals by each Budget By dimension on its own — e.g. Channel summed across all regions/segments — above the table, broken out by month, quarter, and year.</div>}
+            {showRollups&&<div className="text-xs leading-relaxed text-muted-foreground">Shows budget totals by each Budget By dimension on its own — e.g. Channel summed across all regions/segments — above the table, broken out by month, quarter, and year.</div>}
           </div>
-          <Divider T={T}/>
-          <div style={{padding:"12px 0"}}>
-            <SectionLabel T={T}>Optional Columns</SectionLabel>
+          <div className="border-t border-border py-3">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Optional Columns</div>
             {[{label:"Quarterly caps",v:showQ,s:setShowQ},{label:"Annual cap",v:showA,s:setShowA},{label:"Currency labels",v:showCurrency,s:setShowCurrency}].map(({label,v,s})=>(
-              <div key={label} onClick={()=>s(x=>!x)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",cursor:"pointer"}}>
-                <span style={{fontSize:12*(T.fsScale||1),color:T.textSub}}>{label}</span><Tog value={v} onChange={s} T={T}/>
+              <div key={label} onClick={()=>s(x=>!x)} className="flex cursor-pointer items-center justify-between py-1">
+                <span className="text-xs text-foreground">{label}</span>
+                <Switch checked={v} onCheckedChange={s}/>
               </div>
             ))}
           </div>
-          <Divider T={T}/>
-          <div style={{padding:"12px 0"}}>
-            <SectionLabel T={T}>Summary</SectionLabel>
-            <StatRow label="Segments" value={segs.length.toString()} T={T} valueStyle={{fontFamily:T.font}}/>
-            <StatRow label={`Total ${year}`} value={totalY>0?fmtFull(totalY):"$0"} T={T} valueStyle={{fontFamily:T.font}}/>
-            {segs.some(sg=>isNotBudgeted(sg.key))&&<StatRow label="Not budgeted" value={segs.filter(sg=>isNotBudgeted(sg.key)).length.toString()} T={T} valueStyle={{fontFamily:T.font}}/>}
+          <div className="border-t border-border py-3">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Summary</div>
+            <div className="flex items-center justify-between py-1 text-xs">
+              <span className="text-muted-foreground">Segments</span>
+              <span className="font-medium text-foreground">{segs.length}</span>
+            </div>
+            <div className="flex items-center justify-between py-1 text-xs">
+              <span className="text-muted-foreground">Total {year}</span>
+              <span className="font-medium text-foreground">{totalY>0?fmtFull(totalY):"$0"}</span>
+            </div>
+            {segs.some(sg=>isNotBudgeted(sg.key))&&(
+              <div className="flex items-center justify-between py-1 text-xs">
+                <span className="text-muted-foreground">Not budgeted</span>
+                <span className="font-medium text-foreground">{segs.filter(sg=>isNotBudgeted(sg.key)).length}</span>
+              </div>
+            )}
           </div>
         </div>,
         sidebarEl
@@ -1741,6 +1838,57 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           </div>
         ):(
           <>
+          {/* Chart card + bordered table card (2026-08-07, per Mo's reference screenshot of
+              Venture's Analytics page — a headline-number chart card, then a separately-bordered
+              table card below it, both inset with page padding rather than edge-to-edge). Both
+              live inside the SAME outer scrolling div this fragment already renders into (see the
+              enclosing <div style={{flex:1,overflow:"auto"...}}> above) — deliberately not given
+              their own scroll/overflow so the existing sticky-header/sticky-left-column math on
+              the segments table below (which resolves against THAT outer div) keeps working
+              unchanged. Only the wide table itself gets its own horizontal-scroll wrapper further
+              down, with overflowY explicitly set to "visible" so it doesn't accidentally become a
+              second vertical scroll context (a real CSS quirk: setting only overflow-x on an
+              element implicitly promotes its overflow-y to "auto" too unless you say otherwise) —
+              that would silently break the header's sticky-top-of-page behavior. */}
+          <div style={{padding:"20px 20px 0"}}>
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between pb-2">
+                <div>
+                  <CardTitle className="text-xs font-medium text-muted-foreground">Budget · {year}</CardTitle>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-h4 font-medium text-foreground">{fmtFull(chartTotal)}</span>
+                    {chartDeltaPct!=null&&(
+                      <span className={cn("inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-medium",
+                        chartDeltaPct>=0?"bg-success-bg text-success":"bg-destructive-bg text-destructive")}>
+                        {chartDeltaPct>=0?"↗":"↘"} {Math.abs(chartDeltaPct)}%
+                      </span>
+                    )}
+                  </div>
+                  {chartDeltaPct!=null&&<div className="mt-0.5 text-xs text-muted-foreground">vs {Number(year)-1}</div>}
+                </div>
+                <div className="flex items-center gap-1 rounded-sm border border-border p-1">
+                  {[["month","Month"],["quarter","Quarter"]].map(([k,l])=>(
+                    <button key={k} type="button" onClick={()=>setChartGranularity(k)}
+                      className={cn("rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+                        chartGranularity===k?"bg-secondary text-foreground":"text-muted-foreground hover:bg-secondary/60")}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {chartTotal>0?(
+                  <AreaChart data={chartData} index="period" categories={["Budgeted"]} colors={["neutral"]}
+                    className="h-60" showAnimation={false} showLegend={false} valueFormatter={fmtFull} yAxisWidth={64}
+                    customTooltip={BudgetChartTooltip}/>
+                ):(
+                  <div className="flex h-60 items-center justify-center text-sm text-muted-foreground">No budget set for {year} yet.</div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+          <div style={{padding:20}}>
+          <Card className="overflow-hidden">
           {/* Filters panel (2026-07-31, per Mo — "stronger filter and sort... at the top, like
               the campaign tagger"). Same collapsible-toggle + include/exclude-with-match-mode UX
               as Tagger's own Filters bar, generalized across whatever budgetDims/budgetMetaDims
@@ -1890,6 +2038,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               <Btn onClick={bulkDeleteSelected} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
             </div>
           )}
+          {/* overflowY:"visible" is load-bearing, not decorative — see this fragment's opening
+              comment. Without it, this div's own overflow-x:auto would implicitly become a second
+              vertical scroll context, and the header's position:sticky/top:0 below would stick to
+              THIS div's (nonexistent, single-row-tall) scrollport instead of the outer page's. */}
+          <div style={{overflowX:"auto",overflowY:"visible"}}>
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12*(T.fsScale||1),background:T.surface}}>
             <thead><tr>
               <th style={{...TH,width:32,padding:"15px 8px 9px 16px",left:0,zIndex:6,background:T.headerBg}}>
@@ -2007,6 +2160,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               </tr>
             </tbody>
           </table>
+          </div>
 
           {/* Pagination (2026-08-07, per Mo's reference screenshot) — page-size selector + numbered
               pills, separate from the "add row / not-budgeted" footer below so the two don't get
@@ -2051,6 +2205,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               <span style={{marginLeft:"auto",fontSize:11*(T.fsScale||1),color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
             </div>
             {addSegmentControl}
+          </div>
+          </Card>
           </div>
           </>
         )}
