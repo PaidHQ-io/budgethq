@@ -322,6 +322,10 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   // Card/grid rows (2026-08-07, per Mo — mirror the Budget Panel table). Card mode = white
   // row-cards floating on the grey page; grid mode = bordered white table card.
   const[cardRows,setCardRows]=usePersistentState("paidhq_pacing_cardRows",true);
+  // Pagination (2026-08-07, per Mo) — paginates the top-level segments; drill-down sub-rows and the
+  // totals row are unaffected. page clamps to the available range at render, no reset-effect needed.
+  const[pacingPageSize,setPacingPageSize]=usePersistentState("paidhq_pacing_pageSize",10);
+  const[pacingPage,setPacingPage]=useState(1);
   const[year,setYear]=usePersistentState("paidhq_pacing_year",yr.toString());
   const[periodType,setPeriodType]=usePersistentState("paidhq_pacing_periodType","monthly");
   const[month,setMonth]=usePersistentState("paidhq_pacing_month",()=>String(now.getMonth()+1).padStart(2,"0"));
@@ -1216,7 +1220,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               {filteredSegments.length===0&&(
                 <tr><td colSpan={4+budgetDims.length+6} style={{padding:"32px 24px",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>No segments match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:400}}>Clear filters</span></td></tr>
               )}
-              {filteredSegments.flatMap((seg)=>{
+              {filteredSegments.slice((Math.min(pacingPage,Math.max(1,Math.ceil(filteredSegments.length/pacingPageSize)))-1)*pacingPageSize,(Math.min(pacingPage,Math.max(1,Math.ceil(filteredSegments.length/pacingPageSize)))-1)*pacingPageSize+pacingPageSize).flatMap((seg)=>{
                 const meta=pacingStatusMeta(seg.status,T);
                 const isSel=selRows.has(seg.segKey);
                 const label=budgetDims.map((d,i)=>seg.dims[i]).join(" · ");
@@ -1282,14 +1286,21 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         {seg.capacitySignal==="constrained"&&(
                           <WarnTip T={T} color={T.accent} text={`Impressions have been flat for about ${CAPACITY_WINDOW*2} days despite budget headroom — more budget alone probably won't fix this. Likely capped by audience size, frequency cap, or the platform's own bid/approval limits, not by dollars.`}/>
                         )}
-                        <select value={forecastModeOf(getForecastModelOverride(seg.segKey))} onChange={e=>setForecastModelMode(seg.segKey,e.target.value)} disabled={!canEdit}
-                          title={`Forecast model — how this segment's spend is projected across the period. Currently: ${forecastModelLabel(getEffectiveForecastModel(seg.segKey))}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
-                          style={{width:150,boxSizing:"border-box",fontSize:13*(T.fsScale||1),color:getForecastModelOverride(seg.segKey)?T.text:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.surfaceHover:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.borderStrong:T.border}`,borderRadius:T.r5,padding:"2px 4px",cursor:canEdit?"pointer":"default",fontFamily:T.font,outline:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                          <option value={FORECAST_MODEL_INHERIT}>Use global ({forecastModelLabel(defaultForecastModel)})</option>
-                          <option value="auto">Auto</option>
-                          <option value="committed">Committed</option>
-                          <option value="manual">Manual</option>
-                        </select>
+                        {/* Themed shadcn Select (2026-08-07, per Mo — the native <select> dropdown
+                            rendered with an off-theme OS-blue highlight). Highlighted when this row
+                            overrides the global default. */}
+                        <Select value={forecastModeOf(getForecastModelOverride(seg.segKey))} onValueChange={v=>setForecastModelMode(seg.segKey,v)} disabled={!canEdit}>
+                          <SelectTrigger title={`Forecast model — how this segment's spend is projected across the period. Currently: ${forecastModelLabel(getEffectiveForecastModel(seg.segKey))}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
+                            className={cn("h-7 w-[150px] gap-1 px-2 py-1 text-xs",getForecastModelOverride(seg.segKey)?"bg-secondary text-foreground":"bg-transparent text-muted-foreground")}>
+                            <SelectValue/>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={FORECAST_MODEL_INHERIT}>Use global ({forecastModelLabel(defaultForecastModel)})</SelectItem>
+                            <SelectItem value="auto">Auto</SelectItem>
+                            <SelectItem value="committed">Committed</SelectItem>
+                            <SelectItem value="manual">Manual</SelectItem>
+                          </SelectContent>
+                        </Select>
                         {forecastModeOf(getForecastModelOverride(seg.segKey))==="manual"&&(
                           <input type="number" min={1} max={365} value={manualDaysOf(getForecastModelOverride(seg.segKey))} disabled={!canEdit}
                             onChange={e=>setForecastModelManualDays(seg.segKey,e.target.value)} title="Trailing window, in days"
@@ -1334,7 +1345,11 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     <td colSpan={2} style={{borderBottom:rbb}}/>
                   </tr>
                 ));
-                return[parentRow,...breakdownRows];
+                // Grid mode has no border-spacing gaps, so add a small spacer after the connected
+                // drill-down sheet to separate it from the next segment (2026-08-07, per Mo). Card
+                // mode already gaps via border-spacing.
+                const spacer=(!cardRows&&isExpanded)?[<tr key={seg.segKey+"-sp"} aria-hidden="true"><td colSpan={99} style={{height:8,padding:0,border:0}}/></tr>]:[];
+                return[parentRow,...breakdownRows,...spacer];
               })}
               {filteredSegments.length>0&&(()=>{
                 // Totals across whatever's currently filtered/visible, not the whole dataset —
@@ -1375,6 +1390,35 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           </table>
           </div>
           </Card>
+          {/* Pagination (2026-08-07, per Mo) — Show N + numbered pages, only when there's more than
+              one page's worth of segments. */}
+          {(()=>{
+            const total=filteredSegments.length;
+            const pageCount=Math.max(1,Math.ceil(total/pacingPageSize));
+            const cur=Math.min(pacingPage,pageCount);
+            return(
+              <div style={{padding:"12px 0 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>
+                  Show
+                  <Sel value={String(pacingPageSize)} onChange={v=>{setPacingPageSize(Number(v));setPacingPage(1);}} T={T} style={{width:66,fontSize:12*(T.fsScale||1)}}>
+                    {[10,25,50,100].map(n=><option key={n} value={n}>{n}</option>)}
+                  </Sel>
+                  Row
+                </div>
+                {pageCount>1&&(
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <button onClick={()=>setPacingPage(Math.max(1,cur-1))} disabled={cur===1} style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${T.border}`,borderRadius:T.r6,background:"transparent",color:T.text,cursor:cur===1?"default":"pointer",opacity:cur===1?0.35:1,fontFamily:T.font}}>‹</button>
+                    {Array.from({length:pageCount},(_,i)=>i+1).filter(p=>p===1||p===pageCount||Math.abs(p-cur)<=1).reduce((acc,p,idx,arr)=>{if(idx>0&&p-arr[idx-1]>1)acc.push("…");acc.push(p);return acc;},[]).map((p,i)=>p==="…"?(
+                      <span key={`e${i}`} style={{padding:"0 3px",fontSize:12*(T.fsScale||1),color:T.textMuted}}>…</span>
+                    ):(
+                      <button key={p} onClick={()=>setPacingPage(p)} style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${p===cur?T.text:T.border}`,borderRadius:T.r6,background:p===cur?T.text:"transparent",color:p===cur?T.bg:T.text,cursor:"pointer",fontSize:12*(T.fsScale||1),fontWeight:p===cur?700:400,fontFamily:T.font}}>{p}</button>
+                    ))}
+                    <button onClick={()=>setPacingPage(Math.min(pageCount,cur+1))} disabled={cur===pageCount} style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${T.border}`,borderRadius:T.r6,background:"transparent",color:T.text,cursor:cur===pageCount?"default":"pointer",opacity:cur===pageCount?0.35:1,fontFamily:T.font}}>›</button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           </div>
           </>
         ))}
@@ -1472,7 +1516,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     <td style={{borderBottom:rbb}}/>
                   </tr>
                 ));
-                return[parentRow,...breakdownRows];
+                const spacer=(!cardRows&&isExpanded)?[<tr key={seg.segKey+"-sp"} aria-hidden="true"><td colSpan={99} style={{height:8,padding:0,border:0}}/></tr>]:[];
+                return[parentRow,...breakdownRows,...spacer];
               })}
               {filteredCustomSegments.length>0&&(()=>{
                 const ft=filteredCustomSegments.reduce((acc,s)=>({
