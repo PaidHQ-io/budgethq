@@ -1893,7 +1893,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
             </Card>
           </div>
           <div style={{padding:20}}>
-          <Card className="overflow-hidden">
+          {/* In card-rows mode the outer white bordered Card is dropped (border-0/bg-transparent/
+              shadow-none) so the individual row-cards aren't visually connected by a shared white
+              panel — the grey page shows through the row gaps instead (2026-08-07, per Mo). Grid
+              mode keeps the bordered Card from task #119. */}
+          <Card className={cn("overflow-hidden",cardRows&&"border-0 bg-transparent shadow-none")}>
           {/* Filters panel (2026-07-31, per Mo — "stronger filter and sort... at the top, like
               the campaign tagger"). Same collapsible-toggle + include/exclude-with-match-mode UX
               as Tagger's own Filters bar, generalized across whatever budgetDims/budgetMetaDims
@@ -2076,7 +2080,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               separate + per-row side/rounded borders. Kept as a class toggle (not an inline-style
               rewrite of every <td>) so it layers cleanly on top of the existing grid and Mo can
               flip it off with the toolbar "Grid" button without a code revert. */}
-          <table className={cardRows?"bhq-cardrows":undefined} style={{borderCollapse:cardRows?"separate":"collapse",borderSpacing:cardRows?"0 8px":undefined,minWidth:"100%",fontSize:12*(T.fsScale||1),background:T.surface}}>
+          <table className={cardRows?"bhq-cardrows":undefined} style={{borderCollapse:cardRows?"separate":"collapse",borderSpacing:cardRows?"0 8px":undefined,minWidth:"100%",fontSize:12*(T.fsScale||1),background:cardRows?"transparent":T.surface}}>
             <thead><tr>
               <th style={{...TH,width:32,padding:"15px 8px 9px 16px",left:0,zIndex:6,background:T.headerBg}}>
                 <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title="Select all rows — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
