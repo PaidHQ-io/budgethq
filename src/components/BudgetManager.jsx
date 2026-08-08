@@ -1782,7 +1782,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           {/* pb-5 gives the tag-dimension chips real breathing room before the first divider
               (2026-08-07, per Mo). Dividers below use -mx-3.5 to bleed to the full column width
               past the aside's 14px horizontal padding. */}
-          <div className="flex flex-col gap-2 pb-5">
+          <div className="flex flex-col gap-2 px-3.5 pb-5">
             {/* Actions + Budget Year moved to the horizontal bar above the chart (2026-08-07, per
                 Mo) — the sidebar keeps only what needs vertical room. */}
             {/* Metadata dimensions */}
@@ -1814,7 +1814,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               )}
             </div>
           </div>
-          <div className="-mx-3.5 border-t border-border px-3.5 py-3">
+          <div className="border-t border-border px-3.5 py-3">
             <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Budget By</div>
             {["Platform","Campaign","Ad Group",...(tagDimensions||[])].map(d=>{const on=budgetDims.includes(d);return(
               <div key={d} onClick={()=>toggleDim(d)}
@@ -1831,7 +1831,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           </div>
           {/* Rollups + Optional Columns moved to the top action bar's "View" popover (2026-08-07,
               per Mo) to keep this column short. */}
-          <div className="-mx-3.5 border-t border-border px-3.5 py-3">
+          <div className="border-t border-border px-3.5 py-3">
             <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Summary</div>
             <div className="flex items-center justify-between py-1 text-xs">
               <span className="text-muted-foreground">Segments</span>

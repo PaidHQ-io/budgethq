@@ -786,8 +786,10 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       {sidebarEl&&createPortal(
         <div className="flex flex-col gap-0">
           {/* Sidebar rebuilt on Venture Tailwind primitives (2026-08-07, per Mo — same treatment as
-              the Budget Panel: lighter uppercase labels, pill toggles, full-bleed dividers). */}
-          <div className="pb-4">
+              the Budget Panel: lighter uppercase labels, pill toggles, full-bleed dividers). The
+              aside carries no horizontal padding for this view (see PaidHQ.jsx), so each section
+              carries its own px-3.5 and the border-t dividers span the full column width. */}
+          <div className="px-3.5 pb-4">
             <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Period</div>
             <div className="mb-2 flex gap-1">
               {[["monthly","Month"],["quarterly","Quarter"],["annual","Year"]].map(([k,l])=>(
@@ -823,7 +825,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               {periodLabel} · {pacing.elapsedDays} of {pacing.totalDays} days elapsed{pacing.daysRemaining>0?` · ${pacing.daysRemaining} remaining`:""}
             </div>
           </div>
-          <div className="-mx-3.5 border-t border-border px-3.5 py-4">
+          <div className="border-t border-border px-3.5 py-4">
             <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Summary</div>
             {/* Leading icons (2026-08-07, per Mo) — muted-grey, each metaphor distinct: Wallet
                 (budget) vs Coins (spend going out); Gauge (actual pace) vs Clock (expected/time);
@@ -854,7 +856,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               </div>
             ))}
           </div>
-          <div className="-mx-3.5 border-t border-border px-3.5 py-4">
+          <div className="border-t border-border px-3.5 py-4">
             <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Data freshness</div>
             <div className="mb-2 text-[10px] leading-relaxed text-muted-foreground">Date range each platform actually has spend data for — projections use each platform's own last date instead of assuming everyone's current through today.</div>
             {(()=>{
