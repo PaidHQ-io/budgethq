@@ -112,6 +112,15 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[budgetSortCol,setBudgetSortCol]=usePersistentState("paidhq_budget_sortCol",""); // "" (unsorted/import order) | a dim/meta-dim name | "_total"
   const[budgetSortDir,setBudgetSortDir]=usePersistentState("paidhq_budget_sortDir","desc");
   const[filtersOpen,setFiltersOpen]=usePersistentState("paidhq_budget_filtersOpen",false);
+  // Toolbar search + pagination (2026-08-07, per Mo's reference screenshot of a Venture-style
+  // table — free-text search across every visible dimension/meta value, plus a real paginated
+  // footer instead of one long scrollable table). Search persists like the other filters; page
+  // number deliberately does NOT persist (starting back on page 1 after a reload is the expected
+  // behavior for pagination, unlike a saved filter). budgetPageSize persists so "Show 25 Row"
+  // sticks per the same "whatever screen with whatever filters" posture as everything else here.
+  const[budgetSearchQuery,setBudgetSearchQuery]=usePersistentState("paidhq_budget_search","");
+  const[budgetPageSize,setBudgetPageSize]=usePersistentState("paidhq_budget_pageSize",25);
+  const[budgetPage,setBudgetPage]=useState(1);
   const[applyMetaDim,setApplyMetaDim]=useState("");
   const[applyMetaVal,setApplyMetaVal]=useState("");
   const[bulkPct,setBulkPct]=useState("");
@@ -567,9 +576,18 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // match couldn't do.
   const filteredSegs=useMemo(()=>{
     const allDims=[...budgetDims,...budgetMetaDims];
+    // Toolbar search (2026-08-07) — a single free-text box ORed across every dim/meta value on
+    // the row, same "any field, any of these comma-terms" spirit as the per-dimension Filters
+    // panel below but scoped to one quick box instead of opening that panel, matching the
+    // reference screenshot's single Search field.
+    const searchLower=budgetSearchQuery.trim().toLowerCase();
     let r=segs.filter(seg=>{
       const meta=budgetRowMeta[seg.key]||{};
       if(hideNotBudgeted&&meta._notBudgeted)return false;
+      if(searchLower){
+        const hit=allDims.some(d=>((budgetDims.includes(d)?seg[d]:meta[d])||"").toLowerCase().includes(searchLower));
+        if(!hit)return false;
+      }
       for(const d of allDims){
         const val=(budgetDims.includes(d)?seg[d]:meta[d])||"";
         const valLower=val.toLowerCase();
@@ -601,9 +619,30 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       });
     }
     return r;
-  },[segs,budgetDims,budgetMetaDims,budgetRowMeta,segFilters,segFiltersExclude,segFilterInclMode,segFilterExclMode,totalMin,totalMax,hideNotBudgeted,budgetSortCol,budgetSortDir,rowTotal]);
+  },[segs,budgetDims,budgetMetaDims,budgetRowMeta,segFilters,segFiltersExclude,segFilterInclMode,segFilterExclMode,totalMin,totalMax,hideNotBudgeted,budgetSortCol,budgetSortDir,rowTotal,budgetSearchQuery]);
   const hasSegFilters=Object.values(segFilters).some(v=>(v||"").trim())||Object.values(segFiltersExclude).some(v=>(v||"").trim())||!!totalMin||!!totalMax;
-  const clearSegFilters=()=>{setSegFilters({});setSegFiltersExclude({});setTotalMin("");setTotalMax("");};
+  const clearSegFilters=()=>{setSegFilters({});setSegFiltersExclude({});setTotalMin("");setTotalMax("");setBudgetPage(1);};
+  // Pagination (2026-08-07) — derived at render time rather than via a reset-effect: budgetPage
+  // is clamped into range here instead of a useEffect that would fire setBudgetPage during every
+  // edit (rowTotal-based Year Total filters can reclassify a segment in/out of filteredSegs while
+  // someone's mid-edit in a cell, and an effect-driven page reset there would yank focus off the
+  // cell they're typing in). Self-corrects every render with no extra state.
+  const budgetTotalPages=Math.max(1,Math.ceil(filteredSegs.length/budgetPageSize));
+  const budgetCurrentPage=Math.min(budgetPage,budgetTotalPages);
+  const budgetPageStart=(budgetCurrentPage-1)*budgetPageSize;
+  const budgetPageEnd=budgetPageStart+budgetPageSize;
+  // Page-number list with an ellipsis for gaps once there are more pages than fit comfortably —
+  // always shows first/last plus a window around the current page, same pattern as the reference
+  // screenshot's "1 2 3 4 5 … 10".
+  const budgetPageNumbers=useMemo(()=>{
+    const total=budgetTotalPages,cur=budgetCurrentPage;
+    if(total<=7)return Array.from({length:total},(_,i)=>i+1);
+    const keep=new Set([1,2,total-1,total,cur-1,cur,cur+1]);
+    const sorted=[...keep].filter(p=>p>=1&&p<=total).sort((a,b)=>a-b);
+    const out=[];
+    sorted.forEach((p,i)=>{if(i>0&&p-sorted[i-1]>1)out.push("…");out.push(p);});
+    return out;
+  },[budgetTotalPages,budgetCurrentPage]);
   const doBudgetSort=col=>{setBudgetSortDir(budgetSortCol===col&&budgetSortDir==="desc"?"asc":"desc");setBudgetSortCol(col);};
   const qTotal=useCallback((sk,q)=>q.months.reduce((s,m)=>s+(budgets[year]?.[sk]?.monthly?.[m]||0),0),[budgets,year]);
   const qOver=useCallback((sk,q)=>{const c=parseMoney(getQC(sk,q.key));return c!==null&&qTotal(sk,q)>c;},[getQC,qTotal]);
@@ -1699,12 +1738,28 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               Platform/Tag fields. */}
           <div style={{borderBottom:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px"}}>
+              {/* Search (2026-08-07, per Mo's reference screenshot of a Venture-style table
+                  toolbar) — a single free-text box ahead of the existing per-dimension Filters
+                  panel, same relationship the two search surfaces have in Campaign Tagger. */}
+              <IconField icon="search" color={T.textMuted} style={{flex:"0 0 220px",width:220}}>
+                <input value={budgetSearchQuery} onChange={e=>{setBudgetSearchQuery(e.target.value);setBudgetPage(1);}} placeholder="Search segments…"
+                  style={{...fIn,paddingLeft:26,height:28}}/>
+              </IconField>
               <button onClick={()=>setFiltersOpen(o=>!o)} title={filtersOpen?"Hide filters":"Show filters"}
                 style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"3px 8px",cursor:"pointer",fontFamily:T.font,fontSize:11*(T.fsScale||1),fontWeight:600,color:T.text,outline:"none"}}>
                 <Icon name="filter" size={12} color={T.text}/>
                 Filters
                 {hasSegFilters&&<span style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>}
               </button>
+              {/* Sort By (2026-08-07) — same doBudgetSort the column headers already call on
+                  click, surfaced as an explicit toolbar control too since the reference screenshot
+                  calls one out separately from clicking a header directly. */}
+              <Sel value={budgetSortCol} onChange={doBudgetSort} T={T} style={{width:150,fontSize:11*(T.fsScale||1),height:28}}>
+                <option value="">Sort by…</option>
+                {budgetDims.map(d=><option key={d} value={d}>{d}</option>)}
+                {budgetMetaDims.map(d=><option key={d} value={d}>{d}</option>)}
+                <option value="_total">Year Total</option>
+              </Sel>
               {!filtersOpen&&hasSegFilters&&<button onClick={clearSegFilters} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
               <span style={{marginLeft:"auto",fontSize:11*(T.fsScale||1),color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
             </div>
@@ -1846,7 +1901,19 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   <span onClick={()=>{clearSegFilters();setHideNotBudgeted(false);}} style={{color:T.accent,cursor:"pointer",fontWeight:500}}>{hideNotBudgeted&&!hasSegFilters?"Show them":"Clear filters"}</span>
                 </td></tr>
               )}
-              {filteredSegs.map((seg,segIdx)=>{const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=T.surface;const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
+              {filteredSegs.map((seg,segIdx)=>{
+                // Pagination (2026-08-07) — only render rows on the current page, but keep
+                // mapping over the FULL filteredSegs array so segIdx stays a real index into it.
+                // Every bit of keyboard-nav/fill-drag/copy-paste machinery below (focusCell,
+                // selRect, handleGridCopy, etc.) addresses cells by segIdx into filteredSegs, not
+                // by on-screen row position — slicing the array before mapping would silently
+                // desync those indices from what's actually rendered. Returning null here instead
+                // is a pure rendering-visibility filter: the indices everything else depends on
+                // never change. (Arrow-key nav across a page boundary is a no-op — focusCell
+                // already no-ops safely when the target cell isn't mounted — same tradeoff any
+                // paginated spreadsheet-style grid makes.)
+                if(segIdx<budgetPageStart||segIdx>=budgetPageEnd)return null;
+                const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=T.surface;const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
                 <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:rb,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -1930,6 +1997,36 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               </tr>
             </tbody>
           </table>
+
+          {/* Pagination (2026-08-07, per Mo's reference screenshot) — page-size selector + numbered
+              pills, separate from the "add row / not-budgeted" footer below so the two don't get
+              visually tangled. Only shown once there's actually more than one page's worth of
+              content, same as the reference table only needing this when rows overflow. */}
+          {filteredSegs.length>0&&(
+            <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>
+                Show
+                <Sel value={String(budgetPageSize)} onChange={v=>{setBudgetPageSize(Number(v));setBudgetPage(1);}} T={T} style={{width:66,fontSize:12*(T.fsScale||1)}}>
+                  {[5,10,25,50,100].map(n=><option key={n} value={n}>{n}</option>)}
+                </Sel>
+                Row
+              </div>
+              {budgetTotalPages>1&&(
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <button onClick={()=>setBudgetPage(p=>Math.max(1,p-1))} disabled={budgetCurrentPage===1} title="Previous page"
+                    style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${T.border}`,borderRadius:T.r6,background:"transparent",color:T.text,cursor:budgetCurrentPage===1?"default":"pointer",opacity:budgetCurrentPage===1?0.35:1,fontFamily:T.font}}>‹</button>
+                  {budgetPageNumbers.map((p,i)=>p==="…"?(
+                    <span key={`ellip-${i}`} style={{padding:"0 3px",fontSize:12*(T.fsScale||1),color:T.textMuted,fontFamily:T.font}}>…</span>
+                  ):(
+                    <button key={p} onClick={()=>setBudgetPage(p)} title={`Page ${p}`}
+                      style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${p===budgetCurrentPage?T.text:T.border}`,borderRadius:T.r6,background:p===budgetCurrentPage?T.text:"transparent",color:p===budgetCurrentPage?T.bg:T.text,cursor:"pointer",fontSize:12*(T.fsScale||1),fontWeight:p===budgetCurrentPage?700:400,fontFamily:T.font}}>{p}</button>
+                  ))}
+                  <button onClick={()=>setBudgetPage(p=>Math.min(budgetTotalPages,p+1))} disabled={budgetCurrentPage===budgetTotalPages} title="Next page"
+                    style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${T.border}`,borderRadius:T.r6,background:"transparent",color:T.text,cursor:budgetCurrentPage===budgetTotalPages?"default":"pointer",opacity:budgetCurrentPage===budgetTotalPages?0.35:1,fontFamily:T.font}}>›</button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Bottom bar — add row + not-budgeted toggle, sharing one footer. Filtering itself
               moved to the top Filters panel (2026-07-31, per Mo — "like the campaign tagger"). */}
