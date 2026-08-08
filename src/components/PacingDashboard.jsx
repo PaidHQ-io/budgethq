@@ -326,10 +326,7 @@ function PacingBulletChart({rows,expectedPct,mode,valueFormatter,onPick,T}){
   return(
     <div ref={wrapRef} style={{position:"relative",width:"100%"}}>
       <svg width={w} height={chartH} style={{display:"block"}}>
-        {isPct&&<>
-          <line x1={xAt(100)} x2={xAt(100)} y1={padT} y2={chartH-padB} stroke={T.text} strokeWidth={1}/>
-          <line x1={xAt(expectedPct*100)} x2={xAt(expectedPct*100)} y1={padT} y2={chartH-padB} stroke={T.textMuted} strokeWidth={1} strokeDasharray="3 3"/>
-        </>}
+        {isPct&&<line x1={xAt(expectedPct*100)} x2={xAt(expectedPct*100)} y1={padT} y2={chartH-padB} stroke={T.textMuted} strokeWidth={1} strokeDasharray="3 3"/>}
         {rows.map((r,i)=>{
           const y=padT+i*(rowH+gap);const v=rv(r);const over=v.proj>v.budget;const hv=hoverIdx===i;
           // Spend fills the full bar height (per Mo — a thin centered measure bar read as unfinished).
@@ -350,6 +347,8 @@ function PacingBulletChart({rows,expectedPct,mode,valueFormatter,onPick,T}){
             </g>
           );
         })}
+        {/* Budget marker drawn last so it sits on top of every bar (per Mo). */}
+        {isPct&&<line x1={xAt(100)} x2={xAt(100)} y1={padT} y2={chartH-padB} stroke={T.text} strokeWidth={1.5}/>}
         {ticks.map((t,i)=><text key={i} x={xAt(t)} y={chartH-8} textAnchor="middle" fontSize="10" fill={T.textMuted} fontFamily={T.font}>{isPct?`${Math.round(t)}%`:fmtK(t)}</text>)}
       </svg>
       {hoverIdx!=null&&rows[hoverIdx]&&(()=>{
