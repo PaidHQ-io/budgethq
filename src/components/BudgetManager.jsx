@@ -1712,12 +1712,15 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           by other not-yet-migrated pages. */}
       {sidebarEl&&createPortal(
         <div className="flex flex-col gap-0">
-          <div className="flex flex-col gap-2">
+          {/* pb-5 gives the tag-dimension chips real breathing room before the first divider
+              (2026-08-07, per Mo). Dividers below use -mx-3.5 to bleed to the full column width
+              past the aside's 14px horizontal padding. */}
+          <div className="flex flex-col gap-2 pb-5">
             {/* Actions + Budget Year moved to the horizontal bar above the chart (2026-08-07, per
                 Mo) — the sidebar keeps only what needs vertical room. */}
             {/* Metadata dimensions */}
             <div>
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Annotation Dimensions</div>
+              <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Annotation Dimensions</div>
               <div className="mb-2 text-xs leading-relaxed text-muted-foreground">Add Pillar, Region, Funnel etc. as columns to annotate budget rows.</div>
               {budgetMetaDims.map(d=>(
                 <div key={d} className="flex items-center justify-between py-1">
@@ -1744,8 +1747,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               )}
             </div>
           </div>
-          <div className="border-t border-border py-3">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Budget By</div>
+          <div className="-mx-3.5 border-t border-border px-3.5 py-3">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Budget By</div>
             {["Platform","Campaign","Ad Group",...(tagDimensions||[])].map(d=>{const on=budgetDims.includes(d);return(
               <div key={d} onClick={()=>toggleDim(d)}
                 className={cn("mb-0.5 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",on?"bg-secondary":"hover:bg-secondary/50")}>
@@ -1761,8 +1764,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           </div>
           {/* Rollups + Optional Columns moved to the top action bar's "View" popover (2026-08-07,
               per Mo) to keep this column short. */}
-          <div className="border-t border-border py-3">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Summary</div>
+          <div className="-mx-3.5 border-t border-border px-3.5 py-3">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Summary</div>
             <div className="flex items-center justify-between py-1 text-xs">
               <span className="text-muted-foreground">Segments</span>
               <span className="font-medium text-foreground">{segs.length}</span>
@@ -1846,7 +1849,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                 </>
               )}
               <div className="mx-1 h-6 w-px bg-border"/>
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Year</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Year</span>
               <div className="flex items-center gap-1">
                 {years.map(y=>(
                   <button key={y} onClick={()=>setYear(y)}
@@ -1878,7 +1881,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     </div>
                     <p className="mb-3 text-xs leading-relaxed text-muted-foreground">Budget totals by each Budget By dimension on its own, above the table, broken out by month, quarter, and year.</p>
                     <div className="border-t border-border pt-2">
-                      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Optional Columns</div>
+                      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Optional Columns</div>
                       {[{label:"Quarterly caps",v:showQ,s:setShowQ},{label:"Annual cap",v:showA,s:setShowA},{label:"Currency labels",v:showCurrency,s:setShowCurrency}].map(({label,v,s})=>(
                         <div key={label} className="flex items-center justify-between py-1">
                           <span className="text-xs text-foreground">{label}</span>
