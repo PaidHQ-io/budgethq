@@ -780,7 +780,6 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   // Venture grey header (2026-08-07, per Mo — same treatment as the Budget Panel table): light-grey
   // fill + top/bottom hairlines instead of a flat white header.
   const TH={fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"11px 8px",borderTop:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`,background:T.surfaceHover,whiteSpace:"nowrap",textAlign:"center"};
-  const safeTextColor=c=>c===T.accent?T.text:c; // gold is a fine fill/border color but never body text, per the established house rule
 
   // Only block entirely when there's truly nothing to show — no budget structure AND no spend
   // synced yet. If spend exists but budgets don't, fall through to the full view below (defaulted
@@ -1113,7 +1112,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           <>
           {/* Filter bar */}
           <div style={{padding:"8px 24px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{fontSize:11*(T.fsScale||1),color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
+            <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase"}}>Filter:</span>
             {budgetDims.map(d=>(
               <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:120}}/>
@@ -1141,14 +1140,14 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 row's picker, which defaults to "Use global default"). Budget-mode only — Custom/
                 Trend views group ad-hoc, not by budget segment, so there's no per-row model to
                 default for. */}
-            <span style={{fontSize:11*(T.fsScale||1),color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Default forecast model:</span>
+            <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase"}}>Default forecast model:</span>
             <div style={{display:"flex",alignItems:"center",background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,padding:2,gap:2}}>
               {[{mode:"auto",label:"Auto"},{mode:"manual",label:"Manual"},{mode:"committed",label:"Committed"}].map(o=>{
                 const active=forecastModeOf(defaultForecastModel)===o.mode;
                 return(
                   <button key={o.mode} onClick={()=>setDefaultForecastModelMode(o.mode)} disabled={!canEdit}
                     title={FORECAST_MODELS.find(fm=>fm.value===o.mode)?.hint||(o.mode==="manual"?"Projects from a trailing window of a specific number of days you choose.":"")}
-                    style={{border:"none",borderRadius:T.r4,padding:"5px 10px",fontSize:12*(T.fsScale||1),fontFamily:T.font,cursor:canEdit?"pointer":"default",background:active?T.accent:"transparent",color:active?T.onAccent:T.textSub,fontWeight:active?600:500,transition:"all 0.1s"}}>
+                    style={{border:"none",borderRadius:T.r4,padding:"5px 10px",fontSize:12*(T.fsScale||1),fontFamily:T.font,cursor:canEdit?"pointer":"default",background:active?T.surfaceHover:"transparent",color:active?T.text:T.textSub,fontWeight:active?600:500,transition:"all 0.1s"}}>
                     {o.label}
                   </button>
                 );
@@ -1165,7 +1164,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             )}
             <InfoTip T={T} text={FORECAST_EXPLANATION} width={360}/>
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
-            <span style={{fontSize:11*(T.fsScale||1),color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Break down by:</span>
+            <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase"}}>Break down by:</span>
             <Sel value={breakdownDim} onChange={v=>{setBreakdownDim(v);setExpandedRows(new Set());}} T={T} style={{width:150}}>
               <option value="">None</option>
               {breakdownOptions.map(d=><option key={d} value={d}>{d}</option>)}
@@ -1238,7 +1237,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
                     <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
-                        <span style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:safeTextColor(meta.color)}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
+                        <span style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
                         <PacingBar actualPct={seg.actualPct} expectedPct={pacing.expectedPct} status={seg.status} T={T}/>
                       </div>
                     </td>
@@ -1278,7 +1277,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                       <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:2,maxWidth:168}}>
                         <select value={forecastModeOf(getForecastModelOverride(seg.segKey))} onChange={e=>setForecastModelMode(seg.segKey,e.target.value)} disabled={!canEdit}
                           title={`Forecast model — how this segment's spend is projected across the period. Currently: ${forecastModelLabel(getEffectiveForecastModel(seg.segKey))}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
-                          style={{display:"block",width:"100%",boxSizing:"border-box",fontSize:13*(T.fsScale||1),color:getForecastModelOverride(seg.segKey)?T.accent:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.accentBg:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.accentBorder:T.border}`,borderRadius:T.r5,padding:"2px 4px",cursor:canEdit?"pointer":"default",fontFamily:T.font,outline:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          style={{display:"block",width:"100%",boxSizing:"border-box",fontSize:13*(T.fsScale||1),color:getForecastModelOverride(seg.segKey)?T.text:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.surfaceHover:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.borderStrong:T.border}`,borderRadius:T.r5,padding:"2px 4px",cursor:canEdit?"pointer":"default",fontFamily:T.font,outline:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                           <option value={FORECAST_MODEL_INHERIT}>Use global ({forecastModelLabel(defaultForecastModel)})</option>
                           <option value="auto">Auto</option>
                           <option value="committed">Committed</option>
@@ -1383,7 +1382,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           <>
           {/* Filter bar */}
           <div style={{padding:"8px 24px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{fontSize:11*(T.fsScale||1),color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Filter:</span>
+            <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase"}}>Filter:</span>
             {customDims.map(d=>(
               <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:120}}/>
@@ -1391,7 +1390,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             <NumericFilterChips numericFilters={numericFilters} setNumericFilters={setNumericFilters} mode="custom" T={T}/>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
-            <span style={{fontSize:11*(T.fsScale||1),color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>Break down by:</span>
+            <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase"}}>Break down by:</span>
             <Sel value={breakdownDim} onChange={v=>{setBreakdownDim(v);setExpandedRows(new Set());}} T={T} style={{width:150}}>
               <option value="">None</option>
               {breakdownOptions.map(d=><option key={d} value={d}>{d}</option>)}
