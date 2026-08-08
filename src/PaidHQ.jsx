@@ -5841,6 +5841,16 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .bhq-iconbtn:hover{background:${T.surfaceHover} !important;}
         .bhq-row:hover{background:${T.surfaceHover} !important;}
         .bhq-tr:hover td{background:${T.rowHover} !important;}
+        /* Card-style budget rows (2026-08-07, per Mo — Venture Transaction Details reference).
+           The Budget table opts in with .bhq-cardrows (border-collapse:separate + row gaps set
+           inline); this adds the top/bottom borders on every data cell and rounds + side-borders
+           the first/last cell so each data row reads as a bordered card. Scoped to .bhq-datarow so
+           the Totals row and empty-state row stay flat. Only data cells here — the existing inline
+           borderBottom on each td matches this color, so nothing fights. */
+        .bhq-cardrows tbody tr.bhq-datarow td{border-top:1px solid ${T.border};border-bottom:1px solid ${T.border};}
+        .bhq-cardrows tbody tr.bhq-datarow td:first-child{border-left:1px solid ${T.border};border-top-left-radius:8px;border-bottom-left-radius:8px;}
+        .bhq-cardrows tbody tr.bhq-datarow td:last-child{border-right:1px solid ${T.border};border-top-right-radius:8px;border-bottom-right-radius:8px;}
+        .bhq-cardrows tbody tr.bhq-datarow:hover td{background:${T.rowHover} !important;}
       `}</style>
       </div>
     </div>

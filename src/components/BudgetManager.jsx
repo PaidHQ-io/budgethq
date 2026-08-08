@@ -162,6 +162,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[budgetSearchQuery,setBudgetSearchQuery]=usePersistentState("paidhq_budget_search","");
   const[budgetPageSize,setBudgetPageSize]=usePersistentState("paidhq_budget_pageSize",25);
   const[budgetPage,setBudgetPage]=useState(1);
+  // Card-style rows (2026-08-07, per Mo's reference screenshot of Venture's Transaction Details —
+  // bordered, spaced rows instead of a flat grid). Experimental, so it's a persisted toggle rather
+  // than a hard rewrite — Mo can flip it off live ("we can always revert back") if the dense wide
+  // financial grid reads worse this way. Default on so it shows the moment he opens the panel.
+  const[cardRows,setCardRows]=usePersistentState("paidhq_budget_cardRows",true);
   const[applyMetaDim,setApplyMetaDim]=useState("");
   const[applyMetaVal,setApplyMetaVal]=useState("");
   const[bulkPct,setBulkPct]=useState("");
@@ -1895,63 +1900,86 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               are active plus a Year Total range, instead of Tagger's fixed Campaign/Group/
               Platform/Tag fields. */}
           <div style={{borderBottom:`1px solid ${T.border}`,background:T.surfaceEl,flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px"}}>
-              {/* Search (2026-08-07, per Mo's reference screenshot of a Venture-style table
-                  toolbar) — a single free-text box ahead of the existing per-dimension Filters
-                  panel, same relationship the two search surfaces have in Campaign Tagger. */}
-              <IconField icon="search" color={T.textMuted} style={{flex:"0 0 220px",width:220}}>
-                <input value={budgetSearchQuery} onChange={e=>{setBudgetSearchQuery(e.target.value);setBudgetPage(1);}} placeholder="Search segments…"
-                  style={{...fIn,paddingLeft:26,height:28}}/>
-              </IconField>
-              <button onClick={()=>setFiltersOpen(o=>!o)} title={filtersOpen?"Hide filters":"Show filters"}
-                style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"3px 8px",cursor:"pointer",fontFamily:T.font,fontSize:11*(T.fsScale||1),fontWeight:600,color:T.text,outline:"none"}}>
-                <Icon name="filter" size={12} color={T.text}/>
-                Filters
-                {hasSegFilters&&<span style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>}
-              </button>
-              {/* Sort By (2026-08-07) — same doBudgetSort the column headers already call on
-                  click, surfaced as an explicit toolbar control too since the reference screenshot
-                  calls one out separately from clicking a header directly. */}
-              <Sel value={budgetSortCol} onChange={doBudgetSort} T={T} style={{width:150,fontSize:11*(T.fsScale||1),height:28}}>
-                <option value="">Sort by…</option>
-                {budgetDims.map(d=><option key={d} value={d}>{d}</option>)}
-                {budgetMetaDims.map(d=><option key={d} value={d}>{d}</option>)}
-                <option value="_total">Year Total</option>
-              </Sel>
-              {!filtersOpen&&hasSegFilters&&<button onClick={clearSegFilters} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
-              <span style={{marginLeft:"auto",fontSize:11*(T.fsScale||1),color:T.textMuted}}>{filteredSegs.length} of {segs.length} segments</span>
-            </div>
-            {filtersOpen&&(
-              <div style={{padding:"0 16px 12px",display:"flex",flexWrap:"wrap",gap:12,alignItems:"flex-end"}}>
-                {[...budgetDims,...budgetMetaDims].map(d=>(
-                  <div key={d} style={{display:"flex",flexDirection:"column",gap:3,width:170}}>
-                    <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>{d}</div>
-                    <div style={{display:"flex",gap:3}}>
-                      <IconField icon="search" color={T.textMuted}>
-                        <input value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder="Contains… (a, b)"
-                          title={`Comma-separate multiple terms — ${(segFilterInclMode[d]||"or")==="and"?"row must contain ALL of them":"matches ANY of them"}`}
-                          style={{...fIn,paddingLeft:26}}/>
-                      </IconField>
-                      <MatchModeToggle mode={segFilterInclMode[d]||"or"} onChange={m=>setSegFilterInclMode(p=>({...p,[d]:m}))} T={T}/>
+            {/* Toolbar controls (search, Filters toggle, Sort By, Card-rows toggle, count).
+                (2026-08-07, per Mo) When the filter panel is CLOSED these sit on their own compact
+                row. When it's OPEN they move down into the filter grid, to the right of Year Total,
+                so the whole section is shorter instead of stacking a control row above the grid. */}
+            {(() => {
+              const controls = (
+                <>
+                  {/* Search (Venture-style table toolbar) — a single free-text box ahead of the
+                      per-dimension Filters panel, same relationship the two search surfaces have in
+                      Campaign Tagger. */}
+                  <IconField icon="search" color={T.textMuted} style={{flex:"0 0 220px",width:220}}>
+                    <input value={budgetSearchQuery} onChange={e=>{setBudgetSearchQuery(e.target.value);setBudgetPage(1);}} placeholder="Search segments…"
+                      style={{...fIn,paddingLeft:26,height:28}}/>
+                  </IconField>
+                  <button onClick={()=>setFiltersOpen(o=>!o)} title={filtersOpen?"Hide filters":"Show filters"}
+                    style={{display:"flex",alignItems:"center",gap:5,background:filtersOpen?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"3px 8px",height:28,cursor:"pointer",fontFamily:T.font,fontSize:11*(T.fsScale||1),fontWeight:600,color:T.text,outline:"none"}}>
+                    <Icon name="filter" size={12} color={T.text}/>
+                    Filters
+                    {hasSegFilters&&<span style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0}}/>}
+                  </button>
+                  {/* Sort By — same doBudgetSort the column headers call on click, surfaced as an
+                      explicit toolbar control too since the reference screenshot calls one out. */}
+                  <Sel value={budgetSortCol} onChange={doBudgetSort} T={T} style={{width:150,fontSize:11*(T.fsScale||1),height:28}}>
+                    <option value="">Sort by…</option>
+                    {budgetDims.map(d=><option key={d} value={d}>{d}</option>)}
+                    {budgetMetaDims.map(d=><option key={d} value={d}>{d}</option>)}
+                    <option value="_total">Year Total</option>
+                  </Sel>
+                  {/* Card-rows toggle (2026-08-07, per Mo — experimental Venture card-style rows) */}
+                  <button onClick={()=>setCardRows(v=>!v)} title={cardRows?"Switch to compact grid rows":"Switch to card-style rows"}
+                    style={{display:"flex",alignItems:"center",gap:5,background:cardRows?T.surfaceHover:"transparent",border:`1px solid ${T.border}`,borderRadius:T.r6,padding:"3px 8px",height:28,cursor:"pointer",fontFamily:T.font,fontSize:11*(T.fsScale||1),fontWeight:600,color:T.text,outline:"none"}}>
+                    <Icon name="panelLeft" size={12} color={T.text}/>
+                    {cardRows?"Cards":"Grid"}
+                  </button>
+                  {!filtersOpen&&hasSegFilters&&<button onClick={clearSegFilters} style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,textDecoration:"underline",padding:0,outline:"none"}}>Clear filters</button>}
+                  <span style={{marginLeft:"auto",fontSize:11*(T.fsScale||1),color:T.textMuted,whiteSpace:"nowrap"}}>{filteredSegs.length} of {segs.length} segments</span>
+                </>
+              );
+              return filtersOpen ? (
+                <div style={{padding:"10px 16px 12px",display:"flex",flexWrap:"wrap",gap:12,alignItems:"flex-end"}}>
+                  {[...budgetDims,...budgetMetaDims].map(d=>(
+                    <div key={d} style={{display:"flex",flexDirection:"column",gap:3,width:170}}>
+                      <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>{d}</div>
+                      <div style={{display:"flex",gap:3}}>
+                        <IconField icon="search" color={T.textMuted}>
+                          <input value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder="Contains… (a, b)"
+                            title={`Comma-separate multiple terms — ${(segFilterInclMode[d]||"or")==="and"?"row must contain ALL of them":"matches ANY of them"}`}
+                            style={{...fIn,paddingLeft:26}}/>
+                        </IconField>
+                        <MatchModeToggle mode={segFilterInclMode[d]||"or"} onChange={m=>setSegFilterInclMode(p=>({...p,[d]:m}))} T={T}/>
+                      </div>
+                      <div style={{display:"flex",gap:3}}>
+                        <input value={segFiltersExclude[d]||""} onChange={e=>setSegFiltersExclude(p=>({...p,[d]:e.target.value}))} placeholder="≠ excludes… (a, b)"
+                          title={`Comma-separate multiple terms — ${(segFilterExclMode[d]||"or")==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`}
+                          style={{...fIn,flex:1}}/>
+                        <MatchModeToggle mode={segFilterExclMode[d]||"or"} onChange={m=>setSegFilterExclMode(p=>({...p,[d]:m}))} T={T}/>
+                      </div>
                     </div>
-                    <div style={{display:"flex",gap:3}}>
-                      <input value={segFiltersExclude[d]||""} onChange={e=>setSegFiltersExclude(p=>({...p,[d]:e.target.value}))} placeholder="≠ excludes… (a, b)"
-                        title={`Comma-separate multiple terms — ${(segFilterExclMode[d]||"or")==="and"?"excludes only rows containing ALL of them":"excludes any of them"}`}
-                        style={{...fIn,flex:1}}/>
-                      <MatchModeToggle mode={segFilterExclMode[d]||"or"} onChange={m=>setSegFilterExclMode(p=>({...p,[d]:m}))} T={T}/>
+                  ))}
+                  <div style={{display:"flex",flexDirection:"column",gap:3,width:130}}>
+                    <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>Year Total</div>
+                    <div style={{display:"flex",gap:4}}>
+                      <input value={totalMin} onChange={e=>setTotalMin(e.target.value)} placeholder="Min" style={{...fIn,width:"50%"}}/>
+                      <input value={totalMax} onChange={e=>setTotalMax(e.target.value)} placeholder="Max" style={{...fIn,width:"50%"}}/>
                     </div>
                   </div>
-                ))}
-                <div style={{display:"flex",flexDirection:"column",gap:3,width:130}}>
-                  <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>Year Total</div>
-                  <div style={{display:"flex",gap:4}}>
-                    <input value={totalMin} onChange={e=>setTotalMin(e.target.value)} placeholder="Min" style={{...fIn,width:"50%"}}/>
-                    <input value={totalMax} onChange={e=>setTotalMax(e.target.value)} placeholder="Max" style={{...fIn,width:"50%"}}/>
+                  {/* Controls sit to the right of Year Total (2026-08-07, per Mo) — flex:1 lets the
+                      row of search/Filters/Sort/Cards/count fill the remaining width beside the
+                      Year Total block rather than stacking above the grid. */}
+                  <div style={{flex:"1 1 420px",display:"flex",alignItems:"flex-end",gap:8,minWidth:0}}>
+                    {controls}
                   </div>
+                  {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T} style={{alignSelf:"flex-end"}}>Clear all filters</Btn>}
                 </div>
-                {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T} style={{alignSelf:"flex-end"}}>Clear all filters</Btn>}
-              </div>
-            )}
+              ) : (
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px"}}>
+                  {controls}
+                </div>
+              );
+            })()}
           </div>
           <div style={{padding:"14px 16px 0"}}>
             <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} combineGoogleChannels={combineGoogleChannels} mode="budget"/>
@@ -2043,7 +2071,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               vertical scroll context, and the header's position:sticky/top:0 below would stick to
               THIS div's (nonexistent, single-row-tall) scrollport instead of the outer page's. */}
           <div style={{overflowX:"auto",overflowY:"visible"}}>
-          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12*(T.fsScale||1),background:T.surface}}>
+          {/* cardRows (2026-08-07, per Mo) — the .bhq-cardrows class in PaidHQ.jsx's <style> block
+              switches the data rows to bordered, vertically-spaced "cards" via border-collapse:
+              separate + per-row side/rounded borders. Kept as a class toggle (not an inline-style
+              rewrite of every <td>) so it layers cleanly on top of the existing grid and Mo can
+              flip it off with the toolbar "Grid" button without a code revert. */}
+          <table className={cardRows?"bhq-cardrows":undefined} style={{borderCollapse:cardRows?"separate":"collapse",borderSpacing:cardRows?"0 8px":undefined,minWidth:"100%",fontSize:12*(T.fsScale||1),background:T.surface}}>
             <thead><tr>
               <th style={{...TH,width:32,padding:"15px 8px 9px 16px",left:0,zIndex:6,background:T.headerBg}}>
                 <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title="Select all rows — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
@@ -2077,7 +2110,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                 // paginated spreadsheet-style grid makes.)
                 if(segIdx<budgetPageStart||segIdx>=budgetPageEnd)return null;
                 const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=T.surface;const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
-                <tr key={seg.key} className={isSel?undefined:"bhq-tr"} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
+                <tr key={seg.key} className={cn("bhq-datarow",!isSel&&"bhq-tr")} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:rb,zIndex:1}}>
                     <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                   </td>
