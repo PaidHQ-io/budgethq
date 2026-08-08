@@ -109,12 +109,10 @@ button:disabled {
      distinction rather than flattening both to the same value. */
   --border: 0 0% 89%;
   --input: 0 0% 69%;
-  /* ring: NOT a literal kit value — the Style Guide has no dedicated "focus ring" token, and an
-     all-black focus ring would be indistinguishable from the primary/active states in this
-     monochrome system. Defaulted to Color Tokens/Interaction/Blue/Base (#4976f4), the kit's
-     "informative" hue, so focus is visually distinct from hover/active grays. Flag if you'd rather
-     this be black or something else. */
-  --ring: 224 89% 62%;
+  /* ring: neutral grey (2026-08-07, per Mo — the previous bright Interaction/Blue focus ring read
+     as an off-theme "legacy" blue border, most visibly around the Select/Combo Box triggers). A
+     mid-grey keeps focus visible without introducing a non-neutral hue into this monochrome kit. */
+  --ring: 0 0% 45%;
   /* primary: Color Tokens/Action/Primary/Base — literally black, confirmed on the Button Styles
      frame's Primary/Medium/Default button (bg black, white text) and reused as the Cards frame's
      "Install" button fill. This is Venture's actual brand color, not a placeholder. */
@@ -177,7 +175,7 @@ button:disabled {
   --card-foreground: 0 0% 96%;
   --border: 0 0% 18%;
   --input: 0 0% 30%;
-  --ring: 224 89% 68%;
+  --ring: 0 0% 60%;
   --primary: 0 0% 96%;
   --primary-foreground: 0 0% 6%;
   --secondary: 0 0% 14%;

@@ -3153,12 +3153,15 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                   <div key="budget-group" className="flex w-full flex-col gap-0.5">
                     <NavItem icon={<Wallet size={16}/>} onClick={()=>setBudgetGroupOpen(o=>!o)}
                       trailingIcon={budgetGroupOpen?<CaretDown size={12}/>:<CaretRight size={12}/>}>
-                      Budget &amp; Actuals
+                      Budget Panel
                     </NavItem>
                     {budgetGroupOpen&&(
-                      <div className="flex flex-col gap-0.5 pl-8">
-                        <NavItem active={view==="budget"} onClick={()=>setView("budget")}>Budget Panel</NavItem>
-                        <NavItem active={view==="pacing"} onClick={()=>setView("pacing")}>Budget Pacing</NavItem>
+                      // ml-[18px] puts the connecting line under the parent icon's centre; border-l
+                      // draws it and pl-3 indents the children past it, matching Venture's nested
+                      // Emails->General/Analytics group (2026-08-07, per Mo).
+                      <div className="ml-[18px] flex flex-col gap-0.5 border-l border-border pl-3">
+                        <NavItem active={view==="budget"} onClick={()=>setView("budget")}>Budgets</NavItem>
+                        <NavItem active={view==="pacing"} onClick={()=>setView("pacing")}>Pacing</NavItem>
                       </div>
                     )}
                   </div>
