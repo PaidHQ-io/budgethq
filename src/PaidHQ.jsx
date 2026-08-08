@@ -5878,7 +5878,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         /* Header row + Totals row as their own bordered bars in card-rows mode (2026-08-07, per Mo
            — "grey header with borders, and the totals row is missing borders"). Same side-border +
            rounded-ends treatment as the data-row cards so all three read consistently. */
-        .bhq-cardrows thead th{border-left:0;border-right:0;}
+        .bhq-cardrows thead th{border-left:0;border-right:0;border-top:1px solid ${T.border};}
         .bhq-cardrows thead th:first-child{border-left:1px solid ${T.border};border-top-left-radius:8px;border-bottom-left-radius:8px;}
         .bhq-cardrows thead th:last-child{border-right:1px solid ${T.border};border-top-right-radius:8px;border-bottom-right-radius:8px;}
         .bhq-cardrows tbody tr.bhq-totalrow td{border-top:1px solid ${T.border};border-bottom:1px solid ${T.border};background:${T.surfaceHover};}

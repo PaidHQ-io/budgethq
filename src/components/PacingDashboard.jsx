@@ -226,12 +226,13 @@ const TrendBarChart=({T,periods,series,budgetValues})=>{
   return dense?<div style={{overflowX:"auto"}}>{chart}</div>:chart;
 };
 
-const PacingBar=({actualPct,expectedPct,status,T})=>{
+const PacingBar=({actualPct,expectedPct,T})=>{
+  // Black fill on a light-grey track (2026-08-07, per Mo — matches the Venture reference; the
+  // status/projected columns already carry the color coding, so the bar itself stays neutral).
   const pct=Math.min(1,Math.max(0,actualPct||0));
-  const meta=pacingStatusMeta(status,T);
   return(
-    <div style={{position:"relative",width:84,height:6,borderRadius:T.r3,background:T.surfaceEl,flexShrink:0}}>
-      <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${pct*100}%`,background:meta.color,borderRadius:T.r3,transition:"width 0.2s"}}/>
+    <div style={{position:"relative",width:84,height:8,borderRadius:9999,background:T.surfaceHover,flexShrink:0}}>
+      <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${pct*100}%`,background:T.text,borderRadius:9999,transition:"width 0.2s"}}/>
       <div title="Expected pace" style={{position:"absolute",left:`${Math.min(1,Math.max(0,expectedPct))*100}%`,top:-2,bottom:-2,width:2,background:T.text,opacity:0.45}}/>
     </div>
   );
@@ -784,7 +785,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   const overallPct=pacing.totals.budget>0?pacing.totals.spend/pacing.totals.budget:null;
   // Venture grey header (2026-08-07, per Mo — same treatment as the Budget Panel table): light-grey
   // fill + top/bottom hairlines instead of a flat white header.
-  const TH={fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"11px 8px",borderTop:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`,background:T.surfaceHover,whiteSpace:"nowrap",textAlign:"center"};
+  // No borderTop here (2026-08-07, per Mo — it doubled up against the wrapping Card's top border in
+  // grid mode). Card mode re-adds a top edge on the header via the .bhq-cardrows thead CSS.
+  const TH={fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"11px 8px",borderBottom:`1px solid ${T.border}`,background:T.surfaceHover,whiteSpace:"nowrap",textAlign:"center"};
 
   // Only block entirely when there's truly nothing to show — no budget structure AND no spend
   // synced yet. If spend exists but budgets don't, fall through to the full view below (defaulted
@@ -1199,7 +1202,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <th style={{...TH,width:32}}>
                 <input type="checkbox" checked={filteredSegments.length>0&&selRows.size===filteredSegments.length} onChange={selAllRows} title="Select all rows — reveals bulk delete once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
               </th>
-              {budgetDims.map(d=><th key={d} style={{...TH,...(d==="Product"?{maxWidth:110}:d==="Module"?{maxWidth:140}:{})}}>{d}</th>)}
+              {budgetDims.map(d=><th key={d} style={{...TH}}>{d}</th>)}
               <th style={TH}>Budget</th>
               <th style={TH}>Spend PTD</th>
               <th style={TH}>Pacing</th>
@@ -1222,41 +1225,41 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
                   <tr key={seg.segKey} className={cn("bhq-datarow",!isSel&&"bhq-tr")} style={{background:rowBg}}>
-                    <td style={{padding:"5px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
+                    <td style={{padding:"7px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
                     </td>
-                    <td style={{padding:"5px 8px",borderBottom:rbb}}>
+                    <td style={{padding:"7px 8px",borderBottom:rbb}}>
                       <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.segKey)} title="Select row — reveals bulk delete once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                     </td>
-                    {seg.dims.map((v,i)=>{const dimMaxW=budgetDims[i]==="Product"?110:budgetDims[i]==="Module"?140:undefined;return(
-                    <td key={i} style={{padding:"5px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
+                    {seg.dims.map((v,i)=>{const dimMaxW=undefined;return(
+                    <td key={i} style={{padding:"7px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
                       {DERIVED_DIMS.includes(budgetDims[i])?(
                         // Derived, not stored — see the same guard in the Budget Panel's table.
-                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,borderRadius:T.r6}} title="Derived from spend data — not editable">{v}</Pill>
+                        <span className="inline-block whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground" title="Derived from spend data — not editable">{v}</span>
                       ):editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(
                         <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                           onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
                           style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,color:T.text,padding:"3px 8px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font,minWidth:80}}/>
                       ):(
-                        <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,cursor:"text",borderRadius:T.r6}}
-                          onClick={()=>{setEditingSegVal({segKey:seg.segKey,dim:budgetDims[i]});setEditSegVal(v);}}>{v}</Pill>
+                        <span className="inline-block cursor-text whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground"
+                          onClick={()=>{setEditingSegVal({segKey:seg.segKey,dim:budgetDims[i]});setEditSegVal(v);}}>{v}</span>
                       )}
                       {i===seg.dims.length-1&&seg.budget>0&&seg.matchCount===0&&(
                         <WarnTip T={T} text="No tagged campaigns match this segment. Spend will always show as $0 here, regardless of period, until a campaign is tagged with this exact combination in the Tagger."/>
                       )}
                     </td>);})}
-                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
-                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
-                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right"}}>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right"}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
                         <span style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
                         <PacingBar actualPct={seg.actualPct} expectedPct={pacing.expectedPct} status={seg.status} T={T}/>
                       </div>
                     </td>
-                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
-                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
-                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",whiteSpace:"nowrap"}}>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right",whiteSpace:"nowrap"}}>
                       {/* Single line (2026-08-07, per Mo — no stacked sub-rows anywhere in this
                           table): projected value, its % of budget, low-confidence warn, and the
                           over/under variance all inline; scroll right for the full row. */}
@@ -1269,7 +1272,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         {seg.projectedVariance!=null&&<span style={{fontSize:13*(T.fsScale||1),color:seg.projectedVariance>0?T.danger:T.success,fontFamily:T.font}}>{fmtSigned(seg.projectedVariance)}</span>}
                       </div>
                     </td>
-                    <td style={{padding:"5px 14px",borderBottom:rbb,whiteSpace:"nowrap"}}>
+                    <td style={{padding:"7px 14px",borderBottom:rbb,whiteSpace:"nowrap"}}>
                       {/* Status pill + capacity warn + per-row forecast-model select all inline on
                           one line (2026-08-07, per Mo — no stacked sub-rows; scroll right instead).
                           The forecast select still overrides the global default per-row and is
@@ -1294,7 +1297,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         )}
                       </div>
                     </td>
-                    <td style={{padding:"5px 8px",borderBottom:rbb,paddingRight:24}}>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,paddingRight:24}}>
                       <button onClick={()=>deleteSegment(seg.segKey,label)} title="Delete segment"
                         style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
@@ -1413,7 +1416,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           <table className={cardRows?"bhq-cardrows":undefined} style={{borderCollapse:cardRows?"separate":"collapse",borderSpacing:cardRows?"0 8px":undefined,minWidth:"100%",fontSize:13*(T.fsScale||1),background:cardRows?"transparent":T.surface}}>
             <thead><tr>
               <th style={{...TH,width:20,paddingLeft:24}}/>
-              {customDims.map(d=><th key={d} style={{...TH,...(d==="Product"?{maxWidth:110}:d==="Module"?{maxWidth:140}:{})}}>{d}</th>)}
+              {customDims.map(d=><th key={d} style={{...TH}}>{d}</th>)}
               <th style={TH}>Spend PTD</th>
               <th style={TH}>Daily Burn</th>
               <th style={TH}>Projected</th>
@@ -1428,17 +1431,17 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
                   <tr key={seg.segKey} className="bhq-datarow bhq-tr">
-                    <td style={{padding:"5px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
+                    <td style={{padding:"7px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
                     </td>
-                    {seg.dims.map((v,i)=>{const dimMaxW=customDims[i]==="Product"?110:customDims[i]==="Module"?140:undefined;return(
-                    <td key={i} style={{padding:"5px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
-                      <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,borderRadius:T.r6}}>{v}</Pill>
+                    {seg.dims.map((v,i)=>{const dimMaxW=undefined;return(
+                    <td key={i} style={{padding:"7px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
+                      <span className="inline-block whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground">{v}</span>
                     </td>);})}
-                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
-                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
-                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right"}}>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right"}}>
                       <div style={{fontFamily:T.font,color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
                         {seg.projected!=null?fmtFull(seg.projected):"—"}
                         {seg.lowConfidencePlatforms?.length>0&&(
@@ -1446,7 +1449,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         )}
                       </div>
                     </td>
-                    <td style={{padding:"5px 14px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted,paddingRight:24}}>{seg.campaignCount}</td>
+                    <td style={{padding:"7px 14px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted,paddingRight:24}}>{seg.campaignCount}</td>
                   </tr>
                 );
                 if(!isExpanded)return[parentRow];
