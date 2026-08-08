@@ -139,9 +139,13 @@ export const EXPORT_FORMATS=[{key:"csv",label:"CSV",mime:"text/csv;charset=utf-8
 
 export const escHtml=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
+// Sections shown by the tabular exporters (csv/xlsx/html/sheets). pdfOnly sections (e.g. the full
+// segments table when a chart-data table is also present) are excluded — see buildPacingExportReport.
+export const tabularSections=report=>report.sections.filter(s=>!s.pdfOnly);
+
 export function reportToCSVString(report){
   const rows=[];
-  report.sections.forEach((sec,i)=>{
+  tabularSections(report).forEach((sec,i)=>{
     if(i>0)rows.push([]);
     rows.push([sec.heading]);
     rows.push(sec.headers);
@@ -151,7 +155,7 @@ export function reportToCSVString(report){
 }
 
 export function reportToHTMLString(report){
-  const sectionsHtml=report.sections.map(sec=>`
+  const sectionsHtml=tabularSections(report).map(sec=>`
     <h2 style="font-size:16px;font-weight:700;color:#171717;margin:28px 0 10px;">${escHtml(sec.heading)}</h2>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr>${sec.headers.map(h=>`<th style="text-align:left;padding:8px 10px;background:#FAFAFA;border-bottom:2px solid #D4D4D4;color:#666666;font-weight:600;">${escHtml(h)}</th>`).join("")}</tr></thead>
@@ -276,7 +280,7 @@ export function buildReportBlob(report,format){
   if(format==="csv")return new Blob(["﻿"+reportToCSVString(report)],{type:"text/csv;charset=utf-8"});
   if(format==="xlsx"){
     const wb=XLSX.utils.book_new();
-    report.sections.forEach((sec,i)=>{
+    tabularSections(report).forEach((sec,i)=>{
       const aoa=[[sec.heading],sec.headers,...(sec.rows.length?sec.rows:[["No data"]])];
       const ws=XLSX.utils.aoa_to_sheet(aoa);
       const name=(sec.heading||`Sheet${i+1}`).replace(/[\\/*?:[\]]/g,"").slice(0,31)||`Sheet${i+1}`;

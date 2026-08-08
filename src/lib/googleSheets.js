@@ -211,7 +211,10 @@ function safeSheetTitle(title, index) {
 export async function exportReportToGoogleSheets(report) {
   const accessToken = await getAccessToken();
 
-  const sheetTitles = report.sections.map((sec, i) => safeSheetTitle(sec.heading, i));
+  // pdfOnly sections (e.g. the redundant segments table when chart data is present) are excluded
+  // from Sheets, same as the other tabular exporters — see reports.js tabularSections.
+  const sections = report.sections.filter((s) => !s.pdfOnly);
+  const sheetTitles = sections.map((sec, i) => safeSheetTitle(sec.heading, i));
   const created = await sheetsFetch(accessToken, "", {
     method: "POST",
     body: JSON.stringify({
@@ -221,7 +224,7 @@ export async function exportReportToGoogleSheets(report) {
   });
 
   const data = created.sheets.map((sheet, i) => {
-    const sec = report.sections[i];
+    const sec = sections[i];
     const values = [[sec.heading], sec.headers, ...(sec.rows.length ? sec.rows : [["No data"]])];
     const escapedTitle = sheet.properties.title.replace(/'/g, "''");
     return { range: `'${escapedTitle}'!A1`, values };

@@ -736,7 +736,11 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       title:"Budget Pacing export",
       subtitle:`${periodLabel} · ${pacing.elapsedDays} of ${pacing.totalDays} days elapsed · Generated ${new Date().toLocaleString()}`,
       chart,
-      sections:[{heading:`${isCustom?"Custom":"Budget"} segments — ${periodLabel}`,headers,rows},...(chartSection?[chartSection]:[])],
+      // When there's a chart, the segments table is PDF-only (2026-08-08, per Mo — in csv/xlsx/sheets
+      // it's redundant with the chart-data table, which carries the same numbers). pdfOnly sections
+      // are skipped by the tabular exporters; chartData sections are skipped by the PDF (it draws the
+      // chart visually). Custom view has no chart, so its segments table stays in every format.
+      sections:[{heading:`${isCustom?"Custom":"Budget"} segments — ${periodLabel}`,headers,rows,pdfOnly:hasChart},...(chartSection?[chartSection]:[])],
     };
   };
   const[exportMenuOpen,setExportMenuOpen]=useState(false);
@@ -1291,7 +1295,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 ):(
                   <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">No segments match — adjust the filters or period.</div>
                 )}
-                {chartRowsAll.length>chartPageSize&&(
+                {chartRowsAll.length>10&&(
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span>Showing {(chartPageClamped-1)*chartPageSize+1}–{Math.min(chartPageClamped*chartPageSize,chartRowsAll.length)} of {chartRowsAll.length}</span>
                     <div className="flex items-center gap-2">
@@ -1511,7 +1515,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                             blank/unreadable because value="" never matched an item). */}
                         <Select value={forecastModeOf(getForecastModelOverride(seg.segKey))||"__inherit__"} onValueChange={v=>setForecastModelMode(seg.segKey,v==="__inherit__"?FORECAST_MODEL_INHERIT:v)} disabled={!canEdit}>
                           <SelectTrigger title={`Forecast model — how this segment's spend is projected across the period. Currently: ${forecastModelLabel(getEffectiveForecastModel(seg.segKey))}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
-                            className={cn("h-7 w-[150px] gap-1 px-2 py-1 text-xs",getForecastModelOverride(seg.segKey)?"bg-secondary text-foreground":"bg-transparent text-muted-foreground")}>
+                            className={cn("h-7 w-auto min-w-[150px] max-w-[220px] gap-1 px-2 py-1 text-xs",getForecastModelOverride(seg.segKey)?"bg-secondary text-foreground":"bg-transparent text-muted-foreground")}>
                             <SelectValue/>
                           </SelectTrigger>
                           <SelectContent>
