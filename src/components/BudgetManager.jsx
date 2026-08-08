@@ -167,6 +167,16 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // than a hard rewrite — Mo can flip it off live ("we can always revert back") if the dense wide
   // financial grid reads worse this way. Default on so it shows the moment he opens the panel.
   const[cardRows,setCardRows]=usePersistentState("paidhq_budget_cardRows",true);
+  // "View" popover in the top action bar (2026-08-07, per Mo) — folds Rollups + Optional Columns
+  // out of the tall stats sidebar into a compact dropdown.
+  const[viewMenuOpen,setViewMenuOpen]=useState(false);
+  const viewMenuRef=useRef(null);
+  useEffect(()=>{
+    if(!viewMenuOpen)return;
+    const onDoc=e=>{if(viewMenuRef.current&&!viewMenuRef.current.contains(e.target))setViewMenuOpen(false);};
+    document.addEventListener("mousedown",onDoc);
+    return()=>document.removeEventListener("mousedown",onDoc);
+  },[viewMenuOpen]);
   const[applyMetaDim,setApplyMetaDim]=useState("");
   const[applyMetaVal,setApplyMetaVal]=useState("");
   const[bulkPct,setBulkPct]=useState("");
@@ -1749,22 +1759,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               </div>
             );})}
           </div>
-          <div className="border-t border-border py-3">
-            <div onClick={()=>setShowRollups(x=>!x)} className={cn("flex cursor-pointer items-center justify-between",showRollups&&"mb-2")}>
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Rollups</span>
-              <Switch checked={showRollups} onCheckedChange={setShowRollups}/>
-            </div>
-            {showRollups&&<div className="text-xs leading-relaxed text-muted-foreground">Shows budget totals by each Budget By dimension on its own — e.g. Channel summed across all regions/segments — above the table, broken out by month, quarter, and year.</div>}
-          </div>
-          <div className="border-t border-border py-3">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Optional Columns</div>
-            {[{label:"Quarterly caps",v:showQ,s:setShowQ},{label:"Annual cap",v:showA,s:setShowA},{label:"Currency labels",v:showCurrency,s:setShowCurrency}].map(({label,v,s})=>(
-              <div key={label} onClick={()=>s(x=>!x)} className="flex cursor-pointer items-center justify-between py-1">
-                <span className="text-xs text-foreground">{label}</span>
-                <Switch checked={v} onCheckedChange={s}/>
-              </div>
-            ))}
-          </div>
+          {/* Rollups + Optional Columns moved to the top action bar's "View" popover (2026-08-07,
+              per Mo) to keep this column short. */}
           <div className="border-t border-border py-3">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Summary</div>
             <div className="flex items-center justify-between py-1 text-xs">
@@ -1867,6 +1863,32 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   <Button size="sm" variant="secondary" onClick={()=>cloneYearInto(year,cloneTargetYear||String(Number(year)+1))}>Clone</Button>
                 </div>
               )}
+              {/* View menu (2026-08-07, per Mo) — Rollups + Optional Columns, folded out of the
+                  sidebar into a compact popover to keep that column short. */}
+              <div className="relative ml-auto" ref={viewMenuRef}>
+                <Button size="sm" variant="outline" onClick={()=>setViewMenuOpen(o=>!o)}>
+                  <Icon name="gear" size={14} color="currentColor"/> View
+                  <Icon name="chevronDown" size={12} color="currentColor"/>
+                </Button>
+                {viewMenuOpen&&(
+                  <div className="absolute right-0 z-50 mt-1 w-64 rounded-md border border-border bg-background p-3 shadow-card">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="text-sm font-medium text-foreground">Rollups</span>
+                      <Switch checked={showRollups} onCheckedChange={setShowRollups}/>
+                    </div>
+                    <p className="mb-3 text-xs leading-relaxed text-muted-foreground">Budget totals by each Budget By dimension on its own, above the table, broken out by month, quarter, and year.</p>
+                    <div className="border-t border-border pt-2">
+                      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Optional Columns</div>
+                      {[{label:"Quarterly caps",v:showQ,s:setShowQ},{label:"Annual cap",v:showA,s:setShowA},{label:"Currency labels",v:showCurrency,s:setShowCurrency}].map(({label,v,s})=>(
+                        <div key={label} className="flex items-center justify-between py-1">
+                          <span className="text-xs text-foreground">{label}</span>
+                          <Switch checked={v} onCheckedChange={s}/>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <div style={{padding:"16px 20px 0"}}>

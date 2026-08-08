@@ -196,14 +196,17 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     try{const v=localStorage.getItem("paidhq_last_view");return VALID_VIEWS.includes(v)?v:"dashboard";}catch(e){return "dashboard";}
   });
   const[statsOpen,setStatsOpen]=useState(true);
-  // Resizable stats sidebar — width is user-adjustable (drag handle on its right edge) and
-  // persisted across sessions, since it now hosts contextual panel content (e.g. the full
-  // Budget controls) that benefits from more room than the old fixed 180px.
-  const[statsWidth,setStatsWidth]=useState(()=>{
-    try{const v=+localStorage.getItem("paidhq_sidebar_width");return v&&v>=180&&v<=480?v:240;}catch(e){return 240;}
-  });
-  const statsWidthRef=useRef(statsWidth);
-  const statsResizing=useRef(false);
+  // Stats sidebar width (2026-08-07, per Mo — "just like the first one but adjust depending on
+  // screen size. I don't want users to be able to slide the size larger or smaller"). No longer
+  // user-draggable/persisted; it's a responsive value derived from the viewport, clamped to a
+  // sensible min/max, recomputed on window resize below. The primary nav is a fixed 240px, so this
+  // tracks near that on typical screens but narrows on small ones and widens a little on large ones.
+  const computeStatsWidth=()=>{
+    if(typeof window==="undefined")return 240;
+    return Math.round(Math.min(300,Math.max(210,window.innerWidth*0.18)));
+  };
+  const[statsWidth,setStatsWidth]=useState(computeStatsWidth);
+  const statsResizing=useRef(false); // retained (always false now) so existing transition guards below keep working
   const[budgetSidebarEl,setBudgetSidebarEl]=useState(null); // portal target inside <aside> for the Budget tab's controls
   const[pacingSidebarEl,setPacingSidebarEl]=useState(null); // portal target inside <aside> for the Reporting tab's controls
   const[askSidebarEl,setAskSidebarEl]=useState(null); // portal target inside <aside> for Ask AI's search/projects/labels/pinned-chats panel — replaces the generic "Total spend" stat tiles that used to show here (not relevant to Ask AI, see 2026-07-21 UX note)
@@ -214,20 +217,9 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const[vaultSidebarEl,setVaultSidebarEl]=useState(null); // portal target inside <aside> for Vault's own overview (2026-08-19) — same reasoning as changeHistorySidebarEl above
   const[accountPlanningSidebarEl,setAccountPlanningSidebarEl]=useState(null); // portal target inside <aside> for Account Planning's step nav (2026-08-07, per Mo — "make it the width of campaign tagger and include the second vertical column"); previously accountPlanning was special-cased to a zero-width/no-content sidebar (see that branch's own doc comment below) — this gives it a real one, same pattern as every other Tailwind-and-legacy-alike tab
   useEffect(()=>{
-    const onMove=e=>{
-      if(!statsResizing.current)return;
-      const w=Math.min(480,Math.max(180,e.clientX));
-      statsWidthRef.current=w;
-      setStatsWidth(w);
-    };
-    const onUp=()=>{
-      if(statsResizing.current){try{localStorage.setItem("paidhq_sidebar_width",String(statsWidthRef.current));}catch(e){}}
-      statsResizing.current=false;
-      document.body.style.cursor="";
-    };
-    window.addEventListener("mousemove",onMove);
-    window.addEventListener("mouseup",onUp);
-    return()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};
+    const onResize=()=>setStatsWidth(computeStatsWidth());
+    window.addEventListener("resize",onResize);
+    return()=>window.removeEventListener("resize",onResize);
   },[]);
   const[fileName,setFileName]=useState("");
   const[rawRows,setRawRows]=useState([]);
@@ -3649,18 +3641,14 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           </>)}
         </aside>
 
-        {/* Drag-to-resize handle for the stats column — thin strip on the divider line. Not shown
-            on Dashboard, which has no stats column to resize. */}
-        {view!=="dashboard"&&statsOpen&&(
-          <div onMouseDown={()=>{statsResizing.current=true;document.body.style.cursor="col-resize";}}
-            title="Drag to resize"
-            style={{position:"absolute",top:0,bottom:0,left:statsWidth-3,width:7,cursor:"col-resize",zIndex:32}}/>
-        )}
-
-        {/* Collapse handle for the stats column — same reasoning, hidden on Dashboard */}
-        {view!=="dashboard"&&(
+        {/* Collapse handle for the stats column — hidden on Dashboard/Settings (no stats column).
+            The width is responsive and no longer user-draggable (2026-08-07, per Mo), so there's no
+            resize handle. When collapsed the button used to sit at left:-9, half off the container's
+            left edge (clipped / floating over the main content) — it now clamps to a small positive
+            offset so the "show" button stays fully visible and tidy at the content's left edge. */}
+        {view!=="dashboard"&&view!=="settings"&&(
           <button className="bhq-iconbtn" onClick={()=>setStatsOpen(o=>!o)} title={statsOpen?"Hide stats":"Show stats"}
-            style={{position:"absolute",top:"50%",left:(statsOpen?statsWidth:0)-9,transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:T.surface,border:`1px solid ${T.border}`,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontWeight:700,fontSize:9*(T.fsScale||1),lineHeight:1,zIndex:40,boxShadow:T.shadow,transition:statsResizing.current?"none":"left 0.15s, background 0.12s"}}>
+            style={{position:"absolute",top:"50%",left:statsOpen?statsWidth-9:4,transform:"translateY(-50%)",width:18,height:18,borderRadius:"50%",background:T.surface,border:`1px solid ${T.border}`,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:T.textSub,fontWeight:700,fontSize:9*(T.fsScale||1),lineHeight:1,zIndex:40,boxShadow:T.shadow,transition:"left 0.15s, background 0.12s"}}>
             {statsOpen?"‹":"›"}
           </button>
         )}
