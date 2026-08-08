@@ -13,7 +13,8 @@ import { Icon, Btn, SectionLabel, Sel, PixelPanel, AISummaryCard, Pill, WarnTip,
 // Venture Tailwind primitives (2026-08-07, per Mo — Pacing tab retheme, same migration as the
 // Budget Panel). Used to rebuild the portal sidebar off the legacy T-theme Btn/Sel/PixelPanel.
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./ui/select.jsx";
-import { Wallet, Coins, Gauge, Clock, Stack, Target, CheckCircle } from "@phosphor-icons/react";
+import { Button } from "./ui/button.jsx";
+import { Wallet, Coins, Gauge, Clock, Stack, Target, CheckCircle, FloppyDisk, DownloadSimple, Sparkle, CaretDown } from "@phosphor-icons/react";
 import { cn } from "../lib/utils.js";
 import { usePersistentState } from "../lib/persist.js";
 import { EXPORT_FORMATS, downloadReport } from "../lib/reports.js";
@@ -1025,9 +1026,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             View modal pre-filled with the AI's suggested name so it's one click to keep. */}
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
           <div style={{position:"relative"}}>
-            <Btn onClick={()=>setSavedViewsMenuOpen(p=>!p)} variant="ghost" size="sm" T={T}>
-              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="save" size={12} color={T.textSub}/> Views{savedViews?.length?` (${savedViews.length})`:""} <Icon name="chevronDown" size={11} color={T.textMuted}/></span>
-            </Btn>
+            <Button onClick={()=>setSavedViewsMenuOpen(p=>!p)} variant="outline" size="sm">
+              <FloppyDisk size={14}/> Views{savedViews?.length?` (${savedViews.length})`:""} <CaretDown size={12}/>
+            </Button>
             {savedViewsMenuOpen&&(
               <>
                 <div onClick={()=>setSavedViewsMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:99}}/>
@@ -1049,9 +1050,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               there's nothing here to export; switch to Budget Segments or Custom first. */}
           {viewMode!=="trend"&&(
             <div style={{position:"relative"}}>
-              <Btn onClick={()=>setExportMenuOpen(p=>!p)} variant="ghost" size="sm" T={T}>
-                <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="download" size={12} color={T.textSub}/> Export <Icon name="chevronDown" size={11} color={T.textMuted}/></span>
-              </Btn>
+              <Button onClick={()=>setExportMenuOpen(p=>!p)} variant="outline" size="sm">
+                <DownloadSimple size={14}/> Export <CaretDown size={12}/>
+              </Button>
               {exportMenuOpen&&(
                 <>
                   <div onClick={()=>setExportMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:99}}/>
@@ -1074,7 +1075,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               )}
             </div>
           )}
-          <Btn onClick={()=>setAiViewOpen(p=>!p)} variant="ghost" size="sm" T={T}>✨ Ask AI to build a view</Btn>
+          <Button onClick={()=>setAiViewOpen(p=>!p)} variant="outline" size="sm"><Sparkle size={14}/> Ask AI to build a view</Button>
           {aiViewOpen&&(
             <div style={{display:"flex",gap:6,alignItems:"center",flex:"1 1 320px",minWidth:260}}>
               <input autoFocus value={aiViewQuestion} onChange={e=>setAiViewQuestion(e.target.value)}
@@ -1175,9 +1176,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           {/* Bulk action bar */}
           {selRows.size>0&&(
             <div style={{padding:"8px 24px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              <Pill color={T.text} bg={T.accent} border={T.text}>{selRows.size} selected</Pill>
-              <Btn onClick={()=>setSelRows(new Set())} variant="ghost" size="sm" T={T}>Clear</Btn>
-              <Btn onClick={bulkDeleteSegments} variant="danger" size="sm" T={T}>✕ Delete {selRows.size}</Btn>
+              <span className="inline-block rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground">{selRows.size} selected</span>
+              <Button onClick={()=>setSelRows(new Set())} variant="outline" size="sm">Clear</Button>
+              <Button onClick={bulkDeleteSegments} variant="destructive" size="sm">✕ Delete {selRows.size}</Button>
             </div>
           )}
           <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13*(T.fsScale||1),background:T.surface}}>
