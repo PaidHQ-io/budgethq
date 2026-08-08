@@ -332,7 +332,8 @@ function PacingBulletChart({rows,expectedPct,mode,valueFormatter,onPick,T}){
         </>}
         {rows.map((r,i)=>{
           const y=padT+i*(rowH+gap);const v=rv(r);const over=v.proj>v.budget;const hv=hoverIdx===i;
-          const barY=y+rowH*0.16,barH=rowH*0.68,spendH=rowH*0.4,spendY=y+(rowH-spendH)/2;
+          // Spend fills the full bar height (per Mo — a thin centered measure bar read as unfinished).
+          const barY=y+rowH*0.14,barH=rowH*0.72,spendH=barH,spendY=barY;
           return(
             <g key={i} style={{cursor:onPick?"pointer":"default"}} onMouseEnter={()=>setHoverIdx(i)} onMouseLeave={()=>setHoverIdx(null)} onClick={()=>onPick&&onPick(r.name)}>
               <rect x={0} y={y} width={w} height={rowH} fill={hv?T.surfaceHover:"transparent"} opacity={hv?0.5:0}/>
@@ -1202,8 +1203,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             filteredSegments). Clicking a bar drops that value into the dimension's filter box. */}
         {budgetDims.length>0&&(
           <div style={{order:-1,marginBottom:14}}>
-            <Card>
-              <CardHeader className="flex flex-col gap-3 pb-3">
+            <Card className="border-0 bg-transparent shadow-none">
+              <CardHeader className="flex flex-col gap-3 px-0 pb-3">
                 <div className="flex flex-row items-start justify-between gap-3">
                   <div>
                     <CardTitle className="text-sm font-semibold text-foreground">Budget pacing</CardTitle>
@@ -1247,7 +1248,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-0">
                 {chartRows.length?(
                   <PacingBulletChart rows={chartRows} expectedPct={pacing.expectedPct} mode={chartMode} valueFormatter={fmtFull} onPick={name=>setSegFilters(p=>({...p,[effChartDim]:name}))} T={T}/>
                 ):(
