@@ -9,7 +9,11 @@ import {
   NUMERIC_FIELDS, NUMERIC_OPERATORS, matchesNumericFilters, getPeriodRange,
 } from "../lib/core.js";
 import { askAIBuildView, aiConfigToViewConfig } from "../lib/askAI.js";
-import { Icon, Btn, SectionLabel, Sel, Divider, PixelPanel, AISummaryCard, Pill, WarnTip, InfoTip } from "./shared.jsx";
+import { Icon, Btn, SectionLabel, Sel, PixelPanel, AISummaryCard, Pill, WarnTip, InfoTip } from "./shared.jsx";
+// Venture Tailwind primitives (2026-08-07, per Mo — Pacing tab retheme, same migration as the
+// Budget Panel). Used to rebuild the portal sidebar off the legacy T-theme Btn/Sel/PixelPanel.
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./ui/select.jsx";
+import { cn } from "../lib/utils.js";
 import { usePersistentState } from "../lib/persist.js";
 import { EXPORT_FORMATS, downloadReport } from "../lib/reports.js";
 import { exportReportToGoogleSheets } from "../lib/googleSheets";
@@ -779,82 +783,86 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     <div style={{display:"flex",flexDirection:"column",height:"100%",background:T.bg,overflow:"auto"}}>
       {/* Controls + summary now render via portal into the app-shell's stats sidebar */}
       {sidebarEl&&createPortal(
-        <div style={{display:"flex",flexDirection:"column",gap:0}}>
-          <div style={{paddingBottom:12}}>
-            <SectionLabel T={T} style={{marginBottom:8}}>Period</SectionLabel>
-            <div style={{display:"flex",gap:4,marginBottom:8}}>
-              {[["monthly","Mo"],["quarterly","Qtr"],["annual","Yr"]].map(([k,l])=>(
-                <button key={k} className={periodType===k?undefined:"bhq-row"} onClick={()=>changePeriodType(k)} style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1.5px solid ${periodType===k?T.accentHover:T.border}`,background:periodType===k?T.accentBg:"transparent",color:periodType===k?T.text:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontWeight:periodType===k?700:400,fontFamily:T.font}}>{l}</button>
+        <div className="flex flex-col gap-0">
+          {/* Sidebar rebuilt on Venture Tailwind primitives (2026-08-07, per Mo — same treatment as
+              the Budget Panel: lighter uppercase labels, pill toggles, full-bleed dividers). */}
+          <div className="pb-4">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Period</div>
+            <div className="mb-2 flex gap-1">
+              {[["monthly","Month"],["quarterly","Quarter"],["annual","Year"]].map(([k,l])=>(
+                <button key={k} onClick={()=>changePeriodType(k)}
+                  className={cn("flex-1 rounded-sm border py-1.5 text-xs font-medium transition-colors",
+                    periodType===k?"border-foreground bg-secondary text-foreground":"border-border text-muted-foreground hover:bg-secondary/60")}>
+                  {l}
+                </button>
               ))}
             </div>
-            <div style={{display:"flex",gap:4,marginBottom:8}}>
+            <div className="mb-2 flex gap-1">
               {years.map(y=>(
-                <button key={y} className={year===y?undefined:"bhq-row"} onClick={()=>changeYear(y)} style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1.5px solid ${year===y?T.accentHover:T.border}`,background:year===y?T.accentBg:"transparent",color:year===y?T.text:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontWeight:year===y?700:400,fontFamily:T.font}}>{y}</button>
+                <button key={y} onClick={()=>changeYear(y)}
+                  className={cn("flex-1 rounded-sm border py-1.5 text-xs font-medium transition-colors",
+                    year===y?"border-foreground bg-secondary text-foreground":"border-border text-muted-foreground hover:bg-secondary/60")}>
+                  {y}
+                </button>
               ))}
             </div>
             {periodType==="monthly"&&(
-              <Sel value={month} onChange={changeMonth} T={T} style={{marginBottom:8}}>
-                {MONTHS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
-              </Sel>
+              <Select value={month} onValueChange={changeMonth}>
+                <SelectTrigger className="mb-2 h-9 text-sm"><SelectValue/></SelectTrigger>
+                <SelectContent>{MONTHS.map(m=><SelectItem key={m.key} value={m.key}>{m.label}</SelectItem>)}</SelectContent>
+              </Select>
             )}
             {periodType==="quarterly"&&(
-              <Sel value={quarter} onChange={changeQuarter} T={T} style={{marginBottom:8}}>
-                {QUARTERS.map(q=><option key={q.key} value={q.key}>{q.key}</option>)}
-              </Sel>
+              <Select value={quarter} onValueChange={changeQuarter}>
+                <SelectTrigger className="mb-2 h-9 text-sm"><SelectValue/></SelectTrigger>
+                <SelectContent>{QUARTERS.map(q=><SelectItem key={q.key} value={q.key}>{q.key}</SelectItem>)}</SelectContent>
+              </Select>
             )}
-            <div style={{fontSize:11*(T.fsScale||1),color:T.textMuted,lineHeight:1.5}}>
+            <div className="text-xs leading-relaxed text-muted-foreground">
               {periodLabel} · {pacing.elapsedDays} of {pacing.totalDays} days elapsed{pacing.daysRemaining>0?` · ${pacing.daysRemaining} remaining`:""}
             </div>
           </div>
-          <Divider T={T}/>
-          <div style={{padding:"12px 0",display:"flex",flexDirection:"column",gap:10}}>
-            <SectionLabel T={T} style={{marginBottom:2}}>Summary</SectionLabel>
+          <div className="border-t border-border py-3">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Summary</div>
             {[
-              {label:"Total Budget",value:fmtFull(pacing.totals.budget),color:T.text},
-              {label:"Spend to Date",value:fmtFull(pacing.totals.spend),color:T.text},
+              {label:"Total Budget",value:fmtFull(pacing.totals.budget)},
+              {label:"Spend to Date",value:fmtFull(pacing.totals.spend)},
               {label:"Overall Pacing",value:overallPct!=null?`${Math.round(overallPct*100)}%`:"—",color:overallPct!=null&&overallPct-pacing.expectedPct>0.1?T.warning:overallPct!=null&&overallPct-pacing.expectedPct<-0.1?T.accent:T.success},
-              {label:"Expected Pace",value:`${Math.round(pacing.expectedPct*100)}%`,color:T.text},
-              {label:"Segments",value:pacing.segments.length.toString(),color:T.text},
+              {label:"Expected Pace",value:`${Math.round(pacing.expectedPct*100)}%`},
+              {label:"Segments",value:pacing.segments.length.toString()},
               // MQL Goal/Actual (2026-08-06, per Mo) — only shown once there's actually MQL data
-              // imported (goals and/or pipeline actuals) for THIS period, same "don't show an
-              // always-empty stat" gating as everything else in this list is implicitly guaranteed
-              // by (pacing.totals always has a real number even at 0, these two don't).
+              // imported (goals and/or pipeline actuals) for THIS period.
               ...(periodMqlTrend.goalTotal>0||periodMqlTrend.actualTotal>0?[
-                {label:"MQL Goal",value:fmtCount(periodMqlTrend.goalTotal),color:T.text},
-                {label:"MQL Actual",value:fmtCount(periodMqlTrend.actualTotal),color:T.text},
+                {label:"MQL Goal",value:fmtCount(periodMqlTrend.goalTotal)},
+                {label:"MQL Actual",value:fmtCount(periodMqlTrend.actualTotal)},
               ]:[]),
             ].map(s=>(
-              <PixelPanel key={s.label} T={T} contentStyle={{padding:"12px 14px",background:T.bg}}>
-                <div style={{fontSize:10*(T.fsScale||1),fontWeight:600,color:T.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>{s.label}</div>
-                <div style={{fontSize:19*(T.fsScale||1),fontWeight:700,color:s.color,fontFamily:T.font}}>{s.value}</div>
-              </PixelPanel>
+              <div key={s.label} className="flex items-center justify-between py-1 text-xs">
+                <span className="text-muted-foreground">{s.label}</span>
+                <span className="font-medium" style={{color:s.color||undefined}}>{s.value}</span>
+              </div>
             ))}
           </div>
-          <Divider T={T}/>
-          <div style={{padding:"12px 0 4px",display:"flex",flexDirection:"column",gap:6}}>
-            <SectionLabel T={T} style={{marginBottom:2}}>Data freshness</SectionLabel>
-            <div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,lineHeight:1.5,marginBottom:4}}>Date range each platform actually has spend data for, regardless of source (sync, Google Sheet, CSV/screenshot) — projections use each platform's own last date instead of assuming everyone's current through today.</div>
+          <div className="border-t border-border py-3">
+            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Data freshness</div>
+            <div className="mb-2 text-[10px] leading-relaxed text-muted-foreground">Date range each platform actually has spend data for — projections use each platform's own last date instead of assuming everyone's current through today.</div>
             {Object.entries(pacing.platformFreshness||{}).sort(([,a],[,b])=>b-a).map(([platform,date])=>{
               const daysStale=Math.floor((now-date)/86400000);
-              // Same 4-color scale as the Pacing column's status colors (pacingStatusMeta) instead
-              // of a plain 3-tier success/warning/danger — gives freshness more graduated signal
-              // (e.g. "2 days ago" across every platform used to render as one flat color) using
-              // colors already established elsewhere in this view.
               const color=daysStale<=1?T.success:daysStale<=3?T.accent:daysStale<=6?T.warning:T.danger;
               const label=daysStale<=0?"Today":daysStale===1?"Yesterday":`${daysStale} days ago`;
               const range=platformDateRange[platform];
               const fmtShort=d=>d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
               return(
-                <div key={platform} style={{display:"flex",flexDirection:"column",gap:1,padding:"3px 0"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:11*(T.fsScale||1),fontFamily:T.font}}>
-                    <span style={{color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{platform}</span>
-                    <span style={{color,fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>
+                <div key={platform} className="flex flex-col gap-0.5 py-1">
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="truncate text-foreground">{platform}</span>
+                    <span className="whitespace-nowrap font-medium" style={{color}}>{label}</span>
                   </div>
-                  {range&&<div style={{fontSize:10*(T.fsScale||1),color:T.textMuted,whiteSpace:"nowrap"}}>{fmtShort(range.min)} – {fmtShort(range.max)}</div>}
+                  {range&&<div className="whitespace-nowrap text-[10px] text-muted-foreground">{fmtShort(range.min)} – {fmtShort(range.max)}</div>}
                 </div>
               );
             })}
-            {Object.keys(pacing.platformFreshness||{}).length===0&&<div style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>No spend data yet</div>}
+            {Object.keys(pacing.platformFreshness||{}).length===0&&<div className="text-[11px] text-muted-foreground">No spend data yet</div>}
           </div>
         </div>,
         sidebarEl
