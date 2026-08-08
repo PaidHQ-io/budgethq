@@ -46,8 +46,13 @@ export default {
   // to Tremor (DONUT_COLORS in AccountPlanning.jsx, plus Tremor's own default brand blue) rather
   // than every Tailwind color — the full 21-color matrix works too but roughly triples index.css's
   // output size for shades this app will never reference.
+  // 2026-08-07 update (Venture retheme, Dashboard.jsx): added neutral/gray/stone/zinc — Dashboard's
+  // CHART_COLORS grayscale ramp (donut, sparkline, bar chart, line chart) hit this exact same bug.
+  // Only "slate" was in the pattern before, so those four families' fill/stroke classes were being
+  // purged in production, and every chart on the Dashboard rendered as flat black — this is very
+  // likely what Mo was seeing as "something's not rendering."
   safelist: [
-    { pattern: /^(bg|text|border|ring|stroke|fill)-(emerald|amber|rose|slate|blue)-(300|400|500|600|700)$/ },
+    { pattern: /^(bg|text|border|ring|stroke|fill)-(emerald|amber|rose|slate|blue|neutral|gray|stone|zinc)-(300|400|500|600|700)$/ },
   ],
   theme: {
     transparent: "transparent",
