@@ -1776,7 +1776,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
             {["Platform","Campaign","Ad Group",...(tagDimensions||[])].map(d=>{const on=budgetDims.includes(d);return(
               <div key={d} onClick={()=>toggleDim(d)}
                 className={cn("mb-0.5 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",on?"bg-secondary":"hover:bg-secondary/50")}>
-                <Checkbox checked={on} onCheckedChange={()=>toggleDim(d)}/>
+                {/* Checkbox is display-only (pointer-events-none) — the row's onClick is the single
+                    toggle. Previously it also had its own onCheckedChange, so clicking the box fired
+                    the toggle twice (box handler + row bubble) and net-cancelled, which is why a
+                    selected dimension couldn't be un-selected (2026-08-07 fix, per Mo). */}
+                <Checkbox checked={on} className="pointer-events-none"/>
                 <span className={cn("text-sm text-foreground",on&&"font-semibold")}>{d}</span>
                 <span className="ml-auto text-xs text-muted-foreground">{dimCount(d)}</span>
               </div>
@@ -1883,8 +1887,13 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               </CardHeader>
               <CardContent>
                 {chartTotal>0?(
+                  // Y-axis uses a compact "k" formatter (matching Venture's 300k/200k/100k/0k
+                  // reference) — the old fmtFull produced "$300,000"-width labels that overran
+                  // yAxisWidth and got clipped on the left. The hover tooltip still shows the full
+                  // value via BudgetChartTooltip/fmtFull.
                   <AreaChart data={chartData} index="period" categories={["Budgeted"]} colors={["neutral"]}
-                    className="h-60" showAnimation={false} showLegend={false} valueFormatter={fmtFull} yAxisWidth={64}
+                    className="h-60" showAnimation={false} showLegend={false}
+                    valueFormatter={v=>v>=1000?`${Math.round(v/1000)}k`:`${Math.round(v)}`} yAxisWidth={52}
                     customTooltip={BudgetChartTooltip}/>
                 ):(
                   <div className="flex h-60 items-center justify-center text-sm text-muted-foreground">No budget set for {year} yet.</div>

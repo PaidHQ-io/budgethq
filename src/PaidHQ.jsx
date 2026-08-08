@@ -3328,7 +3328,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             (old T-theme PixelPanel styling, "Total spend/Campaigns/Tagged/Needs review") isn't part
             of Venture's Settings design at all. It was rendering as an unwanted 3rd vertical column
             — Mo counted "three vertical menus in settings instead of two." */}
-        <aside style={{width:(view==="dashboard"||view==="settings")?0:(statsOpen?statsWidth:0),flexShrink:0,background:T.sidebarBg,borderRight:(view==="dashboard"||view==="settings")?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:(view==="dashboard"||view==="settings")?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
+        <aside style={{width:(view==="dashboard"||view==="settings")?0:(statsOpen?statsWidth:0),flexShrink:0,background:view==="budget"?T.surface:T.sidebarBg,borderRight:(view==="dashboard"||view==="settings")?"none":(statsOpen?`1px solid ${T.border}`:"none"),display:"flex",flexDirection:"column",padding:(view==="dashboard"||view==="settings")?0:(statsOpen?"18px 14px":0),overflow:"hidden",gap:12,zIndex:20,transition:statsResizing.current?"none":"width 0.15s,padding 0.15s"}}>
 
           {view==="dashboard"||view==="settings"?null:view==="accountPlanning"?(
             <div ref={setAccountPlanningSidebarEl} className="bhq-scroll" style={{flex:1,minHeight:0,overflow:"auto",display:"flex",flexDirection:"column"}}/>
