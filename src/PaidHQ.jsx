@@ -5884,6 +5884,11 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .bhq-cardrows tbody tr.bhq-totalrow td{border-top:1px solid ${T.border};border-bottom:1px solid ${T.border};background:${T.surfaceHover};}
         .bhq-cardrows tbody tr.bhq-totalrow td:first-child{border-left:1px solid ${T.border};border-top-left-radius:8px;border-bottom-left-radius:8px;}
         .bhq-cardrows tbody tr.bhq-totalrow td:last-child{border-right:1px solid ${T.border};border-top-right-radius:8px;border-bottom-right-radius:8px;}
+        /* Drill-down breakdown rows (2026-08-07, per Mo — "a white sheet that comes down like a roll
+           of paper"): white and borderless so they read as one continuous sheet extending from the
+           parent row (fully connected in grid mode; white borderless rows in card mode). */
+        tr.bhq-drilldown td{border:0 !important;}
+        .bhq-cardrows tbody tr.bhq-drilldown td{border:0 !important;border-radius:0 !important;}
         /* Slim rounded horizontal scrollbar for the wide budget table (2026-08-07, per Mo's
            reference) — a thin track with a rounded grey thumb, appearing on hover like the sidebar. */
         .bhq-hscroll{scrollbar-width:thin;scrollbar-color:${T.border} transparent;}

@@ -1305,13 +1305,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 if(!isExpanded)return[parentRow];
                 const breakdown=computeSpendBreakdown({mergedNormRows,tags:campaignTags,budgetDims,segKey:seg.segKey,breakdownDim,start:pacing.start,end:pacing.end,today:now,forecastModel:seg.forecastModel,combineGoogleChannels});
                 const breakdownRows=breakdown.length===0?[
-                  <tr key={seg.segKey+"-empty"} style={{background:rowBg}}>
+                  <tr key={seg.segKey+"-empty"} className="bhq-drilldown" style={{background:rowBg}}>
                     <td/><td/>
                     <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:13*(T.fsScale||1),color:T.textMuted,fontStyle:"italic"}}>No spend in this period to break down by {breakdownDim}</td>
                     <td colSpan={8} style={{borderBottom:rbb}}/>
                   </tr>
                 ]:breakdown.map(b=>(
-                  <tr key={seg.segKey+"-"+b.value} style={{background:rowBg}}>
+                  <tr key={seg.segKey+"-"+b.value} className="bhq-drilldown" style={{background:rowBg}}>
                     <td/><td/>
                     <td colSpan={budgetDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:13*(T.fsScale||1),color:T.textSub}}>↳ {b.value}</td>
                     <td style={{borderBottom:rbb}}/>
@@ -1404,8 +1404,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             </Sel>
             {renderAskAboutViewBtn({marginLeft:"auto"})}
             <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>{filteredCustomSegments.length} of {customPacing.segments.length} groups</span>
+            <Button onClick={()=>setCardRows(v=>!v)} variant="outline" size="sm" title={cardRows?"Switch to compact grid rows":"Switch to card-style rows"}>{cardRows?"Cards":"Grid"}</Button>
           </div>
-          <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:13*(T.fsScale||1),background:T.surface}}>
+          {/* Bordered table card (2026-08-07, per Mo — custom view mirrors the budget-segments view). */}
+          <div style={{padding:"12px 24px 24px"}}>
+          <Card className={cn("overflow-hidden",cardRows&&"border-0 bg-transparent shadow-none")}>
+          <div className="bhq-hscroll" style={{overflowX:"auto",overflowY:"visible"}}>
+          <table className={cardRows?"bhq-cardrows":undefined} style={{borderCollapse:cardRows?"separate":"collapse",borderSpacing:cardRows?"0 8px":undefined,minWidth:"100%",fontSize:13*(T.fsScale||1),background:cardRows?"transparent":T.surface}}>
             <thead><tr>
               <th style={{...TH,width:20,paddingLeft:24}}/>
               {customDims.map(d=><th key={d} style={{...TH,...(d==="Product"?{maxWidth:110}:d==="Module"?{maxWidth:140}:{})}}>{d}</th>)}
@@ -1422,7 +1427,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const isExpanded=breakdownDim&&expandedRows.has(seg.segKey);
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
-                  <tr key={seg.segKey} className="bhq-tr">
+                  <tr key={seg.segKey} className="bhq-datarow bhq-tr">
                     <td style={{padding:"5px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
@@ -1447,13 +1452,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 if(!isExpanded)return[parentRow];
                 const breakdown=computeCustomBreakdown({mergedNormRows,tags:campaignTags,dims:customDims,segKey:seg.segKey,breakdownDim,start:customPacing.start,end:customPacing.end,today:now,combineGoogleChannels});
                 const breakdownRows=breakdown.length===0?[
-                  <tr key={seg.segKey+"-empty"}>
+                  <tr key={seg.segKey+"-empty"} className="bhq-drilldown" style={{background:T.surface}}>
                     <td/>
                     <td colSpan={customDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:13*(T.fsScale||1),color:T.textMuted,fontStyle:"italic"}}>No spend in this period to break down by {breakdownDim}</td>
                     <td colSpan={4} style={{borderBottom:rbb}}/>
                   </tr>
                 ]:breakdown.map(b=>(
-                  <tr key={seg.segKey+"-"+b.value}>
+                  <tr key={seg.segKey+"-"+b.value} className="bhq-drilldown" style={{background:T.surface}}>
                     <td/>
                     <td colSpan={customDims.length} style={{padding:"6px 14px 6px 34px",borderBottom:rbb,fontSize:13*(T.fsScale||1),color:T.textSub}}>↳ {b.value}</td>
                     <td style={{padding:"6px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1)}}>
@@ -1475,7 +1480,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   campaignCount:acc.campaignCount+s.campaignCount,
                 }),{spend:0,dailyRate:0,projected:0,hasProjected:false,campaignCount:0});
                 return(
-                  <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
+                  <tr className="bhq-totalrow" style={{borderTop:`2px solid ${T.border}`,background:T.surfaceHover}}>
                     <td style={{padding:"10px 4px"}}/>
                     {customDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredCustomSegments.length})</SectionLabel>}</td>)}
                     <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{fmtFull(ft.spend)}</td>
@@ -1487,6 +1492,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               })()}
             </tbody>
           </table>
+          </div>
+          </Card>
+          </div>
           </>
         ))}
         {viewMode==="trend"&&(!trendData||trendData.grandTotal===0?(
