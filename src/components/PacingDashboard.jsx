@@ -939,7 +939,10 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           the tables' own first/last header and data cells carry a matching 24px inset instead, so
           content still lines up visually with the toolbars above. */}
       <div style={{flex:1,overflow:"auto",padding:"20px 0 24px"}}>
-        <div style={{padding:"0 24px"}}>
+        {/* flex column + order:-1 on the action-button row (2026-08-07, per Mo) puts Views/Export/
+            Ask AI/Grid at the very top, like the Budget Panel's top action bar — without reshuffling
+            the interconnected menu JSX below. */}
+        <div style={{padding:"0 24px",display:"flex",flexDirection:"column"}}>
         <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} combineGoogleChannels={combineGoogleChannels} mode="pacing"
           view={{
             viewMode,
@@ -1035,7 +1038,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             configurations; "Ask AI to build a view" turns a plain-English request into a
             configuration via askAIBuildView, applies it immediately, then opens the same Save
             View modal pre-filled with the AI's suggested name so it's one click to keep. */}
-        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
+        <div style={{order:-1,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
           <div style={{position:"relative"}}>
             <Button onClick={()=>setSavedViewsMenuOpen(p=>!p)} variant="outline" size="sm">
               <FloppyDisk size={14}/> Views{savedViews?.length?` (${savedViews.length})`:""} <CaretDown size={12}/>
@@ -1188,7 +1191,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           {/* Bulk action bar */}
           {selRows.size>0&&(
             <div style={{padding:"8px 24px",borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              <span className="inline-block rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground">{selRows.size} selected</span>
+              <span className="inline-block rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-foreground">{selRows.size} selected</span>
               <Button onClick={()=>setSelRows(new Set())} variant="outline" size="sm">Clear</Button>
               <Button onClick={bulkDeleteSegments} variant="destructive" size="sm">✕ Delete {selRows.size}</Button>
             </div>
@@ -1240,13 +1243,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     <td key={i} style={{padding:"7px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
                       {DERIVED_DIMS.includes(budgetDims[i])?(
                         // Derived, not stored — see the same guard in the Budget Panel's table.
-                        <span className="inline-block whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground" title="Derived from spend data — not editable">{v}</span>
+                        <span className="inline-block whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-foreground" title="Derived from spend data — not editable">{v}</span>
                       ):editingSegVal?.segKey===seg.segKey&&editingSegVal?.dim===budgetDims[i]?(
                         <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                           onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
                           style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,color:T.text,padding:"3px 8px",fontSize:13*(T.fsScale||1),outline:"none",fontFamily:T.font,minWidth:80}}/>
                       ):(
-                        <span className="inline-block cursor-text whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground"
+                        <span className="inline-block cursor-text whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-foreground"
                           onClick={()=>{setEditingSegVal({segKey:seg.segKey,dim:budgetDims[i]});setEditSegVal(v);}}>{v}</span>
                       )}
                       {i===seg.dims.length-1&&seg.budget>0&&seg.matchCount===0&&(
@@ -1289,13 +1292,17 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         {/* Themed shadcn Select (2026-08-07, per Mo — the native <select> dropdown
                             rendered with an off-theme OS-blue highlight). Highlighted when this row
                             overrides the global default. */}
-                        <Select value={forecastModeOf(getForecastModelOverride(seg.segKey))} onValueChange={v=>setForecastModelMode(seg.segKey,v)} disabled={!canEdit}>
+                        {/* Radix Select forbids an empty-string item value, and FORECAST_MODEL_INHERIT
+                            is "" — so the inherit option uses a "__inherit__" sentinel that's mapped
+                            back to "" on change (2026-08-07 fix, per Mo — the trigger was rendering
+                            blank/unreadable because value="" never matched an item). */}
+                        <Select value={forecastModeOf(getForecastModelOverride(seg.segKey))||"__inherit__"} onValueChange={v=>setForecastModelMode(seg.segKey,v==="__inherit__"?FORECAST_MODEL_INHERIT:v)} disabled={!canEdit}>
                           <SelectTrigger title={`Forecast model — how this segment's spend is projected across the period. Currently: ${forecastModelLabel(getEffectiveForecastModel(seg.segKey))}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
                             className={cn("h-7 w-[150px] gap-1 px-2 py-1 text-xs",getForecastModelOverride(seg.segKey)?"bg-secondary text-foreground":"bg-transparent text-muted-foreground")}>
                             <SelectValue/>
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value={FORECAST_MODEL_INHERIT}>Use global ({forecastModelLabel(defaultForecastModel)})</SelectItem>
+                            <SelectItem value="__inherit__">Use global ({forecastModelLabel(defaultForecastModel)})</SelectItem>
                             <SelectItem value="auto">Auto</SelectItem>
                             <SelectItem value="committed">Committed</SelectItem>
                             <SelectItem value="manual">Manual</SelectItem>
@@ -1365,7 +1372,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const ftActualPct=ft.budget>0?ft.spend/ft.budget:null;
                 const ftVariance=ft.budget>0&&ft.hasProjected?ft.projected-ft.budget:null;
                 return(
-                  <tr className="bhq-totalrow" style={{borderTop:`2px solid ${T.border}`,background:T.surfaceHover}}>
+                  <tr className="bhq-totalrow" style={{borderTop:`1px solid `,background:T.surfaceHover}}>
                     <td style={{padding:"10px 4px"}}/>
                     <td style={{padding:"10px 8px"}}/>
                     {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredSegments.length})</SectionLabel>}</td>)}
@@ -1481,7 +1488,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                     </td>
                     {seg.dims.map((v,i)=>{const dimMaxW=undefined;return(
                     <td key={i} style={{padding:"7px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
-                      <span className="inline-block whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground">{v}</span>
+                      <span className="inline-block whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-foreground">{v}</span>
                     </td>);})}
                     <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
                     <td style={{padding:"7px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
@@ -1528,7 +1535,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   campaignCount:acc.campaignCount+s.campaignCount,
                 }),{spend:0,dailyRate:0,projected:0,hasProjected:false,campaignCount:0});
                 return(
-                  <tr className="bhq-totalrow" style={{borderTop:`2px solid ${T.border}`,background:T.surfaceHover}}>
+                  <tr className="bhq-totalrow" style={{borderTop:`1px solid `,background:T.surfaceHover}}>
                     <td style={{padding:"10px 4px"}}/>
                     {customDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredCustomSegments.length})</SectionLabel>}</td>)}
                     <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{fmtFull(ft.spend)}</td>
@@ -1604,7 +1611,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text,paddingRight:24}}>{fmtFull(s.total)}</td>
                 </tr>
               ))}
-              <tr style={{borderTop:`2px solid ${T.border}`,background:T.surface}}>
+              <tr style={{borderTop:`1px solid `,background:T.surface}}>
                 <td style={{padding:"10px 14px",paddingLeft:24}}><SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Total</SectionLabel></td>
                 {trendData.periodTotals.map((v,i)=><td key={i} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{fmtFull(v)}</td>)}
                 <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text,paddingRight:24}}>{fmtFull(trendData.grandTotal)}</td>
