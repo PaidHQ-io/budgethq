@@ -3124,7 +3124,13 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           <SidebarSimple size={16}/>
         </button>
       )}
-      <aside className={cn("flex h-full shrink-0 flex-col border-border bg-background transition-[width] duration-150",
+      {/* bg-muted (2026-08-07, per Mo: "the main body of the site is white, even the top menu bar.
+          Only the left vertical column is grey") — Figma's General Settings frame (562:37686) confirms
+          the shell's left rail sits on Background/Secondary (#f9f9f9 = --muted here), while the top
+          header and every content column stay on Background/Primary (#fff = --background). Previously
+          this aside was bg-background (flat white), which is why the whole shell read as one undifferentiated
+          white surface with no grey rail. */}
+      <aside className={cn("flex h-full shrink-0 flex-col border-border bg-muted transition-[width] duration-150",
         primaryNavCollapsed?"w-0 overflow-hidden border-r-0":"w-[240px] border-r")}>
         <div className="flex h-[64px] items-center gap-2 border-b border-border px-5">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-primary">
