@@ -1210,15 +1210,15 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
                   <tr key={seg.segKey} className={isSel?undefined:"bhq-tr"} style={{background:rowBg}}>
-                    <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
+                    <td style={{padding:"5px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
                     </td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb}}>
+                    <td style={{padding:"5px 8px",borderBottom:rbb}}>
                       <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.segKey)} title="Select row — reveals bulk delete once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
                     </td>
                     {seg.dims.map((v,i)=>{const dimMaxW=budgetDims[i]==="Product"?110:budgetDims[i]==="Module"?140:undefined;return(
-                    <td key={i} style={{padding:"8px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
+                    <td key={i} style={{padding:"5px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
                       {DERIVED_DIMS.includes(budgetDims[i])?(
                         // Derived, not stored — see the same guard in the Budget Panel's table.
                         <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,borderRadius:T.r6}} title="Derived from spend data — not editable">{v}</Pill>
@@ -1234,51 +1234,42 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         <WarnTip T={T} text="No tagged campaigns match this segment. Spend will always show as $0 here, regardless of period, until a campaign is tagged with this exact combination in the Tagger."/>
                       )}
                     </td>);})}
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{seg.budget>0?fmtFull(seg.budget):"—"}</td>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right"}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
                         <span style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{seg.actualPct!=null?`${Math.round(seg.actualPct*100)}%`:"—"}</span>
                         <PacingBar actualPct={seg.actualPct} expectedPct={pacing.expectedPct} status={seg.status} T={T}/>
                       </div>
                     </td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
-                      <div style={{fontFamily:T.font,color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted}}>{Math.round(pacing.expectedPct*100)}%</td>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",whiteSpace:"nowrap"}}>
+                      {/* Single line (2026-08-07, per Mo — no stacked sub-rows anywhere in this
+                          table): projected value, its % of budget, low-confidence warn, and the
+                          over/under variance all inline; scroll right for the full row. */}
+                      <div style={{fontFamily:T.font,color:T.text,display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:6}}>
                         {seg.projected!=null?fmtFull(seg.projected):"—"}
-                        {seg.projected!=null&&seg.budget>0&&<span style={{color:T.textMuted,marginLeft:6,fontSize:13*(T.fsScale||1)}}>({Math.round((seg.projected/seg.budget)*100)}%)</span>}
+                        {seg.projected!=null&&seg.budget>0&&<span style={{color:T.textMuted,fontSize:13*(T.fsScale||1)}}>({Math.round((seg.projected/seg.budget)*100)}%)</span>}
                         {seg.lowConfidencePlatforms?.length>0&&(
                           <WarnTip T={T} text={`Projection may be unreliable — ${seg.lowConfidencePlatforms.join(", ")} only has a single as-of data point for this period, so its spend is being extrapolated across every day instead of an actual daily rate. Check that platform's Date/"Data accurate through" mapping.`}/>
                         )}
+                        {seg.projectedVariance!=null&&<span style={{fontSize:13*(T.fsScale||1),color:seg.projectedVariance>0?T.danger:T.success,fontFamily:T.font}}>{fmtSigned(seg.projectedVariance)}</span>}
                       </div>
-                      {seg.projectedVariance!=null&&<div style={{fontSize:13*(T.fsScale||1),color:seg.projectedVariance>0?T.danger:T.success,fontFamily:T.font}}>{fmtSigned(seg.projectedVariance)}</div>}
                     </td>
-                    <td style={{padding:"8px 14px",borderBottom:rbb,minWidth:200}}>
-                      <span className={cn("inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",statusBubbleClass(seg.status))}>{meta.label}</span>
-                      {/* Capacity-vs-budget signal (item 45) — see detectCapacitySignal's doc
-                          comment. Only ever shown for the "constrained" case; "growing" and null
-                          are both non-findings, not worth a badge. */}
-                      {seg.capacitySignal==="constrained"&&(
-                        <WarnTip T={T} color={T.accent} text={`Impressions have been flat for about ${CAPACITY_WINDOW*2} days despite budget headroom — more budget alone probably won't fix this. Likely capped by audience size, frequency cap, or the platform's own bid/approval limits, not by dollars.`}/>
-                      )}
-                      {/* Forecast model (item 45, redesigned 2026-07-25 into Auto/Manual/Committed
-                          — see the global control's comment above) — lives here, not the Budget
-                          Panel, since it's a pacing/projection choice, not a budget-setup one.
-                          Affects Daily Burn/Projected/Status above via computePacing reading
-                          budgetRowMeta. Defaults to inheriting the tab's global model (set above
-                          the table) — picking anything else here is an explicit per-row override,
-                          highlighted so it's obvious which rows deviate from the workspace default.
-                          Manual shows a second, narrower trailing-days input right below the select
-                          — kept as two stacked controls rather than crammed onto one line. Container
-                          widened to 168px (2026-07-28, per Mo — the old 118px cap clipped the native
-                          dropdown arrow off the right edge of the "Use global (Auto)" option since
-                          the text alone almost filled the box) and the select truncates with an
-                          ellipsis + full text in its title tooltip if a label is still too long. */}
-                      <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:2,maxWidth:168}}>
+                    <td style={{padding:"5px 14px",borderBottom:rbb,whiteSpace:"nowrap"}}>
+                      {/* Status pill + capacity warn + per-row forecast-model select all inline on
+                          one line (2026-08-07, per Mo — no stacked sub-rows; scroll right instead).
+                          The forecast select still overrides the global default per-row and is
+                          highlighted when it deviates; Manual shows its trailing-days input inline. */}
+                      <div style={{display:"inline-flex",alignItems:"center",gap:8}}>
+                        <span className={cn("inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",statusBubbleClass(seg.status))}>{meta.label}</span>
+                        {seg.capacitySignal==="constrained"&&(
+                          <WarnTip T={T} color={T.accent} text={`Impressions have been flat for about ${CAPACITY_WINDOW*2} days despite budget headroom — more budget alone probably won't fix this. Likely capped by audience size, frequency cap, or the platform's own bid/approval limits, not by dollars.`}/>
+                        )}
                         <select value={forecastModeOf(getForecastModelOverride(seg.segKey))} onChange={e=>setForecastModelMode(seg.segKey,e.target.value)} disabled={!canEdit}
                           title={`Forecast model — how this segment's spend is projected across the period. Currently: ${forecastModelLabel(getEffectiveForecastModel(seg.segKey))}${getForecastModelOverride(seg.segKey)?" (row override)":" (inherited from global default)"}`}
-                          style={{display:"block",width:"100%",boxSizing:"border-box",fontSize:13*(T.fsScale||1),color:getForecastModelOverride(seg.segKey)?T.text:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.surfaceHover:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.borderStrong:T.border}`,borderRadius:T.r5,padding:"2px 4px",cursor:canEdit?"pointer":"default",fontFamily:T.font,outline:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          style={{width:150,boxSizing:"border-box",fontSize:13*(T.fsScale||1),color:getForecastModelOverride(seg.segKey)?T.text:T.textMuted,background:getForecastModelOverride(seg.segKey)?T.surfaceHover:"transparent",border:`1px solid ${getForecastModelOverride(seg.segKey)?T.borderStrong:T.border}`,borderRadius:T.r5,padding:"2px 4px",cursor:canEdit?"pointer":"default",fontFamily:T.font,outline:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                           <option value={FORECAST_MODEL_INHERIT}>Use global ({forecastModelLabel(defaultForecastModel)})</option>
                           <option value="auto">Auto</option>
                           <option value="committed">Committed</option>
@@ -1291,7 +1282,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         )}
                       </div>
                     </td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,paddingRight:24}}>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,paddingRight:24}}>
                       <button onClick={()=>deleteSegment(seg.segKey,label)} title="Delete segment"
                         style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"1px solid transparent",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),lineHeight:1,padding:0,opacity:0.4,transition:"all 0.1s"}}
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
@@ -1417,17 +1408,17 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
                   <tr key={seg.segKey} className="bhq-tr">
-                    <td style={{padding:"8px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
+                    <td style={{padding:"5px 4px",borderBottom:rbb,textAlign:"center",paddingLeft:24}}>
                       {breakdownDim&&<button onClick={()=>toggleExpand(seg.segKey)} title={`Break down by ${breakdownDim}`}
                         style={{background:"transparent",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),padding:2,lineHeight:1,transform:isExpanded?"rotate(90deg)":"none",transition:"transform 0.12s"}}>▸</button>}
                     </td>
                     {seg.dims.map((v,i)=>{const dimMaxW=customDims[i]==="Product"?110:customDims[i]==="Module"?140:undefined;return(
-                    <td key={i} style={{padding:"8px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
+                    <td key={i} style={{padding:"5px 14px",borderBottom:rbb,whiteSpace:"nowrap",...(dimMaxW?{maxWidth:dimMaxW,overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
                       <Pill color={T.text} bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,borderRadius:T.r6}}>{v}</Pill>
                     </td>);})}
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
-                    <td style={{padding:"8px 8px",borderBottom:rbb,textAlign:"right"}}>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.spend)}</td>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.text}}>{fmtFull(seg.dailyRate)}/day</td>
+                    <td style={{padding:"5px 8px",borderBottom:rbb,textAlign:"right"}}>
                       <div style={{fontFamily:T.font,color:T.text,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
                         {seg.projected!=null?fmtFull(seg.projected):"—"}
                         {seg.lowConfidencePlatforms?.length>0&&(
@@ -1435,7 +1426,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                         )}
                       </div>
                     </td>
-                    <td style={{padding:"8px 14px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted,paddingRight:24}}>{seg.campaignCount}</td>
+                    <td style={{padding:"5px 14px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,color:T.textMuted,paddingRight:24}}>{seg.campaignCount}</td>
                   </tr>
                 );
                 if(!isExpanded)return[parentRow];
