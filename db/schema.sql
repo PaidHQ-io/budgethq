@@ -270,6 +270,12 @@ select
 from budgethq.workspace_config
 on conflict (workspace_id) do nothing;
 
+-- Budget Panel chart color (2026-08-08, per Mo — "universal color pick + presets ... saved and
+-- persistent on the server"). Added here too (not only in paidhq-core's schema.sql, which owns this
+-- table) so BudgetHQ's own migrate.js — which runs in vercel-build BEFORE this repo's new data.js
+-- serves — guarantees the column exists no matter the cross-repo deploy order. Idempotent.
+alter table core.workspace_config add column if not exists budget_chart_color text;
+
 -- TWO GUARDS, not one (2026-08-05, per Mo — added the same day as core.spend_rows'
 -- idx_spend_rows_identity_unique). This needs protection against BOTH of the table's unique
 -- constraints at once, which a single ON CONFLICT clause can't provide (Postgres only lets one

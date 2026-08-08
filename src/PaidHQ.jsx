@@ -429,6 +429,12 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   // shared formatters read directly instead of a prop threaded through every table in the app.
   const[decimalAdjust,setDecimalAdjust]=useState(0);
   useEffect(()=>{setGlobalDecimalAdjust(decimalAdjust);},[decimalAdjust]);
+  // Budget Panel chart color (2026-08-08, per Mo — "universal color pick + presets ... saved and
+  // persistent on the server"). A single workspace-level hex, persisted in the same config blob as
+  // decimalAdjust/defaultForecastModel below (load, payload, latestConfigRef, and save deps all
+  // include it). "" falls back to the default grey in BudgetManager. Same tier as the other
+  // appearance prefs — workspace data, not device-local.
+  const[budgetChartColor,setBudgetChartColor]=useState("");
 
   // Custom metrics (2026-08-08, per Mo — "allow users to create custom fields for cost/lead,
   // cost/demo, cost/SQL, cost/pipeline dollar generated, pipeline dollar generated/spend, demo -> MQL
@@ -1064,6 +1070,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         setCombineGoogleChannels(migrateGoogleChannelGrouping(config.combineGoogleChannels));
         setDecimalAdjust(config.decimalAdjust||0);
         setCustomMetrics(config.customMetrics||[]);
+        setBudgetChartColor(config.budgetChartColor||"");
         const dedupedRows=mergeRows([],rows||[]);
         const rowsDeduped=dedupedRows.length!==(rows||[]).length;
         setMergedNormRows(dedupedRows);
@@ -1121,7 +1128,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
   const rowsDirtyRef=useRef(false);
   const latestConfigRef=useRef(null);
   const latestRowsRef=useRef(null);
-  useEffect(()=>{latestConfigRef.current={tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};});
+  useEffect(()=>{latestConfigRef.current={tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,budgetChartColor};});
   useEffect(()=>{latestRowsRef.current=mergedNormRows;});
 
   // ── Second, independent safety net (2026-07-20) ─────────────────────────────────────────────
@@ -1207,7 +1214,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
     configDirtyRef.current=true;
     clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current=setTimeout(()=>{
-      const payload={tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics};
+      const payload={tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,budgetChartColor};
       if(isEmptyConfig(payload)&&hadRealConfigRef.current&&!allowEmptyConfigWriteRef.current){
         console.error("[workspace config save] BLOCKED — refusing to overwrite known real data with an empty payload. This save was skipped, not sent; nothing on the server changed. If you meant to clear this workspace's data, use Settings → Clear data instead of whatever just triggered this.");
         return; // stays dirty — retries on the next change, or once real data is back
@@ -1218,7 +1225,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .catch(e=>console.error("[workspace config save]",e)); // stays flagged dirty — next flush/edit retries it
     },800);
     return()=>clearTimeout(saveConfigTimer.current);
-  },[tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[tags,adTags,tagDims,budgets,budgetDims,budgetRowMeta,budgetMetaDims,budgetImportMeta,savedViews,pipelineDimensions,pipelineViews,defaultForecastModel,combineGoogleChannels,decimalAdjust,customMetrics,budgetChartColor,workspace?.id,sessionUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced whole-dataset replace for spend rows — see spend-rows.js PUT doc comment for why
   // replace-all (not incremental) is the sync model here. Actual save logic lives in runRowsSave
@@ -4795,7 +4802,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           other three tabs' chunks are. */}
       <div style={{display:view==="budget"?"contents":"none"}}>
         <Suspense fallback={<TabLoadingFallback/>}>
-        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} session={session} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit} combineGoogleChannels={combineGoogleChannels} initialImportFile={pendingBudgetImportFile} onConsumeInitialImportFile={()=>setPendingBudgetImportFile(null)} promptAndArchiveFile={promptAndArchiveFile}/>
+        <BudgetManager campaignTags={tags} setTags={setTags} tagDimensions={tagDims} T={T} session={session} onAddDimensions={newDims=>setTagDims(p=>[...new Set([...p,...newDims])])} budgets={budgets} setBudgets={setBudgets} budgetDims={budgetDims} setBudgetDims={setBudgetDims} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} budgetMetaDims={budgetMetaDims} setBudgetMetaDims={setBudgetMetaDims} budgetImportMeta={budgetImportMeta} setBudgetImportMeta={setBudgetImportMeta} defaultForecastModel={defaultForecastModel} mergedNormRows={visibleNormRows} onCheckpoint={checkpoint} sidebarEl={budgetSidebarEl} canEdit={canEdit} combineGoogleChannels={combineGoogleChannels} initialImportFile={pendingBudgetImportFile} onConsumeInitialImportFile={()=>setPendingBudgetImportFile(null)} promptAndArchiveFile={promptAndArchiveFile} budgetChartColor={budgetChartColor} setBudgetChartColor={setBudgetChartColor}/>
         </Suspense>
       </div>
       {view==="pacing"&&<Suspense fallback={<TabLoadingFallback/>}><PacingDashboard campaignTags={tags} setTags={setTags} tagDimensions={tagDims} budgetDims={budgetDims} budgets={budgets} setBudgets={setBudgets} budgetRowMeta={budgetRowMeta} setBudgetRowMeta={setBudgetRowMeta} savedViews={savedViews} setSavedViews={setSavedViews} defaultForecastModel={defaultForecastModel} setDefaultForecastModel={setDefaultForecastModel} mergedNormRows={visibleNormRows} T={T} session={session} workspace={workspace} onNavigate={setView} sidebarEl={pacingSidebarEl} onAskAboutView={q=>{setPendingAskQuestion(q);setView("ask");}} initialViewConfig={pendingViewConfig} onConsumeInitialViewConfig={()=>setPendingViewConfig(null)} combineGoogleChannels={combineGoogleChannels}/></Suspense>}
@@ -5896,6 +5903,13 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .bhq-hscroll::-webkit-scrollbar-track{background:transparent;}
         .bhq-hscroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:9999px;border:3px solid transparent;background-clip:padding-box;}
         .bhq-hscroll:hover::-webkit-scrollbar-thumb{background:${T.borderStrong};background-clip:padding-box;}
+        /* Budget Panel chart color override (2026-08-08, per Mo) — Tremor's AreaChart only accepts
+           named palette colors, so to honor an arbitrary user-picked hex we override recharts' area
+           fill + top line via a CSS var (--bchart) set on the .bhq-budgetchart wrapper. CSS wins over
+           recharts' presentation attrs / gradient. Falls back to neutral when the var is unset. */
+        .bhq-budgetchart .recharts-area-area{fill:var(--bchart,${T.textSub})!important;fill-opacity:0.16!important;}
+        .bhq-budgetchart .recharts-area-curve{stroke:var(--bchart,${T.textSub})!important;}
+        .bhq-budgetchart .recharts-area-dots circle,.bhq-budgetchart .recharts-active-dot circle{fill:var(--bchart,${T.textSub})!important;stroke:var(--bchart,${T.textSub})!important;}
       `}</style>
       </div>
     </div>

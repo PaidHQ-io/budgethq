@@ -74,7 +74,65 @@ const CURRENCIES=["USD","EUR","GBP","CAD","AUD","JPY","CHF","MXN","BRL","INR"];
 // style usage) without PaidHQ.jsx's real implementation wired in — see that function's own doc
 // comment in PaidHQ.jsx for what it actually does when a real one IS passed (2026-08-06, per Mo's
 // save-and-one-click-reapply request).
-export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true,combineGoogleChannels=false,initialImportFile,onConsumeInitialImportFile,promptAndArchiveFile=async file=>({name:file?.name,fileId:null})}){
+// Budget Panel chart color (2026-08-08, per Mo — "universal color pick + presets, saved & persistent
+// on the server"). DEFAULT is the grey that matches Tremor's old "neutral" fill; presets are an
+// on-brand spread. The chosen hex is a workspace-level pref persisted in workspace_config (see
+// PaidHQ.jsx budgetChartColor + api/.../data.js budget_chart_color).
+const BUDGET_CHART_DEFAULT_COLOR="#525252";
+const BUDGET_CHART_PRESETS=["#525252","#2563EB","#4F46E5","#7C3AED","#0891B2","#0D9488","#059669","#CA8A04","#EA580C","#DB2777"];
+
+// Self-contained color picker (no Popover primitive exists in this project). Renders a swatch button
+// that opens a small panel of preset swatches + a native <input type="color"> for any color, plus a
+// reset. onChange gets a hex string ("" = reset to default). Closes on outside-click / Escape.
+function ChartColorPicker({value,onChange,disabled,T}){
+  const[open,setOpen]=useState(false);
+  const ref=useRef(null);
+  useEffect(()=>{
+    if(!open)return;
+    const onDoc=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
+    const onKey=e=>{if(e.key==="Escape")setOpen(false);};
+    document.addEventListener("mousedown",onDoc);document.addEventListener("keydown",onKey);
+    return()=>{document.removeEventListener("mousedown",onDoc);document.removeEventListener("keydown",onKey);};
+  },[open]);
+  const eff=value||BUDGET_CHART_DEFAULT_COLOR;
+  return(
+    <div ref={ref} className="relative">
+      <button type="button" disabled={disabled} onClick={()=>setOpen(o=>!o)} title="Chart color"
+        className={cn("flex h-8 items-center gap-1.5 rounded-sm border border-border px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/60 disabled:cursor-not-allowed disabled:opacity-50")}>
+        <span className="inline-block h-4 w-4 rounded-full border border-border" style={{background:eff}}/>
+        <Icon name="chevronDown" size={12} color="currentColor"/>
+      </button>
+      {open&&(
+        <div className="absolute right-0 z-30 mt-1 w-[188px] rounded-md border border-border bg-background p-3 shadow-lg" style={{background:T.surface}}>
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Chart color</div>
+          <div className="grid grid-cols-5 gap-1.5">
+            {BUDGET_CHART_PRESETS.map(c=>(
+              <button key={c} type="button" onClick={()=>{onChange(c);}} title={c}
+                className="flex h-7 w-7 items-center justify-center rounded-full border transition-transform hover:scale-110"
+                style={{background:c,borderColor:eff.toLowerCase()===c.toLowerCase()?T.text:"transparent",borderWidth:eff.toLowerCase()===c.toLowerCase()?2:1}}>
+                {eff.toLowerCase()===c.toLowerCase()&&<Icon name="check" size={12} color="#fff"/>}
+              </button>
+            ))}
+          </div>
+          <label className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>Custom</span>
+            <span className="flex items-center gap-1.5">
+              <input type="color" value={eff} onChange={e=>onChange(e.target.value)}
+                className="h-6 w-8 cursor-pointer rounded border border-border bg-transparent p-0"/>
+              <span className="font-mono text-[11px] uppercase text-foreground">{eff}</span>
+            </span>
+          </label>
+          <button type="button" onClick={()=>{onChange("");}}
+            className="mt-3 w-full rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary/60">
+            Reset to default
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function BudgetManager({campaignTags,setTags,tagDimensions,T,session,onAddDimensions,budgets,setBudgets,budgetDims,setBudgetDims,budgetRowMeta,setBudgetRowMeta,budgetMetaDims,setBudgetMetaDims,budgetImportMeta,setBudgetImportMeta,defaultForecastModel,mergedNormRows,onCheckpoint,sidebarEl,canEdit=true,combineGoogleChannels=false,initialImportFile,onConsumeInitialImportFile,promptAndArchiveFile=async file=>({name:file?.name,fileId:null}),budgetChartColor="",setBudgetChartColor=()=>{}}){
   const yr=new Date().getFullYear();
   // year/showQ/showA/segFilters persisted (2026-07-30, per Mo — "whatever screen with whatever
   // filters on any tab I've selected" should survive a refresh), same pattern as
@@ -1985,14 +2043,17 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   </div>
                   {chartDeltaPct!=null&&<div className="mt-0.5 text-xs text-muted-foreground">vs {Number(year)-1}</div>}
                 </div>
-                <div className="flex items-center gap-1 rounded-sm border border-border p-1">
-                  {[["month","Month"],["quarter","Quarter"]].map(([k,l])=>(
-                    <button key={k} type="button" onClick={()=>setChartGranularity(k)}
-                      className={cn("rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
-                        chartGranularity===k?"bg-secondary text-foreground":"text-muted-foreground hover:bg-secondary/60")}>
-                      {l}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2">
+                  <ChartColorPicker value={budgetChartColor} onChange={setBudgetChartColor} disabled={!canEdit} T={T}/>
+                  <div className="flex items-center gap-1 rounded-sm border border-border p-1">
+                    {[["month","Month"],["quarter","Quarter"]].map(([k,l])=>(
+                      <button key={k} type="button" onClick={()=>setChartGranularity(k)}
+                        className={cn("rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+                          chartGranularity===k?"bg-secondary text-foreground":"text-muted-foreground hover:bg-secondary/60")}>
+                        {l}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2001,10 +2062,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   // reference) — the old fmtFull produced "$300,000"-width labels that overran
                   // yAxisWidth and got clipped on the left. The hover tooltip still shows the full
                   // value via BudgetChartTooltip/fmtFull.
-                  <AreaChart data={chartData} index="period" categories={["Budgeted"]} colors={["neutral"]}
-                    className="h-60" showAnimation={false} showLegend={false}
-                    valueFormatter={v=>v>=1e6?`${(v/1e6).toFixed(1)}M`:v>=1000?`${Math.round(v/1000)}k`:`${Math.round(v)}`} yAxisWidth={70}
-                    customTooltip={BudgetChartTooltip}/>
+                  // Only wrap+override when a custom color is set — unset keeps Tremor's default
+                  // neutral gradient exactly as before (2026-08-08, per Mo).
+                  <div className={budgetChartColor?"bhq-budgetchart":undefined} style={budgetChartColor?{"--bchart":budgetChartColor}:undefined}>
+                    <AreaChart data={chartData} index="period" categories={["Budgeted"]} colors={["neutral"]}
+                      className="h-60" showAnimation={false} showLegend={false}
+                      valueFormatter={v=>v>=1e6?`${(v/1e6).toFixed(1)}M`:v>=1000?`${Math.round(v/1000)}k`:`${Math.round(v)}`} yAxisWidth={70}
+                      customTooltip={BudgetChartTooltip}/>
+                  </div>
                 ):(
                   // Empty/zero state (2026-08-07, per Mo) — a friendlier prompt than a bare "$0"
                   // chart. Distinguishes "no rows at all" from "rows exist but nothing budgeted yet".

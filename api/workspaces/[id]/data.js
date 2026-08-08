@@ -25,7 +25,7 @@ export const config = { api: { bodyParser: false } };
 const EMPTY_CONFIG = {
   tags: {}, tagDims: [], budgets: {}, budgetDims: [],
   budgetRowMeta: {}, budgetMetaDims: [], budgetImportMeta: {}, savedViews: [],
-  defaultForecastModel: "auto", combineGoogleChannels: false, updatedAt: null,
+  defaultForecastModel: "auto", combineGoogleChannels: false, budgetChartColor: "", updatedAt: null,
 };
 
 const toCamel = (row) => ({
@@ -41,6 +41,9 @@ const toCamel = (row) => ({
   // Combine Google Search/Display/Demand Gen into one "Google" for reporting/budgeting (2026-07-30,
   // per Mo) — see resolveDimValue's Platform branch in lib/core.js for where this takes effect.
   combineGoogleChannels: row.combine_google_channels,
+  // Budget Panel chart color (2026-08-08, per Mo) — hex string or null; the client coalesces null to
+  // "" and falls back to the default grey. See core.workspace_config.budget_chart_color.
+  budgetChartColor: row.budget_chart_color,
   updatedAt: row.updated_at,
 });
 
@@ -61,13 +64,13 @@ export default withApi(async (req, res) => {
     const b = await readJsonBody(req);
     const [row] = await sql`
       insert into core.workspace_config
-        (workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims, budget_import_meta, saved_views, default_forecast_model, combine_google_channels, updated_at)
+        (workspace_id, tags, tag_dims, budgets, budget_dims, budget_row_meta, budget_meta_dims, budget_import_meta, saved_views, default_forecast_model, combine_google_channels, budget_chart_color, updated_at)
       values
         (${workspaceId}, ${JSON.stringify(b.tags ?? {})}, ${JSON.stringify(b.tagDims ?? [])},
          ${JSON.stringify(b.budgets ?? {})}, ${JSON.stringify(b.budgetDims ?? [])},
          ${JSON.stringify(b.budgetRowMeta ?? {})}, ${JSON.stringify(b.budgetMetaDims ?? [])},
          ${JSON.stringify(b.budgetImportMeta ?? {})}, ${JSON.stringify(b.savedViews ?? [])},
-         ${b.defaultForecastModel || "auto"}, ${!!b.combineGoogleChannels}, now())
+         ${b.defaultForecastModel || "auto"}, ${!!b.combineGoogleChannels}, ${b.budgetChartColor || null}, now())
       on conflict (workspace_id) do update set
         tags = excluded.tags,
         tag_dims = excluded.tag_dims,
@@ -79,6 +82,7 @@ export default withApi(async (req, res) => {
         saved_views = excluded.saved_views,
         default_forecast_model = excluded.default_forecast_model,
         combine_google_channels = excluded.combine_google_channels,
+        budget_chart_color = excluded.budget_chart_color,
         updated_at = now()
       returning *
     `;
