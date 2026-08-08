@@ -10,7 +10,7 @@ import {
   splitFilterTerms, matchesTerms,
 } from "../lib/core.js";
 import {
-  SectionLabel, Pill, Btn, Inp, Sel, Tog, Icon,
+  SectionLabel, Btn, Inp, Sel, Tog, Icon,
   PixelPanel, WarnTip, AISummaryCard, MatchModeToggle, IconField,
 } from "./shared.jsx";
 // Card/cn (2026-08-07, per Mo's reference screenshot — a bordered chart card + a bordered table
@@ -2258,7 +2258,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           {/* Bulk action bar */}
           {selRows.size>0&&(
             <div style={{padding:"8px 16px",background:T.surface,borderBottom:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
-              <Pill color={T.text} bg={T.accent} border={T.text}>{selRows.size} selected</Pill>
+              <span className="inline-block rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-foreground">{selRows.size} selected</span>
               <span style={{color:T.textMuted,fontSize:13*(T.fsScale||1)}}>→</span>
               <Sel value={applyMetaDim} onChange={setApplyMetaDim} T={T} style={{width:140,fontSize:12*(T.fsScale||1)}}>
                 <option value="">Dimension…</option>
@@ -2333,14 +2333,16 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                       // Derived, not stored — renaming here would only relabel the budget row
                       // while spend keeps resolving to the original channel name, silently
                       // breaking the match. Not editable.
-                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",borderRadius:T.r6}} title="Derived from spend data — not editable">{seg[d]}</Pill>
+                      // Dimension pills match the Pacing tab exactly (2026-08-08, per Mo) — rounded-full
+                      // bg-secondary, text-xs, font-normal, no border. Was the legacy bordered <Pill>.
+                      <span className="inline-block whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-foreground" title="Derived from spend data — not editable">{seg[d]}</span>
                     ):editingSegVal?.segKey===seg.key&&editingSegVal?.dim===d?(
                       <input autoFocus value={editSegVal} onChange={e=>setEditSegVal(e.target.value)}
                         onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
                         style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,color:T.text,padding:"3px 8px",fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:T.font,minWidth:80}}/>
                     ):(
-                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",cursor:isRolledUp?"default":"text",borderRadius:T.r6}}
-                        onClick={isRolledUp?undefined:()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
+                      <span className={cn("inline-block whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-foreground",!isRolledUp&&"cursor-text")}
+                        onClick={isRolledUp?undefined:()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</span>
                     )}
                     {i===budgetDims.length-1&&!nb&&segMatchCount(seg.key)===0&&(
                       <WarnTip T={T} text="No campaigns are tagged to this segment yet. Spend won't roll up here until a campaign is tagged with this exact combination in the Tagger."/>

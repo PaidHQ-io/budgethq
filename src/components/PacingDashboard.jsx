@@ -1589,7 +1589,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const ftActualPct=ft.budget>0?ft.spend/ft.budget:null;
                 const ftVariance=ft.budget>0&&ft.hasProjected?ft.projected-ft.budget:null;
                 return(
-                  <tr className="bhq-totalrow" style={{borderTop:`1px solid `,background:T.surfaceHover}}>
+                  <tr className="bhq-totalrow" style={{borderTop:`1px solid ${T.border}`,background:T.surfaceHover}}>
                     <td style={{padding:"10px 4px"}}/>
                     <td style={{padding:"10px 8px"}}/>
                     {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredSegments.length})</SectionLabel>}</td>)}
@@ -1755,7 +1755,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   campaignCount:acc.campaignCount+s.campaignCount,
                 }),{spend:0,dailyRate:0,projected:0,hasProjected:false,campaignCount:0});
                 return(
-                  <tr className="bhq-totalrow" style={{borderTop:`1px solid `,background:T.surfaceHover}}>
+                  <tr className="bhq-totalrow" style={{borderTop:`1px solid ${T.border}`,background:T.surfaceHover}}>
                     <td style={{padding:"10px 4px"}}/>
                     {customDims.map((d,i)=><td key={d} style={{padding:"10px 14px"}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals ({filteredCustomSegments.length})</SectionLabel>}</td>)}
                     <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{fmtFull(ft.spend)}</td>
@@ -1858,7 +1858,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   <td style={{padding:"8px 8px",borderBottom:`1px solid ${T.border}`,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text,paddingRight:24}}>{fmtFull(s.total)}</td>
                 </tr>
               ))}
-              <tr style={{borderTop:`1px solid `,background:T.surface}}>
+              <tr style={{borderTop:`1px solid ${T.border}`,background:T.surface}}>
                 <td style={{padding:"10px 14px",paddingLeft:24}}><SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Total</SectionLabel></td>
                 {trendData.periodTotals.map((v,i)=><td key={i} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text}}>{fmtFull(v)}</td>)}
                 <td style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,color:T.text,paddingRight:24}}>{fmtFull(trendData.grandTotal)}</td>
