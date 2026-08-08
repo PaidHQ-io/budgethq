@@ -294,6 +294,20 @@ const NumericFilterChips=({numericFilters,setNumericFilters,mode,T})=>{
   );
 };
 
+// Pacing-status → Venture semantic-token bubble (2026-08-07, per Mo — "all colors on theme"). The
+// legacy pacingStatusMeta() colors come off the T-theme object (e.g. "behind" = the old #006CFF
+// blue), so the status pill maps status → the on-theme success/warning/info/destructive tint pair
+// instead; committed/no-data/no-budget stay neutral.
+function statusBubbleClass(status){
+  switch(status){
+    case"over":return"bg-destructive-bg text-destructive";
+    case"ahead":return"bg-warning-bg text-warning";
+    case"behind":return"bg-info-bg text-info";
+    case"on-track":return"bg-success-bg text-success";
+    default:return"bg-secondary text-muted-foreground";
+  }
+}
+
 export default function PacingDashboard({campaignTags,setTags,tagDimensions,budgetDims,budgets,setBudgets,budgetRowMeta,setBudgetRowMeta,savedViews,setSavedViews,defaultForecastModel,setDefaultForecastModel,mergedNormRows,T,session,workspace,onNavigate,sidebarEl,canEdit=true,onAskAboutView,initialViewConfig,onConsumeInitialViewConfig,combineGoogleChannels=false}){
   const now=new Date();
   const yr=now.getFullYear();
@@ -1241,7 +1255,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                       {seg.projectedVariance!=null&&<div style={{fontSize:13*(T.fsScale||1),color:seg.projectedVariance>0?T.danger:T.success,fontFamily:T.font}}>{fmtSigned(seg.projectedVariance)}</div>}
                     </td>
                     <td style={{padding:"8px 14px",borderBottom:rbb,minWidth:200}}>
-                      <Pill color={safeTextColor(meta.color)} bg={meta.bg} border={meta.border} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,whiteSpace:"nowrap"}}>{meta.label}</Pill>
+                      <span className={cn("inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",statusBubbleClass(seg.status))}>{meta.label}</span>
                       {/* Capacity-vs-budget signal (item 45) — see detectCapacitySignal's doc
                           comment. Only ever shown for the "constrained" case; "growing" and null
                           are both non-findings, not worth a badge. */}
