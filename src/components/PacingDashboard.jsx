@@ -763,7 +763,9 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
 
   const periodLabel=periodType==="monthly"?`${MONTHS.find(m=>m.key===month)?.label} ${year}`:periodType==="quarterly"?`${quarter} ${year}`:`FY ${year}`;
   const overallPct=pacing.totals.budget>0?pacing.totals.spend/pacing.totals.budget:null;
-  const TH={fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"10px 8px",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center"};
+  // Venture grey header (2026-08-07, per Mo — same treatment as the Budget Panel table): light-grey
+  // fill + top/bottom hairlines instead of a flat white header.
+  const TH={fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"11px 8px",borderTop:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`,background:T.surfaceHover,whiteSpace:"nowrap",textAlign:"center"};
   const safeTextColor=c=>c===T.accent?T.text:c; // gold is a fine fill/border color but never body text, per the established house rule
 
   // Only block entirely when there's truly nothing to show — no budget structure AND no spend
