@@ -904,21 +904,23 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             combo, spend-only). Shown regardless of whether budget segments exist, since switching
             away to Custom is exactly what you'd want to do if they don't. */}
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
-          <span style={{fontSize:11*(T.fsScale||1),color:T.text,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase"}}>View by:</span>
-          <div style={{display:"flex",gap:4}}>
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">View by:</span>
+          <div className="flex gap-1">
             {[["budget","Budget Segments"],["custom","Custom"],["trend","Trend"]].map(([k,l])=>(
               <button key={k} onClick={()=>changeViewMode(k)}
-                style={{padding:"6px 12px",borderRadius:T.r6,border:`1.5px solid ${viewMode===k?T.accentHover:T.border}`,background:viewMode===k?T.accentBg:"transparent",color:viewMode===k?T.text:T.textMuted,cursor:"pointer",fontSize:12*(T.fsScale||1),fontWeight:viewMode===k?700:400,fontFamily:T.font}}>{l}</button>
+                className={cn("rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors",
+                  viewMode===k?"border-foreground bg-secondary text-foreground":"border-border text-muted-foreground hover:bg-secondary/60")}>{l}</button>
             ))}
           </div>
           {viewMode==="custom"&&(
-            <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-              <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>Group by:</span>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[11px] text-muted-foreground">Group by:</span>
               {allDimOptions.map(d=>{
                 const active=customDims.includes(d);
                 return(
                   <button key={d} onClick={()=>toggleCustomDim(d)}
-                    style={{fontSize:11*(T.fsScale||1),padding:"4px 10px",borderRadius:T.r14,border:`1.5px solid ${active?T.accentHover:T.border}`,background:active?T.accentBg:"transparent",color:active?T.text:T.textMuted,cursor:"pointer",fontFamily:T.font,fontWeight:active?700:500}}>{d}</button>
+                    className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      active?"border-foreground bg-secondary text-foreground":"border-border text-muted-foreground hover:bg-secondary/60")}>{d}</button>
                 );
               })}
             </div>
