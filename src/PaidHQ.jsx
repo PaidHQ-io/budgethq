@@ -3132,7 +3132,10 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           </button>
         </div>
 
-        <nav className={cn("flex flex-1 flex-col overflow-y-auto py-4",primaryNavCollapsed?"items-center px-2":"px-3")}>
+        {/* overflow-x-hidden (2026-08-07, per Mo — "small grey line at the bottom when collapsed"):
+            overflow-y-auto implicitly promotes overflow-x to auto per the CSS spec, so a sub-pixel-
+            wide child was spawning a stray horizontal scrollbar at the rail's bottom. */}
+        <nav className={cn("flex flex-1 flex-col overflow-y-auto overflow-x-hidden py-4",primaryNavCollapsed?"items-center px-2":"px-3")}>
           <div className={cn("flex w-full flex-col gap-0.5",primaryNavCollapsed&&"items-center")}>
             {NAV.map(item=>{
               const active=view===item.key;

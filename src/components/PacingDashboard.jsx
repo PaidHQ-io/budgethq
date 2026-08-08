@@ -13,6 +13,7 @@ import { Icon, Btn, SectionLabel, Sel, PixelPanel, AISummaryCard, Pill, WarnTip,
 // Venture Tailwind primitives (2026-08-07, per Mo — Pacing tab retheme, same migration as the
 // Budget Panel). Used to rebuild the portal sidebar off the legacy T-theme Btn/Sel/PixelPanel.
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./ui/select.jsx";
+import { Wallet, Coins, Gauge, Clock, Stack, Target, CheckCircle } from "@phosphor-icons/react";
 import { cn } from "../lib/utils.js";
 import { usePersistentState } from "../lib/persist.js";
 import { EXPORT_FORMATS, downloadReport } from "../lib/reports.js";
@@ -824,21 +825,25 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           </div>
           <div className="border-t border-border py-4">
             <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Summary</div>
+            {/* Leading icons (2026-08-07, per Mo) — muted-grey, each metaphor distinct: Wallet
+                (budget) vs Coins (spend going out); Gauge (actual pace) vs Clock (expected/time);
+                Stack (segments); Target (goal) vs CheckCircle (actual). Kept monochrome so color
+                stays reserved for the pacing-status value. */}
             {[
-              {label:"Total Budget",value:fmtFull(pacing.totals.budget)},
-              {label:"Spend to Date",value:fmtFull(pacing.totals.spend)},
-              {label:"Overall Pacing",value:overallPct!=null?`${Math.round(overallPct*100)}%`:"—",color:overallPct!=null&&overallPct-pacing.expectedPct>0.1?T.warning:overallPct!=null&&overallPct-pacing.expectedPct<-0.1?T.accent:T.success},
-              {label:"Expected Pace",value:`${Math.round(pacing.expectedPct*100)}%`},
-              {label:"Segments",value:pacing.segments.length.toString()},
+              {label:"Total Budget",value:fmtFull(pacing.totals.budget),icon:Wallet},
+              {label:"Spend to Date",value:fmtFull(pacing.totals.spend),icon:Coins},
+              {label:"Overall Pacing",value:overallPct!=null?`${Math.round(overallPct*100)}%`:"—",color:overallPct!=null&&overallPct-pacing.expectedPct>0.1?T.warning:overallPct!=null&&overallPct-pacing.expectedPct<-0.1?T.accent:T.success,icon:Gauge},
+              {label:"Expected Pace",value:`${Math.round(pacing.expectedPct*100)}%`,icon:Clock},
+              {label:"Segments",value:pacing.segments.length.toString(),icon:Stack},
               // MQL Goal/Actual (2026-08-06, per Mo) — only shown once there's actually MQL data
               // imported (goals and/or pipeline actuals) for THIS period.
               ...(periodMqlTrend.goalTotal>0||periodMqlTrend.actualTotal>0?[
-                {label:"MQL Goal",value:fmtCount(periodMqlTrend.goalTotal)},
-                {label:"MQL Actual",value:fmtCount(periodMqlTrend.actualTotal)},
+                {label:"MQL Goal",value:fmtCount(periodMqlTrend.goalTotal),icon:Target},
+                {label:"MQL Actual",value:fmtCount(periodMqlTrend.actualTotal),icon:CheckCircle},
               ]:[]),
             ].map(s=>(
               <div key={s.label} className="flex items-center justify-between py-1.5 text-xs">
-                <span className="text-muted-foreground">{s.label}</span>
+                <span className="flex items-center gap-2 text-muted-foreground"><s.icon size={14}/> {s.label}</span>
                 <span className="font-medium" style={{color:s.color||undefined}}>{s.value}</span>
               </div>
             ))}
