@@ -29,6 +29,40 @@ html, body {
   flex-direction: column;
 }
 
+/* Form-control reset (2026-08-07, added during the Venture retheme) — the existing universal
+   reset above only ever covered box-sizing/margin/padding, never the browser's native chrome on
+   button/input/select/textarea (default border, background, font). That never mattered for the
+   legacy T-theme components (Btn/Sel/etc. always set border/background explicitly inline, on every
+   instance, since inline styles were the ONLY styling mechanism they had) — but every new Tailwind
+   component (NavItem, Button, the sidebar's plain <button>s, etc.) assumes Tailwind's Preflight
+   normally does this, and Preflight is intentionally off here (see the tailwind.config.js comment
+   on corePlugins.preflight). Without this, every plain <button> render with the browser's default
+   outset border/background instead of Tailwind's utility classes, which is exactly the "boxed"
+   look Mo flagged on the sidebar nav items. This is additive/safe: any component that WANTS a
+   border (Button's outline variant, Select's trigger, etc.) still sets one explicitly via Tailwind
+   classes, which simply override this baseline — nothing upstream relied on the native default. */
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+}
+/* appearance:none deliberately excludes <select> — the legacy T-theme Sel component (still used
+   on every not-yet-migrated page) is a bare native <select> with no custom chevron of its own; it
+   relies entirely on the browser's native dropdown arrow, which appearance:none would remove app-
+   wide with nothing to replace it. New Tailwind <select>-based components don't exist yet (the
+   Venture retheme's Select is Radix, a real listbox, not a native <select>), so this exclusion
+   costs nothing today. */
+button, input, textarea {
+  appearance: none;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
 /* ─── Tailwind + shadcn/ui + Tremor design tokens (2026-08-07, per Mo — retheme the app from the
    "Venture CRM" UI8 kit he bought, "implement it exactly as it is") ─────────────────────────────
    Every light-mode value below is read straight from the kit's own Figma Variables (pulled via the

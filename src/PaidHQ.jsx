@@ -44,8 +44,20 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from ".
 import {
   Plus, X, File, PencilSimple, DownloadSimple, PaperPlaneTilt, Trash, Check,
   MagnifyingGlass, Question, CaretDown, DotsThree, Export as ExportIcon, EnvelopeSimple, FloppyDisk, ClockCounterClockwise,
+  Gauge, Database, ListChecks, Tag, Wallet, ChartBar, FunnelSimple, Target, Funnel, Compass, Sparkle, Lock, Gear, Lightning,
 } from "@phosphor-icons/react";
 import { NavItem } from "./components/ui/nav-item.jsx";
+
+// Sidebar nav icons (2026-08-07, Venture retheme) — Phosphor, matching every other icon in the
+// retheme (see icons.jsx/Dashboard.jsx's own doc comments on why Phosphor is the icon source for
+// anything newly matched to this kit) rather than the old shared.jsx Icon component's hand-drawn
+// SVG set, which would have looked visually inconsistent sitting in a NavItem right next to
+// Phosphor-based icons everywhere else in the retheme.
+const NAV_ICONS={
+  dashboard:Gauge,data:Database,dataAudit:ListChecks,tagger:Tag,budget:Wallet,pacing:ChartBar,
+  reportingAnalyzer:FunnelSimple,pipelineTagger:MagnifyingGlass,goalsObjectives:Target,
+  campaignAudit:Funnel,accountPlanning:Compass,changeHistory:ClockCounterClockwise,vault:Lock,ask:Sparkle,
+};
 
 // Lazy-loaded tab components (2026-07-25 split, per Mo — "there should be a global forecasting
 // model selector" conversation led into a broader ask to split the four tab components out of
@@ -3100,7 +3112,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-border bg-background">
         <div className="flex h-[64px] items-center gap-2 border-b border-border px-5">
           <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-primary">
-            <Icon name="bolt" size={15} color="#fff"/>
+            <Lightning size={15} color="#fff" weight="fill"/>
           </div>
           <span className="text-base font-semibold text-foreground">PaidHQ</span>
         </div>
@@ -3109,8 +3121,9 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
           <div className="flex flex-col gap-0.5">
             {NAV.map(item=>{
               const active=view===item.key;
+              const ItemIcon=NAV_ICONS[item.key]||Gauge;
               return(
-                <NavItem key={item.key} active={active} icon={<Icon name={item.icon} size={16}/>}
+                <NavItem key={item.key} active={active} icon={<ItemIcon size={16}/>}
                   onClick={()=>{
                     // Same routing as before (see git history's prior version of this loop) —
                     // Tagger/Data Sources still branch on whether data already exists rather than
@@ -3125,7 +3138,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
             })}
           </div>
           <div className="my-3 border-t border-border"/>
-          <NavItem active={view==="settings"} icon={<Icon name="gear" size={16}/>} onClick={()=>setView("settings")}>Settings</NavItem>
+          <NavItem active={view==="settings"} icon={<Gear size={16}/>} onClick={()=>setView("settings")}>Settings</NavItem>
         </nav>
 
         {/* Workspace switcher footer — same menu content/handlers as the old rail's version,
@@ -3166,9 +3179,15 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
       {/* ── TOP HEADER ── search + file/export menu + Help Center + profile/account menu, matching
           Venture's exact header anatomy (search bar left, utility cluster right). */}
       <div className="flex h-[64px] shrink-0 items-center justify-between border-b border-border px-6">
-        <div className="flex h-9 w-[280px] items-center gap-2 rounded-sm border border-input px-3 text-muted-foreground">
-          <MagnifyingGlass className="h-4 w-4"/>
-          <span className="text-sm">Search</span>
+        <div className="flex h-9 w-[280px] items-center justify-between rounded-sm border border-input px-3 text-muted-foreground">
+          <span className="flex items-center gap-2">
+            <MagnifyingGlass className="h-4 w-4"/>
+            <span className="text-sm">Search</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="flex h-5 w-5 items-center justify-center rounded-[2px] bg-muted text-xs font-medium text-muted-foreground">⌘</span>
+            <span className="flex h-5 w-5 items-center justify-center rounded-[2px] bg-muted text-xs font-medium text-muted-foreground">F</span>
+          </span>
         </div>
         <div className="flex items-center gap-3">
           {/* File/export "more" menu — unchanged content/handlers from the old rail, relocated
