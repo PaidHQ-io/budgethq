@@ -3159,7 +3159,7 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
                       // ml-[18px] puts the connecting line under the parent icon's centre; border-l
                       // draws it and pl-3 indents the children past it, matching Venture's nested
                       // Emails->General/Analytics group (2026-08-07, per Mo).
-                      <div className="ml-[18px] flex flex-col gap-0.5 border-l border-border pl-3">
+                      <div className="ml-[18px] flex flex-col gap-0.5 border-l border-border pl-5">
                         <NavItem active={view==="budget"} onClick={()=>setView("budget")}>Budgets</NavItem>
                         <NavItem active={view==="pacing"} onClick={()=>setView("pacing")}>Pacing</NavItem>
                       </div>
