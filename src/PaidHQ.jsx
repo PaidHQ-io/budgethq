@@ -5842,6 +5842,22 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .bhq-cardrows tbody tr.bhq-datarow td:first-child{border-left:1px solid ${T.border};border-top-left-radius:8px;border-bottom-left-radius:8px;}
         .bhq-cardrows tbody tr.bhq-datarow td:last-child{border-right:1px solid ${T.border};border-top-right-radius:8px;border-bottom-right-radius:8px;}
         .bhq-cardrows tbody tr.bhq-datarow:hover td{background:${T.rowHover} !important;}
+        /* Header row + Totals row as their own bordered bars in card-rows mode (2026-08-07, per Mo
+           — "grey header with borders, and the totals row is missing borders"). Same side-border +
+           rounded-ends treatment as the data-row cards so all three read consistently. */
+        .bhq-cardrows thead th{border-left:0;border-right:0;}
+        .bhq-cardrows thead th:first-child{border-left:1px solid ${T.border};border-top-left-radius:8px;border-bottom-left-radius:8px;}
+        .bhq-cardrows thead th:last-child{border-right:1px solid ${T.border};border-top-right-radius:8px;border-bottom-right-radius:8px;}
+        .bhq-cardrows tbody tr.bhq-totalrow td{border-top:1px solid ${T.border};border-bottom:1px solid ${T.border};background:${T.surfaceEl};}
+        .bhq-cardrows tbody tr.bhq-totalrow td:first-child{border-left:1px solid ${T.border};border-top-left-radius:8px;border-bottom-left-radius:8px;background:${T.surfaceEl};}
+        .bhq-cardrows tbody tr.bhq-totalrow td:last-child{border-right:1px solid ${T.border};border-top-right-radius:8px;border-bottom-right-radius:8px;}
+        /* Slim rounded horizontal scrollbar for the wide budget table (2026-08-07, per Mo's
+           reference) — a thin track with a rounded grey thumb, appearing on hover like the sidebar. */
+        .bhq-hscroll{scrollbar-width:thin;scrollbar-color:${T.border} transparent;}
+        .bhq-hscroll::-webkit-scrollbar{height:10px;}
+        .bhq-hscroll::-webkit-scrollbar-track{background:transparent;}
+        .bhq-hscroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:9999px;border:3px solid transparent;background-clip:padding-box;}
+        .bhq-hscroll:hover::-webkit-scrollbar-thumb{background:${T.borderStrong};background-clip:padding-box;}
       `}</style>
       </div>
     </div>

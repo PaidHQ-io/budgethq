@@ -1709,7 +1709,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // (zIndex:1 on the sticky-left dimension columns); the checkbox/budgetDims corner cells below
   // are BOTH top- and left-sticky, so they need a higher zIndex still to stay above every other
   // sticky header cell scrolling underneath them in both directions at once.
-  const TH={fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"15px 8px 9px",verticalAlign:"middle",borderBottom:`1px solid ${T.border}`,background:T.headerBg,whiteSpace:"nowrap",textAlign:"center",position:"sticky",top:0,zIndex:2};
+  // Header row (2026-08-07, per Mo — "grey with borders, like the reference"): a light-grey fill
+  // plus top+bottom hairlines; in card-rows mode the .bhq-cardrows CSS also gives it side borders
+  // and rounded ends so it reads as its own bordered bar above the row-cards.
+  const TH={fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.text,padding:"12px 8px 11px",verticalAlign:"middle",borderTop:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`,background:T.surfaceHover,whiteSpace:"nowrap",textAlign:"center",position:"sticky",top:0,zIndex:2};
 
   // Sortable column-header label (2026-07-31, per Mo) — same click-to-toggle-direction affordance
   // as Campaign Tagger's own SH component (underline + ▾/▴/⇅ indicator), reimplemented locally
@@ -2186,7 +2189,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               comment. Without it, this div's own overflow-x:auto would implicitly become a second
               vertical scroll context, and the header's position:sticky/top:0 below would stick to
               THIS div's (nonexistent, single-row-tall) scrollport instead of the outer page's. */}
-          <div style={{overflowX:"auto",overflowY:"visible"}}>
+          <div className="bhq-hscroll" style={{overflowX:"auto",overflowY:"visible"}}>
           {/* cardRows (2026-08-07, per Mo) — the .bhq-cardrows class in PaidHQ.jsx's <style> block
               switches the data rows to bordered, vertically-spaced "cards" via border-collapse:
               separate + per-row side/rounded borders. Kept as a class toggle (not an inline-style
@@ -2278,7 +2281,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   )}
                   {MONTHS.map((m,monthIdx)=>{const q=QUARTERS.find(q=>q.months.includes(m.key));const qo=showQ&&q&&qOver(seg.key,q);return <td key={m.key} style={{padding:"4px",borderBottom:rbb,background:rb,position:"relative"}}>{cellIn(getMV(seg.key,m.key),v=>setMV(seg.key,m.key,v),qo,false,{segIdx,colType:"month",colIdx:monthIdx})}</td>;})}
                   {QUARTERS.map(q=>{const qt=qTotal(seg.key,q);return <td key={"qt-"+q.key} style={{padding:"4px 10px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:T.text,background:rb}}>{qt>0?fmt$(qt):"—"}</td>;})}
-                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:ao?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
+                  {/* Over-annual-cap red + alert only in the native (editable) view — in a rolled-up
+                      view the caps are summed read-only aggregates, so the warning is just noise
+                      (2026-08-07, per Mo). */}
+                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:(ao&&!isRolledUp)?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&!isRolledUp&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
                   {showQ&&QUARTERS.map((q,qIdx)=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true,{segIdx,colType:"quarter",colIdx:qIdx})}{qt>0&&<span style={{fontSize:10*(T.fsScale||1),color:qo?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
                   {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true,{segIdx,colType:"annual",colIdx:0})}{rt>0&&<span style={{fontSize:10*(T.fsScale||1),color:ao?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
                   <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
@@ -2298,7 +2304,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     )}
                   </td>
                 </tr>);})}
-              <tr style={{borderTop:`1px solid ${T.border}`,background:T.surface}}>
+              <tr className="bhq-totalrow" style={{borderTop:`1px solid ${T.border}`,background:T.surface}}>
                 <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
                 {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals</SectionLabel>}</td>)}
                 {budgetMetaDims.map(d=><td key={d}/>)}
@@ -2318,7 +2324,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               visually tangled. Only shown once there's actually more than one page's worth of
               content, same as the reference table only needing this when rows overflow. */}
           {filteredSegs.length>0&&(
-            <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,flexShrink:0}}>
+            <div style={{padding:"10px 16px",background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,flexShrink:0,...(cardRows?{border:`1px solid ${T.border}`,borderRadius:8,marginTop:8}:{borderTop:`1px solid ${T.border}`})}}>
               <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>
                 Show
                 <Sel value={String(budgetPageSize)} onChange={v=>{setBudgetPageSize(Number(v));setBudgetPage(1);}} T={T} style={{width:66,fontSize:12*(T.fsScale||1)}}>
@@ -2345,7 +2351,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
 
           {/* Bottom bar — add row + not-budgeted toggle, sharing one footer. Filtering itself
               moved to the top Filters panel (2026-07-31, per Mo — "like the campaign tagger"). */}
-          <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
+          <div style={{padding:"10px 16px",background:T.surface,display:"flex",flexDirection:"column",gap:8,flexShrink:0,...(cardRows?{border:`1px solid ${T.border}`,borderRadius:8,marginTop:8}:{borderTop:`1px solid ${T.border}`})}}>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
               {segs.some(sg=>isNotBudgeted(sg.key))&&(
                 <label style={{display:"flex",alignItems:"center",gap:5,fontSize:12*(T.fsScale||1),color:T.textSub,cursor:"pointer"}}>
