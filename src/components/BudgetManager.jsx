@@ -167,6 +167,48 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // than a hard rewrite — Mo can flip it off live ("we can always revert back") if the dense wide
   // financial grid reads worse this way. Default on so it shows the moment he opens the panel.
   const[cardRows,setCardRows]=usePersistentState("paidhq_budget_cardRows",true);
+  // Budget roll-up (2026-08-07, per Mo — "shouldn't budgets roll up to whatever is selected so
+  // budgets always show?"). Budgets are stored keyed by the joined values of the Budget By dims
+  // that were active when they were entered (its "grain"). budgetGrains records, per year, that
+  // native ordered dim list. When the user then views a COARSER subset of those dims, we aggregate
+  // the stored granular entries up into read-only summed totals for the current view (see viewBudget
+  // below), so numbers always show instead of going blank. Editing stays at the native grain.
+  const[budgetGrains,setBudgetGrains]=usePersistentState("paidhq_budget_grains",{}); // {year: [dim,...]}
+  // maxParts = the finest grain any stored budget for this year uses (# of "|"-joined dimension
+  // values in its key). grain = the ordered dim list those keys were entered under (recorded by the
+  // effect below whenever the current selection matches that finest grain). isRolledUp is true when
+  // the user is now viewing a strict, same-set subset of that grain — i.e. they deselected one or
+  // more dims, so we should sum up. Declared up here so every write path below can consult it.
+  const budgetKeysThisYear=useMemo(()=>Object.keys(budgets[year]||{}),[budgets,year]);
+  const maxParts=useMemo(()=>budgetKeysThisYear.reduce((m,k)=>Math.max(m,k.split("|").length),0),[budgetKeysThisYear]);
+  const grain=budgetGrains[year]||null;
+  const isRolledUp=!!(grain&&budgetDims.length<grain.length&&budgetDims.every(d=>grain.includes(d)));
+  useEffect(()=>{
+    if(!budgetKeysThisYear.length||maxParts===0)return;
+    if(budgetDims.length!==maxParts)return;
+    const next=[...budgetDims];
+    const cur=budgetGrains[year];
+    if(!cur||cur.join("|")!==next.join("|"))setBudgetGrains(p=>({...p,[year]:next}));
+  },[budgetKeysThisYear,maxParts,budgetDims,year,budgetGrains,setBudgetGrains]);
+  // viewBudget — the effective {segKey:{monthly,quarterly,annual}} for the CURRENT view. In the
+  // native (non-rolled) view it's just budgets[year]. When rolled up, each stored granular entry is
+  // projected onto the current dims (via the grain's dim→value map) and summed into the coarser key.
+  const viewBudget=useMemo(()=>{
+    const src=budgets[year]||{};
+    if(!isRolledUp)return src;
+    const out={};
+    Object.entries(src).forEach(([k,v])=>{
+      const parts=k.split("|");
+      if(parts.length!==grain.length)return; // only aggregate entries at the native grain
+      const dimMap={};grain.forEach((d,i)=>{dimMap[d]=parts[i];});
+      const viewKey=budgetDims.map(d=>dimMap[d]).join("|");
+      const o=out[viewKey]||(out[viewKey]={monthly:{},quarterly:{},annual:0});
+      if(v.monthly)for(const mk in v.monthly)o.monthly[mk]=(o.monthly[mk]||0)+(v.monthly[mk]||0);
+      if(v.quarterly)for(const qk in v.quarterly)o.quarterly[qk]=(o.quarterly[qk]||0)+(v.quarterly[qk]||0);
+      if(v.annual)o.annual=(o.annual||0)+(v.annual||0);
+    });
+    return out;
+  },[budgets,year,isRolledUp,grain,budgetDims]);
   // "View" popover in the top action bar (2026-08-07, per Mo) — folds Rollups + Optional Columns
   // out of the tall stats sidebar into a compact dropdown.
   const[viewMenuOpen,setViewMenuOpen]=useState(false);
@@ -295,7 +337,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const segMatchCount=useCallback(segKey=>countSegmentCampaigns(campaignTags,budgetDims,segKey,platformIndex),[budgetDims,campaignTags,platformIndex]);
 
   const addManualRow=()=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     const vals=budgetDims.map(d=>newRowVals[d]||"");
     if(vals.some(v=>!v.trim()))return;
     const key=vals.join("|");
@@ -417,14 +459,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const toggleRowSel=key=>setSelRows(p=>{const nx=new Set(p);nx.has(key)?nx.delete(key):nx.add(key);return nx;});
   const selAllRows=()=>setSelRows(selRows.size===filteredSegs.length?new Set():new Set(filteredSegs.map(s=>s.key)));
   const applyMetaToSelected=()=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     if(!applyMetaDim||!applyMetaVal||!selRows.size)return;
     setBudgetRowMeta(p=>{const nx={...p};selRows.forEach(k=>{nx[k]={...(nx[k]||{}),[applyMetaDim]:applyMetaVal};});return nx;});
     showNotif(`Tagged ${selRows.size} rows — ${applyMetaDim}: ${applyMetaVal}`);
     setSelRows(new Set());setApplyMetaVal("");
   };
   const saveMetaEdit=()=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     if(!editingMeta)return;
     const trimmed=editMetaVal.trim();
     setBudgetRowMeta(p=>{const nx={...p};const ts={...(nx[editingMeta.segKey]||{})};if(trimmed)ts[editingMeta.dim]=trimmed;else delete ts[editingMeta.dim];nx[editingMeta.segKey]=ts;return nx;});
@@ -439,7 +481,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   };
 
   const saveSegEdit=()=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     if(!editingSegVal)return;
     const trimmed=editSegVal.trim();
     if(!trimmed){setEditingSegVal(null);setEditSegVal("");return;}
@@ -460,7 +502,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   };
 
   const deleteRow=(segKey,label)=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     const matchCount=countSegmentCampaigns(campaignTags,budgetDims,segKey,platformIndex);
     const tagNote=matchCount>0?` This also un-tags ${matchCount} matching campaign${matchCount>1?"s":""} — they'll show as needs review in the Tagger. Spend data itself is not affected.`:" Spend data itself is not affected.";
     if(!window.confirm(`Delete "${label}"?\n\nThis removes all monthly budget values for this row.${tagNote}`))return;
@@ -482,7 +524,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // budgetMetaDims, so it never renders as a column.
   const isNotBudgeted=segKey=>!!(budgetRowMeta[segKey]||{})._notBudgeted;
   const toggleNotBudgeted=segKey=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     setBudgetRowMeta(p=>{
       const nx={...p};
       const cur={...(nx[segKey]||{})};
@@ -493,7 +535,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   };
   const getRowCurrency=segKey=>(budgetRowMeta[segKey]||{})._currency||"";
   const setRowCurrency=(segKey,code)=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     setBudgetRowMeta(p=>{
       const nx={...p};
       const cur={...(nx[segKey]||{})};
@@ -510,7 +552,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // budget-setup concept, not a projection one. budgetRowMeta itself is unchanged — it's the same
   // shared object either UI reads/writes, just no picker rendered here anymore.
   const bulkDeleteSelected=()=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     if(!selRows.size)return;
     const n=selRows.size;
     const totalMatches=[...selRows].reduce((s,k)=>s+countSegmentCampaigns(campaignTags,budgetDims,k,platformIndex),0);
@@ -531,7 +573,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // selected rows (mirroring bulkDeleteSelected's approach) rather than calling setMV in a loop,
   // so this is one undo step and one re-render regardless of selection size.
   const bulkAdjustPct=()=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     const pct=parseFloat(bulkPct);
     if(!selRows.size||!bulkPct.trim()||isNaN(pct))return;
     commitHistorySnapshot();
@@ -597,31 +639,35 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       const key=vals.join("|");
       if(!seen.has(key)){seen.add(key);const c={key};budgetDims.forEach((d,i)=>{c[d]=vals[i];});out.push(c);}
     });
-    // Source 2: imported budget data (so imported budgets show even if not yet tagged)
-    if(budgets[year]){
-      Object.keys(budgets[year]).forEach(key=>{
-        if(seen.has(key))return;
-        const vals=key.split("|");
-        if(vals.length!==budgetDims.length)return;
-        seen.add(key);const c={key};
-        budgetDims.forEach((d,i)=>{c[d]=vals[i]||"—";});
-        out.push(c);
-      });
-    }
+    // Source 2: budget data at the current view grain (viewBudget = budgets[year] natively, or the
+    // rolled-up aggregate when a coarser subset of the grain is selected) — so imported/rolled
+    // budgets show even if not yet tagged.
+    Object.keys(viewBudget).forEach(key=>{
+      if(seen.has(key))return;
+      const vals=key.split("|");
+      if(vals.length!==budgetDims.length)return;
+      seen.add(key);const c={key};
+      budgetDims.forEach((d,i)=>{c[d]=vals[i]||"—";});
+      out.push(c);
+    });
     return out.sort((a,b)=>a.key.localeCompare(b.key));
-  },[budgetDims,campaignTags,budgets,year,mergedNormRows,platformIndex]);
+  },[budgetDims,campaignTags,viewBudget,mergedNormRows,platformIndex]);
 
-  const getMV=useCallback((sk,mk)=>budgets[year]?.[sk]?.monthly?.[mk]??"",[budgets,year]);
-  const getQC=useCallback((sk,qk)=>budgets[year]?.[sk]?.quarterly?.[qk]??"",[budgets,year]);
-  const getAC=useCallback(sk=>budgets[year]?.[sk]?.annual??"",[budgets,year]);
+  // Reads go through viewBudget so a rolled-up view returns summed totals; the native view returns
+  // the stored value unchanged (viewBudget === budgets[year] there).
+  const getMV=useCallback((sk,mk)=>viewBudget[sk]?.monthly?.[mk]??"",[viewBudget]);
+  const getQC=useCallback((sk,qk)=>viewBudget[sk]?.quarterly?.[qk]??"",[viewBudget]);
+  const getAC=useCallback(sk=>viewBudget[sk]?.annual??"",[viewBudget]);
   // setBudgets added to these three deps arrays (2026-08-07, lint cleanup) — it's the plain
   // useState setter passed down from PaidHQ.jsx (see its `const[budgets,setBudgets]=useState({})`),
   // so its identity is stable across renders per React's own guarantee; listing it satisfies
   // exhaustive-deps with zero behavior change.
-  const setMV=useCallback((sk,mk,v)=>{if(!canEdit)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(!nx[year][sk].monthly)nx[year][sk].monthly={};if(n===null)delete nx[year][sk].monthly[mk];else nx[year][sk].monthly[mk]=n;return nx;});},[year,canEdit,setBudgets]);
-  const setQC=useCallback((sk,qk,v)=>{if(!canEdit)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(!nx[year][sk].quarterly)nx[year][sk].quarterly={};if(n===null)delete nx[year][sk].quarterly[qk];else nx[year][sk].quarterly[qk]=n;return nx;});},[year,canEdit,setBudgets]);
-  const setAC=useCallback((sk,v)=>{if(!canEdit)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(n===null)delete nx[year][sk].annual;else nx[year][sk].annual=n;return nx;});},[year,canEdit,setBudgets]);
-  const rowTotal=useCallback(sk=>Object.values(budgets[year]?.[sk]?.monthly||{}).reduce((s,v)=>s+(v||0),0),[budgets,year]);
+  // isRolledUp guard (2026-08-07): in a rolled-up view the cells are read-only summed totals, so no
+  // writes should land (also protects paste/fill/import paths that call these directly).
+  const setMV=useCallback((sk,mk,v)=>{if(!canEdit||isRolledUp)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(!nx[year][sk].monthly)nx[year][sk].monthly={};if(n===null)delete nx[year][sk].monthly[mk];else nx[year][sk].monthly[mk]=n;return nx;});},[year,canEdit,isRolledUp,setBudgets]);
+  const setQC=useCallback((sk,qk,v)=>{if(!canEdit||isRolledUp)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(!nx[year][sk].quarterly)nx[year][sk].quarterly={};if(n===null)delete nx[year][sk].quarterly[qk];else nx[year][sk].quarterly[qk]=n;return nx;});},[year,canEdit,isRolledUp,setBudgets]);
+  const setAC=useCallback((sk,v)=>{if(!canEdit||isRolledUp)return;const n=parseMoney(v);setBudgets(p=>{const nx=JSON.parse(JSON.stringify(p));if(!nx[year])nx[year]={};if(!nx[year][sk])nx[year][sk]={};if(n===null)delete nx[year][sk].annual;else nx[year][sk].annual=n;return nx;});},[year,canEdit,isRolledUp,setBudgets]);
+  const rowTotal=useCallback(sk=>Object.values(viewBudget[sk]?.monthly||{}).reduce((s,v)=>s+(v||0),0),[viewBudget]);
   // Segments filtered + sorted (2026-07-31, per Mo — "stronger filter and sort... like the
   // campaign tagger"). Drives what's visible, what "select all" selects, and what a bulk
   // delete/adjust targets. Covers both the primary budgetDims (e.g. Product, stored on the
@@ -704,7 +750,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     return out;
   },[budgetTotalPages,budgetCurrentPage]);
   const doBudgetSort=col=>{setBudgetSortDir(budgetSortCol===col&&budgetSortDir==="desc"?"asc":"desc");setBudgetSortCol(col);};
-  const qTotal=useCallback((sk,q)=>q.months.reduce((s,m)=>s+(budgets[year]?.[sk]?.monthly?.[m]||0),0),[budgets,year]);
+  const qTotal=useCallback((sk,q)=>q.months.reduce((s,m)=>s+(viewBudget[sk]?.monthly?.[m]||0),0),[viewBudget]);
   const qOver=useCallback((sk,q)=>{const c=parseMoney(getQC(sk,q.key));return c!==null&&qTotal(sk,q)>c;},[getQC,qTotal]);
   const aOver=useCallback(sk=>{const c=parseMoney(getAC(sk));return c!==null&&rowTotal(sk)>c;},[getAC,rowTotal]);
   const totalY=useMemo(()=>segs.reduce((s,sg)=>s+rowTotal(sg.key),0),[segs,rowTotal]);
@@ -715,12 +761,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   const[chartGranularity,setChartGranularity]=useState("month"); // "month" | "quarter"
   const chartMonthlyData=useMemo(()=>MONTHS.map(m=>({
     period:m.label,
-    Budgeted:filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0),
-  })),[filteredSegs,budgets,year]);
+    Budgeted:filteredSegs.reduce((s,sg)=>s+(viewBudget[sg.key]?.monthly?.[m.key]||0),0),
+  })),[filteredSegs,viewBudget]);
   const chartQuarterlyData=useMemo(()=>QUARTERS.map(q=>({
     period:q.key,
-    Budgeted:q.months.reduce((s,mk)=>s+filteredSegs.reduce((ss,sg)=>ss+(budgets[year]?.[sg.key]?.monthly?.[mk]||0),0),0),
-  })),[filteredSegs,budgets,year]);
+    Budgeted:q.months.reduce((s,mk)=>s+filteredSegs.reduce((ss,sg)=>ss+(viewBudget[sg.key]?.monthly?.[mk]||0),0),0),
+  })),[filteredSegs,viewBudget]);
   const chartData=chartGranularity==="quarter"?chartQuarterlyData:chartMonthlyData;
   const chartTotal=useMemo(()=>chartMonthlyData.reduce((s,d)=>s+d.Budgeted,0),[chartMonthlyData]);
   // Prior-year comparison for the trend badge, same filtered segment set against last year's
@@ -729,8 +775,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // nonsensical "+Infinity%" or divide-by-zero artifact.
   const prevYearTotal=useMemo(()=>{
     const py=String(Number(year)-1);
-    return filteredSegs.reduce((s,sg)=>s+Object.values(budgets[py]?.[sg.key]?.monthly||{}).reduce((ss,v)=>ss+(v||0),0),0);
-  },[filteredSegs,budgets,year]);
+    // Sum the entire prior year (grain-independent) rather than by current segKey — the current
+    // view's keys may be rolled-up viewKeys that don't exist under last year's raw budgets.
+    return Object.values(budgets[py]||{}).reduce((s,v)=>s+Object.values(v?.monthly||{}).reduce((ss,x)=>ss+(x||0),0),0);
+  },[budgets,year]);
   const chartDeltaPct=prevYearTotal>0?Math.round(((chartTotal-prevYearTotal)/prevYearTotal)*100):null;
   const dimCount=d=>d==="Platform"?platformValues.length:d==="Campaign"?campaignGroupValues.length:d==="Ad Group"?campaignNameValues.length:[...new Set(Object.values(campaignTags||{}).map(t=>t[d]).filter(Boolean))].length;
   const toggleDim=d=>{if(!canEdit)return;setBudgetDims(p=>p.includes(d)?p.filter(x=>x!==d):[...p,d]);};
@@ -1115,7 +1163,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // or [] when there's nothing to merge) tells it which pre-existing segments are being
   // superseded by a new, more-detailed segKey from this same import.
   const doImport=(mergeDecisions=[])=>{
-    if(!canEdit)return;
+    if(!canEdit||isRolledUp)return;
     setBudgets(p=>{
       const nx=JSON.parse(JSON.stringify(p));
       if(!nx[iYear])nx[iYear]={};
@@ -1622,6 +1670,13 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // on the cell that's currently focused — a small drag handle at its bottom-right corner for
   // fill-down/fill-right.
   const cellIn=(val,onChange,over=false,cap=false,gridCtx=null)=>{
+    // Rolled-up view = read-only summed totals (per Mo): render the value as static right-aligned
+    // text instead of an editable input, since these numbers are the aggregate of finer-grained
+    // rows and are only editable at the native grain.
+    if(isRolledUp){
+      const num=val===""||val==null?null:Number(String(val).replace(/[$,]/g,""));
+      return <span style={{display:"block",textAlign:"right",padding:"4px 6px",fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:over?T.danger:cap?T.warning:"#272727",fontFamily:T.font}}>{num?fmt$(num):"—"}</span>;
+    }
     const selected=gridCtx&&isCellSelected(gridCtx.segIdx,gridCtx.colType,gridCtx.colIdx);
     const isActive=gridCtx&&activeCell&&activeCell.segIdx===gridCtx.segIdx&&activeCell.colType===gridCtx.colType&&activeCell.colIdx===gridCtx.colIdx;
     const inFillPreview=gridCtx&&fillDrag&&gridCtx.colType===fillDrag.colType&&(
@@ -1680,7 +1735,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
   // segments yet had no visible way to just start typing, only "import a file" or "go tag
   // campaigns first." Extracted here so the exact same control can render in that empty state
   // too, instead of duplicating the JSX in two places and risking drift.
-  const addSegmentControl=budgetDims.length>0&&canEdit&&(!showAddRow?(
+  const addSegmentControl=budgetDims.length>0&&canEdit&&!isRolledUp&&(!showAddRow?(
     <Btn onClick={()=>setShowAddRow(true)} variant="ghost" size="sm" T={T} style={{alignSelf:"flex-start"}}>+ Add segment manually</Btn>
   ):(
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -1894,6 +1949,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               </div>
             </div>
           </div>
+          {isRolledUp&&(
+            <div style={{padding:"12px 20px 0"}}>
+              <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                <Icon name="info" size={14} color="currentColor"/>
+                <span>Showing rolled-up totals from <span className="font-medium text-foreground">{grain?.join(" + ")}</span>. Numbers are read-only here — reselect all of those dimensions to edit individual budgets.</span>
+              </div>
+            </div>
+          )}
           <div style={{padding:"16px 20px 0"}}>
             <Card>
               <CardHeader className="flex flex-row items-start justify-between pb-2">
@@ -2132,7 +2195,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           <table className={cardRows?"bhq-cardrows":undefined} style={{borderCollapse:cardRows?"separate":"collapse",borderSpacing:cardRows?"0 8px":undefined,minWidth:"100%",fontSize:12*(T.fsScale||1),background:cardRows?"transparent":T.surface}}>
             <thead><tr>
               <th style={{...TH,width:32,padding:"15px 8px 9px 16px",left:0,zIndex:6,background:T.headerBg}}>
-                <input type="checkbox" checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title="Select all rows — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                <input type="checkbox" disabled={isRolledUp} checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title={isRolledUp?"Read-only in rolled-up view":"Select all rows — reveals bulk actions (tag, delete) once selected"} style={{cursor:isRolledUp?"default":"pointer",accentColor:T.accent,width:13,height:13,opacity:isRolledUp?0.4:1}}/>
               </th>
               {budgetDims.map((d,i)=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:dcw,left:32+i*dcw,zIndex:5,background:T.headerBg}}>{budgetHeader(d,d)}</th>)}
               {budgetMetaDims.map(d=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:110}}>{budgetHeader(d,d)}</th>)}
@@ -2165,7 +2228,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                 const rt=rowTotal(seg.key);const ao=aOver(seg.key);const rb=T.surface;const rbb=`1px solid ${T.border}`;const isSel=selRows.has(seg.key);const nb=isNotBudgeted(seg.key);return(
                 <tr key={seg.key} className={cn("bhq-datarow",!isSel&&"bhq-tr")} style={{background:isSel?T.rowSelected:rb,opacity:nb?0.5:1}}>
                   <td style={{padding:"7px 8px 7px 16px",borderBottom:rbb,position:"sticky",left:0,background:isSel?T.rowSelected:rb,zIndex:1}}>
-                    <input type="checkbox" checked={isSel} onChange={()=>toggleRowSel(seg.key)} title="Select row — reveals bulk actions (tag, delete) once selected" style={{cursor:"pointer",accentColor:T.accent,width:13,height:13}}/>
+                    <input type="checkbox" disabled={isRolledUp} checked={isSel} onChange={()=>toggleRowSel(seg.key)} title={isRolledUp?"Read-only in rolled-up view":"Select row — reveals bulk actions (tag, delete) once selected"} style={{cursor:isRolledUp?"default":"pointer",accentColor:T.accent,width:13,height:13,opacity:isRolledUp?0.4:1}}/>
                   </td>
                   {budgetDims.map((d,i)=><td key={d} style={{padding:"7px 14px",borderBottom:rbb,position:"sticky",left:32+i*dcw,background:isSel?T.rowSelected:rb,zIndex:1,whiteSpace:"nowrap"}}>
                     {DERIVED_DIMS.includes(d)?(
@@ -2178,8 +2241,8 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                         onBlur={saveSegEdit} onKeyDown={e=>{if(e.key==="Enter")saveSegEdit();if(e.key==="Escape"){setEditingSegVal(null);setEditSegVal("");}}}
                         style={{background:T.inputBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r6,color:T.text,padding:"3px 8px",fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",outline:"none",fontFamily:T.font,minWidth:80}}/>
                     ):(
-                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",cursor:"text",borderRadius:T.r6}}
-                        onClick={()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
+                      <Pill color="#272727" bg={T.pill} border={T.pillBorder} style={{fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",cursor:isRolledUp?"default":"text",borderRadius:T.r6}}
+                        onClick={isRolledUp?undefined:()=>{setEditingSegVal({segKey:seg.key,dim:d});setEditSegVal(seg[d]);}}>{seg[d]}</Pill>
                     )}
                     {i===budgetDims.length-1&&!nb&&segMatchCount(seg.key)===0&&(
                       <WarnTip T={T} text="No campaigns are tagged to this segment yet. Spend won't roll up here until a campaign is tagged with this exact combination in the Tagger."/>
@@ -2192,7 +2255,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     const val=(budgetRowMeta[seg.key]||{})[d]||"";
                     const isEditing=editingMeta?.segKey===seg.key&&editingMeta?.dim===d;
                     return(
-                      <td key={d} style={{padding:"4px 8px",borderBottom:rbb,minWidth:110}} onClick={()=>{setEditingMeta({segKey:seg.key,dim:d});setEditMetaVal(val);}}>
+                      <td key={d} style={{padding:"4px 8px",borderBottom:rbb,minWidth:110}} onClick={isRolledUp?undefined:()=>{setEditingMeta({segKey:seg.key,dim:d});setEditMetaVal(val);}}>
                         {isEditing?(
                           <input autoFocus value={editMetaVal} onChange={e=>setEditMetaVal(e.target.value)}
                             onBlur={saveMetaEdit} onKeyDown={e=>{if(e.key==="Enter")saveMetaEdit();if(e.key==="Escape"){setEditingMeta(null);setEditMetaVal("");}}}
@@ -2207,7 +2270,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   })}
                   {showCurrency&&(
                     <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
-                      <Sel value={getRowCurrency(seg.key)} onChange={v=>setRowCurrency(seg.key,v)} T={T} disabled={!canEdit} style={{width:"100%",fontSize:12*(T.fsScale||1)}}>
+                      <Sel value={getRowCurrency(seg.key)} onChange={v=>setRowCurrency(seg.key,v)} T={T} disabled={!canEdit||isRolledUp} style={{width:"100%",fontSize:12*(T.fsScale||1)}}>
                         <option value="">—</option>
                         {CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}
                       </Sel>
@@ -2219,6 +2282,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   {showQ&&QUARTERS.map((q,qIdx)=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true,{segIdx,colType:"quarter",colIdx:qIdx})}{qt>0&&<span style={{fontSize:10*(T.fsScale||1),color:qo?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
                   {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true,{segIdx,colType:"annual",colIdx:0})}{rt>0&&<span style={{fontSize:10*(T.fsScale||1),color:ao?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
                   <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
+                    {!isRolledUp&&(
                     <div style={{display:"flex",alignItems:"center",gap:2}}>
                       <button onClick={()=>toggleNotBudgeted(seg.key)} title={nb?"Unmark — this segment does need a budget":"Mark as not budgeted — hides the missing-budget signal for this segment"}
                         style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:nb?T.accentBg:"transparent",border:`1px solid ${nb?T.accentBorder:"transparent"}`,borderRadius:T.r5,color:nb?T.accent:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),lineHeight:1,padding:0,opacity:nb?1:0.4,transition:"all 0.1s"}}
@@ -2231,13 +2295,14 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                         onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.border=`1px solid ${T.danger}`;e.currentTarget.style.color=T.danger;}}
                         onMouseLeave={e=>{e.currentTarget.style.opacity=0.4;e.currentTarget.style.border="1px solid transparent";e.currentTarget.style.color=T.textMuted;}}>✕</button>
                     </div>
+                    )}
                   </td>
                 </tr>);})}
               <tr style={{borderTop:`1px solid ${T.border}`,background:T.surface}}>
                 <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
                 {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals</SectionLabel>}</td>)}
                 {budgetMetaDims.map(d=><td key={d}/>)}
-                {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(budgets[year]?.[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
+                {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(viewBudget[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
                 {QUARTERS.map(q=>{const qt=filteredSegs.reduce((s,sg)=>s+qTotal(sg.key,q),0);return <td key={"qt-"+q.key} style={{padding:"10px 10px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:T.text}}>{qt>0?fmt$(qt):"—"}</td>;})}
                 <td style={{padding:"10px 12px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:T.text}}>{(()=>{const ft=filteredSegs.reduce((s,sg)=>s+rowTotal(sg.key),0);return ft>0?fmtFull(ft):"—";})()}</td>
                 {showQ&&QUARTERS.map(q=><td key={"qc-"+q.key}/>)}
