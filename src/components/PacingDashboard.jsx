@@ -969,11 +969,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             away to Custom is exactly what you'd want to do if they don't. */}
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">View by:</span>
-          <div className="flex gap-1">
+          {/* Borderless segmented control (2026-08-07, per Mo) — selected = grey fill, cleaner than
+              per-button borders. */}
+          <div className="flex gap-1 rounded-sm border border-border p-0.5">
             {[["budget","Budget Segments"],["custom","Custom"],["trend","Trend"]].map(([k,l])=>(
               <button key={k} onClick={()=>changeViewMode(k)}
-                className={cn("rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors",
-                  viewMode===k?"border-foreground bg-secondary text-foreground":"border-border text-muted-foreground hover:bg-secondary/60")}>{l}</button>
+                className={cn("rounded-sm px-3 py-1 text-xs font-medium transition-colors",
+                  viewMode===k?"bg-secondary text-foreground":"text-muted-foreground hover:bg-secondary/60")}>{l}</button>
             ))}
           </div>
           {viewMode==="custom"&&(
@@ -983,8 +985,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 const active=customDims.includes(d);
                 return(
                   <button key={d} onClick={()=>toggleCustomDim(d)}
-                    className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                      active?"border-foreground bg-secondary text-foreground":"border-border text-muted-foreground hover:bg-secondary/60")}>{d}</button>
+                    className={cn("rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      active?"bg-secondary text-foreground":"text-muted-foreground hover:bg-secondary/60")}>{d}</button>
                 );
               })}
             </div>
@@ -1040,22 +1042,22 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             View modal pre-filled with the AI's suggested name so it's one click to keep. */}
         <div style={{order:-1,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
           <div style={{position:"relative"}}>
-            <Button onClick={()=>setSavedViewsMenuOpen(p=>!p)} variant="outline" size="sm">
+            <Button onClick={()=>setSavedViewsMenuOpen(p=>!p)} variant="default" size="sm">
               <FloppyDisk size={14}/> Views{savedViews?.length?` (${savedViews.length})`:""} <CaretDown size={12}/>
             </Button>
             {savedViewsMenuOpen&&(
               <>
                 <div onClick={()=>setSavedViewsMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:99}}/>
-                <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:100,minWidth:240,maxHeight:320,overflow:"auto",background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6}}>
-                  {!savedViews?.length&&<div style={{padding:"10px 8px",fontSize:12*(T.fsScale||1),color:T.textMuted}}>No saved views yet.</div>}
+                <div className="absolute left-0 top-[calc(100%+6px)] z-[100] max-h-80 min-w-[240px] overflow-auto rounded-md border border-border bg-background p-1.5 shadow-card">
+                  {!savedViews?.length&&<div className="px-2 py-2.5 text-xs text-muted-foreground">No saved views yet.</div>}
                   {(savedViews||[]).map(v=>(
-                    <div key={v.id} style={{display:"flex",alignItems:"center",gap:2}}>
-                      <button onClick={()=>applySavedView(v)} className="bhq-row" style={{flex:1,display:"block",textAlign:"left",padding:"7px 8px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:12*(T.fsScale||1),cursor:"pointer",fontFamily:T.font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.name}</button>
-                      <button onClick={()=>deleteSavedView(v.id,v.name)} title="Delete saved view" style={{width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",border:"none",borderRadius:T.r5,color:T.textMuted,cursor:"pointer",fontSize:13*(T.fsScale||1),flexShrink:0,fontFamily:T.font}}>✕</button>
+                    <div key={v.id} className="flex items-center gap-0.5">
+                      <button onClick={()=>applySavedView(v)} className="min-w-0 flex-1 truncate rounded-sm px-2 py-1.5 text-left text-sm text-foreground hover:bg-secondary">{v.name}</button>
+                      <button onClick={()=>deleteSavedView(v.id,v.name)} title="Delete saved view" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-foreground">✕</button>
                     </div>
                   ))}
-                  <div style={{height:1,background:T.border,margin:"4px 2px"}}/>
-                  <button onClick={()=>{setSavedViewsMenuOpen(false);openSaveViewModal();}} className="bhq-row" style={{display:"flex",alignItems:"center",gap:6,width:"100%",textAlign:"left",padding:"7px 8px",borderRadius:T.r6,background:"transparent",border:"none",color:T.accentText,fontSize:12*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font}}><Icon name="plus" size={12} color={T.accentText}/> Save current view</button>
+                  <div className="my-1 h-px bg-border"/>
+                  <button onClick={()=>{setSavedViewsMenuOpen(false);openSaveViewModal();}} className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-sm font-medium text-foreground hover:bg-secondary"><Icon name="plus" size={12} color="currentColor"/> Save current view</button>
                 </div>
               </>
             )}
@@ -1070,19 +1072,19 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               {exportMenuOpen&&(
                 <>
                   <div onClick={()=>setExportMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:99}}/>
-                  <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:100,minWidth:200,background:T.surface,border:`1px solid ${T.border}`,borderRadius:T.r8,boxShadow:T.shadowMd,padding:6,display:"flex",flexDirection:"column"}}>
-                    <div style={{padding:"5px 10px 5px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:T.textMuted}}>Export {periodLabel}</div>
-                    <div style={{display:"flex",gap:4,padding:"0 6px 6px"}}>
+                  <div className="absolute left-0 top-[calc(100%+6px)] z-[100] flex min-w-[200px] flex-col rounded-md border border-border bg-background p-1.5 shadow-card">
+                    <div className="px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Export {periodLabel}</div>
+                    <div className="flex gap-1 px-1.5 pb-1.5">
                       {EXPORT_FORMATS.map(f=>(
-                        <button key={f.key} className="bhq-row" onClick={()=>handleExportDownload(f.key)}
-                          style={{flex:1,padding:"6px 0",borderRadius:T.r6,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontSize:11*(T.fsScale||1),fontWeight:600,cursor:"pointer",fontFamily:T.font}}>
+                        <button key={f.key} onClick={()=>handleExportDownload(f.key)}
+                          className="flex-1 rounded-sm border border-border py-1.5 text-xs font-medium text-foreground hover:bg-secondary">
                           {f.label}
                         </button>
                       ))}
                     </div>
-                    <button className="bhq-row" disabled={sheetsExporting} onClick={handleExportToGoogleSheets}
-                      style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:T.r6,background:"transparent",border:"none",color:T.text,fontSize:13*(T.fsScale||1),cursor:sheetsExporting?"default":"pointer",opacity:sheetsExporting?0.6:1,fontFamily:T.font,textAlign:"left"}}>
-                      <Icon name="export" size={14} color={T.textSub}/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
+                    <button disabled={sheetsExporting} onClick={handleExportToGoogleSheets}
+                      className="flex items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-secondary disabled:opacity-60">
+                      <Icon name="export" size={14} color="currentColor"/> {sheetsExporting?"Exporting to Google Sheets…":"Export to Google Sheets"}
                     </button>
                   </div>
                 </>
@@ -1133,15 +1135,18 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               <input key={d} value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder={d}
                 style={{background:T.inputBg,border:`1px solid ${T.border}`,borderRadius:T.r6,color:T.text,padding:"5px 8px",fontSize:12*(T.fsScale||1),outline:"none",fontFamily:T.font,width:120}}/>
             ))}
-            <Sel value={statusFilter} onChange={setStatusFilter} T={T} style={{width:150}}>
-              <option value="all">All statuses</option>
-              <option value="on-track">On track</option>
-              <option value="ahead">Ahead of pace</option>
-              <option value="behind">Behind pace</option>
-              <option value="over">Over budget</option>
-              <option value="committed">Committed spend</option>
-              <option value="no-budget">No budget set</option>
-            </Sel>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="on-track">On track</SelectItem>
+                <SelectItem value="ahead">Ahead of pace</SelectItem>
+                <SelectItem value="behind">Behind pace</SelectItem>
+                <SelectItem value="over">Over budget</SelectItem>
+                <SelectItem value="committed">Committed spend</SelectItem>
+                <SelectItem value="no-budget">No budget set</SelectItem>
+              </SelectContent>
+            </Select>
             <NumericFilterChips numericFilters={numericFilters} setNumericFilters={setNumericFilters} mode="budget" T={T}/>
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
@@ -1181,10 +1186,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             <InfoTip T={T} text={FORECAST_EXPLANATION} width={360}/>
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
             <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase"}}>Break down by:</span>
-            <Sel value={breakdownDim} onChange={v=>{setBreakdownDim(v);setExpandedRows(new Set());}} T={T} style={{width:150}}>
-              <option value="">None</option>
-              {breakdownOptions.map(d=><option key={d} value={d}>{d}</option>)}
-            </Sel>
+            <Select value={breakdownDim||"__none__"} onValueChange={v=>{setBreakdownDim(v==="__none__"?"":v);setExpandedRows(new Set());}}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {breakdownOptions.map(d=><SelectItem key={d} value={d}>{d}</SelectItem>)}
+              </SelectContent>
+            </Select>
             {renderAskAboutViewBtn({marginLeft:"auto"})}
             <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>{filteredSegments.length} of {pacing.segments.length} segments</span>
           </div>
@@ -1452,10 +1460,13 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
             {hasSegFilters&&<Btn onClick={clearSegFilters} variant="ghost" size="sm" T={T}>Clear filters</Btn>}
             <span style={{width:1,alignSelf:"stretch",background:T.border}}/>
             <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase"}}>Break down by:</span>
-            <Sel value={breakdownDim} onChange={v=>{setBreakdownDim(v);setExpandedRows(new Set());}} T={T} style={{width:150}}>
-              <option value="">None</option>
-              {breakdownOptions.map(d=><option key={d} value={d}>{d}</option>)}
-            </Sel>
+            <Select value={breakdownDim||"__none__"} onValueChange={v=>{setBreakdownDim(v==="__none__"?"":v);setExpandedRows(new Set());}}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {breakdownOptions.map(d=><SelectItem key={d} value={d}>{d}</SelectItem>)}
+              </SelectContent>
+            </Select>
             {renderAskAboutViewBtn({marginLeft:"auto"})}
             <span style={{fontSize:11*(T.fsScale||1),color:T.textMuted}}>{filteredCustomSegments.length} of {customPacing.segments.length} groups</span>
             <Button onClick={()=>setCardRows(v=>!v)} variant="outline" size="sm" title={cardRows?"Switch to compact grid rows":"Switch to card-style rows"}>{cardRows?"Cards":"Grid"}</Button>
@@ -1477,7 +1488,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               {filteredCustomSegments.length===0&&(
                 <tr><td colSpan={2+customDims.length+3} style={{padding:"32px 24px",textAlign:"center",color:T.textMuted,fontSize:13*(T.fsScale||1)}}>No groups match your filters. <span onClick={clearSegFilters} style={{color:T.accent,cursor:"pointer",fontWeight:400}}>Clear filters</span></td></tr>
               )}
-              {filteredCustomSegments.flatMap(seg=>{
+              {filteredCustomSegments.slice((Math.min(pacingPage,Math.max(1,Math.ceil(filteredCustomSegments.length/pacingPageSize)))-1)*pacingPageSize,(Math.min(pacingPage,Math.max(1,Math.ceil(filteredCustomSegments.length/pacingPageSize)))-1)*pacingPageSize+pacingPageSize).flatMap(seg=>{
                 const isExpanded=breakdownDim&&expandedRows.has(seg.segKey);
                 const rbb=`1px solid ${T.border}`;
                 const parentRow=(
@@ -1549,6 +1560,33 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
           </table>
           </div>
           </Card>
+          {(()=>{
+            const total=filteredCustomSegments.length;
+            const pageCount=Math.max(1,Math.ceil(total/pacingPageSize));
+            const cur=Math.min(pacingPage,pageCount);
+            return(
+              <div style={{padding:"12px 0 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12*(T.fsScale||1),color:T.textSub,fontFamily:T.font}}>
+                  Show
+                  <Sel value={String(pacingPageSize)} onChange={v=>{setPacingPageSize(Number(v));setPacingPage(1);}} T={T} style={{width:66,fontSize:12*(T.fsScale||1)}}>
+                    {[10,25,50,100].map(n=><option key={n} value={n}>{n}</option>)}
+                  </Sel>
+                  Row
+                </div>
+                {pageCount>1&&(
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <button onClick={()=>setPacingPage(Math.max(1,cur-1))} disabled={cur===1} style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${T.border}`,borderRadius:T.r6,background:"transparent",color:T.text,cursor:cur===1?"default":"pointer",opacity:cur===1?0.35:1,fontFamily:T.font}}>‹</button>
+                    {Array.from({length:pageCount},(_,i)=>i+1).filter(p=>p===1||p===pageCount||Math.abs(p-cur)<=1).reduce((acc,p,idx,arr)=>{if(idx>0&&p-arr[idx-1]>1)acc.push("…");acc.push(p);return acc;},[]).map((p,i)=>p==="…"?(
+                      <span key={`e${i}`} style={{padding:"0 3px",fontSize:12*(T.fsScale||1),color:T.textMuted}}>…</span>
+                    ):(
+                      <button key={p} onClick={()=>setPacingPage(p)} style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${p===cur?T.text:T.border}`,borderRadius:T.r6,background:p===cur?T.text:"transparent",color:p===cur?T.bg:T.text,cursor:"pointer",fontSize:12*(T.fsScale||1),fontWeight:p===cur?700:400,fontFamily:T.font}}>{p}</button>
+                    ))}
+                    <button onClick={()=>setPacingPage(Math.min(pageCount,cur+1))} disabled={cur===pageCount} style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${T.border}`,borderRadius:T.r6,background:"transparent",color:T.text,cursor:cur===pageCount?"default":"pointer",opacity:cur===pageCount?0.35:1,fontFamily:T.font}}>›</button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           </div>
           </>
         ))}

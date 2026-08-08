@@ -583,14 +583,16 @@ export function AISummaryCard({T,session,mergedNormRows,tags,budgetDims,budgets,
       {state.status!=="done"&&
         <Btn onClick={run} disabled={state.status==="loading"} variant="ghost" size="sm" T={T} style={{gap:6}}>
           {state.status==="loading"
-            ?<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,border:`2px solid ${T.accentBorder}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Summarizing…</span>
+            ?<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:12,height:12,border:`2px solid ${T.border}`,borderTopColor:T.text,borderRadius:"50%",animation:"spin 0.7s linear infinite",display:"inline-block"}}/> Summarizing…</span>
             :<span>✨ AI Summary</span>}
         </Btn>}
       {state.status==="error"&&<div style={{marginTop:8,padding:"9px 12px",background:T.warningBg,border:`1px solid ${T.warningBorder}`,borderRadius:T.r8,fontSize:12*(T.fsScale||1),color:T.warning}}>{state.error}</div>}
       {state.status==="done"&&(
-        <div style={{padding:"11px 14px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:T.r8,fontSize:12.5*(T.fsScale||1),color:T.text,lineHeight:1.6}}>
+        // Neutral Venture surface (2026-08-07, per Mo — was the legacy blue accent tint). Shared by
+        // the Budget Panel and Pacing tabs.
+        <div style={{padding:"11px 14px",background:T.surfaceEl,border:`1px solid ${T.border}`,borderRadius:T.r8,fontSize:12.5*(T.fsScale||1),color:T.text,lineHeight:1.6}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8}}>
-            <span style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",color:T.accent}}>✨ AI Summary</span>
+            <span style={{fontSize:10*(T.fsScale||1),fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted}}>✨ AI Summary</span>
             <div style={{display:"flex",gap:10,flexShrink:0}}>
               <button onClick={run} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,padding:0}}>Regenerate</button>
               <button onClick={()=>setState({status:"idle",text:"",error:""})} style={{background:"none",border:"none",color:T.textMuted,cursor:"pointer",fontSize:11*(T.fsScale||1),fontFamily:T.font,padding:0}}>Dismiss</button>
