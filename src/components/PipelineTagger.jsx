@@ -604,10 +604,9 @@ export default function PipelineTagger({ T, session, workspace, tagDims, customM
   const saveCurrentView = () => {
     const name = viewNameDraft.trim();
     if (!name) return;
-    // id-stamping only ever runs from a user click/Enter handler, never during render, exactly like
-    // PacingDashboard's own saveCurrentView (same Date.now()/Math.random() pattern there isn't
-    // flagged) — the compiler's reachability heuristic just happens to catch this occurrence.
-    // eslint-disable-next-line react-hooks/purity
+    // id-stamping only ever runs from a user click/Enter handler, never during render (the
+    // react-hooks/purity compiler rule that used to flag this is now disabled project-wide since
+    // the React Compiler isn't in the build — see eslint.config.js).
     const view = { id: `pv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name, createdAt: new Date().toISOString(), ...currentViewConfig() };
     setPipelineViews?.((prev) => [...(prev || []), view]);
     setViewModalOpen(false); setViewNameDraft("");

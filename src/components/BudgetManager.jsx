@@ -367,8 +367,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       ...(includeQuarterly?QUARTERS.map(q=>`${q.key} Actual`):[]),
       "Actual Spend","% of Budget Used","Daily Run Rate","Projected Year-End Spend","Projected Variance ($)","Pacing Status"];
     const dataRows=[];
-    segs.forEach(seg=>{
-      const monthly=budgets[year]?.[seg.key]?.monthly||{};
+    // Export "what you see" (2026-08-07, per Mo): the current filtered rows at the current view
+    // grain — filteredSegs (respects search + filters) and viewBudget (rolled-up totals when a
+    // coarser Budget By subset is selected, or the raw stored values in the native view).
+    filteredSegs.forEach(seg=>{
+      const monthly=viewBudget[seg.key]?.monthly||{};
       const meta=budgetRowMeta[seg.key]||{};
       const amts=MONTHS.map(m=>monthly[m.key]||"");
       const total=MONTHS.reduce((s,m)=>s+(monthly[m.key]||0),0);
@@ -1022,6 +1025,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
     reader.onerror=()=>{setScreenshotImportError("Could not read image file");setScreenshotImporting(false);};
     reader.readAsDataURL(file);
   };
+  // Keep the latest handleImportScreenshot in a ref so the paste effect below can call it without
+  // listing it as a dependency — that avoids both the exhaustive-deps warning and a stale-closure
+  // bug (the handler would otherwise capture whatever version existed when the effect last ran on
+  // an importOpen/iStep change, missing state that changed while the modal stayed open).
+  const handleImportScreenshotRef=useRef(handleImportScreenshot);
+  useEffect(()=>{handleImportScreenshotRef.current=handleImportScreenshot;});
   // Clipboard paste (Ctrl/Cmd+V) support — only acts while the import modal is open on its
   // upload step, mirroring the same "only intercept when the clipboard actually has an image"
   // safety as the Tagger's paste handler, so pasting text elsewhere in the app is never affected.
@@ -1035,7 +1044,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
       const file=imageItem.getAsFile();
       if(!file)return;
       e.preventDefault();
-      handleImportScreenshot(file);
+      handleImportScreenshotRef.current(file);
     };
     document.addEventListener("paste",handler);
     return()=>document.removeEventListener("paste",handler);
@@ -1997,7 +2006,24 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     valueFormatter={v=>v>=1e6?`${(v/1e6).toFixed(1)}M`:v>=1000?`${Math.round(v/1000)}k`:`${Math.round(v)}`} yAxisWidth={70}
                     customTooltip={BudgetChartTooltip}/>
                 ):(
-                  <div className="flex h-60 items-center justify-center text-sm text-muted-foreground">No budget set for {year} yet.</div>
+                  // Empty/zero state (2026-08-07, per Mo) — a friendlier prompt than a bare "$0"
+                  // chart. Distinguishes "no rows at all" from "rows exist but nothing budgeted yet".
+                  <div className="flex h-60 flex-col items-center justify-center gap-2 text-center">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-muted-foreground">
+                      <Icon name="chart" size={20} color="currentColor"/>
+                    </div>
+                    <div className="text-sm font-medium text-foreground">No budget set for {year} yet</div>
+                    <div className="max-w-xs text-xs leading-relaxed text-muted-foreground">
+                      {segs.length>0
+                        ? "Enter monthly amounts in the table below, or import a file to fill it in."
+                        : "Import a CSV/Excel file or add a segment to start building this year's budget."}
+                    </div>
+                    {canEdit&&!isRolledUp&&(
+                      <Button size="sm" className="mt-1" onClick={()=>setImportOpen(true)}>
+                        <UploadSimple size={14}/> Import CSV / Excel
+                      </Button>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -2197,10 +2223,10 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               flip it off with the toolbar "Grid" button without a code revert. */}
           <table className={cardRows?"bhq-cardrows":undefined} style={{borderCollapse:cardRows?"separate":"collapse",borderSpacing:cardRows?"0 8px":undefined,minWidth:"100%",fontSize:12*(T.fsScale||1),background:cardRows?"transparent":T.surface}}>
             <thead><tr>
-              <th style={{...TH,width:32,padding:"15px 8px 9px 16px",left:0,zIndex:6,background:T.headerBg}}>
+              <th style={{...TH,width:32,padding:"12px 8px 11px 16px",left:0,zIndex:6,background:T.surfaceHover}}>
                 <input type="checkbox" disabled={isRolledUp} checked={filteredSegs.length>0&&selRows.size===filteredSegs.length} onChange={selAllRows} title={isRolledUp?"Read-only in rolled-up view":"Select all rows — reveals bulk actions (tag, delete) once selected"} style={{cursor:isRolledUp?"default":"pointer",accentColor:T.accent,width:13,height:13,opacity:isRolledUp?0.4:1}}/>
               </th>
-              {budgetDims.map((d,i)=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:dcw,left:32+i*dcw,zIndex:5,background:T.headerBg}}>{budgetHeader(d,d)}</th>)}
+              {budgetDims.map((d,i)=><th key={d} style={{...TH,padding:"12px 14px 11px",minWidth:dcw,left:32+i*dcw,zIndex:5,background:T.surfaceHover}}>{budgetHeader(d,d)}</th>)}
               {budgetMetaDims.map(d=><th key={d} style={{...TH,padding:"15px 14px 9px",minWidth:110}}>{budgetHeader(d,d)}</th>)}
               {showCurrency&&<th style={{...TH,padding:"15px 14px 9px",minWidth:76}}>Currency</th>}
               {MONTHS.map(m=><th key={m.key} style={{...TH,textAlign:"center",minWidth:76}}>{m.label}</th>)}
@@ -2284,7 +2310,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   {/* Over-annual-cap red + alert only in the native (editable) view — in a rolled-up
                       view the caps are summed read-only aggregates, so the warning is just noise
                       (2026-08-07, per Mo). */}
-                  <td style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:(ao&&!isRolledUp)?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&!isRolledUp&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
+                  <td title={ao&&!isRolledUp?`This year's budget (${fmtFull(rt)}) exceeds the annual cap set for this segment (${fmtFull(parseMoney(getAC(seg.key))||0)}).`:undefined} style={{padding:"4px 12px",borderBottom:rbb,textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:(ao&&!isRolledUp)?T.danger:"#272727",whiteSpace:"nowrap",background:rb}}><span style={{display:"inline-flex",alignItems:"center",gap:4}}>{rt>0?fmtFull(rt):"—"}{ao&&!isRolledUp&&<Icon name="alert" size={11} color={T.danger}/>}</span></td>
                   {showQ&&QUARTERS.map((q,qIdx)=>{const qo=qOver(seg.key,q);const qt=qTotal(seg.key,q);return <td key={"qc-"+q.key} style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getQC(seg.key,q.key),v=>setQC(seg.key,q.key,v),qo,true,{segIdx,colType:"quarter",colIdx:qIdx})}{qt>0&&<span style={{fontSize:10*(T.fsScale||1),color:qo?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(qt)}{qo&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>;})}
                   {showA&&<td style={{padding:"4px",borderBottom:rbb,background:rb}}><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,position:"relative"}}>{cellIn(getAC(seg.key),v=>setAC(seg.key,v),ao,true,{segIdx,colType:"annual",colIdx:0})}{rt>0&&<span style={{fontSize:10*(T.fsScale||1),color:ao?T.danger:T.textMuted,fontFamily:T.font,display:"inline-flex",alignItems:"center",gap:3}}>{fmt$(rt)}{ao&&<Icon name="alert" size={10} color={T.danger}/>}</span>}</div></td>}
                   <td style={{padding:"4px 8px",borderBottom:rbb,background:rb}}>
@@ -2304,9 +2330,9 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     )}
                   </td>
                 </tr>);})}
-              <tr className="bhq-totalrow" style={{borderTop:`1px solid ${T.border}`,background:T.surface}}>
-                <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surface,zIndex:1}}/>
-                {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surface,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals</SectionLabel>}</td>)}
+              <tr className="bhq-totalrow" style={{borderTop:`1px solid ${T.border}`,background:T.surfaceHover}}>
+                <td style={{padding:"10px 8px 10px 16px",position:"sticky",left:0,background:T.surfaceHover,zIndex:1}}/>
+                {budgetDims.map((d,i)=><td key={d} style={{padding:"10px 14px",position:"sticky",left:32+i*dcw,background:T.surfaceHover,zIndex:1}}>{i===0&&<SectionLabel T={T} style={{marginBottom:0,color:T.text}}>Totals</SectionLabel>}</td>)}
                 {budgetMetaDims.map(d=><td key={d}/>)}
                 {MONTHS.map(m=>{const t=filteredSegs.reduce((s,sg)=>s+(viewBudget[sg.key]?.monthly?.[m.key]||0),0);return <td key={m.key} style={{padding:"10px 8px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:T.text}}>{t>0?fmt$(t):"—"}</td>;})}
                 {QUARTERS.map(q=>{const qt=filteredSegs.reduce((s,sg)=>s+qTotal(sg.key,q),0);return <td key={"qt-"+q.key} style={{padding:"10px 10px",textAlign:"right",fontFamily:T.font,fontSize:13*(T.fsScale||1),fontWeight:400,lineHeight:"25px",letterSpacing:"-0.16px",color:T.text}}>{qt>0?fmt$(qt):"—"}</td>;})}

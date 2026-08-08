@@ -5848,8 +5848,8 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .bhq-cardrows thead th{border-left:0;border-right:0;}
         .bhq-cardrows thead th:first-child{border-left:1px solid ${T.border};border-top-left-radius:8px;border-bottom-left-radius:8px;}
         .bhq-cardrows thead th:last-child{border-right:1px solid ${T.border};border-top-right-radius:8px;border-bottom-right-radius:8px;}
-        .bhq-cardrows tbody tr.bhq-totalrow td{border-top:1px solid ${T.border};border-bottom:1px solid ${T.border};background:${T.surfaceEl};}
-        .bhq-cardrows tbody tr.bhq-totalrow td:first-child{border-left:1px solid ${T.border};border-top-left-radius:8px;border-bottom-left-radius:8px;background:${T.surfaceEl};}
+        .bhq-cardrows tbody tr.bhq-totalrow td{border-top:1px solid ${T.border};border-bottom:1px solid ${T.border};background:${T.surfaceHover};}
+        .bhq-cardrows tbody tr.bhq-totalrow td:first-child{border-left:1px solid ${T.border};border-top-left-radius:8px;border-bottom-left-radius:8px;}
         .bhq-cardrows tbody tr.bhq-totalrow td:last-child{border-right:1px solid ${T.border};border-top-right-radius:8px;border-bottom-right-radius:8px;}
         /* Slim rounded horizontal scrollbar for the wide budget table (2026-08-07, per Mo's
            reference) — a thin track with a rounded grey thumb, appearing on hover like the sidebar. */
