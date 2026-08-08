@@ -394,6 +394,8 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   const[chartDim,setChartDim]=usePersistentState("paidhq_pacing_chartDim",""); // top chart's grouping dimension
   const[chartMode,setChartMode]=usePersistentState("paidhq_pacing_chartMode","pct"); // "pct" | "dollar"
   const[chartSort,setChartSort]=usePersistentState("paidhq_pacing_chartSort","risk"); // "risk" | "budget" | "spend"
+  const[chartPageSize,setChartPageSize]=usePersistentState("paidhq_pacing_chartPageSize",15); // bars shown per chart page
+  const[chartPage,setChartPage]=useState(1);
   // Pagination (2026-08-07, per Mo) — paginates the top-level segments; drill-down sub-rows and the
   // totals row are unaffected. page clamps to the available range at render, no reset-effect needed.
   const[pacingPageSize,setPacingPageSize]=usePersistentState("paidhq_pacing_pageSize",10);
@@ -643,7 +645,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
   // (so it tracks the filter bar and the table below) by ONE budget dimension into per-value
   // budget / spend / projected totals, sorted per the chart's own sort control.
   const effChartDim=budgetDims.includes(chartDim)?chartDim:budgetDims[0];
-  const chartRows=useMemo(()=>{
+  const chartRowsAll=useMemo(()=>{
     const idx=budgetDims.indexOf(effChartDim);
     if(idx<0)return[];
     const map=new Map();
@@ -657,9 +659,14 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
     const cmp=chartSort==="spend"?(a,b)=>b.spend-a.spend
       :chartSort==="risk"?(a,b)=>(b.projected-b.budget)-(a.projected-a.budget)
       :(a,b)=>b.budget-a.budget;
-    return arr.sort(cmp).slice(0,15);
+    return arr.sort(cmp);
   },[filteredSegments,effChartDim,budgetDims,chartSort]);
-  const chartTotals=useMemo(()=>chartRows.reduce((a,r)=>({budget:a.budget+r.budget,spend:a.spend+r.spend}),{budget:0,spend:0}),[chartRows]);
+  // Chart paginates independently of the table (2026-08-08, per Mo). page clamps at render.
+  const chartPageCount=Math.max(1,Math.ceil(chartRowsAll.length/chartPageSize));
+  const chartPageClamped=Math.min(chartPage,chartPageCount);
+  const chartRows=useMemo(()=>chartRowsAll.slice((chartPageClamped-1)*chartPageSize,(chartPageClamped-1)*chartPageSize+chartPageSize),[chartRowsAll,chartPageClamped,chartPageSize]);
+  // Headline totals reflect the WHOLE filtered set, not just the visible chart page.
+  const chartTotals=useMemo(()=>chartRowsAll.reduce((a,r)=>({budget:a.budget+r.budget,spend:a.spend+r.spend}),{budget:0,spend:0}),[chartRowsAll]);
   const clearSegFilters=()=>{setSegFilters({});setStatusFilter("all");setNumericFilters([]);};
 
   // Export (2026-08-01, per Mo — "export function from the budget pacing tab to csv, excel, pdf,
@@ -695,9 +702,20 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
       seg.projectedVariance!=null?fmtSigned(seg.projectedVariance):"—",
       pacingStatusMeta(seg.status,T).label,
     ]);
+    // Attach the top pacing chart to PDF exports (2026-08-08, per Mo). Only the budget view has a
+    // budget to pace against; the chart mirrors what's on screen (same effChartDim, mode, filters).
+    const chart=(!isCustom&&chartRowsAll.length)?{
+      heading:`Budget pacing — by ${effChartDim}`,
+      mode:chartMode,
+      expectedPct:pacing.expectedPct,
+      moneyFmt:v=>fmtFull(v),
+      headline:`Budget ${fmtFull(chartTotals.budget)}    Spend ${fmtFull(chartTotals.spend)}    Pace ${chartTotals.budget>0?Math.round(chartTotals.spend/chartTotals.budget*100):"—"}% vs ${Math.round(pacing.expectedPct*100)}% expected`,
+      rows:chartRowsAll.map(r=>({name:r.name,budget:r.budget,spend:r.spend,projected:r.projected})),
+    }:null;
     return{
       title:"Budget Pacing export",
       subtitle:`${periodLabel} · ${pacing.elapsedDays} of ${pacing.totalDays} days elapsed · Generated ${new Date().toLocaleString()}`,
+      chart,
       sections:[{heading:`${isCustom?"Custom":"Budget"} segments — ${periodLabel}`,headers,rows}],
     };
   };
@@ -1218,7 +1236,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                       ))}
                     </div>
                     <Select value={chartSort} onValueChange={setChartSort}>
-                      <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue/></SelectTrigger>
+                      <SelectTrigger className="h-8 w-[152px] text-xs"><SelectValue/></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="risk">Sort: at risk</SelectItem>
                         <SelectItem value="budget">Sort: budget</SelectItem>
@@ -1252,6 +1270,20 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                   <PacingBulletChart rows={chartRows} expectedPct={pacing.expectedPct} mode={chartMode} valueFormatter={fmtFull} onPick={name=>setSegFilters(p=>({...p,[effChartDim]:name}))} T={T}/>
                 ):(
                   <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">No segments match — adjust the filters or period.</div>
+                )}
+                {chartRowsAll.length>chartPageSize&&(
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>Showing {(chartPageClamped-1)*chartPageSize+1}–{Math.min(chartPageClamped*chartPageSize,chartRowsAll.length)} of {chartRowsAll.length}</span>
+                    <div className="flex items-center gap-2">
+                      <Select value={String(chartPageSize)} onValueChange={v=>{setChartPageSize(Number(v));setChartPage(1);}}>
+                        <SelectTrigger className="h-7 w-[92px] text-xs"><SelectValue/></SelectTrigger>
+                        <SelectContent>{[10,15,25,50].map(n=><SelectItem key={n} value={String(n)}>Show {n}</SelectItem>)}</SelectContent>
+                      </Select>
+                      <Button variant="outline" size="sm" className="h-7 px-2" disabled={chartPageClamped<=1} onClick={()=>setChartPage(chartPageClamped-1)}>Prev</Button>
+                      <span>Page {chartPageClamped} / {chartPageCount}</span>
+                      <Button variant="outline" size="sm" className="h-7 px-2" disabled={chartPageClamped>=chartPageCount} onClick={()=>setChartPage(chartPageClamped+1)}>Next</Button>
+                    </div>
+                  </div>
                 )}
               </CardContent>
             </Card>

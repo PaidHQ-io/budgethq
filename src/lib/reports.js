@@ -170,6 +170,64 @@ export function reportToHTMLString(report){
   </body></html>`;
 }
 
+// Vector bullet/pacing chart for the PDF (2026-08-08, per Mo — "add the chart to the pdf export").
+// Redraws the on-screen PacingBulletChart with jsPDF primitives (no SVG rasterization / html2canvas)
+// so it renders identically regardless of what's currently mounted. Geometry mirrors that component:
+// per-row budget track, projected band, over-budget red, black spend bar, budget + expected markers.
+// chart = {heading, headline, mode:"pct"|"dollar", expectedPct, moneyFmt(v)->string, rows:[{name,budget,spend,projected}]}
+function drawPacingChart(doc,chart,marginX,startY){
+  const pageW=doc.internal.pageSize.getWidth();
+  const barLeft=marginX+130,barRight=pageW-marginX-42,barW=Math.max(80,barRight-barLeft);
+  const rowH=15,gap=5,isPct=chart.mode==="pct";
+  const rows=chart.rows||[];
+  const money=chart.moneyFmt||(v=>`${Math.round(v)}`);
+  let xMax;
+  if(isPct){const maxPct=Math.max(110,...rows.map(r=>r.budget>0?(r.projected/r.budget)*100:0));xMax=Math.min(300,Math.ceil(maxPct/10)*10);}
+  else{const rawMax=Math.max(1,...rows.map(r=>Math.max(r.budget,r.projected)));const p=Math.pow(10,Math.floor(Math.log10(rawMax)));xMax=Math.ceil(rawMax/p)*p||1;}
+  const xAt=v=>barLeft+(Math.max(0,Math.min(v,xMax))/xMax)*barW;
+  const rv=r=>isPct
+    ?{spend:r.budget>0?(r.spend/r.budget)*100:0,proj:r.budget>0?(r.projected/r.budget)*100:0,budget:100,expected:chart.expectedPct*100}
+    :{spend:r.spend,proj:r.projected,budget:r.budget,expected:chart.expectedPct*r.budget};
+  let y=startY;
+  doc.setFontSize(12);doc.setTextColor(23,23,23);doc.setFont(undefined,"bold");
+  doc.text(chart.heading,marginX,y+12);y+=20;
+  if(chart.headline){doc.setFont(undefined,"normal");doc.setFontSize(8.5);doc.setTextColor(102,102,102);doc.text(chart.headline,marginX,y);y+=12;}
+  rows.forEach(r=>{
+    if(y>720){doc.addPage();y=50;}
+    const v=rv(r),over=v.proj>v.budget;
+    const barY=y+2,barH=rowH-4;
+    // label
+    doc.setFont(undefined,"normal");doc.setFontSize(8);doc.setTextColor(102,102,102);
+    const nm=r.name.length>26?r.name.slice(0,25)+"…":r.name;
+    doc.text(nm,marginX,y+rowH*0.72);
+    // budget track
+    doc.setFillColor(242,242,242);doc.rect(barLeft,barY,Math.max(0,xAt(v.budget)-barLeft),barH,"F");
+    // projected band (up to budget)
+    doc.setFillColor(165,159,167);doc.rect(barLeft,barY,Math.max(0,xAt(Math.min(v.proj,v.budget))-barLeft),barH,"F");
+    // over-budget red
+    if(over){doc.setFillColor(214,96,86);doc.rect(xAt(v.budget),barY,Math.max(0,xAt(v.proj)-xAt(v.budget)),barH,"F");}
+    // spend (black, full height)
+    doc.setFillColor(23,23,23);doc.rect(barLeft,barY,Math.max(0,xAt(v.spend)-barLeft),barH,"F");
+    // expected marker (dashed grey)
+    doc.setDrawColor(150,144,154);doc.setLineWidth(0.6);
+    if(doc.setLineDashPattern)doc.setLineDashPattern([2,2],0);
+    doc.line(xAt(v.expected),y,xAt(v.expected),y+rowH);
+    if(doc.setLineDashPattern)doc.setLineDashPattern([],0);
+    // budget marker (solid black, on top)
+    doc.setDrawColor(23,23,23);doc.setLineWidth(1);
+    doc.line(xAt(v.budget),y,xAt(v.budget),y+rowH);
+    // pace % label
+    doc.setFontSize(8);over?doc.setTextColor(214,96,86):doc.setTextColor(102,102,102);
+    doc.text(r.budget>0?`${Math.round(r.spend/r.budget*100)}%`:"—",barRight+6,y+rowH*0.72);
+    y+=rowH+gap;
+  });
+  // axis ticks
+  const ticks=isPct?[0,50,100,xMax].filter((t,i,a)=>a.indexOf(t)===i):[0,Math.round(xMax/2),xMax];
+  doc.setFontSize(7.5);doc.setTextColor(150,144,154);
+  ticks.forEach(t=>doc.text(isPct?`${Math.round(t)}%`:money(t),xAt(t),y+6,{align:"center"}));
+  return y+18;
+}
+
 export function buildReportPDFDoc(report){
   const doc=new jsPDF({unit:"pt",format:"letter"});
   const marginX=40;let y=50;
@@ -183,6 +241,9 @@ export function buildReportPDFDoc(report){
   doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(143,143,143);
   doc.text(report.subtitle,marginX,y);
   y+=12;
+  if(report.chart&&report.chart.rows&&report.chart.rows.length){
+    y=drawPacingChart(doc,report.chart,marginX,y+8);
+  }
   report.sections.forEach(sec=>{
     if(y>700){doc.addPage();y=50;}
     doc.setFontSize(12);doc.setTextColor(23,23,23);doc.setFont(undefined,"bold");
