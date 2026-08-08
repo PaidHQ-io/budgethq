@@ -5904,11 +5904,13 @@ export default function PaidHQ({session,onSignOut,workspace,workspaces,onSwitchW
         .bhq-hscroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:9999px;border:3px solid transparent;background-clip:padding-box;}
         .bhq-hscroll:hover::-webkit-scrollbar-thumb{background:${T.borderStrong};background-clip:padding-box;}
         /* Budget Panel chart color override (2026-08-08, per Mo) — Tremor's AreaChart only accepts
-           named palette colors, so to honor an arbitrary user-picked hex we override recharts' area
-           fill + top line via a CSS var (--bchart) set on the .bhq-budgetchart wrapper. CSS wins over
-           recharts' presentation attrs / gradient. Falls back to neutral when the var is unset. */
-        .bhq-budgetchart .recharts-area-area{fill:var(--bchart,${T.textSub})!important;fill-opacity:0.16!important;}
+           named palette colors, so to honor an arbitrary user-picked hex we recolor recharts' output
+           via a CSS var (--bchart) set on the .bhq-budgetchart wrapper. CSS wins over recharts'
+           presentation attrs. Crucially we override the gradient STOP colors (not a flat fill) so the
+           picked color keeps the exact same top→transparent fade as the default (per Mo). Tremor's own
+           stop-opacity fade is preserved. Falls back to neutral when the var is unset. */
         .bhq-budgetchart .recharts-area-curve{stroke:var(--bchart,${T.textSub})!important;}
+        .bhq-budgetchart linearGradient stop{stop-color:var(--bchart,${T.textSub})!important;}
         .bhq-budgetchart .recharts-area-dots circle,.bhq-budgetchart .recharts-active-dot circle{fill:var(--bchart,${T.textSub})!important;stroke:var(--bchart,${T.textSub})!important;}
       `}</style>
       </div>
