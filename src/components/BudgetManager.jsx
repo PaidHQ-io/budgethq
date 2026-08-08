@@ -1702,29 +1702,11 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
           by other not-yet-migrated pages. */}
       {sidebarEl&&createPortal(
         <div className="flex flex-col gap-0">
-          <div className="flex flex-col gap-2 pb-3">
-            <Button onClick={()=>setImportOpen(true)} disabled={!canEdit} title={canEdit?undefined:"View-only access"} size="sm" className="w-full">
-              <UploadSimple size={14}/> Import CSV / Excel
-            </Button>
-            <Button onClick={openExportPreview} disabled={!segs.length} variant="outline" size="sm" className="w-full">
-              <DownloadSimple size={14}/> Export budgets + pacing
-            </Button>
-            <Button onClick={()=>setImportHistoryOpen(true)} variant="outline" size="sm" className="w-full">
-              <ClockCounterClockwise size={14}/> Import history
-            </Button>
-            {canEdit&&(
-              <div className="flex gap-1.5">
-                <Button onClick={handleUndo} disabled={!undoStack.length} title={`Undo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Z)`} variant="outline" size="sm" className="flex-1">
-                  <ArrowUUpLeft size={14}/> Undo
-                </Button>
-                <Button onClick={handleRedo} disabled={!redoStack.length} title={`Redo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Shift+Z)`} variant="outline" size="sm" className="flex-1">
-                  <ArrowUUpRight size={14}/> Redo
-                </Button>
-              </div>
-            )}
-
+          <div className="flex flex-col gap-2">
+            {/* Actions + Budget Year moved to the horizontal bar above the chart (2026-08-07, per
+                Mo) — the sidebar keeps only what needs vertical room. */}
             {/* Metadata dimensions */}
-            <div className="mt-2.5 border-t border-border pt-3">
+            <div>
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Annotation Dimensions</div>
               <div className="mb-2 text-xs leading-relaxed text-muted-foreground">Add Pillar, Region, Funnel etc. as columns to annotate budget rows.</div>
               {budgetMetaDims.map(d=>(
@@ -1751,25 +1733,6 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                 </div>
               )}
             </div>
-          </div>
-          <div className="py-3">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Budget Year</div>
-            <div className="flex gap-1">
-              {years.map(y=>(
-                <button key={y} onClick={()=>setYear(y)}
-                  className={cn("flex-1 rounded-sm border py-1 text-xs font-medium transition-colors",
-                    year===y?"border-foreground bg-secondary text-foreground":"border-border text-muted-foreground hover:bg-secondary/60")}>
-                  {y}
-                </button>
-              ))}
-            </div>
-            {canEdit&&(
-              <div className="mt-2 flex items-center gap-1.5">
-                <Input value={cloneTargetYear} onChange={e=>setCloneTargetYear(e.target.value)} placeholder={`Clone into ${Number(year)+1}…`} onKeyDown={e=>e.key==="Enter"&&cloneYearInto(year,cloneTargetYear||String(Number(year)+1))}
-                  title={`Copy every segment's monthly/quarterly/annual budget from ${year} into another year`} className="h-8 flex-1 min-w-0 text-xs"/>
-                <Button onClick={()=>cloneYearInto(year,cloneTargetYear||String(Number(year)+1))} variant="secondary" size="sm">Clone</Button>
-              </div>
-            )}
           </div>
           <div className="border-t border-border py-3">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Budget By</div>
@@ -1859,7 +1822,54 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               second vertical scroll context (a real CSS quirk: setting only overflow-x on an
               element implicitly promotes its overflow-y to "auto" too unless you say otherwise) —
               that would silently break the header's sticky-top-of-page behavior. */}
-          <div style={{padding:"20px 20px 0"}}>
+          {/* Horizontal action bar (2026-08-07, per Mo — "add a second horizontal menu bar above
+              the chart with a limited amount of options" to thin out the tall, scrolling stats
+              sidebar). Holds the actions (Import/Export/History/Undo/Redo) and Budget Year that
+              used to live at the top of the sidebar; the sidebar now only carries the things that
+              genuinely need vertical space (Annotation Dimensions, Budget By, view toggles,
+              Summary). */}
+          <div style={{padding:"16px 20px 0"}}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={()=>setImportOpen(true)} disabled={!canEdit} title={canEdit?undefined:"View-only access"}>
+                <UploadSimple size={14}/> Import
+              </Button>
+              <Button size="sm" variant="outline" onClick={openExportPreview} disabled={!segs.length}>
+                <DownloadSimple size={14}/> Export
+              </Button>
+              <Button size="sm" variant="outline" onClick={()=>setImportHistoryOpen(true)}>
+                <ClockCounterClockwise size={14}/> History
+              </Button>
+              {canEdit&&(
+                <>
+                  <Button size="icon" variant="outline" className="h-8 w-8" onClick={handleUndo} disabled={!undoStack.length} title={`Undo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Z)`}>
+                    <ArrowUUpLeft size={14}/>
+                  </Button>
+                  <Button size="icon" variant="outline" className="h-8 w-8" onClick={handleRedo} disabled={!redoStack.length} title={`Redo (${navigator.platform?.includes("Mac")?"⌘":"Ctrl"}+Shift+Z)`}>
+                    <ArrowUUpRight size={14}/>
+                  </Button>
+                </>
+              )}
+              <div className="mx-1 h-6 w-px bg-border"/>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Year</span>
+              <div className="flex items-center gap-1">
+                {years.map(y=>(
+                  <button key={y} onClick={()=>setYear(y)}
+                    className={cn("rounded-sm border px-2.5 py-1 text-xs font-medium transition-colors",
+                      year===y?"border-foreground bg-secondary text-foreground":"border-border text-muted-foreground hover:bg-secondary/60")}>
+                    {y}
+                  </button>
+                ))}
+              </div>
+              {canEdit&&(
+                <div className="flex items-center gap-1">
+                  <Input value={cloneTargetYear} onChange={e=>setCloneTargetYear(e.target.value)} placeholder={`Clone into ${Number(year)+1}…`} onKeyDown={e=>e.key==="Enter"&&cloneYearInto(year,cloneTargetYear||String(Number(year)+1))}
+                    title={`Copy every segment's monthly/quarterly/annual budget from ${year} into another year`} className="h-8 w-40 text-xs"/>
+                  <Button size="sm" variant="secondary" onClick={()=>cloneYearInto(year,cloneTargetYear||String(Number(year)+1))}>Clone</Button>
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{padding:"16px 20px 0"}}>
             <Card>
               <CardHeader className="flex flex-row items-start justify-between pb-2">
                 <div>
@@ -1893,7 +1903,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   // value via BudgetChartTooltip/fmtFull.
                   <AreaChart data={chartData} index="period" categories={["Budgeted"]} colors={["neutral"]}
                     className="h-60" showAnimation={false} showLegend={false}
-                    valueFormatter={v=>v>=1000?`${Math.round(v/1000)}k`:`${Math.round(v)}`} yAxisWidth={52}
+                    valueFormatter={v=>v>=1e6?`${(v/1e6).toFixed(1)}M`:v>=1000?`${Math.round(v/1000)}k`:`${Math.round(v)}`} yAxisWidth={70}
                     customTooltip={BudgetChartTooltip}/>
                 ):(
                   <div className="flex h-60 items-center justify-center text-sm text-muted-foreground">No budget set for {year} yet.</div>
