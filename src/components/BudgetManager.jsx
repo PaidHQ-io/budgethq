@@ -1937,11 +1937,12 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
             </Card>
           </div>
           <div style={{padding:20}}>
-          {/* In card-rows mode the outer white bordered Card is dropped (border-0/bg-transparent/
-              shadow-none) so the individual row-cards aren't visually connected by a shared white
-              panel — the grey page shows through the row gaps instead (2026-08-07, per Mo). Grid
-              mode keeps the bordered Card from task #119. */}
-          <Card className={cn("overflow-hidden",cardRows&&"border-0 bg-transparent shadow-none")}>
+          {/* Toolbar card (2026-08-07, per Mo) — the filter row + AI Summary live in their own
+              white bordered card, like the reference's Transaction Details toolbar header, so they
+              read as the table's toolbar instead of floating loose on the grey. It stays white in
+              both grid and card-rows modes; only the table region below goes transparent when rows
+              are floating. */}
+          <Card className="mb-4 overflow-hidden">
           {/* Filters panel (2026-07-31, per Mo — "stronger filter and sort... at the top, like
               the campaign tagger"). Same collapsible-toggle + include/exclude-with-match-mode UX
               as Tagger's own Filters bar, generalized across whatever budgetDims/budgetMetaDims
@@ -1990,7 +1991,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                 <div style={{padding:"10px 16px 12px",display:"flex",flexWrap:"wrap",gap:12,alignItems:"flex-end"}}>
                   {[...budgetDims,...budgetMetaDims].map(d=>(
                     <div key={d} style={{display:"flex",flexDirection:"column",gap:3,width:170}}>
-                      <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>{d}</div>
+                      <div style={{fontSize:11*(T.fsScale||1),fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted}}>{d}</div>
                       <div style={{display:"flex",gap:3}}>
                         <IconField icon="search" color={T.textMuted}>
                           <input value={segFilters[d]||""} onChange={e=>setSegFilters(p=>({...p,[d]:e.target.value}))} placeholder="Contains… (a, b)"
@@ -2008,7 +2009,7 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                     </div>
                   ))}
                   <div style={{display:"flex",flexDirection:"column",gap:3,width:130}}>
-                    <div style={{fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted}}>Year Total</div>
+                    <div style={{fontSize:11*(T.fsScale||1),fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted}}>Year Total</div>
                     <div style={{display:"flex",gap:4}}>
                       <input value={totalMin} onChange={e=>setTotalMin(e.target.value)} placeholder="Min" style={{...fIn,width:"50%"}}/>
                       <input value={totalMax} onChange={e=>setTotalMax(e.target.value)} placeholder="Max" style={{...fIn,width:"50%"}}/>
@@ -2029,9 +2030,13 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
               );
             })()}
           </div>
-          <div style={{padding:"14px 16px 0"}}>
+          <div style={{padding:"14px 16px"}}>
             <AISummaryCard T={T} session={session} mergedNormRows={mergedNormRows} tags={campaignTags} budgetDims={budgetDims} budgets={budgets} budgetRowMeta={budgetRowMeta} defaultForecastModel={defaultForecastModel} combineGoogleChannels={combineGoogleChannels} mode="budget"/>
           </div>
+          </Card>
+          {/* Table region — its own card, transparent in card-rows mode so the rows float on grey;
+              a normal white bordered card in grid mode (task #119). */}
+          <Card className={cn("overflow-hidden",cardRows&&"border-0 bg-transparent shadow-none")}>
           {/* Rollups — budget totals by one Budget By dimension at a time, independent of the
               detail grid's row grain */}
           {showRollups&&rollupTables.length>0&&(
@@ -2051,9 +2056,9 @@ export default function BudgetManager({campaignTags,setTags,tagDimensions,T,sess
                   <table style={{borderCollapse:"collapse",width:"100%"}}>
                     <thead>
                       <tr>
-                        <th style={{padding:"5px 10px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,textAlign:"left",borderBottom:`1px solid ${T.border}`,background:T.bg}}></th>
+                        <th style={{padding:"5px 10px",fontSize:11*(T.fsScale||1),fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,textAlign:"left",borderBottom:`1px solid ${T.border}`,background:T.bg}}></th>
                         {MONTHS.map(m=>(
-                          <th key={m.key} style={{padding:"5px 8px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textMuted,textAlign:"right",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap"}}>{m.label}</th>
+                          <th key={m.key} style={{padding:"5px 8px",fontSize:11*(T.fsScale||1),fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textMuted,textAlign:"right",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap"}}>{m.label}</th>
                         ))}
                         {QUARTERS.map(q=>(
                           <th key={q.key} style={{padding:"5px 8px",fontSize:10*(T.fsScale||1),fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:T.textSub,textAlign:"right",borderBottom:`1px solid ${T.border}`,background:T.bg,whiteSpace:"nowrap",borderLeft:q.key==="Q1"?`1px solid ${T.border}`:undefined}}>{q.key}</th>
