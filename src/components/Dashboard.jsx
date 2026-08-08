@@ -335,8 +335,13 @@ export default function Dashboard({onNavigate,stats,hasData,budgets,budgetDims,b
                 <CardHeader className="pb-2"><CardTitle>Spend pacing · actual vs. target</CardTitle></CardHeader>
                 <CardContent>
                   {periodSeries.cumulative.length>0&&totalBudget>0?(
+                    // colors: "neutral"+"gray" (both ~500-shade grays) read as visually identical lines —
+                    // couldn't tell Actual from Target apart live in the browser except by trajectory.
+                    // Actual (the real, most important line) stays neutral/near-black; Target (the
+                    // reference/goal line) moves to blue for real contrast — no semantic collision since
+                    // blue isn't used as a status color anywhere else on this chart.
                     <LineChart data={periodSeries.cumulative} index="date" categories={["Actual","Target"]}
-                      colors={["neutral","gray"]} className="h-48" showAnimation={false}
+                      colors={["neutral","blue"]} className="h-48" showAnimation={false}
                       valueFormatter={fmtFull} yAxisWidth={56}/>
                   ):(
                     <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
