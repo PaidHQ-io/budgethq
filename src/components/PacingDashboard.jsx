@@ -6,7 +6,7 @@ import {
   untagSegmentCampaigns, buildCampaignPlatformIndex, DERIVED_DIMS, pacingStatusMeta, fmtFull, fmtSigned,
   FORECAST_MODELS, FORECAST_MODEL_INHERIT, DEFAULT_MANUAL_TRAILING_DAYS, forecastModelLabel,
   AUTO_SHORT_WINDOW, AUTO_DIVERGENCE_LOW, AUTO_DIVERGENCE_HIGH, CAPACITY_WINDOW, MONTHS, QUARTERS,
-  NUMERIC_FIELDS, NUMERIC_OPERATORS, matchesNumericFilters, getPeriodRange,
+  NUMERIC_FIELDS, NUMERIC_OPERATORS, matchesNumericFilters, getPeriodRange, GOOGLE_SUBCHANNELS,
 } from "../lib/core.js";
 import { askAIBuildView, aiConfigToViewConfig } from "../lib/askAI.js";
 import { Icon, Btn, SectionLabel, Sel, PixelPanel, AISummaryCard, Pill, WarnTip, InfoTip } from "./shared.jsx";
@@ -822,7 +822,7 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
               {periodLabel} · {pacing.elapsedDays} of {pacing.totalDays} days elapsed{pacing.daysRemaining>0?` · ${pacing.daysRemaining} remaining`:""}
             </div>
           </div>
-          <div className="border-t border-border py-3">
+          <div className="border-t border-border py-4">
             <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Summary</div>
             {[
               {label:"Total Budget",value:fmtFull(pacing.totals.budget)},
@@ -837,31 +837,48 @@ export default function PacingDashboard({campaignTags,setTags,tagDimensions,budg
                 {label:"MQL Actual",value:fmtCount(periodMqlTrend.actualTotal)},
               ]:[]),
             ].map(s=>(
-              <div key={s.label} className="flex items-center justify-between py-1 text-xs">
+              <div key={s.label} className="flex items-center justify-between py-1.5 text-xs">
                 <span className="text-muted-foreground">{s.label}</span>
                 <span className="font-medium" style={{color:s.color||undefined}}>{s.value}</span>
               </div>
             ))}
           </div>
-          <div className="border-t border-border py-3">
+          <div className="border-t border-border py-4">
             <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Data freshness</div>
             <div className="mb-2 text-[10px] leading-relaxed text-muted-foreground">Date range each platform actually has spend data for — projections use each platform's own last date instead of assuming everyone's current through today.</div>
-            {Object.entries(pacing.platformFreshness||{}).sort(([,a],[,b])=>b-a).map(([platform,date])=>{
-              const daysStale=Math.floor((now-date)/86400000);
-              const color=daysStale<=1?T.success:daysStale<=3?T.accent:daysStale<=6?T.warning:T.danger;
-              const label=daysStale<=0?"Today":daysStale===1?"Yesterday":`${daysStale} days ago`;
-              const range=platformDateRange[platform];
+            {(()=>{
+              // Collapse all Google sub-channels (Search/Display/Demand Gen/PMax/YouTube) into a
+              // single "Google" freshness line (2026-08-07, per Mo) — take the most recent date and
+              // the widest range across them. The forecasting engine still tracks each sub-channel
+              // separately (see groupGooglePlatform's doc comment); this only groups the display.
+              const gset=new Set(GOOGLE_SUBCHANNELS);
+              const merged={}; // label -> {date, min, max}
+              Object.entries(pacing.platformFreshness||{}).forEach(([platform,date])=>{
+                const label=gset.has(platform)?"Google":platform;
+                const range=platformDateRange[platform];
+                const cur=merged[label]||(merged[label]={date:0,min:null,max:null});
+                if(date>cur.date)cur.date=date;
+                if(range){
+                  if(cur.min==null||range.min<cur.min)cur.min=range.min;
+                  if(cur.max==null||range.max>cur.max)cur.max=range.max;
+                }
+              });
               const fmtShort=d=>d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
-              return(
-                <div key={platform} className="flex flex-col gap-0.5 py-1">
-                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="truncate text-foreground">{platform}</span>
-                    <span className="whitespace-nowrap font-medium" style={{color}}>{label}</span>
+              return Object.entries(merged).sort(([,a],[,b])=>b.date-a.date).map(([platform,info])=>{
+                const daysStale=Math.floor((now-info.date)/86400000);
+                const color=daysStale<=1?T.success:daysStale<=3?T.accent:daysStale<=6?T.warning:T.danger;
+                const label=daysStale<=0?"Today":daysStale===1?"Yesterday":`${daysStale} days ago`;
+                return(
+                  <div key={platform} className="flex flex-col gap-0.5 py-1">
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="truncate text-foreground">{platform}</span>
+                      <span className="whitespace-nowrap font-medium" style={{color}}>{label}</span>
+                    </div>
+                    {info.min&&info.max&&<div className="whitespace-nowrap text-[10px] text-muted-foreground">{fmtShort(info.min)} – {fmtShort(info.max)}</div>}
                   </div>
-                  {range&&<div className="whitespace-nowrap text-[10px] text-muted-foreground">{fmtShort(range.min)} – {fmtShort(range.max)}</div>}
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
             {Object.keys(pacing.platformFreshness||{}).length===0&&<div className="text-[11px] text-muted-foreground">No spend data yet</div>}
           </div>
         </div>,

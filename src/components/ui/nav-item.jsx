@@ -13,25 +13,36 @@
 import { forwardRef } from "react";
 import { cn } from "../../lib/utils.js";
 
-export const NavItem = forwardRef(({ className, active = false, icon, badge, trailingIcon, children, ...props }, ref) => (
+// collapsed (2026-08-07, per Mo) — icon-only rail mode: the button shrinks to a centered 36px
+// square showing just the icon, and the native title tooltip surfaces the label (which is otherwise
+// hidden). Backward compatible: default false keeps the full label+badge row.
+export const NavItem = forwardRef(({ className, active = false, icon, badge, trailingIcon, collapsed = false, children, ...props }, ref) => (
   <button
     ref={ref}
     type="button"
+    title={collapsed && typeof children === "string" ? children : undefined}
     className={cn(
-      "flex h-9 w-full items-center justify-between gap-2 rounded-sm p-2 text-left text-sm font-medium transition-colors",
+      "flex h-9 items-center rounded-sm text-sm font-medium transition-colors",
+      collapsed ? "w-9 justify-center p-0" : "w-full justify-between gap-2 p-2 text-left",
       active ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
       className
     )}
     {...props}
   >
-    <span className="flex min-w-0 flex-1 items-center gap-3">
-      {icon && <span className="flex h-5 w-5 shrink-0 items-center justify-center">{icon}</span>}
-      <span className="truncate">{children}</span>
-    </span>
-    {badge != null && (
-      <span className="shrink-0 rounded-sm bg-muted px-1.5 py-1 text-xs font-medium text-foreground">{badge}</span>
+    {collapsed ? (
+      icon && <span className="flex h-5 w-5 shrink-0 items-center justify-center">{icon}</span>
+    ) : (
+      <>
+        <span className="flex min-w-0 flex-1 items-center gap-3">
+          {icon && <span className="flex h-5 w-5 shrink-0 items-center justify-center">{icon}</span>}
+          <span className="truncate">{children}</span>
+        </span>
+        {badge != null && (
+          <span className="shrink-0 rounded-sm bg-muted px-1.5 py-1 text-xs font-medium text-foreground">{badge}</span>
+        )}
+        {trailingIcon && <span className="flex h-4 w-4 shrink-0 items-center justify-center">{trailingIcon}</span>}
+      </>
     )}
-    {trailingIcon && <span className="flex h-4 w-4 shrink-0 items-center justify-center">{trailingIcon}</span>}
   </button>
 ));
 NavItem.displayName = "NavItem";
